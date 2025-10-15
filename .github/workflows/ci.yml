@@ -55,8 +55,12 @@ jobs:
       - name: Cache Julia artifacts
         uses: julia-actions/cache@v1
 
+      - name: Remove Manifest (for cross-version compatibility)
+        run: rm -f Manifest.toml
+
       - name: Instantiate project
-        run: julia --project -e 'using Pkg; Pkg.instantiate()'
+        run: |
+          julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
 
       - name: Run tests
         env:
