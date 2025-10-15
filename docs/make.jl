@@ -20,7 +20,7 @@ pages = [
 ]
 
 format = Documenter.HTML(; prettyurls = get(ENV, "CI", "false") == "true",
-                             canonical = "https://subhk.github.io/Geodynamo.jl/",
+                             canonical = "https://subhk.github.io/Geodynamo.jl/stable/",
                              assets = String[],
                              size_threshold = 500*1024)  # Increase threshold to 500KB
 
