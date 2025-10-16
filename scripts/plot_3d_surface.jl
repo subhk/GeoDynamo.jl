@@ -270,7 +270,7 @@ function export_vtk_surface(path::AbstractString, theta, phi, r::Real, values::A
     length(vec(values)) == N || error("VTK export: values size mismatch with points")
     open(path, "w") do io
         println(io, "# vtk DataFile Version 3.0")
-        println(io, "Geodynamo surface $name")
+        println(io, "GeoDynamo surface $name")
         println(io, "ASCII")
         println(io, "DATASET POLYDATA")
         println(io, "POINTS $N float")

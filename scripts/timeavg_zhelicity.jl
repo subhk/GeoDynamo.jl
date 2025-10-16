@@ -19,7 +19,7 @@
 
 using NCDatasets
 using JLD2
-using Geodynamo
+using GeoDynamo
 
 const HAVE_SHTNSKIT = try
     @eval using SHTnsKit
@@ -108,7 +108,7 @@ function synthesize_velocity!(u_r, u_θ, u_φ, sht, theta, phi, rvals, r_idx, l:
 end
 
 """
-Synthesize velocity and vorticity using Geodynamo/SHTnsKit (spectral vorticity), avoiding finite differences.
+Synthesize velocity and vorticity using GeoDynamo/SHTnsKit (spectral vorticity), avoiding finite differences.
 Returns (u_r,u_θ,u_φ, ω_r,ω_θ,ω_φ) on the θ–φ–r grid in the NetCDF file.
 """
 function synthesize_vel_and_vort_from_nc(ncpath::AbstractString)
@@ -120,12 +120,12 @@ function synthesize_vel_and_vort_from_nc(ncpath::AbstractString)
         vpol_r = Array(ds["velocity_poloidal_real"][:]); vpol_i = Array(ds["velocity_poloidal_imag"][:])
         lmax = maximum(lvals); mmax = maximum(mvals)
         nlat = length(θ); nlon = length(φ); nr = length(r)
-        gcfg = Geodynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
-        pencils_nt = Geodynamo.create_pencil_topology(gcfg)
+        gcfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
+        pencils_nt = GeoDynamo.create_pencil_topology(gcfg)
         pencils = pencils_nt
         pencil_spec = pencils_nt.spec
-        domain = Geodynamo.create_radial_domain(nr)
-        fields = Geodynamo.create_shtns_velocity_fields(Float64, gcfg, domain, pencils, pencil_spec)
+        domain = GeoDynamo.create_radial_domain(nr)
+        fields = GeoDynamo.create_shtns_velocity_fields(Float64, gcfg, domain, pencils, pencil_spec)
         # Load spectral coefficients (single-rank layout)
         spec_tor_r = parent(fields.toroidal.data_real); spec_tor_i = parent(fields.toroidal.data_imag)
         spec_pol_r = parent(fields.poloidal.data_real); spec_pol_i = parent(fields.poloidal.data_imag)
@@ -137,9 +137,9 @@ function synthesize_vel_and_vort_from_nc(ncpath::AbstractString)
             spec_pol_i[i2,1,k2] = Float64(vpol_i[i2,k2])
         end
         # Spectral vorticity, then synthesize both vector fields
-        Geodynamo.compute_vorticity_spectral_full!(fields, domain)
-        Geodynamo.shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
-        Geodynamo.shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
+        GeoDynamo.compute_vorticity_spectral_full!(fields, domain)
+        GeoDynamo.shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
+        GeoDynamo.shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
         u_r = parent(fields.velocity.r_component.data)
         u_θ = parent(fields.velocity.θ_component.data)
         u_φ = parent(fields.velocity.φ_component.data)

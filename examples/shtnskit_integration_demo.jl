@@ -1,13 +1,13 @@
 # =====================================================
-# SHTnsKit.jl Integration Demo for Geodynamo.jl
+# SHTnsKit.jl Integration Demo for GeoDynamo.jl
 # =====================================================
 
 """
 This example demonstrates the advanced features available through
-the integration of SHTnsKit.jl with Geodynamo.jl.
+the integration of SHTnsKit.jl with GeoDynamo.jl.
 """
 
-using Geodynamo
+using GeoDynamo
 using Printf
 
 function demo_shtnskit_integration()
@@ -213,14 +213,14 @@ end
 
 # Helper function to demonstrate integration in a simulation context
 function demo_geodynamo_shtnskit_workflow()
-    println("\n=== Geodynamo-SHTnsKit Workflow Demo ===")
+    println("\n=== GeoDynamo-SHTnsKit Workflow Demo ===")
     
     try
         # Create enhanced SHTns configuration
         config = create_shtns_config(optimize_decomp=true, enable_timing=true)
-        println("Enhanced Geodynamo SHTns configuration created")
+        println("Enhanced GeoDynamo SHTns configuration created")
         
-        # Use the configuration for typical Geodynamo operations
+        # Use the configuration for typical GeoDynamo operations
         println("Grid configuration:")
         println("  - nlat: $(config.nlat), nlon: $(config.nlon)")
         println("  - lmax: $(config.lmax), mmax: $(config.mmax)")
@@ -237,7 +237,7 @@ function demo_geodynamo_shtnskit_workflow()
         end
         
     catch e
-        println("Geodynamo workflow demo failed: $e")
+        println("GeoDynamo workflow demo failed: $e")
     end
 end
 

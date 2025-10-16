@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 
-using Geodynamo
+using GeoDynamo
 using MPI
 using Random
 using LinearAlgebra
@@ -9,8 +9,8 @@ function main()
     if !MPI.Initialized()
         MPI.Init()
     end
-    comm = Geodynamo.get_comm()
-    rank = Geodynamo.get_rank()
+    comm = GeoDynamo.get_comm()
+    rank = GeoDynamo.get_rank()
 
     # Small, fast test sizes
     lmax = 8
@@ -20,8 +20,8 @@ function main()
     nr   = 8
 
     # Configure SHTnsKit and domain
-    cfg = Geodynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
-    dom = Geodynamo.create_radial_domain(nr)
+    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
+    dom = GeoDynamo.create_radial_domain(nr)
 
     # Helper to compute global L2 error
     global_l2(x) = sqrt(MPI.Allreduce(sum(abs2, x), MPI.SUM, comm))
@@ -29,9 +29,9 @@ function main()
     # -----------------------------
     # Scalar transform roundtrip
     # -----------------------------
-    spec1 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    spec2 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    phys  = Geodynamo.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.r)
+    spec1 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    spec2 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    phys  = GeoDynamo.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.r)
 
     # Fill spectral coefficients with reproducible random values
     Random.seed!(1234 + rank)
@@ -52,8 +52,8 @@ function main()
     end
 
     # Synthesis and analysis
-    Geodynamo.shtnskit_spectral_to_physical!(spec1, phys)
-    Geodynamo.shtnskit_physical_to_spectral!(phys, spec2)
+    GeoDynamo.shtnskit_spectral_to_physical!(spec1, phys)
+    GeoDynamo.shtnskit_physical_to_spectral!(phys, spec2)
 
     # Compute spectral error
     e_real = parent(spec2.data_real) .- parent(spec1.data_real)
@@ -65,11 +65,11 @@ function main()
     # -----------------------------
     # Vector transform roundtrip
     # -----------------------------
-    tor1 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    pol1 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    tor2 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    pol2 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    vec  = Geodynamo.create_shtns_vector_field(Float64, cfg, dom, (cfg.pencils.θ, cfg.pencils.φ, cfg.pencils.r))
+    tor1 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    pol1 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    tor2 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    pol2 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    vec  = GeoDynamo.create_shtns_vector_field(Float64, cfg, dom, (cfg.pencils.θ, cfg.pencils.φ, cfg.pencils.r))
 
     # Fill toroidal/poloidal
     parent(tor1.data_real) .= randn.(Float64)
@@ -78,8 +78,8 @@ function main()
     parent(pol1.data_imag) .= randn.(Float64)
 
     # Vector synthesis and analysis
-    Geodynamo.shtnskit_vector_synthesis!(tor1, pol1, vec)
-    Geodynamo.shtnskit_vector_analysis!(vec, tor2, pol2)
+    GeoDynamo.shtnskit_vector_synthesis!(tor1, pol1, vec)
+    GeoDynamo.shtnskit_vector_analysis!(vec, tor2, pol2)
 
     e_tor_r = parent(tor2.data_real) .- parent(tor1.data_real)
     e_tor_i = parent(tor2.data_imag) .- parent(tor1.data_imag)

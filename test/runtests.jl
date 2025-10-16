@@ -1,34 +1,34 @@
 using Test
-using Geodynamo
+using GeoDynamo
 
 const TEST_DIR = @__DIR__
 const MPI_FINALIZE_KEY = "GEODYNAMO_TEST_MPI_FINALIZE"
 
-@testset "Geodynamo.jl" begin
+@testset "GeoDynamo.jl" begin
     @testset "Package Loading" begin
-        @test isdefined(Geodynamo, :SHTnsKitConfig)
-        @test isdefined(Geodynamo, :SimulationState)
-        @test isdefined(Geodynamo, :GeodynamoParameters)
-        @test isdefined(Geodynamo, :BoundaryConditions)
-        @test isdefined(Geodynamo, :InitialConditions)
-        @test isdefined(Geodynamo, :GeodynamoShell)
-        @test isdefined(Geodynamo, :GeodynamoBall)
+        @test isdefined(GeoDynamo, :SHTnsKitConfig)
+        @test isdefined(GeoDynamo, :SimulationState)
+        @test isdefined(GeoDynamo, :GeoDynamoParameters)
+        @test isdefined(GeoDynamo, :BoundaryConditions)
+        @test isdefined(GeoDynamo, :InitialConditions)
+        @test isdefined(GeoDynamo, :GeoDynamoShell)
+        @test isdefined(GeoDynamo, :GeoDynamoBall)
     end
 
     @testset "Basic Types" begin
-        @test isdefined(Geodynamo, :SHTnsSpectralField)
-        @test isdefined(Geodynamo, :SHTnsPhysicalField)
-        @test isdefined(Geodynamo, :RadialDomain)
+        @test isdefined(GeoDynamo, :SHTnsSpectralField)
+        @test isdefined(GeoDynamo, :SHTnsPhysicalField)
+        @test isdefined(GeoDynamo, :RadialDomain)
 
         # Test parameter system
-        params = GeodynamoParameters()
+        params = GeoDynamoParameters()
         @test params !== nothing
     end
 
     @testset "Submodules" begin
-        @test isdefined(Geodynamo.BoundaryConditions, :FieldType)
-        @test isdefined(Geodynamo.BoundaryConditions, :BoundaryLocation)
-        @test isdefined(Geodynamo.BoundaryConditions, :BoundaryType)
+        @test isdefined(GeoDynamo.BoundaryConditions, :FieldType)
+        @test isdefined(GeoDynamo.BoundaryConditions, :BoundaryLocation)
+        @test isdefined(GeoDynamo.BoundaryConditions, :BoundaryType)
     end
 end
 
@@ -44,7 +44,7 @@ previous_setting = haskey(ENV, MPI_FINALIZE_KEY) ? ENV[MPI_FINALIZE_KEY] : nothi
 ENV[MPI_FINALIZE_KEY] = "false"
 
 try
-    @testset "Extended Geodynamo tests" begin
+    @testset "Extended GeoDynamo tests" begin
         for file in additional_tests
             include(joinpath(TEST_DIR, file))
         end
@@ -57,4 +57,4 @@ finally
     end
 end
 
-println("✓ Geodynamo test suite completed")
+println("✓ GeoDynamo test suite completed")

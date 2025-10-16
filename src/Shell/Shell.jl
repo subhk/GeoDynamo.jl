@@ -1,4 +1,4 @@
-module GeodynamoShell
+module GeoDynamoShell
 
 """
 Shell-specific convenience API.
@@ -6,10 +6,10 @@ This module provides thin wrappers around the core SHTnsKit-based
 implementations to work with a spherical shell geometry (inner radius > 0).
 """
 
-using ..Geodynamo
+using ..GeoDynamo
 
 # Re-export the core config type for clarity in shell context
-const ShellConfig = Geodynamo.SHTnsKitConfig
+const ShellConfig = GeoDynamo.SHTnsKitConfig
 
 export ShellConfig
 export create_shell_pencils
@@ -20,77 +20,77 @@ export create_shell_composition_field, create_shell_magnetic_fields
 export create_shell_hybrid_temperature_boundaries, create_shell_hybrid_composition_boundaries
 export apply_shell_temperature_boundaries!, apply_shell_composition_boundaries!
 
-const BC = Geodynamo.BoundaryConditions
+const BC = GeoDynamo.BoundaryConditions
 
 """
     create_shell_radial_domain(nr=i_N) -> RadialDomain
 
 Create a radial domain suitable for a spherical shell using the
 global parameter `d_rratio` for inner radius ratio.
-This is a thin wrapper over `Geodynamo.create_radial_domain`.
+This is a thin wrapper over `GeoDynamo.create_radial_domain`.
 """
-function create_shell_radial_domain(nr::Int = Geodynamo.i_N)
-    return Geodynamo.create_radial_domain(nr)
+function create_shell_radial_domain(nr::Int = GeoDynamo.i_N)
+    return GeoDynamo.create_radial_domain(nr)
 end
 
 """
-    create_shell_spectral_field(T, cfg::ShellConfig, domain::Geodynamo.RadialDomain, pencil)
+    create_shell_spectral_field(T, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencil)
 """
-create_shell_spectral_field(::Type{T}, cfg::ShellConfig, domain::Geodynamo.RadialDomain, pencil) where {T} =
-    Geodynamo.create_shtns_spectral_field(T, cfg, domain, pencil)
+create_shell_spectral_field(::Type{T}, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencil) where {T} =
+    GeoDynamo.create_shtns_spectral_field(T, cfg, domain, pencil)
 
 """
-    create_shell_physical_field(T, cfg::ShellConfig, domain::Geodynamo.RadialDomain, pencil)
+    create_shell_physical_field(T, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencil)
 """
-create_shell_physical_field(::Type{T}, cfg::ShellConfig, domain::Geodynamo.RadialDomain, pencil) where {T} =
-    Geodynamo.create_shtns_physical_field(T, cfg, domain, pencil)
+create_shell_physical_field(::Type{T}, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencil) where {T} =
+    GeoDynamo.create_shtns_physical_field(T, cfg, domain, pencil)
 
 """
-    create_shell_vector_field(T, cfg::ShellConfig, domain::Geodynamo.RadialDomain, pencils)
+    create_shell_vector_field(T, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencils)
 """
-create_shell_vector_field(::Type{T}, cfg::ShellConfig, domain::Geodynamo.RadialDomain, pencils) where {T} =
-    Geodynamo.create_shtns_vector_field(T, cfg, domain, pencils)
+create_shell_vector_field(::Type{T}, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencils) where {T} =
+    GeoDynamo.create_shtns_vector_field(T, cfg, domain, pencils)
 
 """
     create_shell_pencils(cfg::ShellConfig; optimize=true)
 
 Create a shell-oriented pencil decomposition using the core topology helper.
 """
-create_shell_pencils(cfg::ShellConfig; optimize::Bool=true) = Geodynamo.create_pencil_topology(cfg; optimize)
+create_shell_pencils(cfg::ShellConfig; optimize::Bool=true) = GeoDynamo.create_pencil_topology(cfg; optimize)
 
 """
-    create_shell_velocity_fields(T, cfg::ShellConfig; nr=Geodynamo.i_N)
+    create_shell_velocity_fields(T, cfg::ShellConfig; nr=GeoDynamo.i_N)
 """
-function create_shell_velocity_fields(::Type{T}, cfg::ShellConfig; nr::Int=Geodynamo.i_N) where {T}
+function create_shell_velocity_fields(::Type{T}, cfg::ShellConfig; nr::Int=GeoDynamo.i_N) where {T}
     domain = create_shell_radial_domain(nr)
     pencils = create_shell_pencils(cfg)
-    return Geodynamo.create_shtns_velocity_fields(T, cfg, domain, pencils, pencils.spec)
+    return GeoDynamo.create_shtns_velocity_fields(T, cfg, domain, pencils, pencils.spec)
 end
 
 """
-    create_shell_temperature_field(T, cfg::ShellConfig; nr=Geodynamo.i_N)
+    create_shell_temperature_field(T, cfg::ShellConfig; nr=GeoDynamo.i_N)
 """
-function create_shell_temperature_field(::Type{T}, cfg::ShellConfig; nr::Int=Geodynamo.i_N) where {T}
+function create_shell_temperature_field(::Type{T}, cfg::ShellConfig; nr::Int=GeoDynamo.i_N) where {T}
     domain = create_shell_radial_domain(nr)
-    return Geodynamo.create_shtns_temperature_field(T, cfg, domain)
+    return GeoDynamo.create_shtns_temperature_field(T, cfg, domain)
 end
 
 """
-    create_shell_composition_field(T, cfg::ShellConfig; nr=Geodynamo.i_N)
+    create_shell_composition_field(T, cfg::ShellConfig; nr=GeoDynamo.i_N)
 """
-function create_shell_composition_field(::Type{T}, cfg::ShellConfig; nr::Int=Geodynamo.i_N) where {T}
+function create_shell_composition_field(::Type{T}, cfg::ShellConfig; nr::Int=GeoDynamo.i_N) where {T}
     domain = create_shell_radial_domain(nr)
-    return Geodynamo.create_shtns_composition_field(T, cfg, domain)
+    return GeoDynamo.create_shtns_composition_field(T, cfg, domain)
 end
 
 """
-    create_shell_magnetic_fields(T, cfg::ShellConfig; nr_oc=Geodynamo.i_N, nr_ic=Geodynamo.i_Nic)
+    create_shell_magnetic_fields(T, cfg::ShellConfig; nr_oc=GeoDynamo.i_N, nr_ic=GeoDynamo.i_Nic)
 """
-function create_shell_magnetic_fields(::Type{T}, cfg::ShellConfig; nr_oc::Int=Geodynamo.i_N, nr_ic::Int=Geodynamo.i_Nic) where {T}
+function create_shell_magnetic_fields(::Type{T}, cfg::ShellConfig; nr_oc::Int=GeoDynamo.i_N, nr_ic::Int=GeoDynamo.i_Nic) where {T}
     domain_oc = create_shell_radial_domain(nr_oc)
     domain_ic = create_shell_radial_domain(nr_ic)
     pencils = create_shell_pencils(cfg)
-    return Geodynamo.create_shtns_magnetic_fields(T, cfg, domain_oc, domain_ic, pencils, pencils.spec)
+    return GeoDynamo.create_shtns_magnetic_fields(T, cfg, domain_oc, domain_ic, pencils, pencils.spec)
 end
 
 """

@@ -1,5 +1,5 @@
 using Test
-using Geodynamo
+using GeoDynamo
 using MPI
 using Random
 
@@ -15,22 +15,22 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
         MPI.Init()
     end
 
-    comm = Geodynamo.get_comm()
-    rank = Geodynamo.get_rank()
+    comm = GeoDynamo.get_comm()
+    rank = GeoDynamo.get_rank()
 
     lmax = 6; mmax = 6
     nlat = max(lmax + 2, 12)
     nlon = max(2lmax + 1, 24)
     nr   = 6
 
-    cfg = Geodynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
-    dom = Geodynamo.create_radial_domain(nr)
+    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    dom = GeoDynamo.create_radial_domain(nr)
 
     # Scalar roundtrip
     # Spectral fields use spec pencil (nlm×1×nr), physical fields use physical pencils (nlat×nlon×nr)
-    spec1 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    spec2 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    phys  = Geodynamo.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.phi)
+    spec1 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    spec2 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    phys  = GeoDynamo.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.phi)
 
     Random.seed!(1234 + rank)
     parent(spec1.data_real) .= randn.(Float64)
@@ -38,14 +38,14 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
     # Enforce spherical harmonic constraint: m=0 modes must have zero imaginary part
     for idx in eachindex(IndexLinear(), view(parent(spec1.data_real), :, 1, 1))
-        l, m = Geodynamo.index_to_lm_shtnskit(idx, cfg.lmax, cfg.mmax)
+        l, m = GeoDynamo.index_to_lm_shtnskit(idx, cfg.lmax, cfg.mmax)
         if m == 0
             parent(spec1.data_imag)[idx, :, :] .= 0.0
         end
     end
 
-    Geodynamo.shtnskit_spectral_to_physical!(spec1, phys)
-    Geodynamo.shtnskit_physical_to_spectral!(phys, spec2)
+    GeoDynamo.shtnskit_spectral_to_physical!(spec1, phys)
+    GeoDynamo.shtnskit_physical_to_spectral!(phys, spec2)
 
     e_r = parent(spec2.data_real) .- parent(spec1.data_real)
     e_i = parent(spec2.data_imag) .- parent(spec1.data_imag)
@@ -60,11 +60,11 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     # Skipping vector test until upstream SHTnsKit issues are resolved
     @test_skip begin  # Mark as expected failure for now
     # Spectral fields (toroidal/poloidal) use spec pencil, vector components use physical pencils
-    tor1 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    pol1 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    tor2 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    pol2 = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    vec  = Geodynamo.create_shtns_vector_field(Float64, cfg, dom, (cfg.pencils.phi, cfg.pencils.phi, cfg.pencils.phi))
+    tor1 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    pol1 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    tor2 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    pol2 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    vec  = GeoDynamo.create_shtns_vector_field(Float64, cfg, dom, (cfg.pencils.phi, cfg.pencils.phi, cfg.pencils.phi))
 
     parent(tor1.data_real) .= randn.(Float64)
     parent(tor1.data_imag) .= randn.(Float64)
@@ -75,7 +75,7 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     # 1. m=0 modes must have zero imaginary part
     # 2. l=0 modes are not valid for spheroidal-toroidal decomposition
     for idx in eachindex(IndexLinear(), view(parent(tor1.data_real), :, 1, 1))
-        l, m = Geodynamo.index_to_lm_shtnskit(idx, cfg.lmax, cfg.mmax)
+        l, m = GeoDynamo.index_to_lm_shtnskit(idx, cfg.lmax, cfg.mmax)
         if m == 0
             parent(tor1.data_imag)[idx, :, :] .= 0.0
             parent(pol1.data_imag)[idx, :, :] .= 0.0
@@ -89,8 +89,8 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
         end
     end
 
-    Geodynamo.shtnskit_vector_synthesis!(tor1, pol1, vec)
-    Geodynamo.shtnskit_vector_analysis!(vec, tor2, pol2)
+    GeoDynamo.shtnskit_vector_synthesis!(tor1, pol1, vec)
+    GeoDynamo.shtnskit_vector_analysis!(vec, tor2, pol2)
 
     e = sum(abs2, parent(tor2.data_real) .- parent(tor1.data_real)) +
         sum(abs2, parent(tor2.data_imag) .- parent(tor1.data_imag)) +

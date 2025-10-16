@@ -175,7 +175,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
     if geometry === :ball
-        GeodynamoBall.ball_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
+        GeoDynamoBall.ball_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
     else
         shtnskit_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
     end
@@ -308,7 +308,7 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
     end
 
     if domain.r[1, 4] == 0.0
-        GeodynamoBall.apply_ball_temperature_regularity!(temp_field)
+        GeoDynamoBall.apply_ball_temperature_regularity!(temp_field)
     end
 end
 

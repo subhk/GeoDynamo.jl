@@ -1,10 +1,10 @@
 using Test
-using Geodynamo
+using GeoDynamo
 
 @testset "Shell boundaries" begin
-    @test isdefined(Geodynamo, :GeodynamoShell)
+    @test isdefined(GeoDynamo, :GeoDynamoShell)
     
-    Shell = Geodynamo.GeodynamoShell
+    Shell = GeoDynamo.GeoDynamoShell
     @test isdefined(Shell, :create_shell_radial_domain)
     @test isdefined(Shell, :create_shell_temperature_field)
     @test isdefined(Shell, :create_shell_hybrid_temperature_boundaries)

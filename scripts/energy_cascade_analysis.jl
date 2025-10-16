@@ -1,9 +1,9 @@
 #!/usr/bin/env julia
 
 """
-Energy Cascade Analysis for Geodynamo.jl using CoarseGraining.jl
+Energy Cascade Analysis for GeoDynamo.jl using CoarseGraining.jl
 
-This script performs comprehensive energy cascade analysis on merged Geodynamo.jl outputs
+This script performs comprehensive energy cascade analysis on merged GeoDynamo.jl outputs
 using the CoarseGraining.jl package. It computes:
 
 1. Leonard energy transfer (Π) across scales
@@ -522,7 +522,7 @@ function main()
         return
     end
     
-    println("Energy Cascade Analysis for Geodynamo.jl")
+    println("Energy Cascade Analysis for GeoDynamo.jl")
     println("=" ^ 45)
     println("Output directory: $(params[:output_dir])")
     println("Method: $(params[:method])")

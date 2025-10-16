@@ -1,6 +1,6 @@
-# Time-Frequency Analysis of Geodynamo Energies
+# Time-Frequency Analysis of GeoDynamo Energies
 
-This directory contains scripts for comprehensive time-frequency analysis of kinetic and magnetic energies from merged Geodynamo.jl simulation outputs.
+This directory contains scripts for comprehensive time-frequency analysis of kinetic and magnetic energies from merged GeoDynamo.jl simulation outputs.
 
 ## Workflow Overview
 
@@ -167,7 +167,7 @@ results = (
 - **Time-Frequency Analysis**: Reveals how spectral content evolves over time
 - **Modal Analysis**: Energy distribution across spherical harmonic degrees
 
-### Typical Geodynamo Features
+### Typical GeoDynamo Features
 - **Fundamental modes** (l=1): Dipole field characteristics
 - **Higher-order modes** (l>1): Fine structure and turbulent cascades  
 - **Frequency peaks**: Characteristic oscillation modes (MAC waves, torsional oscillations)

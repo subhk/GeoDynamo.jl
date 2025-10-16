@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 
 """
-Compute time-frequency spectra of kinetic and magnetic energy from merged Geodynamo.jl outputs.
+Compute time-frequency spectra of kinetic and magnetic energy from merged GeoDynamo.jl outputs.
 
 This script performs:
 1. Time series analysis of energy components with optional tangent cylinder filtering
@@ -666,7 +666,7 @@ function main()
         return
     end
     
-    println("Time-Frequency Spectral Analysis of Geodynamo Energies")
+    println("Time-Frequency Spectral Analysis of GeoDynamo Energies")
     println("=" ^ 55)
     println("Output directory: $(params[:output_dir])")
     println("Method: $(params[:method])")

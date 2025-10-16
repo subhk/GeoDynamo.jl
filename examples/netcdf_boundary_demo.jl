@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 
 """
-NetCDF Boundary Conditions Demo for Geodynamo.jl
+NetCDF Boundary Conditions Demo for GeoDynamo.jl
 
 This example demonstrates:
 1. Loading temperature and compositional boundary conditions from NetCDF files
@@ -20,7 +20,7 @@ if !isfile("cmb_temp.nc")
     println("Sample NetCDF files created.\n")
 end
 
-using Geodynamo
+using GeoDynamo
 using Printf
 
 function demo_netcdf_boundary_loading()
@@ -249,7 +249,7 @@ function demo_advanced_interpolation()
 end
 
 function main()
-    println("NetCDF Boundary Conditions Demo for Geodynamo.jl")
+    println("NetCDF Boundary Conditions Demo for GeoDynamo.jl")
     println("=" ^ 60)
     
     # Demo 1: Loading boundary conditions

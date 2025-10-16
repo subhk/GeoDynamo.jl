@@ -1,9 +1,9 @@
 # Configuration & Parameters
 
-`GeodynamoParameters` collects every tunable knob controlling geometry, resolution, physics, and time-stepping. This page explains how the fields fit together and provides guidance for common setups.
+`GeoDynamoParameters` collects every tunable knob controlling geometry, resolution, physics, and time-stepping. This page explains how the fields fit together and provides guidance for common setups.
 
 ```@docs
-Geodynamo.GeodynamoParameters
+GeoDynamo.GeoDynamoParameters
 ```
 
 ## Geometry & Resolution
@@ -49,7 +49,7 @@ See [Time Integration](timestepping.md) for scheme-specific details and recommen
 
 ## Boundary Conditions
 
-Boundary options are set through the integer selectors in `GeodynamoParameters` and, optionally, via external files loaded through the `BoundaryConditions` module.
+Boundary options are set through the integer selectors in `GeoDynamoParameters` and, optionally, via external files loaded through the `BoundaryConditions` module.
 
 | Field | Meaning | Built-in options |
 | --- | --- | --- |
@@ -63,8 +63,8 @@ When a boundary file is present under `config/boundaries/<field>_boundary.nc` (o
 After loading parameters, call:
 
 ```julia
-using Geodynamo
-Geodynamo.BoundaryConditions.load_boundary_conditions!(
+using GeoDynamo
+GeoDynamo.BoundaryConditions.load_boundary_conditions!(
     velocity = "config/boundaries/velocity_default.nc",
     temperature = "config/boundaries/thermal_flux.nc",
 )
@@ -109,7 +109,7 @@ Set `output_precision = :float32` to halve disk usage; diagnostics remain in `Fl
 ## Managing Parameters
 
 ```julia
-julia> params = GeodynamoParameters(i_N = 96, i_L = 47, d_E = 3e-5);
+julia> params = GeoDynamoParameters(i_N = 96, i_L = 47, d_E = 3e-5);
 
 julia> set_parameters!(params);          # updates global state
 

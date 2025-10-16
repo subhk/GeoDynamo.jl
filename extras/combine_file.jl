@@ -1,14 +1,14 @@
 # ============================================================================
 # NetCDF File Combiner using PencilArrays and SHTns
-# Reconstruct Global Fields from Distributed Geodynamo.jl Output Files
-# Consistent with Geodynamo.jl codebase architecture
+# Reconstruct Global Fields from Distributed GeoDynamo.jl Output Files
+# Consistent with GeoDynamo.jl codebase architecture
 # ============================================================================
 #
 # EXAMPLES:
 #
 # 1. Simple file combination (most common use case):
 #    ```julia
-#    using Geodynamo
+#    using GeoDynamo
 #    
 #    # Combine all distributed files for a specific time
 #    global_data = main_combine_time("simulation_output/", 1.5)
@@ -20,7 +20,7 @@
 #
 # 2. Batch combination of time series:
 #    ```julia
-#    using Geodynamo
+#    using GeoDynamo
 #    
 #    # Combine all available times in a directory
 #    time_series = main_combine_time_series("simulation_output/", (0.0, 5.0))
@@ -31,12 +31,12 @@
 #
 # 3. Advanced usage with field access:
 #    ```julia
-#    using Geodynamo
+#    using GeoDynamo
 #    
 #    # Combine files with full control
 #    combiner = create_field_combiner("simulation_output/", 1.5)
 #    
-#    # Load distributed data into Geodynamo field structures  
+#    # Load distributed data into GeoDynamo field structures  
 #    load_distributed_fields!(combiner)
 #    
 #    # Combine into global fields
@@ -57,7 +57,7 @@
 #
 # 4. Integration with spectral converter:
 #    ```julia
-#    using Geodynamo
+#    using GeoDynamo
 #    
 #    # Combine distributed files first
 #    global_data = main_combine_time("simulation_output/", 2.0)
@@ -71,7 +71,7 @@
 #
 # 5. Analysis workflow with field extraction:
 #    ```julia
-#    using Geodynamo
+#    using GeoDynamo
 #    
 #    # List available simulation times
 #    times = list_available_times("simulation_output/")
@@ -96,7 +96,7 @@
 #
 # 6. Custom parameter configuration:
 #    ```julia
-#    using Geodynamo
+#    using GeoDynamo
 #    
 #    # Load custom parameters
 #    params = load_parameters("my_params.jl")
@@ -107,7 +107,7 @@
 #    ```
 #
 # INPUT FILE REQUIREMENTS:
-# - Distributed NetCDF files from Geodynamo.jl MPI runs
+# - Distributed NetCDF files from GeoDynamo.jl MPI runs
 # - Required naming pattern: "geodynamo_output_rank_X_time_Y.nc" 
 # - Required variables: 
 #   * Spectral: "velocity_toroidal_real", "velocity_toroidal_imag"
@@ -123,10 +123,10 @@
 # - Spectral coefficients properly assembled across all (l,m) modes
 # - Physical space temperature reconstructed from distributed pieces
 # - Global diagnostics computed and included as attributes
-# - Compatible with Geodynamo.jl field structures and spectral converter
+# - Compatible with GeoDynamo.jl field structures and spectral converter
 #
 # PERFORMANCE NOTES:
-# - Uses Geodynamo.jl field structures for consistency
+# - Uses GeoDynamo.jl field structures for consistency
 # - Automatic domain reconstruction from distributed file metadata
 # - Memory efficient processing - loads only necessary data portions
 # - Parallel processing support when combining multiple times
@@ -144,7 +144,7 @@ using LinearAlgebra
 """
     FieldCombiner{T}
 
-Structure for combining distributed Geodynamo.jl output files using the 
+Structure for combining distributed GeoDynamo.jl output files using the 
 consistent field structures and parameter system.
 """
 struct FieldCombiner{T}
@@ -378,7 +378,7 @@ Load field data from all distributed files into the combiner structure.
 """
 function load_distributed_fields!(combiner::FieldCombiner{T}) where T
     
-    # Create field containers using consistent Geodynamo structures
+    # Create field containers using consistent GeoDynamo structures
     pencil_θ, pencil_φ, pencil_r, pencil_spec = create_pencil_topology(combiner.shtns_config)
     pencils = (pencil_θ, pencil_φ, pencil_r)
     
@@ -772,7 +772,7 @@ end
     save_combined_fields(combiner::FieldCombiner{T}, output_filename::String; 
                         config::CombinerConfig = create_combiner_config()) where T
 
-Save combined fields to NetCDF file using Geodynamo I/O system.
+Save combined fields to NetCDF file using GeoDynamo I/O system.
 """
 function save_combined_fields(combiner::FieldCombiner{T}, output_filename::String;
                              config::CombinerConfig = create_combiner_config()) where T

@@ -1,12 +1,12 @@
 using Test  
-using Geodynamo
+using GeoDynamo
 
 @testset "SHTnsKit roundtrip" begin
-    @test isdefined(Geodynamo, :create_shtnskit_config)
-    @test isdefined(Geodynamo, :shtnskit_spectral_to_physical!)
-    @test isdefined(Geodynamo, :shtnskit_physical_to_spectral!)
-    @test isdefined(Geodynamo, :shtnskit_vector_synthesis!)
-    @test isdefined(Geodynamo, :shtnskit_vector_analysis!)
+    @test isdefined(GeoDynamo, :create_shtnskit_config)
+    @test isdefined(GeoDynamo, :shtnskit_spectral_to_physical!)
+    @test isdefined(GeoDynamo, :shtnskit_physical_to_spectral!)
+    @test isdefined(GeoDynamo, :shtnskit_vector_synthesis!)
+    @test isdefined(GeoDynamo, :shtnskit_vector_analysis!)
     
     # Basic roundtrip test (may require MPI)
     try

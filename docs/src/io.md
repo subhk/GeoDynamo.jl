@@ -1,13 +1,13 @@
 # Data Output & Restart Files
 
-Geodynamo.jl writes diagnostics, checkpoints, and restart files through the NetCDF-based `outputs_writer.jl`. The system is designed to scale with MPI: each rank writes only the data it owns, avoiding collective I/O bottlenecks.
+GeoDynamo.jl writes diagnostics, checkpoints, and restart files through the NetCDF-based `outputs_writer.jl`. The system is designed to scale with MPI: each rank writes only the data it owns, avoiding collective I/O bottlenecks.
 
 ## OutputConfig
 
 The `OutputConfig` struct controls how data is written to NetCDF files. Create instances using:
 
 - `default_config()` - Creates default configuration
-- `output_config_from_parameters()` - Seeds from current GeodynamoParameters
+- `output_config_from_parameters()` - Seeds from current GeoDynamoParameters
 - `with_output_precision(config, T)` - Changes precision to type T
 - `with_independent_writes(config, flag)` - Enables/disables independent writes
 
@@ -18,7 +18,7 @@ Key flags:
 - `output_dir` / `filename_prefix` – location and prefix for both output and restart files.
 - `compression_level` – NetCDF deflate level (`0` disables compression).
 
-Use `output_config_from_parameters()` to seed an OutputConfig from the current `GeodynamoParameters`, then tweak it with `with_output_precision` or `with_independent_writes`.
+Use `output_config_from_parameters()` to seed an OutputConfig from the current `GeoDynamoParameters`, then tweak it with `with_output_precision` or `with_independent_writes`.
 
 ## File Layout
 

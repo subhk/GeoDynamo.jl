@@ -1,10 +1,10 @@
-# Geodynamo.jl
+# GeoDynamo.jl
 
 > High-performance spherical-MHD solver for geodynamo and planetary-core studies built on SHTnsKit and PencilArrays
 
-Geodynamo.jl couples spectral spherical-harmonic transforms with domain-decomposed finite-difference operators to evolve the governing magnetohydrodynamic (MHD) equations for rapidly rotating planetary interiors. The code targets multi-node simulations, supports mixed toroidal/poloidal representations, and provides a modern Julia interface for extending dynamo studies.
+GeoDynamo.jl couples spectral spherical-harmonic transforms with domain-decomposed finite-difference operators to evolve the governing magnetohydrodynamic (MHD) equations for rapidly rotating planetary interiors. The code targets multi-node simulations, supports mixed toroidal/poloidal representations, and provides a modern Julia interface for extending dynamo studies.
 
-## Why Geodynamo.jl?
+## Why GeoDynamo.jl?
 
 - **End-to-end MHD pipeline** – temperature, composition, velocity, and magnetic sub-systems are advanced in a single, tightly coupled solver.
 - **Hybrid spectral–radial discretisation** – SHTnsKit supplies fast spherical harmonics while pencil-decomposed finite differences handle radial terms.
@@ -64,7 +64,7 @@ The solver stores both velocity and magnetic fields in a **toroidal–poloidal d
 The remainder of the docs walk you through the typical workflow:
 
 - [Getting Started](getting-started.md) – installation, verifying the build, running the quick example.
-- [Configuration & Parameters](configuration.md) – how `GeodynamoParameters` map to grids, physics, and timestepping.
+- [Configuration & Parameters](configuration.md) – how `GeoDynamoParameters` map to grids, physics, and timestepping.
 - [Time Integration](timestepping.md) – CNAB2, EAB2, and ERK2 schemes, caches, and recommended settings.
 - [Data Output & Restart Files](io.md) – per-rank NetCDF layout, precision control, diagnostics, and boundary datasets.
 - [API Reference](api.md) – automatically generated index of exported types and functions.
@@ -74,7 +74,7 @@ If you are familiar with SHTnsKit itself, skim the configuration guide and jump 
 
 ## Cite & Support
 
-If Geodynamo.jl supports your research, please cite the repository and consider opening an issue or PR with improvements. Community feedback is the fastest way to expand the physics modules and add new diagnostic hooks.
+If GeoDynamo.jl supports your research, please cite the repository and consider opening an issue or PR with improvements. Community feedback is the fastest way to expand the physics modules and add new diagnostic hooks.
 
 ## Release Cadence & Support Matrix
 

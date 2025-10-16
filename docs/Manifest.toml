@@ -281,9 +281,9 @@ version = "1.17.0"
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
 
-[[deps.Geodynamo]]
+[[deps.GeoDynamo]]
 deps = ["Dates", "FFTW", "HDF5", "JLD2", "LinearAlgebra", "MPI", "NCDatasets", "NetCDF", "PencilArrays", "PencilFFTs", "Printf", "Random", "SHTnsKit", "SparseArrays", "StaticArrays", "Statistics"]
-path = "/Users/subhajitkar/Documents/GitHub/Geodynamo.jl"
+path = "/Users/subhajitkar/Documents/GitHub/GeoDynamo.jl"
 uuid = "27fcf419-203c-433d-a4a9-3db2199420d8"
 version = "1.0.0"
 

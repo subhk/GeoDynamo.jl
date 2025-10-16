@@ -1,5 +1,5 @@
 using Test
-using Geodynamo
+using GeoDynamo
 using MPI
 
 @testset "Ball roundtrip" begin
@@ -7,9 +7,9 @@ using MPI
         MPI.Init()
     end
     
-    @test isdefined(Geodynamo, :GeodynamoBall)
+    @test isdefined(GeoDynamo, :GeoDynamoBall)
     
-    Ball = Geodynamo.GeodynamoBall  
+    Ball = GeoDynamo.GeoDynamoBall  
     @test isdefined(Ball, :create_ball_radial_domain)
     @test isdefined(Ball, :create_ball_spectral_field)
     @test isdefined(Ball, :create_ball_physical_field)

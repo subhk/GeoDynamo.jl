@@ -1,13 +1,13 @@
 # ============================================================================
 # Spectral to Physical Field Converter using PencilArrays and SHTns
-# Consistent with Geodynamo.jl codebase architecture
+# Consistent with GeoDynamo.jl codebase architecture
 # ============================================================================
 #
 # EXAMPLES:
 #
 # 1. Simple file conversion (most common use case):
 #    ```julia
-#    using Geodynamo
+#    using GeoDynamo
 #    using MPI
 #    
 #    MPI.Init()
@@ -23,7 +23,7 @@
 #
 # 2. Batch conversion of multiple files:
 #    ```julia
-#    using Geodynamo
+#    using GeoDynamo
 #    using MPI
 #    
 #    MPI.Init()
@@ -38,7 +38,7 @@
 #
 # 3. Advanced usage with full control:
 #    ```julia
-#    using Geodynamo
+#    using GeoDynamo
 #    using MPI
 #    
 #    MPI.Init()
@@ -46,7 +46,7 @@
 #    # Create converter from NetCDF file metadata
 #    converter = create_spectral_converter("data.nc", precision=Float64)
 #    
-#    # Load spectral data into Geodynamo field structures
+#    # Load spectral data into GeoDynamo field structures
 #    load_spectral_data!(converter, "data.nc")
 #    
 #    # Convert toroidal/poloidal spectral data to (r,θ,φ) physical components
@@ -72,7 +72,7 @@
 #    ```bash
 #    # Run with 4 MPI processes
 #    mpirun -n 4 julia --project=. -e '
-#        using Geodynamo
+#        using GeoDynamo
 #        using MPI
 #        MPI.Init()
 #        main_batch_convert("data/", output_dir="physical/")
@@ -82,7 +82,7 @@
 #
 # 5. Custom parameter configuration:
 #    ```julia
-#    using Geodynamo
+#    using GeoDynamo
 #    
 #    # Load custom parameters before conversion
 #    params = load_parameters("my_simulation_params.jl")
@@ -107,7 +107,7 @@
 # - NetCDF file with physical space vector components (r, θ, φ)
 # - Parallel I/O optimized for MPI
 # - Global diagnostics included as attributes
-# - Compatible with Geodynamo.jl field structures
+# - Compatible with GeoDynamo.jl field structures
 #
 # PERFORMANCE NOTES:
 # - Uses optimized PencilArrays for domain decomposition
@@ -117,7 +117,7 @@
 #
 # ============================================================================
 
-using Geodynamo
+using GeoDynamo
 using MPI
 using PencilArrays
 using NetCDF
@@ -130,7 +130,7 @@ using LinearAlgebra
     SpectralToPhysicalConverter{T}
 
 Structure for converting spectral field data to physical space using the
-Geodynamo.jl infrastructure (PencilArrays + SHTns).
+GeoDynamo.jl infrastructure (PencilArrays + SHTns).
 """
 struct SpectralToPhysicalConverter{T}
     # Configuration
@@ -290,7 +290,7 @@ end
 """
     load_spectral_data!(converter::SpectralToPhysicalConverter{T}, filename::String) where T
 
-Load spectral field data from NetCDF file into Geodynamo field structures.
+Load spectral field data from NetCDF file into GeoDynamo field structures.
 """
 function load_spectral_data!(converter::SpectralToPhysicalConverter{T}, filename::String) where T
     rank = MPI.Comm_rank(MPI.COMM_WORLD)

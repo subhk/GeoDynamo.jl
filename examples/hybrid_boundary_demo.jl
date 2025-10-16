@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 
 """
-Hybrid Boundary Conditions Demo for Geodynamo.jl
+Hybrid Boundary Conditions Demo for GeoDynamo.jl
 
 This example demonstrates all the different ways to mix NetCDF and programmatic
 boundary conditions, showing the full flexibility of the hybrid system.
@@ -17,7 +17,7 @@ Run with:
 julia hybrid_boundary_demo.jl
 """
 
-using Geodynamo
+using GeoDynamo
 using Printf
 
 function demo_hybrid_combinations()
@@ -364,7 +364,7 @@ function demo_performance_comparison()
 end
 
 function main()
-    println("Hybrid Boundary Conditions Demo for Geodynamo.jl")
+    println("Hybrid Boundary Conditions Demo for GeoDynamo.jl")
     println("=" * 60)
     println("This demo shows all the ways to mix NetCDF and programmatic boundaries\n")
     

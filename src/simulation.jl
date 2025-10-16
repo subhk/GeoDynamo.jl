@@ -8,15 +8,15 @@ using LinearAlgebra
 
 # Import geometry modules - safe to do even if they're not available
 try
-    using .GeodynamoBall
+    using .GeoDynamoBall
 catch e
-    @debug "GeodynamoBall not available: $e"
+    @debug "GeoDynamoBall not available: $e"
 end
 
 try
-    using .GeodynamoShell
+    using .GeoDynamoShell
 catch e
-    @debug "GeodynamoShell not available: $e"
+    @debug "GeoDynamoShell not available: $e"
 end
 
 """
@@ -99,19 +99,19 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
     
     geom = get_parameters().geometry
     if geom === :ball
-        oc_domain = GeodynamoBall.create_ball_radial_domain(i_N)
+        oc_domain = GeoDynamoBall.create_ball_radial_domain(i_N)
         ic_domain = oc_domain
-        velocity = GeodynamoBall.create_ball_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = GeodynamoBall.create_ball_magnetic_fields(T, shtns_config; nr=i_N)
-        temperature = GeodynamoBall.create_ball_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? GeodynamoBall.create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
+        velocity = GeoDynamoBall.create_ball_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = GeoDynamoBall.create_ball_magnetic_fields(T, shtns_config; nr=i_N)
+        temperature = GeoDynamoBall.create_ball_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? GeoDynamoBall.create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
     else
-        oc_domain = GeodynamoShell.create_shell_radial_domain(i_N)
-        ic_domain = GeodynamoShell.create_shell_radial_domain(i_Nic)
-        velocity = GeodynamoShell.create_shell_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = GeodynamoShell.create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
-        temperature = GeodynamoShell.create_shell_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? GeodynamoShell.create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
+        oc_domain = GeoDynamoShell.create_shell_radial_domain(i_N)
+        ic_domain = GeoDynamoShell.create_shell_radial_domain(i_Nic)
+        velocity = GeoDynamoShell.create_shell_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = GeoDynamoShell.create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
+        temperature = GeoDynamoShell.create_shell_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? GeoDynamoShell.create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
     end
     
     # Initialize hybrid parallelization system
@@ -184,19 +184,19 @@ function initialize_simulation(::Type{T}=Float64;
     
     geom = get_parameters().geometry
     if geom === :ball
-        oc_domain = GeodynamoBall.create_ball_radial_domain(i_N)
+        oc_domain = GeoDynamoBall.create_ball_radial_domain(i_N)
         ic_domain = oc_domain
-        velocity = GeodynamoBall.create_ball_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = GeodynamoBall.create_ball_magnetic_fields(T, shtns_config; nr=i_N)
-        temperature = GeodynamoBall.create_ball_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? GeodynamoBall.create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
+        velocity = GeoDynamoBall.create_ball_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = GeoDynamoBall.create_ball_magnetic_fields(T, shtns_config; nr=i_N)
+        temperature = GeoDynamoBall.create_ball_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? GeoDynamoBall.create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
     else
-        oc_domain = GeodynamoShell.create_shell_radial_domain(i_N)
-        ic_domain = GeodynamoShell.create_shell_radial_domain(i_Nic)
-        velocity = GeodynamoShell.create_shell_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = GeodynamoShell.create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
-        temperature = GeodynamoShell.create_shell_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? GeodynamoShell.create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
+        oc_domain = GeoDynamoShell.create_shell_radial_domain(i_N)
+        ic_domain = GeoDynamoShell.create_shell_radial_domain(i_Nic)
+        velocity = GeoDynamoShell.create_shell_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = GeoDynamoShell.create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
+        temperature = GeoDynamoShell.create_shell_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? GeoDynamoShell.create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
     end
     
     # Initialize unified master parallelization system
@@ -1407,4 +1407,4 @@ function run_master_geodynamo_simulation()
     MPI.Finalize()
 end
 
-# Exports are handled by the main Geodynamo.jl module
+# Exports are handled by the main GeoDynamo.jl module

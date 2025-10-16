@@ -1,12 +1,12 @@
 using Test
-using Geodynamo
+using GeoDynamo
 
 @testset "ERK2 staged update" begin
-    dom = Geodynamo.create_radial_domain(1)
-    cfg = Geodynamo.create_shtnskit_config(lmax=0, mmax=0, nlat=2, nlon=2, nr=dom.N, optimize_decomp=false)
+    dom = GeoDynamo.create_radial_domain(1)
+    cfg = GeoDynamo.create_shtnskit_config(lmax=0, mmax=0, nlat=2, nlon=2, nr=dom.N, optimize_decomp=false)
 
-    u_field = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    nl_field = Geodynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    u_field = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    nl_field = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
 
     u0 = 0.3
     c = 0.2
@@ -25,7 +25,7 @@ using Geodynamo
     phi1_full = (E_full - 1) / z
     phi2_full = (E_full - 1 - z) / (z^2)
 
-    cache = Geodynamo.ERK2Cache{Float64}(
+    cache = GeoDynamo.ERK2Cache{Float64}(
         dt,
         [cfg.l_values[1]],
         [fill(E_half, 1, 1)],
@@ -39,11 +39,11 @@ using Geodynamo
         true,
     )
 
-    buffers = Geodynamo.ERK2FieldBuffers(u_field, nl_field, cache)
-    Geodynamo.erk2_prepare_field!(buffers, u_field, nl_field, cache, cfg, dt)
-    Geodynamo.erk2_apply_stage!(buffers, u_field)
-    Geodynamo.erk2_store_stage_nonlinear!(buffers, nl_field)
-    Geodynamo.erk2_finalize_field!(buffers, u_field, cache, cfg, dt)
+    buffers = GeoDynamo.ERK2FieldBuffers(u_field, nl_field, cache)
+    GeoDynamo.erk2_prepare_field!(buffers, u_field, nl_field, cache, cfg, dt)
+    GeoDynamo.erk2_apply_stage!(buffers, u_field)
+    GeoDynamo.erk2_store_stage_nonlinear!(buffers, nl_field)
+    GeoDynamo.erk2_finalize_field!(buffers, u_field, cache, cfg, dt)
 
     u_real = parent(u_field.data_real)[1, 1, 1]
     expected = exp(-lambda * dt) * u0 + (1 - exp(-lambda * dt)) * c / lambda
@@ -59,17 +59,17 @@ using Geodynamo
     parent(nl_field.data_real)[1, 1, 1] = beta * u0_linear
     parent(nl_field.data_imag)[1, 1, 1] = 0.0
 
-    buffers_linear = Geodynamo.ERK2FieldBuffers(u_field, nl_field, cache)
+    buffers_linear = GeoDynamo.ERK2FieldBuffers(u_field, nl_field, cache)
 
-    Geodynamo.erk2_prepare_field!(buffers_linear, u_field, nl_field, cache, cfg, dt)
-    Geodynamo.erk2_apply_stage!(buffers_linear, u_field)
+    GeoDynamo.erk2_prepare_field!(buffers_linear, u_field, nl_field, cache, cfg, dt)
+    GeoDynamo.erk2_apply_stage!(buffers_linear, u_field)
 
     # Emulate stage nonlinear evaluation: N(u_stage) = beta * u_stage
     u_stage = parent(u_field.data_real)[1, 1, 1]
     parent(nl_field.data_real)[1, 1, 1] = beta * u_stage
-    Geodynamo.erk2_store_stage_nonlinear!(buffers_linear, nl_field)
+    GeoDynamo.erk2_store_stage_nonlinear!(buffers_linear, nl_field)
 
-    Geodynamo.erk2_finalize_field!(buffers_linear, u_field, cache, cfg, dt)
+    GeoDynamo.erk2_finalize_field!(buffers_linear, u_field, cache, cfg, dt)
     u_linear = parent(u_field.data_real)[1, 1, 1]
     expected_linear = exp((beta - lambda) * dt) * u0_linear
 

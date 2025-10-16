@@ -3,9 +3,9 @@
 ## Repository Layout
 
 ```
-Geodynamo.jl/
+GeoDynamo.jl/
 ├── src/
-│   ├── Geodynamo.jl          # module entry point & exports
+│   ├── GeoDynamo.jl          # module entry point & exports
 │   ├── fields.jl             # PencilArray-backed field types
 │   ├── shtnskit_transforms.jl# SHTnsKit configuration + FFT/transposes
 │   ├── timestep.jl           # CNAB2/EAB2/ERK2 integrators and Krylov tools
@@ -21,8 +21,8 @@ Geodynamo.jl/
 ## Setting Up a Dev Environment
 
 ```bash
-$ git clone https://github.com/subhk/Geodynamo.jl
-$ cd Geodynamo.jl
+$ git clone https://github.com/subhk/GeoDynamo.jl
+$ cd GeoDynamo.jl
 $ julia --project -e 'using Pkg; Pkg.develop(PackageSpec(path="../SHTnsKit.jl")); Pkg.instantiate()'
 ```
 
@@ -32,7 +32,7 @@ The command above ensures the local SHTnsKit checkout is used instead of the reg
 $ mpiexec -n 4 julia --project
 ```
 
-Inside the REPL activate the project and load utilities as needed (`using Geodynamo`).
+Inside the REPL activate the project and load utilities as needed (`using GeoDynamo`).
 
 ## Testing
 
@@ -66,7 +66,7 @@ Boundary definitions live under `src/BoundaryConditions/`. To add a new boundary
 - Prefer **mutating** functions that update preallocated buffers; garbage hurt scaling.
 - Keep new modules MPI-safe: ensure rank-local code runs without implicit reductions when `independent_output_files = true`.
 - Use `@inbounds` only after profiling, and add high-level docstrings so Documenter can surface them.
-- When exposing new functionality, add it to the exports in `Geodynamo.jl` and the [API reference](api.md).
+- When exposing new functionality, add it to the exports in `GeoDynamo.jl` and the [API reference](api.md).
 
 ## Contributing
 

@@ -1,8 +1,8 @@
-# Geodynamo.jl
+# GeoDynamo.jl
 
-[![CI](https://github.com/subhk/Geodynamo.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/subhk/Geodynamo.jl/actions/workflows/ci.yml)
-[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://subhk.github.io/Geodynamo.jl/stable/)
-[![Dev Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://subhk.github.io/Geodynamo.jl/dev/)
+[![CI](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml)
+[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://subhk.github.io/GeoDynamo.jl/stable/)
+[![Dev Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://subhk.github.io/GeoDynamo.jl/dev/)
 
 A tool for modeling self-sustained planetary dynamos in rotating spherical shells. 
 It leverages a toroidal–poloidal field decomposition and fast spherical-harmonic transforms via [SHTnsKit.jl](https://github.com/subhk/SHTnsKit.jl).
@@ -20,9 +20,9 @@ It leverages a toroidal–poloidal field decomposition and fast spherical-harmon
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/subhk/Geodynamo.jl")
+Pkg.add(url="https://github.com/subhk/GeoDynamo.jl")
 
-using Geodynamo
+using GeoDynamo
 
 # Run the ball MHD demo
 julia --project examples/ball_mhd_demo.jl

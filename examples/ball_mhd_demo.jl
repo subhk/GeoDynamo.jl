@@ -10,11 +10,11 @@
 # or with threads:
 #   JULIA_NUM_THREADS=8 julia --project examples/ball_mhd_demo.jl
 
-using Geodynamo
+using GeoDynamo
 using Random
 
 # 1) Set parameters (ball geometry and physics)
-params = GeodynamoParameters(
+params = GeoDynamoParameters(
     # Geometry + grid
     geometry   = :ball,   # solid sphere geometry
     i_N        = 64,      # radial points
@@ -50,30 +50,30 @@ params = GeodynamoParameters(
 )
 
 set_parameters!(params)
-println("Time-stepping scheme: ", string(Geodynamo.ts_scheme))
-println("Krylov m, tol: ", (Geodynamo.i_etd_m, Geodynamo.d_krylov_tol))
+println("Time-stepping scheme: ", string(GeoDynamo.ts_scheme))
+println("Krylov m, tol: ", (GeoDynamo.i_etd_m, GeoDynamo.d_krylov_tol))
 
 # 2) Initialize basic SHTns simulation (thermal + magnetic, no composition)
 state = initialize_simulation(Float64; include_composition=false)
 
 # Debug: print pencil layouts (axes_in) to verify decomposition
-Geodynamo.print_pencil_axes(state.shtns_config.pencils)
+GeoDynamo.print_pencil_axes(state.shtns_config.pencils)
 
 # Optional: register a shared VelocityWorkspace to reduce allocations
 if get(ENV, "GEODYNAMO_USE_WS", "1") == "1"
-    ws = Geodynamo.create_velocity_workspace(Float64, state.oc_domain.N)
-    Geodynamo.set_velocity_workspace!(ws)
+    ws = GeoDynamo.create_velocity_workspace(Float64, state.oc_domain.N)
+    GeoDynamo.set_velocity_workspace!(ws)
 end
 
 # Optional: quick workspace equivalence check (set GEODYNAMO_TEST_WS=1)
 if get(ENV, "GEODYNAMO_TEST_WS", "0") == "1"
     println("Running workspace equivalence check (GEODYNAMO_TEST_WS=1)...")
     # Save current workspace
-    saved_ws = Geodynamo.VELOCITY_WS[]
+    saved_ws = GeoDynamo.VELOCITY_WS[]
 
     # Baseline without workspace
-    Geodynamo.set_velocity_workspace!(nothing)
-    Geodynamo.compute_vorticity_spectral_full!(state.velocity, state.oc_domain)
+    GeoDynamo.set_velocity_workspace!(nothing)
+    GeoDynamo.compute_vorticity_spectral_full!(state.velocity, state.oc_domain)
     base_tor = copy(parent(state.velocity.vort_toroidal.data_real))
     base_pol = copy(parent(state.velocity.vort_poloidal.data_real))
 
@@ -85,13 +85,13 @@ if get(ENV, "GEODYNAMO_TEST_WS", "0") == "1"
 
     # Ensure a workspace is present
     if saved_ws === nothing
-        ws2 = Geodynamo.create_velocity_workspace(Float64, state.oc_domain.N)
-        Geodynamo.set_velocity_workspace!(ws2)
+        ws2 = GeoDynamo.create_velocity_workspace(Float64, state.oc_domain.N)
+        GeoDynamo.set_velocity_workspace!(ws2)
     else
-        Geodynamo.set_velocity_workspace!(saved_ws)
+        GeoDynamo.set_velocity_workspace!(saved_ws)
     end
     
-    Geodynamo.compute_vorticity_spectral_full!(state.velocity, state.oc_domain)
+    GeoDynamo.compute_vorticity_spectral_full!(state.velocity, state.oc_domain)
     tor = parent(state.velocity.vort_toroidal.data_real)
     pol = parent(state.velocity.vort_poloidal.data_real)
     # Report max abs diff
@@ -110,8 +110,8 @@ set_boundary_conditions!(state.temperature;
 )
 
 # Alternative: programmatic uniform boundaries via hybrid API
-# using GeodynamoBall
-# temp_bc = GeodynamoBall.create_ball_hybrid_temperature_boundaries((:uniform, 1.0), (:uniform, 0.0), state.shtns_config)
+# using GeoDynamoBall
+# temp_bc = GeoDynamoBall.create_ball_hybrid_temperature_boundaries((:uniform, 1.0), (:uniform, 0.0), state.shtns_config)
 # apply_netcdf_temperature_boundaries!(state.temperature, temp_bc)
 
 # 4) Random initial conditions (small perturbations)
@@ -143,8 +143,8 @@ end
 function set_conductive_ic!(temp_field, domain; T_in=1.0, T_out=0.0)
     spec_r = parent(temp_field.spectral.data_real)
     spec_i = parent(temp_field.spectral.data_imag)
-    lm_rng = Geodynamo.get_local_range(temp_field.spectral.pencil, 1)
-    r_rng  = Geodynamo.get_local_range(temp_field.spectral.pencil, 3)
+    lm_rng = GeoDynamo.get_local_range(temp_field.spectral.pencil, 1)
+    r_rng  = GeoDynamo.get_local_range(temp_field.spectral.pencil, 3)
     l0m0 = _find_mode_index(temp_field.config, 0, 0)
     if l0m0 != 0 && (first(lm_rng) <= l0m0 <= last(lm_rng))
         ll = l0m0 - first(lm_rng) + 1

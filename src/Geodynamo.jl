@@ -1,4 +1,4 @@
-module Geodynamo
+module GeoDynamo
 
     using LinearAlgebra
     using SparseArrays
@@ -129,7 +129,7 @@ module Geodynamo
     export load_initial_conditions!, save_initial_conditions
 
     # exports parameters.jl
-    export GeodynamoParameters, load_parameters, save_parameters, create_parameter_template
+    export GeoDynamoParameters, load_parameters, save_parameters, create_parameter_template
     export get_parameters, set_parameters!, initialize_parameters
     export @param  # Deprecated - use direct variable access instead
 
@@ -163,7 +163,7 @@ module Geodynamo
     include("Shell/Shell.jl")
     include("Ball/Ball.jl")
 
-    # Expose combiner APIs under Geodynamo namespace
+    # Expose combiner APIs under GeoDynamo namespace
     export FieldCombiner, CombinerConfig, create_combiner_config
     export combine_distributed_time, list_available_times
     export combine_time_series, save_combined_time_series
@@ -177,20 +177,20 @@ module Geodynamo
             if !isdefined(Main, :MPI)
                 try
                     @eval using MPI
-                    @info "Geodynamo.jl loaded MPI at runtime"
+                    @info "GeoDynamo.jl loaded MPI at runtime"
                 catch mpi_e
                     @warn "Could not load MPI (continuing without MPI support): $mpi_e"
                 end
             else
-                @info "Geodynamo.jl detected MPI already available"
+                @info "GeoDynamo.jl detected MPI already available"
             end
 
             initialize_parameters()
-            @info "Geodynamo.jl initialized successfully"
+            @info "GeoDynamo.jl initialized successfully"
         catch e
-            @warn "Could not initialize Geodynamo.jl properly: $e"
+            @warn "Could not initialize GeoDynamo.jl properly: $e"
             try
-                set_parameters!(GeodynamoParameters())
+                set_parameters!(GeoDynamoParameters())
                 @info "Using default parameters"
             catch param_e
                 @warn "Failed to set default parameters: $param_e"

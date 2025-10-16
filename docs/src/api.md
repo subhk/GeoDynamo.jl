@@ -1,40 +1,40 @@
 # API Reference
 
-The table below lists the main entry points exported by `Geodynamo`. The listing is automatically generated during the documentation build.
+The table below lists the main entry points exported by `GeoDynamo`. The listing is automatically generated during the documentation build.
 
 ## Main Module
 
 ```@autodocs
-Modules = [Geodynamo]
+Modules = [GeoDynamo]
 Order   = [:module, :constant, :type, :macro, :function]
-Filter = t -> !(t === Geodynamo.GeodynamoParameters)
+Filter = t -> !(t === GeoDynamo.GeoDynamoParameters)
 ```
 
 ## Boundary Conditions
 
 ```@autodocs
-Modules = [Geodynamo.BoundaryConditions]
+Modules = [GeoDynamo.BoundaryConditions]
 Order   = [:module, :constant, :type, :macro, :function]
 ```
 
 ## Initial Conditions
 
 ```@autodocs
-Modules = [Geodynamo.InitialConditions]
+Modules = [GeoDynamo.InitialConditions]
 Order   = [:module, :constant, :type, :macro, :function]
 ```
 
 ## Spherical Shell Geometry
 
 ```@autodocs
-Modules = [Geodynamo.GeodynamoShell]
+Modules = [GeoDynamo.GeoDynamoShell]
 Order   = [:module, :constant, :type, :macro, :function]
 ```
 
 ## Solid Ball Geometry
 
 ```@autodocs
-Modules = [Geodynamo.GeodynamoBall]
+Modules = [GeoDynamo.GeoDynamoBall]
 Order   = [:module, :constant, :type, :macro, :function]
 ```
 

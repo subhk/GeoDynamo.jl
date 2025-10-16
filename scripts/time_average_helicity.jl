@@ -23,7 +23,7 @@ using Printf
 using NetCDF
 using JLD2
 using SHTnsKit
-using Geodynamo
+using GeoDynamo
 using MPI
 
 function usage()
@@ -95,7 +95,7 @@ function build_sht_from_nc(nc)
     lmax = maximum(lvals); mmax = maximum(mvals)
     nlat = (NetCDF.varid(nc, "theta") != -1) ? length(read_var(nc, "theta")) : (lmax+2)
     nlon = (NetCDF.varid(nc, "phi") != -1) ? length(read_var(nc, "phi")) : max(2*lmax+1, 4)
-    gcfg = Geodynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
+    gcfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
     θ = read_var(nc, "theta"); φ = read_var(nc, "phi"); r = read_var(nc, "r")
     return gcfg, lvals, mvals, (θ, φ, r)
 end
@@ -312,19 +312,19 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
             coords["theta"] = θ; coords["phi"] = φ; coords["r"] = r
             try meta["geometry"] = NetCDF.getatt(nc, NetCDF.NC_GLOBAL, "geometry") catch end
 
-            # Build Geodynamo config and fields; compute vorticity spectrally, synthesize to grid
+            # Build GeoDynamo config and fields; compute vorticity spectrally, synthesize to grid
             lmax = maximum(lvals); mmax = maximum(mvals)
             nlat = (θ === nothing) ? size(vtor_r,1) : length(θ)
             nlon = (φ === nothing) ? max(2*lmax+1, 4) : length(φ)
             nr = (r === nothing) ? size(vtor_r,2) : length(r)
 
-            gcfg = Geodynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
+            gcfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon)
             last_cfg[] = gcfg.sht_config
-            pencils_nt = Geodynamo.create_pencil_topology(gcfg)
+            pencils_nt = GeoDynamo.create_pencil_topology(gcfg)
             pencils = (pencils_nt.θ, pencils_nt.φ, pencils_nt.r)
             pencil_spec = pencils_nt.spec
-            domain = Geodynamo.create_radial_domain(nr)
-            fields = Geodynamo.create_shtns_velocity_fields(Float64, gcfg, domain, pencils, pencil_spec)
+            domain = GeoDynamo.create_radial_domain(nr)
+            fields = GeoDynamo.create_shtns_velocity_fields(Float64, gcfg, domain, pencils, pencil_spec)
 
             # Load spectral coefficients (single-rank layout)
             spec_tor_r = parent(fields.toroidal.data_real); spec_tor_i = parent(fields.toroidal.data_imag)
@@ -337,9 +337,9 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
                 spec_pol_i[i2,1,k2] = Float64(vpol_i[i2,k2])
             end
 
-            Geodynamo.compute_vorticity_spectral_full!(fields, domain)
-            Geodynamo.shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
-            Geodynamo.shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
+            GeoDynamo.compute_vorticity_spectral_full!(fields, domain)
+            GeoDynamo.shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
+            GeoDynamo.shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
 
             u_r = parent(fields.velocity.r_component.data)
             u_t = parent(fields.velocity.θ_component.data)

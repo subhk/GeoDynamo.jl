@@ -1,10 +1,10 @@
 #!/usr/bin/env julia
 
 """
-MAC Balance Analysis for Geodynamo Simulations
+MAC Balance Analysis for GeoDynamo Simulations
 
 This script computes the Magnetic, Archimedes, and Coriolis (MAC) force balance 
-from Geodynamo.jl simulation data. The analysis can be performed on:
+from GeoDynamo.jl simulation data. The analysis can be performed on:
 1. Constant radius surfaces (r = constant)
 2. Phi-z meridional planes (φ = constant)
 
@@ -1045,7 +1045,7 @@ function save_mac_results(result::MACBalanceResult, output_dir::String,
 end
 
 function main()
-    println("MAC Balance Analysis for Geodynamo Simulations")
+    println("MAC Balance Analysis for GeoDynamo Simulations")
     println("="^60)
     
     # Parse command line arguments

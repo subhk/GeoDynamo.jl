@@ -1,5 +1,5 @@
 # ================================================================================
-# Comprehensive Parallelization Optimizations for Geodynamo.jl
+# Comprehensive Parallelization Optimizations for GeoDynamo.jl
 # ================================================================================
 
 using MPI

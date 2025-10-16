@@ -1,11 +1,11 @@
 using Test
-using Geodynamo
+using GeoDynamo
 
 @testset "ERK2 Timestepping" begin
-    @test isdefined(Geodynamo, :TimestepState)
-    @test isdefined(Geodynamo, :create_erk2_config)
-    @test isdefined(Geodynamo, :apply_explicit_operator!)
-    @test isdefined(Geodynamo, :solve_implicit_step!)
+    @test isdefined(GeoDynamo, :TimestepState)
+    @test isdefined(GeoDynamo, :create_erk2_config)
+    @test isdefined(GeoDynamo, :apply_explicit_operator!)
+    @test isdefined(GeoDynamo, :solve_implicit_step!)
     
     # Basic ERK2 functionality test (may require MPI)
     try

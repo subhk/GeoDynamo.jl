@@ -18,7 +18,7 @@
 #
 #
 import .BoundaryConditions
-import .GeodynamoBall
+import .GeoDynamoBall
 
 mutable struct SHTnsMagneticFields{T}
     # Physical space magnetic field
@@ -238,7 +238,7 @@ function apply_magnetic_boundary_conditions!(fields::SHTnsMagneticFields{T};
     enforce_magnetic_boundary_values!(fields)
 
     if fields.outer_domain.r[1, 4] == 0.0
-        GeodynamoBall.enforce_ball_vector_regularity!(fields.toroidal, fields.poloidal)
+        GeoDynamoBall.enforce_ball_vector_regularity!(fields.toroidal, fields.poloidal)
     end
     return fields
 end
@@ -360,7 +360,7 @@ function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields;
     
     # Step 2: Transform u × B to spectral space
     if geometry === :ball
-        GeodynamoBall.ball_vector_analysis!(mag_fields.induction_physical, 
+        GeoDynamoBall.ball_vector_analysis!(mag_fields.induction_physical, 
                                             mag_fields.work_tor, mag_fields.work_pol)
     else
         shtnskit_vector_analysis!(mag_fields.induction_physical, 

@@ -2,7 +2,7 @@
 
 """
 Plot a 2D slice at constant z of a velocity, magnetic component, or scalar field
-from a merged NetCDF file (Geodynamo output).
+from a merged NetCDF file (GeoDynamo output).
 
 Usage examples:
   # Temperature (scalar) at z=0.2, lat-lon heatmap

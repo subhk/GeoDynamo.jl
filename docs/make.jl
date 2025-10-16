@@ -5,9 +5,9 @@ Pkg.activate(@__DIR__)
 Pkg.instantiate()
 
 using Documenter
-using Geodynamo
+using GeoDynamo
 
-DocMeta.setdocmeta!(Geodynamo, :DocTestSetup, :(using Geodynamo); recursive=true)
+DocMeta.setdocmeta!(GeoDynamo, :DocTestSetup, :(using GeoDynamo); recursive=true)
 
 pages = [
     "Home" => "index.md",
@@ -20,20 +20,20 @@ pages = [
 ]
 
 format = Documenter.HTML(; prettyurls = get(ENV, "CI", "false") == "true",
-                             canonical = "https://subhk.github.io/Geodynamo.jl/stable/",
+                             canonical = "https://subhk.github.io/GeoDynamo.jl/stable/",
                              assets = String[],
                              size_threshold = 500*1024)  # Increase threshold to 500KB
 
 makedocs(
-    modules = [Geodynamo, Geodynamo.BoundaryConditions, Geodynamo.InitialConditions, Geodynamo.GeodynamoShell, Geodynamo.GeodynamoBall],
-    sitename = "Geodynamo.jl",
+    modules = [GeoDynamo, GeoDynamo.BoundaryConditions, GeoDynamo.InitialConditions, GeoDynamo.GeoDynamoShell, GeoDynamo.GeoDynamoBall],
+    sitename = "GeoDynamo.jl",
     format = format,
     pages = pages,
     checkdocs = :all,  # Include all docstrings, including internal implementation
 )
 
 deploydocs(
-    repo = "github.com/subhk/Geodynamo.jl.git",
+    repo = "github.com/subhk/GeoDynamo.jl.git",
     devbranch = "main",
     push_preview = true,
     versions = ["stable" => "v^", "v#.#", "dev" => "main"],

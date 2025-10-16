@@ -14,15 +14,15 @@ using LinearAlgebra
 using Random
 
 function _maybe_enforce_ball_scalar!(field, domain)
-    if domain !== nothing && domain.r[1, 4] == 0.0 && isdefined(@__MODULE__, :GeodynamoBall)
-        getfield(@__MODULE__, :GeodynamoBall).apply_ball_temperature_regularity!(field)
+    if domain !== nothing && domain.r[1, 4] == 0.0 && isdefined(@__MODULE__, :GeoDynamoBall)
+        getfield(@__MODULE__, :GeoDynamoBall).apply_ball_temperature_regularity!(field)
     end
     return field
 end
 
 function _maybe_enforce_ball_vector!(field, domain)
-    if domain !== nothing && domain.r[1, 4] == 0.0 && isdefined(@__MODULE__, :GeodynamoBall)
-        getfield(@__MODULE__, :GeodynamoBall).enforce_ball_vector_regularity!(field.toroidal, field.poloidal)
+    if domain !== nothing && domain.r[1, 4] == 0.0 && isdefined(@__MODULE__, :GeoDynamoBall)
+        getfield(@__MODULE__, :GeoDynamoBall).enforce_ball_vector_regularity!(field.toroidal, field.poloidal)
     end
     return field
 end

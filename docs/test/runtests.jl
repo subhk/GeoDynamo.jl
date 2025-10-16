@@ -1,16 +1,16 @@
 using Test
-using Geodynamo
+using GeoDynamo
 
-@testset "Geodynamo.jl" begin
+@testset "GeoDynamo.jl" begin
     @testset "Package Loading" begin
-        @test isdefined(Geodynamo, :SHTnsKitConfig)
-        @test isdefined(Geodynamo, :SimulationState)  
-        @test isdefined(Geodynamo, :GeodynamoParameters)
+        @test isdefined(GeoDynamo, :SHTnsKitConfig)
+        @test isdefined(GeoDynamo, :SimulationState)  
+        @test isdefined(GeoDynamo, :GeoDynamoParameters)
     end
     
     @testset "Basic Types" begin
-        @test isdefined(Geodynamo, :SHTnsSpectralField)
-        @test isdefined(Geodynamo, :SHTnsPhysicalField)
-        @test isdefined(Geodynamo, :RadialDomain)
+        @test isdefined(GeoDynamo, :SHTnsSpectralField)
+        @test isdefined(GeoDynamo, :SHTnsPhysicalField)
+        @test isdefined(GeoDynamo, :RadialDomain)
     end
 end

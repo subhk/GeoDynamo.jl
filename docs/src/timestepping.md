@@ -1,6 +1,6 @@
 # Time Integration
 
-Geodynamo.jl offers three production-grade time-integration strategies. All rely on the shared Krylov/ETD utilities in `timestep.jl` and respect PencilArray domain decompositions.
+GeoDynamo.jl offers three production-grade time-integration strategies. All rely on the shared Krylov/ETD utilities in `timestep.jl` and respect PencilArray domain decompositions.
 
 ## CNAB2 (Crank–Nicolson Adams–Bashforth 2)
 
@@ -41,7 +41,7 @@ ERK2 is the most accurate of the three but also the most expensive due to the ad
 
 - **Precompute caches:** Run `julia --project scripts/precompute_erk2_caches.jl --dt=Δt --fields=temperature,vel_tor` to build dense ERK2 caches ahead of time. The script saves a JLD2 bundle; load it via `load_erk2_cache_bundle!(state.erk2_caches, "erk2_caches.jld2")` before advancing timesteps.
 - **Metadata:** Bundles store solver metadata (Δt, geometry, Arnoldi controls) so you can verify compatibility when restarting a long production run.
-- **Runtime hooks:** Enable stage diagnostics with `Geodynamo.enable_erk2_diagnostics!(interval=10)` or set `GEODYNAMO_ERK2_DIAGNOSTICS=true` in the environment. The integrator logs the max and L₂ residual norms of `N(uⁿ+½) - N(uⁿ)` at the desired cadence.
+- **Runtime hooks:** Enable stage diagnostics with `GeoDynamo.enable_erk2_diagnostics!(interval=10)` or set `GEODYNAMO_ERK2_DIAGNOSTICS=true` in the environment. The integrator logs the max and L₂ residual norms of `N(uⁿ+½) - N(uⁿ)` at the desired cadence.
 - **Custom analysis:** Use `erk2_stage_residual_stats(buffers)` if you need bespoke monitoring or to feed the residual signal into adaptive control logic.
 
 ## Krylov Action Utilities

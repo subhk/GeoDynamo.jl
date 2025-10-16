@@ -6,12 +6,12 @@ using Dates
 using Printf
 
 """
-    GeodynamoParameters
+    GeoDynamoParameters
 
 Structure to hold all simulation parameters. This replaces the global constants
 from the old params.jl file with a more flexible parameter system.
 """
-Base.@kwdef mutable struct GeodynamoParameters
+Base.@kwdef mutable struct GeoDynamoParameters
     # Grid parameters
     i_N::Int = 64        # Number of radial points
     i_Nic::Int = 16      # Number of inner core radial points
@@ -84,8 +84,8 @@ function print_entry(io::IO, name::Symbol, value)
     println(io, @sprintf("  %-20s %s", String(name), string(value)))
 end
 
-function Base.show(io::IO, ::MIME"text/plain", params::GeodynamoParameters)
-    println(io, "GeodynamoParameters")
+function Base.show(io::IO, ::MIME"text/plain", params::GeoDynamoParameters)
+    println(io, "GeoDynamoParameters")
 
     print_section(io, "Grid")
     for key in (:geometry, :i_N, :i_Nic, :i_L, :i_M, :i_Th, :i_Ph, :i_KL)
@@ -120,11 +120,11 @@ function Base.show(io::IO, ::MIME"text/plain", params::GeodynamoParameters)
 end
 
 """
-    update_derived_parameters!(params::GeodynamoParameters)
+    update_derived_parameters!(params::GeoDynamoParameters)
 
 Update derived parameters based on primary parameters.
 """
-function update_derived_parameters!(params::GeodynamoParameters)
+function update_derived_parameters!(params::GeoDynamoParameters)
     params.i_L1 = params.i_L
     params.i_M1 = params.i_M
     params.i_H1 = (params.i_L + 1) * (params.i_L + 2) ÷ 2 - 1
@@ -143,7 +143,7 @@ loads from the default config/default_params.jl file.
 - `config_file::String`: Path to parameter file (optional)
 
 # Returns
-- `GeodynamoParameters`: Loaded parameters
+- `GeoDynamoParameters`: Loaded parameters
 """
 function load_parameters(config_file::String = "")
     # Determine config file path
@@ -155,7 +155,7 @@ function load_parameters(config_file::String = "")
     
     if !isfile(config_file)
         @warn "Parameter file not found: $config_file. Using default parameters."
-        params = GeodynamoParameters()
+        params = GeoDynamoParameters()
         update_derived_parameters!(params)
         return params
     end
@@ -170,7 +170,7 @@ end
 """
     find_package_root()
 
-Find the root directory of the Geodynamo.jl package.
+Find the root directory of the GeoDynamo.jl package.
 """
 function find_package_root()
     current_dir = @__DIR__
@@ -179,10 +179,10 @@ function find_package_root()
     while current_dir != "/"
         project_file = joinpath(current_dir, "Project.toml")
         if isfile(project_file)
-            # Check if this is the Geodynamo.jl project
+            # Check if this is the GeoDynamo.jl project
             try
                 content = read(project_file, String)
-                if contains(content, "Geodynamo") || contains(content, "name = \"Geodynamo\"")
+                if contains(content, "GeoDynamo") || contains(content, "name = \"GeoDynamo\"")
                     return current_dir
                 end
             catch
@@ -193,7 +193,7 @@ function find_package_root()
     end
     
     # If we can't find it, assume current directory
-    @warn "Could not find Geodynamo.jl package root. Using current directory."
+    @warn "Could not find GeoDynamo.jl package root. Using current directory."
     return dirname(@__DIR__)
 end
 
@@ -233,14 +233,14 @@ function load_parameters_from_file(config_file::String)
         end
     catch e
         @error "Error reading parameter file $config_file: $e"
-        return GeodynamoParameters()
+        return GeoDynamoParameters()
     end
     
     # Create parameters struct with loaded values
-    params = GeodynamoParameters()
+    params = GeoDynamoParameters()
     
     # Update parameters with loaded values
-    for field in fieldnames(GeodynamoParameters)
+    for field in fieldnames(GeoDynamoParameters)
         if haskey(param_dict, field)
             try
                 setfield!(params, field, param_dict[field])
@@ -254,13 +254,13 @@ function load_parameters_from_file(config_file::String)
 end
 
 """
-    save_parameters(params::GeodynamoParameters, filename::String)
+    save_parameters(params::GeoDynamoParameters, filename::String)
 
 Save parameters to a Julia file.
 """
-function save_parameters(params::GeodynamoParameters, filename::String)
+function save_parameters(params::GeoDynamoParameters, filename::String)
     open(filename, "w") do io
-        println(io, "# Geodynamo.jl Parameters")
+        println(io, "# GeoDynamo.jl Parameters")
         println(io, "# Generated on $(now())")
         println(io)
         
@@ -332,13 +332,13 @@ end
 Create a template parameter file for users to customize.
 """
 function create_parameter_template(filename::String)
-    params = GeodynamoParameters()  # Default parameters
+    params = GeoDynamoParameters()  # Default parameters
     save_parameters(params, filename)
     @info "Parameter template created at $filename"
 end
 
 # Global parameter instance (will be set during module initialization)
-const GEODYNAMO_PARAMS = Ref{Union{GeodynamoParameters, Nothing}}(nothing)
+const GEODYNAMO_PARAMS = Ref{Union{GeoDynamoParameters, Nothing}}(nothing)
 
 """
     get_parameters()
@@ -353,11 +353,11 @@ function get_parameters()
 end
 
 """
-    set_parameters!(params::GeodynamoParameters)
+    set_parameters!(params::GeoDynamoParameters)
 
 Set the global parameters.
 """
-function set_parameters!(params::GeodynamoParameters)
+function set_parameters!(params::GeoDynamoParameters)
     update_derived_parameters!(params)
     GEODYNAMO_PARAMS[] = params
     update_global_parameters!()  # Update global variables
@@ -383,7 +383,7 @@ macro param(name)
 end
 
 # Define global parameter variables for direct access
-for param_name in fieldnames(GeodynamoParameters)
+for param_name in fieldnames(GeoDynamoParameters)
     @eval begin
         global $(param_name)
         $(param_name) = nothing  # Will be initialized later
@@ -397,7 +397,7 @@ Update all global parameter variables with values from the current parameter str
 """
 function update_global_parameters!()
     params = get_parameters()
-    for param_name in fieldnames(GeodynamoParameters)
+    for param_name in fieldnames(GeoDynamoParameters)
         @eval begin
             global $(param_name) = $params.$(param_name)
         end

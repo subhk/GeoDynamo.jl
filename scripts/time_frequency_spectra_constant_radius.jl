@@ -4,7 +4,7 @@
 Time-Frequency Spectra Analysis at Constant Radius with Tangent Cylinder Options
 
 This script analyzes the time-frequency evolution of kinetic and magnetic energy
-from merged Geodynamo simulation data at specific radial locations. It provides 
+from merged GeoDynamo simulation data at specific radial locations. It provides 
 options to analyze:
 - Full domain data at constant radius
 - Data with tangent cylinder removed at constant radius

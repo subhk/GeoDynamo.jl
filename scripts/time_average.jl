@@ -4,7 +4,7 @@
 Time-average selected quantities from merged NetCDF outputs and save to a compressed JLD2 file.
 
 Assumptions:
-- Inputs are merged (global) NetCDF files produced by Geodynamo's combiner/output system.
+- Inputs are merged (global) NetCDF files produced by GeoDynamo's combiner/output system.
 - Variables are consistent across the files in shape and meaning.
 
 Usage examples:

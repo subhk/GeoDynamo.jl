@@ -1,8 +1,8 @@
 """
-Combiner APIs for Geodynamo.jl
+Combiner APIs for GeoDynamo.jl
 
 This file centralizes the distributed-output combiner so it is available
-under the `Geodynamo` module. The implementation lives in `extras/combine_file.jl`
+under the `GeoDynamo` module. The implementation lives in `extras/combine_file.jl`
 and is included here to avoid duplication and drift.
 """
 

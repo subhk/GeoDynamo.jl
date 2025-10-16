@@ -14,7 +14,7 @@
 # Run with MPI + threads:
 #   JULIA_NUM_THREADS=8 mpiexecjl -n 4 julia --project examples/shell_dynamo_demo.jl
 
-using Geodynamo
+using GeoDynamo
 using MPI
 using Random
 
@@ -37,7 +37,7 @@ if rank == 0
 end
 
 # 1) Set parameters (spherical shell geometry and physics)
-params = GeodynamoParameters(
+params = GeoDynamoParameters(
     # Geometry + grid
     geometry   = :shell,  # spherical shell geometry (inner radius > 0)
     i_N        = 64,      # radial points in outer core
@@ -78,8 +78,8 @@ set_parameters!(params)
 
 if rank == 0
     println("\nSimulation parameters:")
-    println("  Time-stepping scheme: ", string(Geodynamo.ts_scheme))
-    println("  Krylov m, tol: ", (Geodynamo.i_etd_m, Geodynamo.d_krylov_tol))
+    println("  Time-stepping scheme: ", string(GeoDynamo.ts_scheme))
+    println("  Krylov m, tol: ", (GeoDynamo.i_etd_m, GeoDynamo.d_krylov_tol))
     println("  Geometry: spherical shell with r_inner/r_outer = $(params.d_rratio)")
     println("  Grid: $(params.i_Th) × $(params.i_Ph) × $(params.i_N)")
     println("  Spectral truncation: L=$(params.i_L), M=$(params.i_M)")
@@ -95,15 +95,15 @@ state = initialize_simulation(Float64; include_composition=false)
 # Debug: print pencil layouts (axes_in) to verify decomposition
 if rank == 0
     println("\nPencil decomposition layout:")
-    Geodynamo.print_pencil_axes(state.shtns_config.pencils)
+    GeoDynamo.print_pencil_axes(state.shtns_config.pencils)
 end
 
 MPI.Barrier(MPI.COMM_WORLD)
 
 # Optional: register a shared VelocityWorkspace to reduce allocations
 if get(ENV, "GEODYNAMO_USE_WS", "1") == "1"
-    ws = Geodynamo.create_velocity_workspace(Float64, state.oc_domain.N)
-    Geodynamo.set_velocity_workspace!(ws)
+    ws = GeoDynamo.create_velocity_workspace(Float64, state.oc_domain.N)
+    GeoDynamo.set_velocity_workspace!(ws)
 end
 
 # 3) Temperature boundary conditions for spherical shell
@@ -150,8 +150,8 @@ end
 function set_shell_conductive_ic!(temp_field, domain; T_in=1.0, T_out=0.0)
     spec_r = parent(temp_field.spectral.data_real)
     spec_i = parent(temp_field.spectral.data_imag)
-    lm_rng = Geodynamo.get_local_range(temp_field.spectral.pencil, 1)
-    r_rng  = Geodynamo.get_local_range(temp_field.spectral.pencil, 3)
+    lm_rng = GeoDynamo.get_local_range(temp_field.spectral.pencil, 1)
+    r_rng  = GeoDynamo.get_local_range(temp_field.spectral.pencil, 3)
     l0m0 = _find_mode_index(temp_field.config, 0, 0)
     if l0m0 != 0 && (first(lm_rng) <= l0m0 <= last(lm_rng))
         ll = l0m0 - first(lm_rng) + 1

@@ -695,7 +695,7 @@ function get_shtnskit_performance_stats()
 end
 
 # ================================================================================
-# Functions for SHTnsKit field transforms (exports handled by main Geodynamo.jl)
+# Functions for SHTnsKit field transforms (exports handled by main GeoDynamo.jl)
 # ================================================================================
 
 # ================================================================================

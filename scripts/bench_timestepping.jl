@@ -1,26 +1,26 @@
 #!/usr/bin/env julia
 
-using Geodynamo
+using GeoDynamo
 using Printf
 
 function step_once!(state)
     # Compute nonlinear terms
     compute_temperature_nonlinear!(state.temperature, state.velocity, state.oc_domain)
     compute_velocity_nonlinear!(state.velocity, state.temperature, state.composition, state.magnetic, state.oc_domain)
-    if Geodynamo.i_B == 1 && state.magnetic !== nothing
+    if GeoDynamo.i_B == 1 && state.magnetic !== nothing
         compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.oc_domain, state.ic_domain)
     end
     if state.composition !== nothing
         compute_composition_nonlinear!(state.composition, state.velocity, state.oc_domain)
     end
     # Implicit solve
-    apply_master_implicit_step!(state, Geodynamo.d_timestep)
+    apply_master_implicit_step!(state, GeoDynamo.d_timestep)
 end
 
 function bench_scheme(ts::Symbol; steps::Int=10)
     # Set scheme and build a fresh state
-    params = GeodynamoParameters(ts_scheme = ts)
-    Geodynamo.set_parameters!(params)
+    params = GeoDynamoParameters(ts_scheme = ts)
+    GeoDynamo.set_parameters!(params)
     state = initialize_simulation(Float64; include_composition=false)
     # Warm-up
     step_once!(state)

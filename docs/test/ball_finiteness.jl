@@ -1,5 +1,5 @@
 using Test
-using Geodynamo
+using GeoDynamo
 using MPI
 
 @testset "Ball finiteness" begin
@@ -7,9 +7,9 @@ using MPI
         MPI.Init()
     end
     
-    @test isdefined(Geodynamo, :GeodynamoBall)
+    @test isdefined(GeoDynamo, :GeoDynamoBall)
     
-    Ball = Geodynamo.GeodynamoBall
+    Ball = GeoDynamo.GeoDynamoBall
     @test isdefined(Ball, :apply_ball_temperature_regularity!)
     @test isdefined(Ball, :apply_ball_composition_regularity!)
     @test isdefined(Ball, :enforce_ball_vector_regularity!)

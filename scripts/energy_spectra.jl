@@ -14,7 +14,7 @@ Usage:
   # Multiple files (each saves to <input>_spectra.jld2 or into --outdir)
   julia --project=. scripts/energy_spectra.jl <f1.nc> <f2.nc> ... [--outdir=dir]
 
-Inputs are expected to follow Geodynamo.jl output structure with spectral variables:
+Inputs are expected to follow GeoDynamo.jl output structure with spectral variables:
   - velocity_toroidal_real/imag[spectral_mode, r]
   - velocity_poloidal_real/imag[spectral_mode, r]
   - magnetic_toroidal_real/imag[spectral_mode, r]

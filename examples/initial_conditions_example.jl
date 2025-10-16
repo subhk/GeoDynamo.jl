@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 
 """
-Example: Setting Initial Conditions for Geodynamo Simulations
+Example: Setting Initial Conditions for GeoDynamo Simulations
 
 This example demonstrates how to set initial conditions for temperature,
 magnetic field, velocity, and composition fields in geodynamo simulations.

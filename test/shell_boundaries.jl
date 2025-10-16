@@ -1,6 +1,6 @@
 using Test
-using Geodynamo
-const Shell = Geodynamo.GeodynamoShell
+using GeoDynamo
+const Shell = GeoDynamo.GeoDynamoShell
 
 @testset "Shell programmatic boundary application" begin
     # Small config
@@ -9,7 +9,7 @@ const Shell = Geodynamo.GeodynamoShell
     nlon = max(2lmax + 1, 24)
     nr   = 6
 
-    cfg = Geodynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
     dom = Shell.create_shell_radial_domain(nr)
     temp = Shell.create_shell_temperature_field(Float64, cfg; nr=nr)
 

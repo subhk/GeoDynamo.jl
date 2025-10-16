@@ -1,6 +1,6 @@
-# Geodynamo.jl Configuration
+# GeoDynamo.jl Configuration
 
-This directory contains parameter files for Geodynamo.jl simulations.
+This directory contains parameter files for GeoDynamo.jl simulations.
 
 ## Files
 
@@ -18,7 +18,7 @@ The package automatically loads `default_params.jl` when imported. No action nee
 3. Load your custom parameters:
 
 ```julia
-using Geodynamo
+using GeoDynamo
 
 # Load custom parameters
 params = load_parameters("path/to/my_simulation_params.jl")
@@ -30,7 +30,7 @@ initialize_parameters("path/to/my_simulation_params.jl")
 
 ### Creating New Parameter Files
 ```julia
-using Geodynamo
+using GeoDynamo
 
 # Create a template
 create_parameter_template("my_new_params.jl")

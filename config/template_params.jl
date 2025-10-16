@@ -1,12 +1,12 @@
 # ============================================================================
-# Geodynamo.jl Parameter Template
+# GeoDynamo.jl Parameter Template
 # ============================================================================
 # 
 # Copy this file to your desired location and modify the parameters below
 # for your specific simulation needs.
 #
 # Usage:
-#   using Geodynamo
+#   using GeoDynamo
 #   params = load_parameters("path/to/your_params.jl")
 #   set_parameters!(params)
 #

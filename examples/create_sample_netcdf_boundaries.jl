@@ -111,7 +111,7 @@ function create_temperature_inner_bc(filename, theta, phi, nlat, nlon)
         # Global attributes
         ds.attrib["title"] = "CMB Temperature Boundary Condition"
         ds.attrib["description"] = "Sample inner boundary temperature for geodynamo simulation"
-        ds.attrib["created_by"] = "Geodynamo.jl sample script"
+        ds.attrib["created_by"] = "GeoDynamo.jl sample script"
         ds.attrib["creation_date"] = string(Dates.now())
         ds.attrib["grid_type"] = "gaussian"
         ds.attrib["nlat"] = nlat
@@ -170,7 +170,7 @@ function create_temperature_outer_bc(filename, theta, phi, nlat, nlon)
         # Global attributes
         ds.attrib["title"] = "Surface Temperature Boundary Condition"
         ds.attrib["description"] = "Sample outer boundary temperature for geodynamo simulation"
-        ds.attrib["created_by"] = "Geodynamo.jl sample script"
+        ds.attrib["created_by"] = "GeoDynamo.jl sample script"
         ds.attrib["creation_date"] = string(Dates.now())
     end
 end
@@ -428,9 +428,9 @@ function main()
     println("╚══════════════════════════════════════════════════════════════╝")
     
     println()
-    println("Usage in Geodynamo.jl:")
+    println("Usage in GeoDynamo.jl:")
     println("```julia")
-    println("using Geodynamo")
+    println("using GeoDynamo")
     println()
     println("# Load temperature boundaries")
     println("temp_bc = load_temperature_boundaries(\"cmb_temp.nc\", \"surface_temp.nc\")")

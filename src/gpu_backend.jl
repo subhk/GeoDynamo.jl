@@ -1,5 +1,5 @@
 """
-GPU Backend Management for Geodynamo.jl
+GPU Backend Management for GeoDynamo.jl
 
 This module provides vendor-agnostic GPU computing capabilities using:
 - GPUArrays.jl: Universal GPU array interface
@@ -45,13 +45,13 @@ catch
 end
 
 # Export main interface
-export GeodynamoDevice, select_device!, get_device, get_backend
+export GeoDynamoDevice, select_device!, get_device, get_backend
 export cpu_array, gpu_array, device_array, sync_device!
 export @geodynamo_kernel, launch_kernel!
 export GPU_AVAILABLE, list_available_devices, device_info
 
 """
-Supported device types for Geodynamo.jl computations
+Supported device types for GeoDynamo.jl computations
 """
 @enum DeviceType begin
     CPU_DEVICE = 0
@@ -61,11 +61,11 @@ Supported device types for Geodynamo.jl computations
 end
 
 """
-GeodynamoDevice
+GeoDynamoDevice
 
-Manages computational device selection and array allocation for Geodynamo.jl
+Manages computational device selection and array allocation for GeoDynamo.jl
 """
-mutable struct GeodynamoDevice
+mutable struct GeoDynamoDevice
     device_type::DeviceType
     device_name::String
     backend::Any  # KernelAbstractions backend
@@ -75,7 +75,7 @@ mutable struct GeodynamoDevice
 end
 
 # Global device state
-const CURRENT_DEVICE = Ref{GeodynamoDevice}()
+const CURRENT_DEVICE = Ref{GeoDynamoDevice}()
 
 """
     GPU_AVAILABLE::Bool
@@ -100,12 +100,12 @@ function __init__()
 end
 
 """
-    create_cpu_device() -> GeodynamoDevice
+    create_cpu_device() -> GeoDynamoDevice
 
 Create CPU device configuration
 """
 function create_cpu_device()
-    return GeodynamoDevice(
+    return GeoDynamoDevice(
         CPU_DEVICE,
         "CPU ($(Threads.nthreads()) threads)",
         CPU(),
@@ -116,7 +116,7 @@ function create_cpu_device()
 end
 
 """
-    create_cuda_device() -> GeodynamoDevice
+    create_cuda_device() -> GeoDynamoDevice
 
 Create CUDA device configuration (if available)
 """
@@ -129,7 +129,7 @@ function create_cuda_device()
     mem_gb = CUDA.available_memory() / (1024^3)
     compute_cap = "$(CUDA.capability(dev).major).$(CUDA.capability(dev).minor)"
     
-    return GeodynamoDevice(
+    return GeoDynamoDevice(
         CUDA_DEVICE,
         "CUDA: $(CUDA.name(dev))",
         CUDADevice(),
@@ -140,7 +140,7 @@ function create_cuda_device()
 end
 
 """
-    create_amdgpu_device() -> GeodynamoDevice
+    create_amdgpu_device() -> GeoDynamoDevice
 
 Create AMDGPU device configuration (if available)
 """
@@ -153,7 +153,7 @@ function create_amdgpu_device()
     mem_gb = AMDGPU.device_memory() / (1024^3)
     device_name = "AMD GPU"
     
-    return GeodynamoDevice(
+    return GeoDynamoDevice(
         AMDGPU_DEVICE,
         "AMDGPU: $device_name",
         ROCDevice(),
@@ -164,7 +164,7 @@ function create_amdgpu_device()
 end
 
 """
-    create_metal_device() -> GeodynamoDevice
+    create_metal_device() -> GeoDynamoDevice
 
 Create Metal device configuration (if available)
 """
@@ -176,7 +176,7 @@ function create_metal_device()
     # Metal device info
     mem_gb = 8.0  # Placeholder - Metal.jl may not expose this directly
     
-    return GeodynamoDevice(
+    return GeoDynamoDevice(
         METAL_DEVICE,
         "Metal: Apple GPU",
         MetalDevice(),
@@ -187,10 +187,10 @@ function create_metal_device()
 end
 
 """
-    select_device!(device::String) -> GeodynamoDevice
-    select_device!(device_type::DeviceType) -> GeodynamoDevice
+    select_device!(device::String) -> GeoDynamoDevice
+    select_device!(device_type::DeviceType) -> GeoDynamoDevice
 
-Select computational device for Geodynamo.jl operations.
+Select computational device for GeoDynamo.jl operations.
 
 # Arguments
 - `device::String`: Device selection ("CPU", "GPU", "CUDA", "AMDGPU", "METAL")
@@ -274,7 +274,7 @@ function select_device!(device_type::DeviceType)
 end
 
 """
-    get_device() -> GeodynamoDevice
+    get_device() -> GeoDynamoDevice
 
 Get current computational device
 """

@@ -1,5 +1,5 @@
 # ================================================================================
-# NetCDF Output Writer - Complete Module for Geodynamo Simulation
+# NetCDF Output Writer - Complete Module for GeoDynamo Simulation
 # Spectral for velocity/magnetic, physical for temperature/composition
 # ================================================================================
 
@@ -372,8 +372,8 @@ function create_netcdf_file(filename::String, config::OutputConfig,
     nc_file = NetCDF.create(filename, NetCDF.NcVar[]; mode=NetCDF.NC_NETCDF4)
     
     # Global attributes
-    NetCDF.putatt(nc_file, "title", "Geodynamo Simulation Output")
-    NetCDF.putatt(nc_file, "source", "Geodynamo simulation code")
+    NetCDF.putatt(nc_file, "title", "GeoDynamo Simulation Output")
+    NetCDF.putatt(nc_file, "source", "GeoDynamo simulation code")
     NetCDF.putatt(nc_file, "history", "Created on $(now()) by rank $rank")
     NetCDF.putatt(nc_file, "Conventions", "CF-1.8")
     NetCDF.putatt(nc_file, "mpi_rank", rank)
@@ -838,9 +838,9 @@ function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
 
     try
         # Global attributes
-        NetCDF.putatt(nc_file, "title", "Geodynamo Simulation Grid Information")
+        NetCDF.putatt(nc_file, "title", "GeoDynamo Simulation Grid Information")
         NetCDF.putatt(nc_file, "description", "Grid coordinates and geometry information")
-        NetCDF.putatt(nc_file, "source", "Geodynamo simulation code")
+        NetCDF.putatt(nc_file, "source", "GeoDynamo simulation code")
         NetCDF.putatt(nc_file, "created", string(now()))
         NetCDF.putatt(nc_file, "Conventions", "CF-1.8")
 
@@ -1775,7 +1775,7 @@ config = OutputConfig(
     1e-12                 # Time tolerance
 )
 
-# Alternatively, derive settings from GeodynamoParameters:
+# Alternatively, derive settings from GeoDynamoParameters:
 # config = output_config_from_parameters()
 # config = with_output_precision(config, Float64)
 # config = with_independent_writes(config, true)
