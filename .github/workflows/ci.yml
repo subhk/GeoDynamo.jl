@@ -62,15 +62,18 @@ jobs:
 
       - name: Build package
         run: |
-          julia --project=@. -e '
+          julia -e '
             using Pkg
+            Pkg.activate(".")
             Pkg.instantiate()
             Pkg.build()
           '
 
       - name: Run tests
         run: |
-          julia --project=@. -e '
+          julia -e '
+            using Pkg
+            Pkg.activate(".")
             using Test
             using GeoDynamo
             include("test/runtests.jl")
