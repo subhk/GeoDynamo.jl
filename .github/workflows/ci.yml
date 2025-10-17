@@ -58,6 +58,9 @@ jobs:
       - name: Remove Manifest for cross-version compatibility
         run: rm -f Manifest.toml
 
+      - name: Build GeoDynamo
+        uses: julia-actions/julia-buildpkg@v1
+
       - name: Run tests
         uses: julia-actions/julia-runtest@v1
         env:

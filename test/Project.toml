@@ -1,5 +1,4 @@
 [deps]
-GeoDynamo = "d9585174-0cde-43e1-8c7d-10e3f89dfe41"
 HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 MPI = "da04e1cc-30fd-572f-bb4f-1f8673147195"
