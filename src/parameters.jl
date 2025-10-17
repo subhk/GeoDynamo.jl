@@ -205,11 +205,11 @@ Load parameters from a Julia file containing parameter definitions.
 function load_parameters_from_file(config_file::String)
     # Create a safe environment to evaluate the parameter file
     param_dict = Dict{Symbol, Any}()
-    
+
     try
         # Read and parse the file
         content = read(config_file, String)
-        
+
         # Extract parameter definitions using regex
         # Match lines like: const i_N = 64
         for line in split(content, '\n')
@@ -220,13 +220,26 @@ function load_parameters_from_file(config_file::String)
                 if match_result !== nothing
                     param_name = Symbol(match_result.captures[1])
                     param_value_str = strip(match_result.captures[2])
-                    
+
                     # Evaluate the parameter value safely
+                    # Create a module-level context with already-parsed parameters
                     try
+                        # First, try direct evaluation (for simple literals)
                         param_value = eval(Meta.parse(param_value_str))
                         param_dict[param_name] = param_value
                     catch e
-                        @warn "Could not parse parameter $param_name = $param_value_str: $e"
+                        # If that fails, try evaluating with previously loaded parameters in scope
+                        # This handles derived parameters like i_L1 = i_L
+                        try
+                            # Create a temporary module with the parameters we've loaded so far
+                            expr = Meta.parse(param_value_str)
+                            # Substitute known parameter names with their values
+                            param_value = eval_with_context(expr, param_dict)
+                            param_dict[param_name] = param_value
+                        catch e2
+                            @debug "Could not parse parameter $param_name = $param_value_str: $e2"
+                            # Skip this parameter - it will use the default value
+                        end
                     end
                 end
             end
@@ -235,10 +248,10 @@ function load_parameters_from_file(config_file::String)
         @error "Error reading parameter file $config_file: $e"
         return GeoDynamoParameters()
     end
-    
+
     # Create parameters struct with loaded values
     params = GeoDynamoParameters()
-    
+
     # Update parameters with loaded values
     for field in fieldnames(GeoDynamoParameters)
         if haskey(param_dict, field)
@@ -249,8 +262,41 @@ function load_parameters_from_file(config_file::String)
             end
         end
     end
-    
+
     return params
+end
+
+"""
+    eval_with_context(expr, param_dict::Dict{Symbol, Any})
+
+Evaluate an expression by substituting symbols with values from param_dict.
+"""
+function eval_with_context(expr, param_dict::Dict{Symbol, Any})
+    # If expr is a symbol, look it up in param_dict
+    if expr isa Symbol
+        return get(param_dict, expr, nothing)
+    end
+
+    # If expr is not an expression, just evaluate it normally
+    if !isa(expr, Expr)
+        return eval(expr)
+    end
+
+    # Recursively substitute symbols in the expression
+    new_args = []
+    for arg in expr.args
+        if arg isa Symbol && haskey(param_dict, arg)
+            push!(new_args, param_dict[arg])
+        elseif arg isa Expr
+            push!(new_args, eval_with_context(arg, param_dict))
+        else
+            push!(new_args, arg)
+        end
+    end
+
+    # Create new expression with substituted values and evaluate
+    new_expr = Expr(expr.head, new_args...)
+    return eval(new_expr)
 end
 
 """
