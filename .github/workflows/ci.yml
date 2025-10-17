@@ -55,8 +55,8 @@ jobs:
       - name: Cache Julia artifacts
         uses: julia-actions/cache@v1
 
-      - name: Build package (ignore precompile warnings)
-        run: julia --project=. -e 'using Pkg; Pkg.build(verbose=true)' || true
+      - name: Remove Manifest for cross-version compatibility
+        run: rm -f Manifest.toml
 
       - name: Run tests
         uses: julia-actions/julia-runtest@v1
