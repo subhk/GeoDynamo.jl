@@ -71,12 +71,6 @@ jobs:
 
       - name: Run tests
         run: |
-          julia -e '
-            using Pkg
-            Pkg.activate(".")
-            using Test
-            using GeoDynamo
-            include("test/runtests.jl")
-          '
+          julia --project=. test/runtests.jl
         env:
           JULIA_NUM_THREADS: auto

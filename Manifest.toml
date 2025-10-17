@@ -257,7 +257,7 @@ uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
 
 [[deps.GeoDynamo]]
-deps = ["Dates", "FFTW", "HDF5", "JLD2", "LinearAlgebra", "MPI", "NCDatasets", "NetCDF", "OpenSSL_jll", "PencilArrays", "PencilFFTs", "Printf", "Random", "SHTnsKit", "SparseArrays", "Statistics"]
+deps = ["Dates", "FFTW", "HDF5", "JLD2", "LinearAlgebra", "MPI", "NCDatasets", "NetCDF", "OpenSSL_jll", "PencilArrays", "PencilFFTs", "Printf", "Random", "SHTnsKit", "SparseArrays", "StaticArrays", "Statistics"]
 path = "."
 uuid = "d9585174-0cde-43e1-8c7d-10e3f89dfe41"
 version = "1.0.0"
