@@ -255,8 +255,14 @@ function load_parameters_from_file(config_file::String)
     # Update parameters with loaded values
     for field in fieldnames(GeoDynamoParameters)
         if haskey(param_dict, field)
+            value = param_dict[field]
+            # Skip if the value is nothing (failed to evaluate)
+            if value === nothing
+                @debug "Skipping parameter $field with value nothing (using default)"
+                continue
+            end
             try
-                setfield!(params, field, param_dict[field])
+                setfield!(params, field, value)
             catch e
                 @warn "Could not set parameter $field: $e"
             end
