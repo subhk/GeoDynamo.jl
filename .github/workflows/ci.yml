@@ -59,13 +59,9 @@ jobs:
         shell: bash
         run: rm -f Manifest.toml
 
-      - name: Instantiate project
+      - name: Install dependencies
         run: |
-          julia --project -e 'using Pkg; Pkg.instantiate()'
-
-      - name: Build and verify package loads
-        run: |
-          julia --project -e 'using Pkg; Pkg.build(); using GeoDynamo; println("✓ GeoDynamo loaded successfully")'
+          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.resolve(); Pkg.status()'
 
       - name: Run tests
         env:
