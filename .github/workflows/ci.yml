@@ -55,13 +55,20 @@ jobs:
       # - name: Cache Julia artifacts
       #   uses: julia-actions/cache@v1
 
-      - name: Remove Manifests for clean state
+      - name: Build package
         run: |
-          julia -e 'isfile("Manifest.toml") && rm("Manifest.toml")'
-          julia -e 'isfile("test/Manifest.toml") && rm("test/Manifest.toml")'
-          julia -e 'isfile("test/Project.toml") && rm("test/Project.toml")'
+          julia --project -e '
+            using Pkg
+            Pkg.instantiate()
+            Pkg.build()
+          '
 
       - name: Run tests
-        uses: julia-actions/julia-runtest@v1
+        run: |
+          julia --project -e '
+            using Test
+            using GeoDynamo
+            include("test/runtests.jl")
+          '
         env:
           JULIA_NUM_THREADS: auto
