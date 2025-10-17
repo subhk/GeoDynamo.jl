@@ -52,16 +52,14 @@ jobs:
         with:
           version: ${{ matrix.julia-version }}
 
-      - name: Cache Julia artifacts
-        uses: julia-actions/cache@v1
+      # - name: Cache Julia artifacts
+      #   uses: julia-actions/cache@v1
 
       - name: Remove Manifest for cross-version compatibility
         run: julia -e 'isfile("Manifest.toml") && rm("Manifest.toml")'
 
-      - name: Build GeoDynamo
-        uses: julia-actions/julia-buildpkg@v1
-
-      - name: Run tests
-        uses: julia-actions/julia-runtest@v1
+      - name: Build and test package
+        run: |
+          julia --project=. -e 'using Pkg; Pkg.build(); Pkg.test()'
         env:
           JULIA_NUM_THREADS: auto
