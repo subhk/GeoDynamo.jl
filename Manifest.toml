@@ -2,7 +2,7 @@
 
 julia_version = "1.12.0"
 manifest_format = "2.0"
-project_hash = "4b57834c2c23a0de235b985fd86e5cfcad1c43b6"
+project_hash = "46019dc350f4333db3770a82415ad7d2534109b7"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -257,7 +257,7 @@ uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
 
 [[deps.GeoDynamo]]
-deps = ["Dates", "FFTW", "HDF5", "JLD2", "LinearAlgebra", "MPI", "NCDatasets", "NetCDF", "PencilArrays", "PencilFFTs", "Printf", "Random", "SHTnsKit", "SparseArrays", "StaticArrays", "Statistics"]
+deps = ["Dates", "FFTW", "HDF5", "JLD2", "LinearAlgebra", "MPI", "NCDatasets", "NetCDF", "OpenSSL_jll", "PencilArrays", "PencilFFTs", "Printf", "Random", "SHTnsKit", "SparseArrays", "Statistics"]
 path = "."
 uuid = "d9585174-0cde-43e1-8c7d-10e3f89dfe41"
 version = "1.0.0"
