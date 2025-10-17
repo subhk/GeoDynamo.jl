@@ -55,14 +55,13 @@ jobs:
       # - name: Cache Julia artifacts
       #   uses: julia-actions/cache@v1
 
-      - name: Remove Manifest for cross-version compatibility
-        run: julia -e 'isfile("Manifest.toml") && rm("Manifest.toml")'
-
-      - name: Instantiate package environment
-        run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
-
-      - name: Run tests directly
+      - name: Remove Manifests for clean state
         run: |
-          julia --project=. --check-bounds=yes test/runtests.jl
+          julia -e 'isfile("Manifest.toml") && rm("Manifest.toml")'
+          julia -e 'isfile("test/Manifest.toml") && rm("test/Manifest.toml")'
+          julia -e 'isfile("test/Project.toml") && rm("test/Project.toml")'
+
+      - name: Run tests
+        uses: julia-actions/julia-runtest@v1
         env:
           JULIA_NUM_THREADS: auto
