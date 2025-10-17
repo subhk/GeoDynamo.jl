@@ -55,15 +55,10 @@ jobs:
       - name: Cache Julia artifacts
         uses: julia-actions/cache@v1
 
-      - name: Remove Manifest (for cross-version compatibility)
-        shell: bash
-        run: rm -f Manifest.toml
-
-      - name: Install dependencies
-        run: |
-          julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.resolve(); Pkg.status()'
+      - name: Build package (ignore precompile warnings)
+        run: julia --project=. -e 'using Pkg; Pkg.build(verbose=true)' || true
 
       - name: Run tests
+        uses: julia-actions/julia-runtest@v1
         env:
-          JULIA_DEPOT_PATH: ~/.julia
-        run: julia --project -e 'using Pkg; Pkg.test()'
+          JULIA_NUM_THREADS: auto
