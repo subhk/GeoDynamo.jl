@@ -60,16 +60,18 @@ jobs:
           rm -f Manifest.toml
         shell: bash
 
-      - name: Build package
+      - name: Setup test environment
         run: |
-          julia --project=. -e '
+          julia -e '
             using Pkg
+            Pkg.activate("test_env")
+            Pkg.develop(PackageSpec(path=pwd()))
+            Pkg.add(["Test", "MPI", "Random"])
             Pkg.instantiate()
-            Pkg.build()
           '
 
       - name: Run tests
         run: |
-          julia --project=. --startup-file=no -e 'include("test/runtests.jl")'
+          julia --project=test_env -e 'include("test/runtests.jl")'
         env:
           JULIA_NUM_THREADS: auto
