@@ -4,6 +4,9 @@ using Pkg
 Pkg.activate(@__DIR__)
 Pkg.instantiate()
 
+# Add parent directory to load path to find GeoDynamo
+push!(LOAD_PATH, joinpath(@__DIR__, ".."))
+
 using Documenter
 using GeoDynamo
 
