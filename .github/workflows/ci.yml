@@ -55,6 +55,11 @@ jobs:
       # - name: Cache Julia artifacts
       #   uses: julia-actions/cache@v1
 
+      - name: Remove Manifest for cross-version compatibility
+        run: |
+          rm -f Manifest.toml
+        shell: bash
+
       - name: Build package
         run: |
           julia --project=@. -e '
