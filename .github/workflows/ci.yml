@@ -70,7 +70,6 @@ jobs:
 
       - name: Run tests
         run: |
-          julia --project=. --startup-file=no test/runtests.jl
+          julia --project=. --startup-file=no -e 'include("test/runtests.jl")'
         env:
           JULIA_NUM_THREADS: auto
-          JULIA_LOAD_PATH: "@:@stdlib"
