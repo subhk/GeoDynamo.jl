@@ -1,0 +1,5 @@
+[deps]
+GeoDynamo = "d9585174-0cde-43e1-8c7d-10e3f89dfe41"
+MPI = "da04e1cc-30fd-572f-bb4f-1f8673147195"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
