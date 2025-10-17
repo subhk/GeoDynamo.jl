@@ -60,15 +60,11 @@ jobs:
           rm -f Manifest.toml
         shell: bash
 
-      - name: Instantiate package dependencies only
-        run: |
-          julia --project=. --compiled-modules=no -e '
-            using Pkg
-            Pkg.instantiate()
-          '
-
       - name: Run tests
         run: |
-          julia --project=. --check-bounds=yes --compiled-modules=no test/runtests.jl
+          julia --project=. --check-bounds=yes --compiled-modules=no -e '
+            using Pkg
+            Pkg.test()
+          '
         env:
           JULIA_NUM_THREADS: auto
