@@ -36,7 +36,9 @@ jobs:
 
       - name: Remove Manifest (for cross-version compatibility)
         shell: bash
-        run: rm -f Manifest.toml
+        run: |
+          rm -f Manifest.toml
+          rm -f docs/Manifest.toml
 
       - name: Install package dependencies
         run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
