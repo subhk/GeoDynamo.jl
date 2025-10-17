@@ -60,6 +60,14 @@ jobs:
           rm -f Manifest.toml
         shell: bash
 
+      - name: Build package in its own environment
+        run: |
+          julia --project=. -e '
+            using Pkg
+            Pkg.instantiate()
+            Pkg.precompile()
+          '
+
       - name: Setup test environment
         run: |
           julia -e '
