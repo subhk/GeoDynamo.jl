@@ -56,7 +56,7 @@ jobs:
         uses: julia-actions/cache@v1
 
       - name: Remove Manifest for cross-version compatibility
-        run: rm -f Manifest.toml
+        run: julia -e 'isfile("Manifest.toml") && rm("Manifest.toml")'
 
       - name: Build GeoDynamo
         uses: julia-actions/julia-buildpkg@v1
