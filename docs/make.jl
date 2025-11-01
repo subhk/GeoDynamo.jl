@@ -39,5 +39,5 @@ deploydocs(
     repo = "github.com/subhk/GeoDynamo.jl.git",
     devbranch = "main",
     push_preview = true,
-    versions = ["stable" => "v^", "v#.#", "dev" => "main"],
+    versions = ["stable" => "main", "dev" => "main"],
 )
