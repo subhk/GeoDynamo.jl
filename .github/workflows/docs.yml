@@ -11,13 +11,8 @@ on:
 jobs:
   build:
     permissions:
-      contents: read
-      pages: write
-      id-token: write
+      contents: write
     runs-on: ubuntu-latest
-    concurrency:
-      group: docs
-      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -39,14 +34,3 @@ jobs:
           DOCUMENTER_DEBUG: true
           GKSwstype: 100
         run: julia --project=docs/ docs/make.jl
-
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v4
-
-      - name: Upload documentation artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/build
-
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v4
