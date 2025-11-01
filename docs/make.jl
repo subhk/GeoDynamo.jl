@@ -40,4 +40,5 @@ deploydocs(
     devbranch = "main",
     push_preview = true,
     versions = ["stable" => "main", "dev" => "main"],
+    deploy_config = Documenter.GitHubActions(),
 )
