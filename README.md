@@ -1,6 +1,6 @@
 # GeoDynamo.jl
 
-[![CI](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml)
+[![CI Status](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml?query=branch%3Amain)
 [![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://subhk.github.io/GeoDynamo.jl/stable/)
 [![Dev Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://subhk.github.io/GeoDynamo.jl/dev/)
 
@@ -60,6 +60,5 @@ This means your Manifest.toml was generated with a different Julia version than 
 ## Documentation
 
 The generated HTML is written to `docs/build/`.
-
 
 

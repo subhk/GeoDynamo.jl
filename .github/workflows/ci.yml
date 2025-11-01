@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        julia-version:
+          - '1.10'
+          - '1.11'
+          - '1.12'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia-version }}
+      - name: Install MPI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openmpi-bin libopenmpi-dev
+      - name: Cache Julia artifacts
+        uses: julia-actions/cache@v1
+        with:
+          cache-name: julia-artifacts-${{ matrix.julia-version }}
+      - name: Build package
+        uses: julia-actions/julia-buildpkg@v1
+      - name: Run CI tests
+        env:
+          JULIA_NUM_THREADS: auto
+        run: julia --color=yes --project=. scripts/run_ci_tests.jl
