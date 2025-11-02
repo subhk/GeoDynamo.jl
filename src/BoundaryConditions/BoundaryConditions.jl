@@ -28,7 +28,7 @@ using PencilFFTs
 using SHTnsKit
 using NCDatasets
 using LinearAlgebra
-using Statistics
+import Statistics
 using Base.Threads
 
 # ================================================================================
@@ -314,7 +314,7 @@ function shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
 
         # Set l=0, m=0 mode to mean value
         if length(coeffs) > 0
-            coeffs[1] = mean(physical_data)
+            coeffs[1] = Statistics.mean(physical_data)
         end
 
         return coeffs
