@@ -1576,26 +1576,113 @@ end
 
 function get_file_info(filename::String)
     nc_file = NetCDF.open(filename, NC_NOWRITE)
-    
+
     try
         info = Dict{String, Any}()
         info["rank"] = NetCDF.getatt(nc_file, NC_GLOBAL, "mpi_rank")
         info["time"] = NetCDF.readvar(nc_file, "time")[1]
         info["step"] = NetCDF.readvar(nc_file, "step")[1]
-        
+
         # Get dimensions
         info["dimensions"] = Dict{String, Int}()
         for (name, dim_id) in NetCDF.dimnames(nc_file)
             info["dimensions"][name] = NetCDF.dimlen(nc_file, dim_id)
         end
-        
+
         # Get variables
         info["variables"] = collect(keys(NetCDF.varnames(nc_file)))
-        
+
         return info
     finally
         NetCDF.close(nc_file)
     end
+end
+
+"""
+    verify_all_ranks_wrote(output_dir::String, time_val::Float64, nprocs::Int;
+                          file_type::String="output", tolerance::Float64=1e-6)
+
+Verify that all MPI ranks wrote their output files for a given time.
+
+Returns a tuple (success::Bool, missing_ranks::Vector{Int}, file_info::Dict)
+"""
+function verify_all_ranks_wrote(output_dir::String, time_val::Float64, nprocs::Int;
+                               file_type::String="output", tolerance::Float64=1e-6)
+    time_str = @sprintf("%.6f", time_val)
+    time_str = replace(time_str, "." => "p")
+
+    missing_ranks = Int[]
+    found_files = Dict{Int, String}()
+    file_sizes = Dict{Int, Float64}()
+
+    # Check each rank's file
+    for rank in 0:(nprocs-1)
+        # Try to find file with this rank and time
+        pattern = Regex("$(file_type).*rank_$(lpad(rank, 4, '0')).*time_$(time_str)")
+        files = readdir(output_dir)
+        matching = filter(f -> occursin(pattern, f), files)
+
+        if isempty(matching)
+            push!(missing_ranks, rank)
+        else
+            # Found file for this rank
+            filepath = joinpath(output_dir, matching[1])
+            found_files[rank] = filepath
+            file_sizes[rank] = filesize(filepath) / (1024*1024)  # MB
+        end
+    end
+
+    success = isempty(missing_ranks)
+
+    info = Dict{String, Any}(
+        "total_ranks" => nprocs,
+        "found_ranks" => length(found_files),
+        "missing_ranks" => missing_ranks,
+        "files" => found_files,
+        "file_sizes_MB" => file_sizes,
+        "time" => time_val
+    )
+
+    return (success, missing_ranks, info)
+end
+
+"""
+    print_output_verification_report(output_dir::String, times::Vector{Float64}, nprocs::Int)
+
+Print a comprehensive report verifying output files from all ranks across multiple times.
+"""
+function print_output_verification_report(output_dir::String, times::Vector{Float64}, nprocs::Int)
+    println("╔═══════════════════════════════════════════════════════════════╗")
+    println("║         OUTPUT FILE VERIFICATION REPORT                       ║")
+    println("╠═══════════════════════════════════════════════════════════════╣")
+    println("║ Output directory: $output_dir")
+    println("║ Expected ranks: $nprocs")
+    println("║ Time points to verify: $(length(times))")
+    println("╠═══════════════════════════════════════════════════════════════╣")
+
+    all_complete = true
+
+    for time_val in times
+        success, missing, info = verify_all_ranks_wrote(output_dir, time_val, nprocs)
+
+        if success
+            total_size = sum(values(info["file_sizes_MB"]))
+            println("║ ✓ t=$(round(time_val, digits=4)): All $nprocs ranks wrote files ($(round(total_size, digits=2)) MB total)")
+        else
+            all_complete = false
+            println("║ ✗ t=$(round(time_val, digits=4)): Missing $(length(missing)) ranks: $missing")
+        end
+    end
+
+    println("╠═══════════════════════════════════════════════════════════════╣")
+    if all_complete
+        println("║ RESULT: ✓ ALL VERIFICATIONS PASSED                           ║")
+    else
+        println("║ RESULT: ✗ SOME FILES MISSING - CHECK LOGS                    ║")
+    end
+    println("╚═══════════════════════════════════════════════════════════════╝")
+
+    return all_complete
 end
 
 
