@@ -5,6 +5,7 @@
 using MPI
 using Base.Threads
 using LinearAlgebra
+using Printf
 
 # Import geometry modules - safe to do even if they're not available
 try
@@ -17,6 +18,55 @@ try
     using .GeoDynamoShell
 catch e
     @debug "GeoDynamoShell not available: $e"
+end
+
+# ================================================================================
+# Banner Display
+# ================================================================================
+
+"""
+    print_geodynamo_banner(config, nprocs::Int, nthreads::Int)
+
+Print the GeoDynamo startup banner with configuration information.
+"""
+function print_geodynamo_banner(config, nprocs::Int, nthreads::Int)
+    println()
+    println("╔══════════════════════════════════════════════════════════════════════════╗")
+    println("║                                                                          ║")
+    println("║    ██████╗ ███████╗ ██████╗ ██████╗ ██╗   ██╗███╗   ██╗ █████╗ ███╗   ███╗ ██████╗    ║")
+    println("║   ██╔════╝ ██╔════╝██╔═══██╗██╔══██╗╚██╗ ██╔╝████╗  ██║██╔══██╗████╗ ████║██╔═══██╗   ║")
+    println("║   ██║  ███╗█████╗  ██║   ██║██║  ██║ ╚████╔╝ ██╔██╗ ██║███████║██╔████╔██║██║   ██║   ║")
+    println("║   ██║   ██║██╔══╝  ██║   ██║██║  ██║  ╚██╔╝  ██║╚██╗██║██╔══██║██║╚██╔╝██║██║   ██║   ║")
+    println("║   ╚██████╔╝███████╗╚██████╔╝██████╔╝   ██║   ██║ ╚████║██║  ██║██║ ╚═╝ ██║╚██████╔╝   ║")
+    println("║    ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝    ╚═╝   ╚═╝  ╚═══╝╚═╝  ╚═╝╚═╝     ╚═╝ ╚═════╝    ║")
+    println("║                                                                          ║")
+    println("║              High-Performance Geodynamo Simulation Framework             ║")
+    println("║                      Spectral Methods • MPI Parallel                     ║")
+    println("╠══════════════════════════════════════════════════════════════════════════╣")
+
+    # Configuration info
+    params = get_parameters()
+    geometry = string(params.geometry)
+
+    println("║ CONFIGURATION                                                            ║")
+    println("║   Geometry:        $(rpad(uppercase(geometry), 50)) ║")
+    println("║   Grid:            $(rpad("$(config.nlat) × $(config.nlon) × $(i_N)", 50)) ║")
+    println("║   Spectral modes:  $(rpad("$(config.nlm) (lmax=$(config.lmax), mmax=$(config.mmax))", 50)) ║")
+    println("║   Rayleigh:        $(rpad(@sprintf("%.2e", params.d_rayleigh), 50)) ║")
+    println("║   Prandtl:         $(rpad(@sprintf("%.2e", params.d_prandtl), 50)) ║")
+    println("║   Magnetic Prandtl:$(rpad(@sprintf("%.2e", params.d_magnetic_prandtl), 50)) ║")
+    println("╠══════════════════════════════════════════════════════════════════════════╣")
+    println("║ PARALLELIZATION                                                          ║")
+    println("║   MPI processes:   $(rpad(nprocs, 50)) ║")
+    println("║   Threads/process: $(rpad(nthreads, 50)) ║")
+    println("║   Total cores:     $(rpad(nprocs * nthreads, 50)) ║")
+    println("║   Optimization:    $(rpad("SIMD + NUMA + Task-based", 50)) ║")
+    println("╠══════════════════════════════════════════════════════════════════════════╣")
+    println("║ OUTPUT                                                                   ║")
+    println("║   Directory:       $(rpad(params.independent_output_files ? "./output (independent)" : "./output (coordinated)", 50)) ║")
+    println("║   Precision:       $(rpad(String(params.output_precision), 50)) ║")
+    println("╚══════════════════════════════════════════════════════════════════════════╝")
+    println()
 end
 
 """
@@ -519,14 +569,9 @@ function run_simulation!(state::SimulationState{T}) where T
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
-    
+
     if rank == 0
-        println("\nStarting MASTER geodynamo simulation...")
-        println("Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
-        println("Spectral modes: $(state.shtns_config.nlm) (lmax=$(state.shtns_config.lmax))")
-        println("Parallel configuration: $nprocs MPI × $(Threads.nthreads()) threads")
-        println("CPU parallelization level: COMPREHENSIVE (SIMD + NUMA + Task-based)")
-        println()
+        print_geodynamo_banner(state.shtns_config, nprocs, Threads.nthreads())
     end
     
     # Initialize fields with perturbations
