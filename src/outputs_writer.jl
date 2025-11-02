@@ -335,24 +335,26 @@ end
 # Filename Generation
 # ================================================================================
 
-function generate_filename(config::OutputConfig, time::Float64, step::Int, 
-                            rank::Int, file_type::String = "output")
-    time_str = @sprintf("%.6f", time)
-    time_str = replace(time_str, "." => "p")
-    # Add geometry tag from global parameters for clarity
+function generate_filename(config::OutputConfig, time::Float64, step::Int,
+                            rank::Int, file_type::String = "output", output_number::Int = 1)
+    # Get geometry tag directly (shell or ball)
     geom = try
         string(get_parameters().geometry)
     catch
         "shell"
     end
-    geom_tag = "geom_" * geom
-    
-    filename = if config.naming_scheme == RANK_TIME
-        "$(config.filename_prefix)_$(file_type)_$(geom_tag)_rank_$(lpad(rank, 4, '0'))_time_$(time_str).nc"
-    else  # TIME_RANK
-        "$(config.filename_prefix)_$(file_type)_$(geom_tag)_time_$(time_str)_rank_$(lpad(rank, 4, '0')).nc"
+
+    # Generate clean filename: geodynamo_shell_rank_0000_hist_1.nc
+    # Format: prefix_geometry_rank_XXXX_hist_N.nc
+    filename = if file_type == "output"
+        "$(config.filename_prefix)_$(geom)_rank_$(lpad(rank, 4, '0'))_hist_$(output_number).nc"
+    elseif file_type == "restart"
+        "$(config.filename_prefix)_$(geom)_rank_$(lpad(rank, 4, '0'))_restart_$(output_number).nc"
+    else
+        # For any other file type (future extensibility)
+        "$(config.filename_prefix)_$(geom)_rank_$(lpad(rank, 4, '0'))_$(file_type)_$(output_number).nc"
     end
-    
+
     return joinpath(config.output_dir, filename)
 end
 
@@ -818,15 +820,14 @@ function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
         return
     end
 
-    # Generate grid filename
+    # Generate grid filename: geodynamo_shell_grid.nc or geodynamo_ball_grid.nc
     geom = try
         string(get_parameters().geometry)
     catch
         "shell"
     end
-    geom_tag = "geom_" * geom
     grid_filename = joinpath(config.output_dir,
-                            "$(config.filename_prefix)_grid_$(geom_tag).nc")
+                            "$(config.filename_prefix)_$(geom)_grid.nc")
 
     # Remove existing grid file if overwrite is enabled
     if config.overwrite_files && isfile(grid_filename)
@@ -1171,8 +1172,9 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
             println("Time $(current_time): Writing mixed field output (coordinated)")
         end
 
-        # Generate filename
-        filename = generate_filename(config, current_time, current_step, rank, "output")
+        # Generate filename with sequential history number
+        output_number = tracker.output_count + 1
+        filename = generate_filename(config, current_time, current_step, rank, "output", output_number)
 
         # Track write timing for verification
         write_start_time = time()
@@ -1271,8 +1273,9 @@ function write_restart!(fields::Dict{String,Any}, tracker::TimeTracker,
     current_time = metadata["current_time"]
     current_step = metadata["current_step"]
     
-    # Generate restart filename
-    filename = generate_filename(config, current_time, current_step, rank, "restart")
+    # Generate restart filename with sequential number
+    restart_number = tracker.restart_count + 1
+    filename = generate_filename(config, current_time, current_step, rank, "restart", restart_number)
     println("Rank $rank: Writing restart $filename")
     
     # Extract field information
@@ -1599,26 +1602,24 @@ function get_file_info(filename::String)
 end
 
 """
-    verify_all_ranks_wrote(output_dir::String, time_val::Float64, nprocs::Int;
-                          file_type::String="output", tolerance::Float64=1e-6)
+    verify_all_ranks_wrote(output_dir::String, hist_number::Int, nprocs::Int;
+                          file_type::String="hist", geometry::String="shell")
 
-Verify that all MPI ranks wrote their output files for a given time.
+Verify that all MPI ranks wrote their output files for a given history number.
 
 Returns a tuple (success::Bool, missing_ranks::Vector{Int}, file_info::Dict)
 """
-function verify_all_ranks_wrote(output_dir::String, time_val::Float64, nprocs::Int;
-                               file_type::String="output", tolerance::Float64=1e-6)
-    time_str = @sprintf("%.6f", time_val)
-    time_str = replace(time_str, "." => "p")
-
+function verify_all_ranks_wrote(output_dir::String, hist_number::Int, nprocs::Int;
+                               file_type::String="hist", geometry::String="shell")
     missing_ranks = Int[]
     found_files = Dict{Int, String}()
     file_sizes = Dict{Int, Float64}()
 
     # Check each rank's file
     for rank in 0:(nprocs-1)
-        # Try to find file with this rank and time
-        pattern = Regex("$(file_type).*rank_$(lpad(rank, 4, '0')).*time_$(time_str)")
+        # Try to find file with this rank and history number
+        # Pattern: geodynamo_shell_rank_0000_hist_1.nc or geodynamo_ball_rank_0000_hist_1.nc
+        pattern = Regex("$(geometry)_rank_$(lpad(rank, 4, '0'))_$(file_type)_$(hist_number)\\.nc")
         files = readdir(output_dir)
         matching = filter(f -> occursin(pattern, f), files)
 
@@ -1640,37 +1641,40 @@ function verify_all_ranks_wrote(output_dir::String, time_val::Float64, nprocs::I
         "missing_ranks" => missing_ranks,
         "files" => found_files,
         "file_sizes_MB" => file_sizes,
-        "time" => time_val
+        "hist_number" => hist_number
     )
 
     return (success, missing_ranks, info)
 end
 
 """
-    print_output_verification_report(output_dir::String, times::Vector{Float64}, nprocs::Int)
+    print_output_verification_report(output_dir::String, hist_numbers::Vector{Int}, nprocs::Int;
+                                    geometry::String="shell")
 
-Print a comprehensive report verifying output files from all ranks across multiple times.
+Print a comprehensive report verifying output files from all ranks across multiple history snapshots.
 """
-function print_output_verification_report(output_dir::String, times::Vector{Float64}, nprocs::Int)
+function print_output_verification_report(output_dir::String, hist_numbers::Vector{Int}, nprocs::Int;
+                                        geometry::String="shell")
     println("╔═══════════════════════════════════════════════════════════════╗")
     println("║         OUTPUT FILE VERIFICATION REPORT                       ║")
     println("╠═══════════════════════════════════════════════════════════════╣")
     println("║ Output directory: $output_dir")
+    println("║ Geometry: $geometry")
     println("║ Expected ranks: $nprocs")
-    println("║ Time points to verify: $(length(times))")
+    println("║ History snapshots to verify: $(length(hist_numbers))")
     println("╠═══════════════════════════════════════════════════════════════╣")
 
     all_complete = true
 
-    for time_val in times
-        success, missing, info = verify_all_ranks_wrote(output_dir, time_val, nprocs)
+    for hist_num in hist_numbers
+        success, missing, info = verify_all_ranks_wrote(output_dir, hist_num, nprocs; geometry=geometry)
 
         if success
             total_size = sum(values(info["file_sizes_MB"]))
-            println("║ ✓ t=$(round(time_val, digits=4)): All $nprocs ranks wrote files ($(round(total_size, digits=2)) MB total)")
+            println("║ ✓ hist_$(hist_num): All $nprocs ranks wrote files ($(round(total_size, digits=2)) MB total)")
         else
             all_complete = false
-            println("║ ✗ t=$(round(time_val, digits=4)): Missing $(length(missing)) ranks: $missing")
+            println("║ ✗ hist_$(hist_num): Missing $(length(missing)) ranks: $missing")
         end
     end
 
