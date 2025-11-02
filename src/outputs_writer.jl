@@ -1126,16 +1126,26 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
     
     # Ensure output directory exists for each rank
     if config.independent_writes
-        dir_existed = isdir(config.output_dir)
-        mkpath(config.output_dir)
-        if rank == 0 && !dir_existed
-            println("Created output directory: $(config.output_dir)")
+        # Each rank independently ensures directory exists (thread-safe)
+        try
+            dir_existed = isdir(config.output_dir)
+            mkpath(config.output_dir)
+            if !dir_existed
+                println("Rank $rank: Created output directory: $(config.output_dir)")
+            end
+        catch e
+            @warn "Rank $rank: Error creating output directory" exception=e
+            # Directory might have been created by another rank - verify it exists
+            if !isdir(config.output_dir)
+                error("Rank $rank: Failed to create output directory: $(config.output_dir)")
+            end
         end
     else
+        # Coordinated directory creation with barrier
         dir_existed = isdir(config.output_dir)
         if rank == 0 && !dir_existed
             mkpath(config.output_dir)
-            println("Created output directory: $(config.output_dir)")
+            println("Rank 0: Created output directory: $(config.output_dir)")
         end
         MPI.Barrier(comm)
     end
@@ -1155,43 +1165,64 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
 
     # Regular output
     if should_output
-        if rank == 0 && !config.independent_writes
-            println("Time $(current_time): Writing mixed field output")
+        if config.independent_writes
+            println("Rank $rank: INDEPENDENT write at t=$(round(current_time, digits=6))")
+        elseif rank == 0
+            println("Time $(current_time): Writing mixed field output (coordinated)")
         end
 
         # Generate filename
         filename = generate_filename(config, current_time, current_step, rank, "output")
-        println("Rank $rank: Writing $filename")
-        
-        # Compute diagnostics
-        diagnostics = compute_diagnostics(fields, field_info)
-        diagnostics["output_time"] = current_time
-        diagnostics["output_number"] = tracker.output_count + 1
-        
-        # Create NetCDF file
-        nc_file = create_netcdf_file(filename, config, field_info, metadata)
-        
+
+        # Track write timing for verification
+        write_start_time = time()
+
         try
-            # Setup file structure
-            setup_coordinates!(nc_file, field_info, config)
-            
-            available_fields = collect(keys(fields))
-            setup_field_variables!(nc_file, field_info, config, available_fields)
-            setup_diagnostics!(nc_file, diagnostics, config)
-            
-            # End definition mode
-            NetCDF.endDef(nc_file)
-            
-            # Write all data
-            write_coordinates!(nc_file, field_info, config)
-            write_field_data!(nc_file, fields, config)
-            write_time_data!(nc_file, current_time, current_step, tracker.output_count + 1, config)
-            write_diagnostics!(nc_file, diagnostics, config)
-            
-            println("Rank $rank: Successfully wrote output at time $current_time")
-            
-        finally
-            NetCDF.close(nc_file)
+            println("Rank $rank: Opening file $filename")
+
+            # Compute diagnostics
+            diagnostics = compute_diagnostics(fields, field_info)
+            diagnostics["output_time"] = current_time
+            diagnostics["output_number"] = tracker.output_count + 1
+            diagnostics["write_timestamp"] = write_start_time
+
+            # Create NetCDF file
+            nc_file = create_netcdf_file(filename, config, field_info, metadata)
+
+            try
+                # Setup file structure
+                setup_coordinates!(nc_file, field_info, config)
+
+                available_fields = collect(keys(fields))
+                setup_field_variables!(nc_file, field_info, config, available_fields)
+                setup_diagnostics!(nc_file, diagnostics, config)
+
+                # End definition mode
+                NetCDF.endDef(nc_file)
+
+                # Write all data
+                write_coordinates!(nc_file, field_info, config)
+                write_field_data!(nc_file, fields, config)
+                write_time_data!(nc_file, current_time, current_step, tracker.output_count + 1, config)
+                write_diagnostics!(nc_file, diagnostics, config)
+
+            finally
+                NetCDF.close(nc_file)
+            end
+
+            # Verify file was written successfully
+            write_duration = time() - write_start_time
+            if isfile(filename)
+                file_size = filesize(filename) / (1024*1024)  # MB
+                println("Rank $rank: ✓ Successfully wrote $(basename(filename)) " *
+                       "($(round(file_size, digits=2)) MB in $(round(write_duration, digits=2))s)")
+            else
+                error("Rank $rank: File was not created: $filename")
+            end
+
+        catch e
+            @error "Rank $rank: Failed to write output file" exception=e filename=filename
+            rethrow(e)
         end
     end
     
