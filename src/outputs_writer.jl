@@ -1233,12 +1233,28 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
     
     # Update tracker
     update_tracker!(tracker, current_time, config, should_output, should_restart)
-    
+
     if !config.independent_writes
         MPI.Barrier(comm)
         if rank == 0 && should_output
             println("All ranks completed output at time $current_time")
             println("Next output: $(tracker.next_output_time)")
+        end
+    else
+        # For independent writes, optionally verify all ranks completed
+        if should_output && config.include_metadata
+            write_success = 1  # 1 = success
+            all_success = MPI.Allreduce(write_success, MPI.SUM, comm)
+            expected_success = MPI.Comm_size(comm)
+
+            if rank == 0
+                if all_success == expected_success
+                    println("✓ All $expected_success ranks independently wrote output at t=$(round(current_time, digits=6))")
+                    println("  Next output: $(round(tracker.next_output_time, digits=6))")
+                else
+                    @warn "Only $all_success/$expected_success ranks reported successful writes"
+                end
+            end
         end
     end
 
