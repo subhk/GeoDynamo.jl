@@ -22,14 +22,18 @@
 
 module BoundaryConditions
 
+# Import packages from parent GeoDynamo module scope
 using MPI
 using PencilArrays
 using PencilFFTs
 using SHTnsKit
 using NCDatasets
 using LinearAlgebra
-import Statistics
 using Base.Threads
+
+# For Julia 1.10 compatibility: Access Statistics from the global scope
+# rather than importing it, since this is a submodule
+const _Statistics = Main.Base.Statistics
 
 # ================================================================================
 # Core Boundary Condition Types and Interfaces
@@ -314,7 +318,7 @@ function shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
 
         # Set l=0, m=0 mode to mean value
         if length(coeffs) > 0
-            coeffs[1] = Statistics.mean(physical_data)
+            coeffs[1] = _Statistics.mean(physical_data)
         end
 
         return coeffs
