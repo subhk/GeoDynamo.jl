@@ -1065,12 +1065,6 @@ function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
 end
 
 """
-    compute_phi2_function(A, expA)
-
-Compute φ2(A) = (exp(A) - I - A) / A² efficiently with comprehensive error handling.
-Uses series expansion for small ||A|| to avoid numerical issues.
-"""
-"""
     Phi2ConditioningMonitor
 
 Global structure for monitoring φ₂ function conditioning during ERK2 integration.
@@ -1133,6 +1127,13 @@ function report_phi2_conditioning(step::Int; interval::Int=100)
     end
 end
 
+"""
+    compute_phi2_function(A, expA; l=0)
+
+Compute φ2(A) = (exp(A) - I - A) / A² efficiently with comprehensive error handling.
+Uses series expansion for small ||A|| to avoid numerical issues.
+Tracks conditioning statistics when monitoring is enabled.
+"""
 function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) where T
     nr = size(A, 1)
     I_mat = Matrix{T}(I, nr, nr)
