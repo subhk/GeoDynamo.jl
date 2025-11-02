@@ -2,8 +2,8 @@
 # Programmatic Boundary Condition Generation
 # ================================================================================
 
-using LinearAlgebra
-using Statistics
+# Note: This file is included within the BoundaryConditions module
+# All necessary packages are imported at the module level
 
 """
     create_programmatic_boundary(pattern::Symbol, config, amplitude::Real=1.0;

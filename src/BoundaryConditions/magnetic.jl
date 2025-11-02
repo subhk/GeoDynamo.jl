@@ -2,10 +2,8 @@
 # Magnetic Field Boundary Conditions
 # ================================================================================
 
-using SHTnsKit
-using PencilArrays
-using PencilFFTs
-using Statistics
+# Note: This file is included within the BoundaryConditions module
+# All necessary packages are imported at the module level
 
 """
     load_magnetic_boundary_conditions!(magnetic_field, boundary_specs::Dict)

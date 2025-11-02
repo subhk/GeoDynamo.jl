@@ -2,8 +2,8 @@
 # Grid Interpolation Utilities for Boundary Conditions
 # ================================================================================
 
-using LinearAlgebra
-using Statistics
+# Note: This file is included within the BoundaryConditions module
+# All necessary packages are imported at the module level
 
 """
     interpolate_boundary_to_grid(boundary_data::BoundaryData, target_theta::Vector{T}, 

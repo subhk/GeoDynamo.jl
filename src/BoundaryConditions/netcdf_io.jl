@@ -2,8 +2,8 @@
 # NetCDF I/O Functionality for Boundary Conditions
 # ================================================================================
 
-using NCDatasets
-using Statistics
+# Note: This file is included within the BoundaryConditions module
+# All necessary packages are imported at the module level
 
 """
     read_netcdf_boundary_data(filename::String; precision::Type{T}=Float64) where T
