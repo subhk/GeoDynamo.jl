@@ -277,15 +277,45 @@ function apply_temperature_boundary_conditions!(temp_field, time_index::Int=1)
     # Transform to spectral space using SHTnsKit
     inner_spectral = shtns_physical_to_spectral(inner_physical, temp_field.config)
     outer_spectral = shtns_physical_to_spectral(outer_physical, temp_field.config)
-    
+
     # Apply to boundary arrays
     temp_field.boundary_values[1, :] = inner_spectral  # Inner boundary
     temp_field.boundary_values[2, :] = outer_spectral  # Outer boundary
-    
+
+    # Set boundary condition types based on boundary specifications
+    # Default to Dirichlet (fixed temperature), but check for flux BCs
+    inner_bc_type = infer_temperature_bc_type(boundary_set.inner_boundary)
+    outer_bc_type = infer_temperature_bc_type(boundary_set.outer_boundary)
+
+    fill!(temp_field.bc_type_inner, inner_bc_type)
+    fill!(temp_field.bc_type_outer, outer_bc_type)
+
     # Update time index
     update_temperature_time_index!(temp_field, time_index)
-    
+
     return temp_field
+end
+
+"""
+    infer_temperature_bc_type(boundary::BoundaryData)
+
+Infer boundary condition type (Dirichlet or Neumann) from boundary metadata.
+
+Checks the description field for keywords:
+- "flux", "neumann", "heat flux" → NEUMANN (∂T/∂r specified)
+- Otherwise → DIRICHLET (T specified)
+"""
+function infer_temperature_bc_type(boundary::BoundaryData)
+    desc = lowercase(boundary.description)
+
+    # Check for flux/Neumann BC indicators
+    if occursin("flux", desc) || occursin("neumann", desc) ||
+       occursin("heat flux", desc) || occursin("gradient", desc)
+        return Int(NEUMANN)
+    else
+        # Default to Dirichlet (fixed temperature)
+        return Int(DIRICHLET)
+    end
 end
 
 """
@@ -620,7 +650,119 @@ function apply_temperature_boundaries!(temp_field, boundary_set::BoundaryConditi
     return temp_field
 end
 
+"""
+    enforce_temperature_boundary_constraints!(temp_field, bc_spec::Dict)
+
+Enforce specific temperature boundary constraints based on user specification.
+
+# Arguments
+- `temp_field`: Temperature field structure
+- `bc_spec`: Dictionary specifying boundary condition types
+
+# BC Specification Format
+```julia
+bc_spec = Dict(
+    :inner => :dirichlet,  # or :neumann, :flux
+    :outer => :dirichlet,  # or :neumann, :flux
+    :inner_value => 1000.0,  # for Dirichlet
+    :outer_value => 300.0,   # for Dirichlet
+    :inner_flux => 0.1,      # for Neumann (∂T/∂r)
+    :outer_flux => 0.0       # for Neumann (∂T/∂r)
+)
+```
+
+# Boundary Condition Types
+- `:dirichlet` - Fixed temperature: T = T₀ at boundary
+- `:neumann` or `:flux` - Fixed heat flux: ∂T/∂r = q at boundary
+- `:mixed` - Mixed/Robin: α T + β ∂T/∂r = γ (future)
+
+# Physical Interpretation
+- **Dirichlet (Fixed T)**: Typical for prescribed temperature boundaries
+  * Inner (CMB): Fixed temperature from core evolution
+  * Outer (surface): Fixed temperature from atmospheric coupling
+
+- **Neumann (Fixed flux)**: Typical for heat flux boundaries
+  * Inner: Uniform heating from below (∂T/∂r = q)
+  * Outer: Zero flux (insulated, ∂T/∂r = 0)
+
+# Examples
+```julia
+# Fixed temperature at both boundaries
+enforce_temperature_boundary_constraints!(temp_field, Dict(
+    :inner => :dirichlet, :inner_value => 1000.0,
+    :outer => :dirichlet, :outer_value => 300.0
+))
+
+# Uniform heating from below, insulated top
+enforce_temperature_boundary_constraints!(temp_field, Dict(
+    :inner => :flux, :inner_flux => 0.1,
+    :outer => :flux, :outer_flux => 0.0
+))
+```
+"""
+function enforce_temperature_boundary_constraints!(temp_field, bc_spec::Dict)
+
+    # Process inner boundary
+    inner_type = get(bc_spec, :inner, :dirichlet)
+    if inner_type == :dirichlet
+        # Fixed temperature - keep as Dirichlet (already set)
+        fill!(temp_field.bc_type_inner, Int(DIRICHLET))
+
+        # Set boundary value if provided
+        if haskey(bc_spec, :inner_value)
+            inner_val = bc_spec[:inner_value]
+            # Set uniform value in l=0,m=0 mode (spherically symmetric)
+            temp_field.boundary_values[1, 1] = inner_val
+            # Zero out other modes for uniform BC
+            temp_field.boundary_values[1, 2:end] .= 0.0
+        end
+
+    elseif inner_type == :neumann || inner_type == :flux
+        # Fixed heat flux - use Neumann BC
+        fill!(temp_field.bc_type_inner, Int(NEUMANN))
+
+        # Set flux value if provided
+        if haskey(bc_spec, :inner_flux)
+            flux_val = bc_spec[:inner_flux]
+            # Flux is stored in boundary_values for Neumann BCs
+            # For uniform flux: set l=0,m=0 mode to flux value
+            temp_field.boundary_values[1, 1] = flux_val
+            temp_field.boundary_values[1, 2:end] .= 0.0
+        end
+
+    else
+        throw(ArgumentError("Unknown inner boundary type: $inner_type. Use :dirichlet or :neumann/:flux"))
+    end
+
+    # Process outer boundary
+    outer_type = get(bc_spec, :outer, :dirichlet)
+    if outer_type == :dirichlet
+        fill!(temp_field.bc_type_outer, Int(DIRICHLET))
+
+        if haskey(bc_spec, :outer_value)
+            outer_val = bc_spec[:outer_value]
+            temp_field.boundary_values[2, 1] = outer_val
+            temp_field.boundary_values[2, 2:end] .= 0.0
+        end
+
+    elseif outer_type == :neumann || outer_type == :flux
+        fill!(temp_field.bc_type_outer, Int(NEUMANN))
+
+        if haskey(bc_spec, :outer_flux)
+            flux_val = bc_spec[:outer_flux]
+            temp_field.boundary_values[2, 1] = flux_val
+            temp_field.boundary_values[2, 2:end] .= 0.0
+        end
+
+    else
+        throw(ArgumentError("Unknown outer boundary type: $outer_type. Use :dirichlet or :neumann/:flux"))
+    end
+
+    return temp_field
+end
+
 export load_temperature_boundary_conditions!, set_programmatic_temperature_boundaries!
 export update_time_dependent_temperature_boundaries!, get_current_temperature_boundaries
 export validate_temperature_boundary_files, create_layered_temperature_boundary
-export apply_temperature_boundaries!
+export apply_temperature_boundaries!, enforce_temperature_boundary_constraints!
+export infer_temperature_bc_type

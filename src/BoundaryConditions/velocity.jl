@@ -244,23 +244,25 @@ function create_programmatic_velocity_boundary(pattern::Symbol, config, amplitud
         
     elseif pattern == :stress_free
         # Stress-free boundary conditions:
-        # v_r = 0 (no penetration)
-        # ∂v_θ/∂r - v_θ/r = 0 (zero tangential stress)
-        # ∂v_φ/∂r - v_φ/r = 0 (zero tangential stress)
+        # v_r = 0 (no penetration) - Dirichlet BC
+        # ∂v_θ/∂r - v_θ/r = 0 (zero tangential stress) - Neumann BC
+        # ∂v_φ/∂r - v_φ/r = 0 (zero tangential stress) - Neumann BC
         #
-        # For a stress-free boundary, only radial velocity is constrained to zero
-        # Tangential components are free to slip
+        # For a stress-free boundary:
+        # - Radial component is constrained to zero (Dirichlet)
+        # - Tangential components satisfy Neumann conditions (zero tangential stress)
+        #
+        # Note: The tangential velocity values set here are placeholders and will NOT
+        # be enforced as Dirichlet BCs. Only the radial component v_r=0 is enforced.
+        # The tangential components are determined by the Neumann BC during solving.
         for (i, θ) in enumerate(theta)
             for (j, φ) in enumerate(phi)
-                values[i, j, 1] = 0.0  # v_r = 0 (no penetration)
-                # v_θ and v_φ are unconstrained (set to zero initially)
-                # The actual values will be determined by the stress-free condition
-                # during the solution process
-                values[i, j, 2] = 0.0  # v_θ (will be determined by solver)
-                values[i, j, 3] = 0.0  # v_φ (will be determined by solver)
+                values[i, j, 1] = 0.0  # v_r = 0 (Dirichlet BC - enforced)
+                values[i, j, 2] = 0.0  # v_θ (placeholder - Neumann BC will be used)
+                values[i, j, 3] = 0.0  # v_φ (placeholder - Neumann BC will be used)
             end
         end
-        description = "Stress-free boundary condition (no penetration, zero tangential stress)"
+        description = "Stress-free boundary condition (v_r=0 Dirichlet, tangential Neumann)"
         
     elseif pattern == :uniform_rotation
         # Uniform rotation with angular velocity = amplitude
@@ -432,16 +434,59 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
     velocity_field.toroidal.boundary_values[2, :] .= outer_T  # Outer boundary (toroidal component)
 
     # Update boundary condition type metadata based on pattern descriptions
-    inner_bc_type = infer_velocity_bc_type(boundary_set.inner_boundary)
-    outer_bc_type = infer_velocity_bc_type(boundary_set.outer_boundary)
+    # For stress-free: radial (poloidal/Q) is Dirichlet, tangential (toroidal/T) is Neumann
+    # For no-slip: both radial and tangential are Dirichlet
+    inner_desc = lowercase(boundary_set.inner_boundary.description)
+    outer_desc = lowercase(boundary_set.outer_boundary.description)
 
-    fill!(velocity_field.toroidal.bc_type_inner, inner_bc_type)
-    fill!(velocity_field.toroidal.bc_type_outer, outer_bc_type)
-    fill!(velocity_field.poloidal.bc_type_inner, inner_bc_type)
-    fill!(velocity_field.poloidal.bc_type_outer, outer_bc_type)
+    # Set BC types for poloidal (radial) component
+    if occursin("stress-free", inner_desc) || occursin("stress free", inner_desc)
+        fill!(velocity_field.poloidal.bc_type_inner, Int(DIRICHLET))  # v_r = 0 (Dirichlet)
+        fill!(velocity_field.toroidal.bc_type_inner, Int(NEUMANN))     # ∂v_tangential/∂r (Neumann)
+    else
+        inner_bc_type = infer_velocity_bc_type(boundary_set.inner_boundary)
+        fill!(velocity_field.poloidal.bc_type_inner, inner_bc_type)
+        fill!(velocity_field.toroidal.bc_type_inner, inner_bc_type)
+    end
 
-    # S component (tangential spheroidal) - would need separate field if fully implemented
-    # For now, this is handled implicitly in the T component or would need field restructure
+    if occursin("stress-free", outer_desc) || occursin("stress free", outer_desc)
+        fill!(velocity_field.poloidal.bc_type_outer, Int(DIRICHLET))  # v_r = 0 (Dirichlet)
+        fill!(velocity_field.toroidal.bc_type_outer, Int(NEUMANN))     # ∂v_tangential/∂r (Neumann)
+    else
+        outer_bc_type = infer_velocity_bc_type(boundary_set.outer_boundary)
+        fill!(velocity_field.poloidal.bc_type_outer, outer_bc_type)
+        fill!(velocity_field.toroidal.bc_type_outer, outer_bc_type)
+    end
+
+    # S component (tangential spheroidal/curl-free) handling:
+    #
+    # For INCOMPRESSIBLE (solenoidal) flows where ∇·v = 0:
+    # - The S component should be zero (or negligible) since solenoidal fields have no curl-free part
+    # - The current field structure (toroidal + poloidal) is sufficient for solenoidal fields
+    # - "poloidal" actually stores Q (radial), "toroidal" stores T (tangential divergence-free)
+    #
+    # For COMPRESSIBLE flows:
+    # - Would need a separate spheroidal field component to store S
+    # - Currently NOT implemented - code assumes incompressible flow
+    #
+    # Check S component magnitude to verify solenoidal assumption:
+    S_norm_inner = sqrt(sum(abs2, inner_S))
+    S_norm_outer = sqrt(sum(abs2, outer_S))
+    T_norm_inner = sqrt(sum(abs2, inner_T))
+    T_norm_outer = sqrt(sum(abs2, outer_T))
+
+    if (S_norm_inner > 0.01 * T_norm_inner || S_norm_outer > 0.01 * T_norm_outer) && get_rank() == 0
+        @warn """
+        Non-negligible spheroidal (S) component detected in velocity boundary conditions!
+        S_inner/T_inner = $(S_norm_inner/max(T_norm_inner, 1e-10))
+        S_outer/T_outer = $(S_norm_outer/max(T_norm_outer, 1e-10))
+
+        This suggests the boundary conditions may not be solenoidal (∇·v ≠ 0).
+        The current implementation assumes incompressible flow and IGNORES the S component.
+
+        For compressible flows, the code would need to be extended to include a spheroidal field.
+        """
+    end
     
     # Update time index
     velocity_field.boundary_time_index[] = time_index
@@ -635,30 +680,57 @@ function velocity_to_qst_coefficients(v_r, v_theta, v_phi, config)
         # Use SHTnsKit's proper spheroidal-toroidal decomposition
         S_matrix, T_matrix = SHTnsKit.spat_to_SHsphtor(shtconfig, v_theta, v_phi)
 
-        # Convert matrices to coefficient vectors (assuming lm-indexing)
-        nlm = SHTnsKit.get_num_modes(config.lmax)
+        # Convert matrices to coefficient vectors using proper lm-indexing
+        # The indexing must match the convention used elsewhere in the code
+        nlm = config.nlm
         S_coeffs = zeros(config.T, nlm)
         T_coeffs = zeros(config.T, nlm)
 
-        # Extract coefficients (simplified - proper implementation would handle lm indexing)
-        idx = 1
+        # Extract coefficients following the same lm-indexing as the main simulation
+        # Typically: idx increases as we loop over l, then m (with appropriate m range)
+        idx = 0
         for l in 0:config.lmax
-            for m in 0:min(l, size(S_matrix,2)-1)
-                if idx <= nlm
-                    S_coeffs[idx] = S_matrix[l+1, m+1]
-                    T_coeffs[idx] = T_matrix[l+1, m+1]
-                    idx += 1
+            # Determine the m range for this l
+            # For complex harmonics: m from -min(l,mmax) to +min(l,mmax)
+            # For real harmonics stored efficiently: m from 0 to min(l,mmax)
+            m_max = min(l, config.mmax)
+
+            for m in 0:m_max
+                idx += 1
+                if idx <= nlm && (l+1) <= size(S_matrix, 1) && (m+1) <= size(S_matrix, 2)
+                    # SHTnsKit matrices are typically (lmax+1) × (mmax+1) in size
+                    # Extract real part for consistency (boundary conditions are typically real)
+                    S_coeffs[idx] = real(S_matrix[l+1, m+1])
+                    T_coeffs[idx] = real(T_matrix[l+1, m+1])
+                elseif idx <= nlm
+                    # If matrix is smaller than expected, zero-pad
+                    S_coeffs[idx] = zero(config.T)
+                    T_coeffs[idx] = zero(config.T)
                 end
             end
         end
 
-    catch e
-        @warn "Failed to use SHTnsKit spheroidal-toroidal decomposition: $e"
-        @warn "Falling back to simplified scalar transforms"
+        # Verify we processed the expected number of modes
+        if idx != nlm && get_rank() == 0
+            @warn "QST extraction: processed $idx modes but nlm=$(nlm). Check lm-indexing consistency."
+        end
 
-        # Fallback: treat components as separate scalar fields
-        S_coeffs = shtns_physical_to_spectral(v_theta, config)
-        T_coeffs = shtns_physical_to_spectral(v_phi, config)
+    catch e
+        error_msg = """
+        Failed to perform proper spheroidal-toroidal decomposition of velocity field.
+        Error: $e
+
+        The QST decomposition is mathematically required for correct velocity boundary conditions.
+        Treating velocity components as independent scalar fields (the old fallback) is incorrect
+        because it ignores the coupling between v_θ and v_φ in spherical coordinates.
+
+        Possible solutions:
+        1. Check that SHTnsKit.spat_to_SHsphtor is properly installed and configured
+        2. Verify that the grid dimensions (nlat=$(size(v_theta,1)), nlon=$(size(v_theta,2)))
+           are compatible with lmax=$(config.lmax)
+        3. Ensure the SHTnsKit configuration is properly initialized
+        """
+        throw(ErrorException(error_msg))
     end
 
     return Q_coeffs, S_coeffs, T_coeffs
@@ -670,76 +742,75 @@ end
     enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=:no_slip)
 
 Enforce specific velocity boundary constraints based on boundary condition type.
-Uses proper QST (Q-spheroidal-toroidal) decomposition from SHTnsKit.
+
+NOTE: This function is for programmatically setting boundary constraints.
+For boundary conditions loaded from files or other sources, use
+load_velocity_boundary_conditions!() instead.
 
 # Arguments
-- `velocity_field`: Velocity field structure with QST components
-- `bc_type`: Type of boundary condition (:no_slip, :stress_free, :custom)
+- `velocity_field`: Velocity field structure with toroidal and poloidal components
+- `bc_type`: Type of boundary condition (:no_slip, :stress_free, :impermeable)
 
-# Boundary Condition Mapping:
-- No-slip: v_r = v_θ = v_φ = 0 → Q = S = T = 0 at boundaries
-- Stress-free: v_r = 0, tangential stress = 0 → Q = 0, ∂S/∂r = ∂T/∂r = 0
-- Impermeable: v_r = 0 → Q = 0 at boundaries (S, T unconstrained)
+# Boundary Condition Mapping (for solenoidal/incompressible flows):
+- No-slip: v_r = v_θ = v_φ = 0 → Q = T = 0 at boundaries (Dirichlet)
+- Stress-free: v_r = 0 (Dirichlet), tangential stress = 0 → Q = 0 (Dirichlet), ∂T/∂r = 0 (Neumann)
+- Impermeable: v_r = 0 → Q = 0 at boundaries (Dirichlet), T unconstrained
+
+# Field naming convention:
+- velocity_field.poloidal actually stores Q (radial component)
+- velocity_field.toroidal actually stores T (tangential toroidal component)
+- S component (spheroidal) is zero for solenoidal flows
 """
 function enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=:no_slip)
 
-    # Map traditional names to QST components:
-    # velocity_field.radial → Q component (was "poloidal" but is actually radial)
-    # velocity_field.toroidal → T component (tangential toroidal)
-    # velocity_field.spheroidal → S component (tangential spheroidal, if exists)
-
     if bc_type == :no_slip
         # No-slip: all velocity components = 0 at boundaries
-        # In QST terms: Q = S = T = 0 at boundaries
+        # Q = T = 0 with Dirichlet BCs
 
-        # Q component (radial): set to zero
         if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
-            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0 (actually radial)
+            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0 (radial)
+            fill!(velocity_field.poloidal.bc_type_inner, Int(DIRICHLET))
+            fill!(velocity_field.poloidal.bc_type_outer, Int(DIRICHLET))
         end
 
-        # T component (toroidal): set to zero
         if hasfield(typeof(velocity_field), :toroidal) && hasfield(typeof(velocity_field.toroidal), :boundary_values)
-            fill!(velocity_field.toroidal.boundary_values, 0.0)  # T = 0
-        end
-
-        # S component (spheroidal): set to zero if it exists
-        if hasfield(typeof(velocity_field), :spheroidal) && hasfield(typeof(velocity_field.spheroidal), :boundary_values)
-            fill!(velocity_field.spheroidal.boundary_values, 0.0)  # S = 0
+            fill!(velocity_field.toroidal.boundary_values, 0.0)  # T = 0 (toroidal)
+            fill!(velocity_field.toroidal.bc_type_inner, Int(DIRICHLET))
+            fill!(velocity_field.toroidal.bc_type_outer, Int(DIRICHLET))
         end
 
     elseif bc_type == :stress_free
-        # Stress-free: v_r = 0, but tangential stress = 0
-        # In QST terms: Q = 0, ∂S/∂r = ∂T/∂r = 0 at boundaries
+        # Stress-free: v_r = 0 (Dirichlet), zero tangential stress (Neumann)
+        # Q = 0 (Dirichlet), ∂T/∂r = 0 (Neumann)
 
-        # Q component (radial): must be zero (impermeable boundary)
         if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
-            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0
+            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0 (radial)
+            fill!(velocity_field.poloidal.bc_type_inner, Int(DIRICHLET))
+            fill!(velocity_field.poloidal.bc_type_outer, Int(DIRICHLET))
         end
 
-        # S and T components: Neumann boundary conditions (∂S/∂r = ∂T/∂r = 0)
-        # This requires setting bc_type to Neumann (2) rather than Dirichlet (1)
         if hasfield(typeof(velocity_field), :toroidal)
+            # Toroidal component uses Neumann BC (tangential stress = 0)
+            # Boundary values are not enforced for Neumann BCs
             if hasfield(typeof(velocity_field.toroidal), :bc_type_inner)
-                fill!(velocity_field.toroidal.bc_type_inner, 2)  # Neumann BC
-                fill!(velocity_field.toroidal.bc_type_outer, 2)
-            end
-        end
-
-        if hasfield(typeof(velocity_field), :spheroidal)
-            if hasfield(typeof(velocity_field.spheroidal), :bc_type_inner)
-                fill!(velocity_field.spheroidal.bc_type_inner, 2)  # Neumann BC
-                fill!(velocity_field.spheroidal.bc_type_outer, 2)
+                fill!(velocity_field.toroidal.bc_type_inner, Int(NEUMANN))
+                fill!(velocity_field.toroidal.bc_type_outer, Int(NEUMANN))
             end
         end
 
     elseif bc_type == :impermeable
-        # Impermeable: v_r = 0 only
-        # In QST terms: Q = 0 at boundaries (S, T unconstrained)
+        # Impermeable: v_r = 0 only (Dirichlet), tangential components unconstrained
+        # Q = 0 (Dirichlet), T unconstrained
 
         if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
-            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0
+            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0 (radial)
+            fill!(velocity_field.poloidal.bc_type_inner, Int(DIRICHLET))
+            fill!(velocity_field.poloidal.bc_type_outer, Int(DIRICHLET))
         end
+        # Toroidal component BC types remain unchanged (solver determines values)
 
+    else
+        throw(ArgumentError("Unknown velocity boundary condition type: $bc_type. Use :no_slip, :stress_free, or :impermeable"))
     end
 
     return velocity_field

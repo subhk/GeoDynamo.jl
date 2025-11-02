@@ -243,80 +243,203 @@ end
 # ================================================================================
 
 """
-    shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T}, 
+    shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
                               pol_spec::SHTnsSpectralField{T},
                               vec_phys::SHTnsVectorField{T}) where T
 
 Vector synthesis using SHTnsKit spheroidal-toroidal decomposition with PencilArrays.
+
+# Toroidal-Poloidal Decomposition
+
+For a solenoidal vector field v (∇·v = 0):
+    v = ∇×(T r̂) + ∇×∇×(P r̂)
+
+where T = toroidal scalar, P = poloidal scalar.
+
+In spherical components:
+    v_r = l(l+1)/r * P * Y_lm   (from poloidal only)
+    v_θ, v_φ from both T and P  (computed by SHTnsKit.SHsphtor_to_spat)
+
+CRITICAL: SHTnsKit.SHsphtor_to_spat returns ONLY tangential components.
+The radial component v_r MUST be computed separately from the poloidal scalar.
 """
-function shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T}, 
+function shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
                                    pol_spec::SHTnsSpectralField{T},
                                    vec_phys::SHTnsVectorField{T}) where T
     config = tor_spec.config
     sht_config = config.sht_config
-    
+    domain = pol_spec.domain  # Need domain for radial grid
+
     # Get data arrays
     tor_real = parent(tor_spec.data_real)
     tor_imag = parent(tor_spec.data_imag)
-    pol_real = parent(pol_spec.data_real) 
+    pol_real = parent(pol_spec.data_real)
     pol_imag = parent(pol_spec.data_imag)
-    
+
+    v_r = parent(vec_phys.r_component.data)
     v_theta = parent(vec_phys.θ_component.data)
     v_phi = parent(vec_phys.φ_component.data)
-    
+
+    # Get local radial range
+    r_range = get_local_range(pol_spec.pencil, 3)
+
     # Process each radial level
     for r_local in axes(tor_real, 3)
         # Extract toroidal and poloidal coefficients (includes MPI gathering)
         tor_coeffs = extract_coefficients_for_shtnskit(tor_real, tor_imag, r_local, config)
         pol_coeffs = extract_coefficients_for_shtnskit(pol_real, pol_imag, r_local, config)
 
-        # Perform vector synthesis using SHTnsKit
+        # Perform vector synthesis using SHTnsKit (tangential components only)
         vt_field, vp_field = SHTnsKit.SHsphtor_to_spat(sht_config, pol_coeffs, tor_coeffs;
                                                       real_output=true)
 
-        # Store vector components
+        # Store tangential vector components
         store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config)
+
+        # ========================================================================
+        # CRITICAL: Compute radial component from poloidal scalar
+        # v_r = l(l+1)/r * P * Y_lm
+        # ========================================================================
+
+        # Get global radial index
+        r_idx_global = r_local + first(r_range) - 1
+
+        if r_idx_global <= domain.N
+            r_val = domain.r[r_idx_global, 4]  # Actual radius value
+
+            if r_val > 1e-15  # Avoid division by zero at r=0
+                # Scale poloidal coefficients by l(l+1)/r
+                lmax, mmax = config.lmax, config.mmax
+                pol_rad_coeffs = zeros(ComplexF64, lmax+1, mmax+1)
+
+                for l in 0:lmax
+                    l_factor = l * (l + 1) / r_val
+                    for m in 0:min(l, mmax)
+                        pol_rad_coeffs[l+1, m+1] = pol_coeffs[l+1, m+1] * l_factor
+                    end
+                end
+
+                # Synthesize radial component
+                vr_field = SHTnsKit.synthesis(sht_config, pol_rad_coeffs; real_output=true)
+
+                # Store radial component
+                store_scalar_component_generic!(v_r, vr_field, r_local, config)
+            else
+                # At r=0 (ball geometry), v_r must be zero for regularity
+                store_zero_component_generic!(v_r, r_local, config)
+            end
+        end
     end
-    
+
     MPI.Barrier(get_comm())
 end
 
 """
     shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
-                             tor_spec::SHTnsSpectralField{T}, 
+                             tor_spec::SHTnsSpectralField{T},
                              pol_spec::SHTnsSpectralField{T}) where T
 
 Vector analysis using SHTnsKit with PencilArrays.
+
+# Toroidal-Poloidal Analysis
+
+Decomposes a 3D velocity field into toroidal and poloidal scalars.
+
+For a solenoidal vector field v (∇·v = 0):
+    v = ∇×(T r̂) + ∇×∇×(P r̂)
+
+# Mathematical Note on Analysis
+
+SHTnsKit.spat_to_SHsphtor takes (v_θ, v_φ) and returns (P, T).
+
+This is mathematically valid for solenoidal fields because:
+1. The solenoidal constraint ∇·v = 0 couples v_r to (v_θ, v_φ)
+2. The decomposition into T (rotational) and P (potential) parts is unique
+3. The radial component v_r = l(l+1)/r * P is implicitly determined
+
+However, this assumes EXACT solenoidality. In numerical simulations with
+finite precision, v_r may not exactly satisfy ∇·v = 0.
+
+# Alternative: Use Full 3-Component Analysis
+
+For better numerical accuracy, one could use:
+    Q_coeffs = analysis(v_r * r / l(l+1))  # Recover P from v_r
+    S, T = spat_to_SHsphtor(v_θ, v_φ)      # Decompose tangential
+
+Then check: Q_coeffs ≈ S_coeffs (should match for solenoidal field)
+
+Current implementation uses 2-component analysis which is standard practice
+for solenoidal MHD simulations.
 """
 function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
-                                  tor_spec::SHTnsSpectralField{T}, 
+                                  tor_spec::SHTnsSpectralField{T},
                                   pol_spec::SHTnsSpectralField{T}) where T
     config = tor_spec.config
     sht_config = config.sht_config
-    
+    domain = pol_spec.domain  # Need for consistency check
+
     # Get data arrays
+    v_r = parent(vec_phys.r_component.data)
     v_theta = parent(vec_phys.θ_component.data)
     v_phi = parent(vec_phys.φ_component.data)
-    
+
     tor_real = parent(tor_spec.data_real)
     tor_imag = parent(tor_spec.data_imag)
     pol_real = parent(pol_spec.data_real)
     pol_imag = parent(pol_spec.data_imag)
-    
-    # Process each radial level  
+
+    # Get local radial range
+    r_range = get_local_range(pol_spec.pencil, 3)
+
+    # Process each radial level
     for r_local in axes(v_theta, 3)
         # Extract vector components
         vt_field = extract_vector_component_generic(v_theta, r_local, config)
         vp_field = extract_vector_component_generic(v_phi, r_local, config)
-        
-        # Perform vector analysis using SHTnsKit
+
+        # Perform vector analysis using SHTnsKit (tangential components)
+        # This returns P and T assuming solenoidal constraint
         pol_coeffs, tor_coeffs = SHTnsKit.spat_to_SHsphtor(sht_config, vt_field, vp_field)
-        
+
         # Store spectral coefficients
         store_coefficients_from_shtnskit!(pol_real, pol_imag, pol_coeffs, r_local, config)
         store_coefficients_from_shtnskit!(tor_real, tor_imag, tor_coeffs, r_local, config)
+
+        # ========================================================================
+        # OPTIONAL: Verify solenoidal constraint using radial component
+        # This is a consistency check, not used in the decomposition
+        # ========================================================================
+        if false  # Set to true for debugging/validation
+            r_idx_global = r_local + first(r_range) - 1
+            if r_idx_global <= domain.N
+                r_val = domain.r[r_idx_global, 4]
+                if r_val > 1e-15
+                    # Extract radial component
+                    vr_field = extract_vector_component_generic(v_r, r_local, config)
+
+                    # Compute what P should be from v_r: P = r/(l(l+1)) * v_r
+                    lmax, mmax = config.lmax, config.mmax
+                    pol_from_vr = zeros(ComplexF64, lmax+1, mmax+1)
+
+                    # Analysis of v_r
+                    vr_coeffs = SHTnsKit.analysis(sht_config, vr_field)
+
+                    # Scale by r/l(l+1) to get P
+                    for l in 1:lmax  # Skip l=0 which has no radial component
+                        l_factor = r_val / (l * (l + 1))
+                        for m in 0:min(l, mmax)
+                            pol_from_vr[l+1, m+1] = vr_coeffs[l+1, m+1] * l_factor
+                        end
+                    end
+
+                    # Compare with pol_coeffs from tangential analysis
+                    # If solenoidal, these should match
+                    # (In practice, accumulate error metrics if needed)
+                end
+            end
+        end
     end
-    
+
     MPI.Barrier(get_comm())
 end
 
@@ -627,12 +750,47 @@ Store vector components for any pencil orientation.
 function store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config)
     common_i_range = 1:min(size(v_theta, 1), size(vt_field, 1))
     common_j_range = 1:min(size(v_theta, 2), size(vt_field, 2))
-    
+
     for i in common_i_range
         for j in common_j_range
             if r_local <= size(v_theta, 3) && r_local <= size(v_phi, 3)
                 v_theta[i, j, r_local] = vt_field[i, j]
                 v_phi[i, j, r_local] = vp_field[i, j]
+            end
+        end
+    end
+end
+
+"""
+    store_scalar_component_generic!(v_component, field, r_local, config)
+
+Store a scalar field into a component array for any pencil orientation.
+Used for storing the radial component v_r from synthesized field.
+"""
+function store_scalar_component_generic!(v_component, field, r_local, config)
+    common_i_range = 1:min(size(v_component, 1), size(field, 1))
+    common_j_range = 1:min(size(v_component, 2), size(field, 2))
+
+    for i in common_i_range
+        for j in common_j_range
+            if r_local <= size(v_component, 3)
+                v_component[i, j, r_local] = field[i, j]
+            end
+        end
+    end
+end
+
+"""
+    store_zero_component_generic!(v_component, r_local, config)
+
+Set a component to zero at a given radial level.
+Used at r=0 (ball geometry) where v_r must be zero for regularity.
+"""
+function store_zero_component_generic!(v_component, r_local, config)
+    if r_local <= size(v_component, 3)
+        for i in axes(v_component, 1)
+            for j in axes(v_component, 2)
+                v_component[i, j, r_local] = zero(eltype(v_component))
             end
         end
     end

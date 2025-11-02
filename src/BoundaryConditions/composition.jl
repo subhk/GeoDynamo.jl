@@ -313,11 +313,41 @@ function apply_composition_boundary_conditions!(comp_field, time_index::Int=1)
     # Apply to boundary arrays
     comp_field.boundary_values[1, :] = inner_spectral  # Inner boundary
     comp_field.boundary_values[2, :] = outer_spectral  # Outer boundary
-    
+
+    # Set boundary condition types based on boundary specifications
+    # Default to Dirichlet (fixed composition), but check for flux BCs
+    inner_bc_type = infer_composition_bc_type(boundary_set.inner_boundary)
+    outer_bc_type = infer_composition_bc_type(boundary_set.outer_boundary)
+
+    fill!(comp_field.bc_type_inner, inner_bc_type)
+    fill!(comp_field.bc_type_outer, outer_bc_type)
+
     # Update time index (in field or fallback cache)
     update_composition_time_index!(comp_field, time_index)
-    
+
     return comp_field
+end
+
+"""
+    infer_composition_bc_type(boundary::BoundaryData)
+
+Infer boundary condition type (Dirichlet or Neumann) from boundary metadata.
+
+Checks the description field for keywords:
+- "flux", "neumann" → NEUMANN (∂C/∂r specified)
+- Otherwise → DIRICHLET (C specified)
+"""
+function infer_composition_bc_type(boundary::BoundaryData)
+    desc = lowercase(boundary.description)
+
+    # Check for flux/Neumann BC indicators
+    if occursin("flux", desc) || occursin("neumann", desc) ||
+       occursin("gradient", desc)
+        return Int(NEUMANN)
+    else
+        # Default to Dirichlet (fixed composition)
+        return Int(DIRICHLET)
+    end
 end
 
 """
@@ -649,7 +679,115 @@ function apply_composition_boundaries!(comp_field, boundary_set::BoundaryConditi
     return comp_field
 end
 
+"""
+    enforce_composition_boundary_constraints!(comp_field, bc_spec::Dict)
+
+Enforce specific composition boundary constraints based on user specification.
+
+# Arguments
+- `comp_field`: Composition field structure
+- `bc_spec`: Dictionary specifying boundary condition types
+
+# BC Specification Format
+```julia
+bc_spec = Dict(
+    :inner => :dirichlet,  # or :neumann, :flux
+    :outer => :dirichlet,  # or :neumann, :flux
+    :inner_value => 1.0,   # for Dirichlet (0.0-1.0)
+    :outer_value => 0.0,   # for Dirichlet (0.0-1.0)
+    :inner_flux => 0.01,   # for Neumann (∂C/∂r)
+    :outer_flux => 0.0     # for Neumann (∂C/∂r)
+)
+```
+
+# Boundary Condition Types
+- `:dirichlet` - Fixed composition: C = C₀ at boundary
+- `:neumann` or `:flux` - Fixed compositional flux: ∂C/∂r = q at boundary
+
+# Physical Interpretation
+- **Dirichlet (Fixed C)**: Typical for prescribed composition boundaries
+  * Inner (ICB): Fixed light element concentration at inner core
+  * Outer (CMB): Fixed composition at core-mantle boundary
+
+- **Neumann (Fixed flux)**: Typical for compositional flux boundaries
+  * Inner: Compositional release/freezing (∂C/∂r = q)
+  * Outer: Zero flux (no exchange, ∂C/∂r = 0)
+
+# Examples
+```julia
+# Fixed composition at both boundaries
+enforce_composition_boundary_constraints!(comp_field, Dict(
+    :inner => :dirichlet, :inner_value => 1.0,
+    :outer => :dirichlet, :outer_value => 0.0
+))
+
+# Compositional release from below, sealed top
+enforce_composition_boundary_constraints!(comp_field, Dict(
+    :inner => :flux, :inner_flux => 0.01,
+    :outer => :flux, :outer_flux => 0.0
+))
+```
+"""
+function enforce_composition_boundary_constraints!(comp_field, bc_spec::Dict)
+
+    # Process inner boundary
+    inner_type = get(bc_spec, :inner, :dirichlet)
+    if inner_type == :dirichlet
+        # Fixed composition - use Dirichlet BC
+        fill!(comp_field.bc_type_inner, Int(DIRICHLET))
+
+        # Set boundary value if provided (must be in [0,1])
+        if haskey(bc_spec, :inner_value)
+            inner_val = clamp(bc_spec[:inner_value], 0.0, 1.0)
+            # Set uniform value in l=0,m=0 mode
+            comp_field.boundary_values[1, 1] = inner_val
+            comp_field.boundary_values[1, 2:end] .= 0.0
+        end
+
+    elseif inner_type == :neumann || inner_type == :flux
+        # Fixed compositional flux - use Neumann BC
+        fill!(comp_field.bc_type_inner, Int(NEUMANN))
+
+        # Set flux value if provided
+        if haskey(bc_spec, :inner_flux)
+            flux_val = bc_spec[:inner_flux]
+            comp_field.boundary_values[1, 1] = flux_val
+            comp_field.boundary_values[1, 2:end] .= 0.0
+        end
+
+    else
+        throw(ArgumentError("Unknown inner boundary type: $inner_type. Use :dirichlet or :neumann/:flux"))
+    end
+
+    # Process outer boundary
+    outer_type = get(bc_spec, :outer, :dirichlet)
+    if outer_type == :dirichlet
+        fill!(comp_field.bc_type_outer, Int(DIRICHLET))
+
+        if haskey(bc_spec, :outer_value)
+            outer_val = clamp(bc_spec[:outer_value], 0.0, 1.0)
+            comp_field.boundary_values[2, 1] = outer_val
+            comp_field.boundary_values[2, 2:end] .= 0.0
+        end
+
+    elseif outer_type == :neumann || outer_type == :flux
+        fill!(comp_field.bc_type_outer, Int(NEUMANN))
+
+        if haskey(bc_spec, :outer_flux)
+            flux_val = bc_spec[:outer_flux]
+            comp_field.boundary_values[2, 1] = flux_val
+            comp_field.boundary_values[2, 2:end] .= 0.0
+        end
+
+    else
+        throw(ArgumentError("Unknown outer boundary type: $outer_type. Use :dirichlet or :neumann/:flux"))
+    end
+
+    return comp_field
+end
+
 export load_composition_boundary_conditions!, set_programmatic_composition_boundaries!
 export update_time_dependent_composition_boundaries!, get_current_composition_boundaries
 export validate_composition_boundary_files, create_layered_composition_boundary
-export apply_composition_boundaries!
+export apply_composition_boundaries!, enforce_composition_boundary_constraints!
+export infer_composition_bc_type

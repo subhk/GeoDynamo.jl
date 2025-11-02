@@ -239,31 +239,42 @@ function create_programmatic_magnetic_boundary(pattern::Symbol, config, amplitud
     
     # Generate magnetic field pattern
     if pattern == :insulating
-        # Insulating boundary: J_normal = 0 ⟹ ∇×B_tangential = 0
-        # Typically B_r ≠ 0, but ∂B_tangential/∂r = 0
-        # Set tangential components to match potential field, B_r from matching
-
+        # Insulating boundary: No current can flow across boundary (σ = 0)
+        # Physical constraint: J_n = 0 at boundary
+        # From Ampère's law: ∇×B = μ₀J, so (∇×B)_r = μ₀J_r = 0
+        # This means: (1/(r sin θ))[∂(B_φ sin θ)/∂θ - ∂B_θ/∂φ] = 0
+        #
+        # For potential field matching (typical insulating BC):
+        # - B_r matches internal/external potential field
+        # - Tangential components match potential field (continuous)
+        # - The key is that field lines cross the boundary normally
+        #
+        # Use a dipole potential field as default:
         for (i, θ) in enumerate(theta)
             for (j, φ) in enumerate(phi)
-                # Simple dipole-like radial field for insulating BC
-                values[i, j, 1] = amplitude * cos(θ)          # B_r (dipolar)
-                values[i, j, 2] = 0.0                         # B_θ = 0 (simplified)
-                values[i, j, 3] = 0.0                         # B_φ = 0 (simplified)
+                # Dipolar potential field pattern (appropriate for insulating boundary)
+                values[i, j, 1] = amplitude * 2 * cos(θ)     # B_r (radial component)
+                values[i, j, 2] = amplitude * sin(θ)         # B_θ (from potential)
+                values[i, j, 3] = 0.0                        # B_φ = 0 (axisymmetric dipole)
             end
         end
-        description = "Insulating boundary condition (B_r from potential, B_tan minimal)"
+        description = "Insulating boundary condition (potential field, J_n=0)"
         
     elseif pattern == :perfect_conductor
-        # Perfect conductor: B_tan = 0, B_r can be non-zero
-        # Set only radial component, tangential components = 0
+        # Perfect conductor: B_tangential = 0 at boundary
+        # Physical constraint: Tangential E and H vanish inside perfect conductor
+        # This gives B_θ = B_φ = 0 at the boundary
+        # B_r is determined by ∇·B = 0 (solenoidal constraint) and matching
+        #
+        # Use dipole radial pattern as reasonable default for B_r:
         for (i, θ) in enumerate(theta)
             for (j, φ) in enumerate(phi)
-                values[i, j, 1] = amplitude  # B_r (constant for simplicity)
-                values[i, j, 2] = 0.0        # B_θ = 0
-                values[i, j, 3] = 0.0        # B_φ = 0
+                values[i, j, 1] = amplitude * 2 * cos(θ)  # B_r (dipolar pattern)
+                values[i, j, 2] = 0.0                     # B_θ = 0 (perfect conductor)
+                values[i, j, 3] = 0.0                     # B_φ = 0 (perfect conductor)
             end
         end
-        description = "Perfect conductor boundary condition"
+        description = "Perfect conductor boundary condition (B_tan=0)"
         
     elseif pattern == :dipole
         # Dipolar magnetic field: B ∝ (2cos(θ)ê_r + sin(θ)ê_θ)
@@ -394,15 +405,27 @@ function calculate_potential_field_boundary(coeffs::Dict, theta::Vector, phi::Ve
                         Ylm = spherical_harmonic(l, m, θ, φ)
                         dYlm_dtheta = spherical_harmonic_theta_derivative(l, m, θ, φ)
                         dYlm_dphi = spherical_harmonic_phi_derivative(l, m, θ, φ)
-                        
+
                         # Magnetic field from potential: B = -∇V
-                        # B_r = -(l+1)/r * V_lm * Y_lm  (assume r=1 at boundary)
-                        # B_θ = (1/r) * dV_lm/dθ = (1/r) * V_lm * dY_lm/dθ
-                        # B_φ = (1/(r*sin(θ))) * dV_lm/dφ = (1/(r*sin(θ))) * V_lm * dY_lm/dφ
-                        
-                        B_r += -(l + 1) * coeff * Ylm
-                        B_theta += coeff * dYlm_dtheta
-                        B_phi += coeff * dYlm_dphi / (sin(θ) + 1e-15)  # Avoid division by zero
+                        # For V = Σ V_lm(r) Y_lm(θ,φ)
+                        #
+                        # Assuming INTERNAL potential: V_lm(r) = A_lm r^l
+                        # Then ∂V_lm/∂r = l * A_lm r^(l-1) = l/r * V_lm
+                        # At boundary r=r₀: B_r = -l * V_lm/r₀ * Y_lm
+                        #
+                        # For EXTERNAL potential: V_lm(r) = B_lm r^(-l-1)
+                        # Then ∂V_lm/∂r = -(l+1) * B_lm r^(-l-2) = -(l+1)/r * V_lm
+                        # At boundary r=r₀: B_r = (l+1) * V_lm/r₀ * Y_lm
+                        #
+                        # Using external potential (typical for outer boundary):
+                        # B_r = -∂V/∂r = (l+1)/r * V_lm * Y_lm
+                        # B_θ = -1/r * ∂V/∂θ = -1/r * V_lm * dY_lm/dθ
+                        # B_φ = -1/(r sin θ) * ∂V/∂φ = -1/(r sin θ) * V_lm * dY_lm/dφ
+                        #
+                        # At r=1 (normalized boundary):
+                        B_r += (l + 1) * coeff * Ylm
+                        B_theta += -coeff * dYlm_dtheta
+                        B_phi += -coeff * dYlm_dphi / (sin(θ) + 1e-15)  # Avoid division by zero
                     end
                 end
             end
@@ -547,29 +570,65 @@ function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
         magnetic_field.toroidal.boundary_values[1, :] = T_inner   # Inner toroidal
         magnetic_field.toroidal.boundary_values[2, :] = T_outer   # Outer toroidal
 
-        # Combine Q and S for poloidal (Q dominates for boundary conditions)
-        magnetic_field.poloidal.boundary_values[1, :] = Q_inner  # Inner poloidal (radial dominated)
-        magnetic_field.poloidal.boundary_values[2, :] = Q_outer  # Outer poloidal (radial dominated)
+        # Combine Q and S for poloidal
+        # For solenoidal fields (∇·B = 0), the decomposition is:
+        # - Q: radial component (B_r)
+        # - S: should be zero for purely solenoidal fields
+        # - T: tangential toroidal component
+        magnetic_field.poloidal.boundary_values[1, :] = Q_inner  # Inner poloidal (radial)
+        magnetic_field.poloidal.boundary_values[2, :] = Q_outer  # Outer poloidal (radial)
+
+        # Check S component magnitude to verify solenoidal assumption
+        S_norm_inner = sqrt(sum(abs2, S_inner))
+        S_norm_outer = sqrt(sum(abs2, S_outer))
+        Q_norm_inner = sqrt(sum(abs2, Q_inner))
+        Q_norm_outer = sqrt(sum(abs2, Q_outer))
+        T_norm_inner = sqrt(sum(abs2, T_inner))
+        T_norm_outer = sqrt(sum(abs2, T_outer))
+
+        if (S_norm_inner > 0.01 * max(Q_norm_inner, T_norm_inner) ||
+            S_norm_outer > 0.01 * max(Q_norm_outer, T_norm_outer)) && get_rank() == 0
+            @warn """
+            Non-negligible spheroidal (S) component detected in magnetic boundary conditions!
+            S_inner: $(S_norm_inner) vs Q_inner: $(Q_norm_inner), T_inner: $(T_norm_inner)
+            S_outer: $(S_norm_outer) vs Q_outer: $(Q_norm_outer), T_outer: $(T_norm_outer)
+            Ratios: S_inner/Q_inner = $(S_norm_inner/max(Q_norm_inner, 1e-10))
+                    S_outer/Q_outer = $(S_norm_outer/max(Q_norm_outer, 1e-10))
+
+            This suggests the magnetic boundary conditions may not be solenoidal (∇·B ≠ 0).
+            For magnetic fields, we expect ∇·B = 0, which implies S should be negligible.
+
+            The current implementation assumes solenoidal fields and IGNORES the S component.
+            If your boundary conditions are non-solenoidal, the code needs extension to handle
+            the spheroidal component properly.
+            """
+        end
 
     catch e
-        @warn "SHTnsKit QST decomposition failed, using fallback: $e"
+        error_msg = """
+        Failed to perform proper QST decomposition of magnetic field boundary conditions.
+        Error: $e
 
-        # Fallback to simpler decomposition
-        inner_toroidal = shtns_physical_to_spectral(B_r_inner, magnetic_field.config)
-        outer_toroidal = shtns_physical_to_spectral(B_r_outer, magnetic_field.config)
+        The QST decomposition is mathematically required for correct magnetic boundary conditions.
+        The previous fallback (treating B_r as toroidal and magnitude of tangential as poloidal)
+        was fundamentally incorrect because:
+        1. It confused radial and tangential components
+        2. It took magnitudes of vector components (destroying directional information)
+        3. It treated components as independent scalars
 
-        # Approximate poloidal from tangential components
-        inner_poloidal = shtns_physical_to_spectral(
-            sqrt.(B_theta_inner.^2 + B_phi_inner.^2), magnetic_field.config
-        )
-        outer_poloidal = shtns_physical_to_spectral(
-            sqrt.(B_theta_outer.^2 + B_phi_outer.^2), magnetic_field.config
-        )
+        Proper decomposition requires:
+        - Q: radial component (B_r)
+        - S: curl-free tangential part
+        - T: solenoidal tangential part
+        where B_θ and B_φ are coupled through S and T.
 
-        magnetic_field.toroidal.boundary_values[1, :] = inner_toroidal
-        magnetic_field.toroidal.boundary_values[2, :] = outer_toroidal
-        magnetic_field.poloidal.boundary_values[1, :] = inner_poloidal
-        magnetic_field.poloidal.boundary_values[2, :] = outer_poloidal
+        Possible solutions:
+        1. Check that SHTnsKit.spat_to_SHqst is properly installed and configured
+        2. Verify grid dimensions (nlat=$(size(B_r_inner,1)), nlon=$(size(B_r_inner,2)))
+           are compatible with lmax=$(magnetic_field.config.lmax)
+        3. Ensure SHTnsKit configuration is properly initialized
+        """
+        throw(ErrorException(error_msg))
     end
     
     # Update time index
@@ -778,31 +837,64 @@ function magnetic_to_qst_coefficients(B_r, B_theta, B_phi, config)
         S_coeffs = zeros(eltype(B_r), nlm)
         T_coeffs = zeros(eltype(B_r), nlm)
 
-        # Map from (l,m) matrix to linear index
+        # Map from (l,m) matrix to linear index following the simulation's lm-indexing
+        # Typically: idx increases as we loop over l, then m (with appropriate m range)
         idx = 0
         for l in 0:lmax
-            for m in 0:min(l, mmax)
+            # Determine m range for this l
+            # For complex harmonics: m from -min(l,mmax) to +min(l,mmax)
+            # For real harmonics stored efficiently: m from 0 to min(l,mmax)
+            m_max = min(l, mmax)
+
+            for m in 0:m_max
                 idx += 1
-                if idx <= nlm && l < size(Q_matrix, 1) && m < size(Q_matrix, 2)
-                    # Extract real parts
+                if idx <= nlm && (l+1) <= size(Q_matrix, 1) && (m+1) <= size(Q_matrix, 2)
+                    # SHTnsKit matrices are typically (lmax+1) × (mmax+1) in size
+                    # Extract real parts (boundary conditions are typically real)
                     Q_coeffs[idx] = real(Q_matrix[l+1, m+1])
                     S_coeffs[idx] = real(S_matrix[l+1, m+1])
                     T_coeffs[idx] = real(T_matrix[l+1, m+1])
+                elseif idx <= nlm
+                    # If matrix is smaller than expected, zero-pad
+                    Q_coeffs[idx] = zero(eltype(B_r))
+                    S_coeffs[idx] = zero(eltype(B_r))
+                    T_coeffs[idx] = zero(eltype(B_r))
                 end
             end
         end
 
+        # Verify we processed the expected number of modes
+        if idx != nlm && get_rank() == 0
+            @warn "Magnetic QST extraction: processed $idx modes but nlm=$(nlm). Check lm-indexing consistency."
+        end
+
         return Q_coeffs, S_coeffs, T_coeffs
     catch e
-        @warn "SHTnsKit QST decomposition failed: $e"
+        error_msg = """
+        Failed to perform proper QST decomposition of magnetic field components.
+        Error: $e
+
+        The QST decomposition is mathematically required for correct magnetic boundary conditions.
+        Treating B_r, B_θ, B_φ as independent scalar fields (the old fallback) is incorrect
+        because the tangential components B_θ and B_φ are coupled through the spheroidal-toroidal
+        decomposition in spherical geometry.
+
+        For magnetic fields:
+        - Q: radial component (transforms like scalar: B_r)
+        - S: spheroidal tangential (curl-free, from ∇ψ)
+        - T: toroidal tangential (solenoidal, from ∇×(T r̂))
+
+        The relationship between (B_θ, B_φ) and (S, T) is non-trivial and requires proper
+        vector spherical harmonic decomposition.
+
+        Possible solutions:
+        1. Check that SHTnsKit.spat_to_SHqst is properly installed and configured
+        2. Verify grid dimensions (nlat=$(size(B_r,1)), nlon=$(size(B_r,2)))
+           are compatible with lmax=$(config.lmax)
+        3. Ensure SHTnsKit configuration matches the simulation configuration
+        """
+        throw(ErrorException(error_msg))
     end
-
-    # Fallback: use simple spectral transforms
-    Q_coeffs = shtns_physical_to_spectral(B_r, config)
-    S_coeffs = shtns_physical_to_spectral(B_theta, config)  # Approximate
-    T_coeffs = shtns_physical_to_spectral(B_phi, config)    # Approximate
-
-    return Q_coeffs, S_coeffs, T_coeffs
 end
 
 # Function moved to main BoundaryConditions module to avoid duplication
@@ -810,38 +902,60 @@ end
 """
     enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
 
-Enforce magnetic boundary condition constraints based on physics.
+Enforce magnetic boundary condition constraints based on magnetohydrodynamic physics.
 
 # Boundary condition types:
-- `:insulating` - Insulating boundary: J_normal = 0, ∇×B_tangential = 0 (B_r ≠ 0)
-- `:perfect_conductor` - Perfect conductor: B_tangential = 0, B_r free
-- `:potential_field` - Potential field matching at boundary
+- `:insulating` - Insulating boundary (σ = 0): No normal current (J_n = 0)
+  * Physical interpretation: (∇×B)_r = μ₀J_r = 0 at boundary
+  * Implementation: Potential field matching (B continuous, tangential current-free)
+  * Spectral: Typically Dirichlet BC for both components matching external potential
+
+- `:perfect_conductor` - Perfect conductor (σ → ∞): Zero tangential magnetic field
+  * Physical interpretation: B_tangential = 0, B_r free (from ∇·B = 0)
+  * Implementation: Tangential components zero, radial component determined by matching
+  * Spectral: Toroidal (T) = 0 Dirichlet, Poloidal (Q) matches
+
+- `:potential_field` - General potential field matching
+  * Implementation: Match external potential field at boundary
+  * Spectral: Dirichlet BC for both toroidal and poloidal components
+
+# Notes:
+For most geodynamo applications:
+- Inner boundary (ICB): Often insulating or potential field
+- Outer boundary (CMB): Often insulating (matching Earth's mantle)
 """
 function enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
 
     if bc_type == :insulating
-        # Insulating boundary: no normal current, J_n = 0
-        # This implies ∇×B_tangential = 0 at boundary
-        # For spectral: constrain tangential B components
-        # Radial component B_r can vary to match field lines
+        # Insulating boundary: J_n = 0, which gives (∇×B)_r = 0
+        # For potential field matching (typical insulating implementation):
+        # - All components match external/internal potential field
+        # - Use Dirichlet BC with values from potential field calculation
+        #
+        # Note: The boundary values should already be set from potential field
+        # calculation in apply_magnetic_boundary_conditions!
 
-        # Apply constraint to toroidal component (mostly tangential)
-        # Set Neumann BC (∂T/∂r = 0) for natural insulating condition
-        fill!(magnetic_field.toroidal.bc_type_inner, 2)  # Neumann
-        fill!(magnetic_field.toroidal.bc_type_outer, 2)  # Neumann
-
-        # Radial component (poloidal) can vary - leave as Dirichlet with computed values
+        # Both components use Dirichlet BC (matching potential field)
+        fill!(magnetic_field.toroidal.bc_type_inner, Int(DIRICHLET))
+        fill!(magnetic_field.toroidal.bc_type_outer, Int(DIRICHLET))
+        fill!(magnetic_field.poloidal.bc_type_inner, Int(DIRICHLET))
+        fill!(magnetic_field.poloidal.bc_type_outer, Int(DIRICHLET))
 
     elseif bc_type == :perfect_conductor
-        # Perfect conductor: B_tangential = 0
-        # This means all tangential components must be zero at boundary
+        # Perfect conductor: B_tangential = 0 at boundary
+        # Physical: Tangential E and H vanish, giving B_θ = B_φ = 0
+        # Spectral: Toroidal component T = 0 (controls tangential field)
+        # Radial component (poloidal/Q) is non-zero and determined by ∇·B = 0
 
         # Set toroidal components to zero (tangential field = 0)
         fill!(magnetic_field.toroidal.boundary_values, 0.0)
-        fill!(magnetic_field.toroidal.bc_type_inner, 1)  # Dirichlet (fixed = 0)
-        fill!(magnetic_field.toroidal.bc_type_outer, 1)  # Dirichlet (fixed = 0)
+        fill!(magnetic_field.toroidal.bc_type_inner, Int(DIRICHLET))  # T = 0 enforced
+        fill!(magnetic_field.toroidal.bc_type_outer, Int(DIRICHLET))  # T = 0 enforced
 
-        # Poloidal/radial component can be non-zero - constraint from ∇·B = 0
+        # Poloidal/radial component uses Dirichlet BC from computed values
+        # (determined by ∇·B = 0 and matching conditions)
+        fill!(magnetic_field.poloidal.bc_type_inner, Int(DIRICHLET))
+        fill!(magnetic_field.poloidal.bc_type_outer, Int(DIRICHLET))
 
     elseif bc_type == :potential_field
         # Potential field boundary: match external field

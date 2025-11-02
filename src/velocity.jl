@@ -444,6 +444,63 @@ end
 # ==========================================
 # Optimized nonlinear term computation
 # ==========================================
+
+"""
+    compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, domain)
+
+Compute all nonlinear forcing terms for the momentum equation.
+
+# Governing Equation (Dimensional)
+
+In a rotating reference frame with angular velocity Ω:
+
+∂u/∂t = -u×ω - ∇p/ρ + 2Ω(ẑ×u) + ν∇²u + (αg/ρ)T·r̂ + (Δρg/ρ)C·r̂ + (1/μ₀ρ)(∇×B)×B
+
+where:
+- u: velocity, ω = ∇×u: vorticity
+- Ω: rotation rate, ẑ: rotation axis
+- ν: kinematic viscosity
+- α: thermal expansion coefficient, g: gravity
+- T: temperature perturbation, C: composition perturbation
+- B: magnetic field, μ₀: permeability
+
+# Non-Dimensionalization (Magnetic Diffusion Time Scaling)
+
+Length scale: d (shell thickness or ball radius)
+Time scale: τ = d²/η (magnetic diffusion time)
+Velocity scale: U = η/d
+Magnetic field scale: B₀
+Temperature scale: ΔT
+
+Dimensionless parameters:
+- E = ν/(Ω d²): Ekman number
+- Pm = ν/η: Magnetic Prandtl number
+- Pr = ν/κ: Prandtl number
+- Sc = ν/D: Schmidt number
+- Ra = (αgΔT d³)/(νκ): Rayleigh number
+- Ra_C = (Δρg d³)/(ρνD): Compositional Rayleigh number
+
+# Non-Dimensional Momentum Equation
+
+(E/Pm) ∂ũ/∂τ = -(Pm/E)ũ×ω̃ + (Pm/E)ẑ×ũ + ∇²ũ - ∇p̃
+                + (Pm/E)(Pm/Pr)Ra·T̃·r̂ + (Pm/E)(Pm/Sc)Ra_C·C̃·r̂
+                + (Pm/E)(∇×B̃)×B̃
+
+where tilde denotes dimensionless quantities.
+
+# Implementation Notes
+
+This function computes the RIGHT HAND SIDE (excluding viscous diffusion):
+RHS = -(Pm/E)[ũ×ω̃ - ẑ×ũ] + (Pm/E)(Pm/Pr)Ra·T̃·r̂ + (Pm/E)(Pm/Sc)Ra_C·C̃·r̂ + (Pm/E)(∇×B̃)×B̃
+
+The prefactor (Pm/E) = rossby_factor appears throughout because:
+- Advection u×ω has coefficient Pm/E
+- Coriolis ẑ×u has coefficient Pm/E
+- Buoyancy has coefficient (Pm/E)·(Pm/Pr)·Ra or (Pm/E)·(Pm/Sc)·Ra_C
+- Lorentz force has coefficient Pm/E
+
+The time derivative has coefficient E/Pm on the LHS, which is handled by the time integrator.
+"""
 function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
                                                temp_field, comp_field, mag_field,
                                                domain::RadialDomain) where T
@@ -551,82 +608,74 @@ end
 # =====================================
 # Thermal buoyancy force addition
 # =====================================
-function add_thermal_buoyancy_force!(force_r::AbstractArray{T,3}, 
+function add_thermal_buoyancy_force!(force_r::AbstractArray{T,3},
                                       scalar_field, factor::Float64,
                                       domain::RadialDomain) where T
-    # Add buoyancy force with proper radial scaling
+    # Add buoyancy force: F_buoyancy = (Pm²/E·Pr) Ra T r̂
+    #
+    # Boussinesq approximation: buoyancy is proportional to temperature anomaly
+    # WITHOUT radial dependence (gravity is absorbed into Ra)
+    #
+    # In non-dimensional form with magnetic diffusion time scaling:
+    # F = (Pm/E)·(Pm/Pr)·Ra·T·r̂
     if iszero(factor)
         return force_r
     end
-    
+
     # Get scalar field data
     if isa(scalar_field, SHTnsPhysicalField)
         scalar_data = parent(scalar_field.data)
     else
         scalar_data = parent(scalar_field.temperature.data)
     end
-    
-    # Get local radial range
-    r_range = get_local_range(scalar_field.pencil, 3)
-    
-    # Vectorized addition with radial dependence (threaded in flat index space)
+
+    # Vectorized addition WITHOUT radial position factor (threaded in flat index space)
+    # Standard Boussinesq: F ∝ T, NOT F ∝ r·T
     Ntot = length(force_r)
     chunk = max(1, Ntot ÷ max(1, Threads.nthreads()))
     @inbounds Threads.@threads for start in 1:chunk:Ntot
         stop = min(Ntot, start + chunk - 1)
         @simd for idx in start:stop
             if idx <= length(scalar_data)
-                # Get radial index for this point
-                k = ((idx - 1) ÷ (size(force_r, 1) * size(force_r, 2))) + 1
-                r_idx = k + first(r_range) - 1
-                
-                if r_idx <= domain.N
-                    # Include radial dependence for spherical geometry
-                    radial_position = domain.r[r_idx, 4]
-                    force_r[idx] += factor * radial_position * scalar_data[idx]
-                else
-                    force_r[idx] += factor * scalar_data[idx]
-                end
+                # Boussinesq buoyancy: force proportional to temperature, no radial weighting
+                force_r[idx] += factor * scalar_data[idx]
             end
         end
     end
 end
 
 # Compositional buoyancy force (similar to thermal but for composition)
-function add_buoyancy_force!(force_r::AbstractArray{T,3}, 
+function add_buoyancy_force!(force_r::AbstractArray{T,3},
                              comp_field, factor::Float64,
                              domain::RadialDomain) where T
-    # Add compositional buoyancy force with proper radial scaling
+    # Add compositional buoyancy force: F_comp = (Pm²/E·Sc) Ra_C C r̂
+    #
+    # Boussinesq approximation: buoyancy is proportional to composition anomaly
+    # WITHOUT radial dependence (analogous to thermal buoyancy)
+    #
+    # In non-dimensional form with magnetic diffusion time scaling:
+    # F = (Pm/E)·(Pm/Sc)·Ra_C·C·r̂
     if iszero(factor)
         return force_r
     end
-    
+
     # Get compositional field data
     if isa(comp_field, SHTnsPhysicalField)
         comp_data = parent(comp_field.data)
     else
         comp_data = parent(comp_field.composition.data)
     end
-    
-    # Get local radial range
-    r_range = get_local_range(comp_field.pencil, 3)
-    
-    # Vectorized addition with radial dependence
-    # Threaded flat-index iteration (same pattern as thermal buoyancy)
+
+    # Vectorized addition WITHOUT radial position factor (threaded in flat index space)
+    # Standard Boussinesq: F ∝ C, NOT F ∝ r·C
     Ntot = length(force_r)
     chunk = max(1, Ntot ÷ max(1, Threads.nthreads()))
     @inbounds Threads.@threads for start in 1:chunk:Ntot
         stop = min(Ntot, start + chunk - 1)
         @simd for idx in start:stop
             if idx <= length(comp_data)
-                k = ((idx - 1) ÷ (size(force_r, 1) * size(force_r, 2))) + 1
-                r_idx = k + first(r_range) - 1
-                if r_idx <= domain.N
-                    radial_position = domain.r[r_idx, 4]
-                    force_r[idx] += factor * radial_position * comp_data[idx]
-                else
-                    force_r[idx] += factor * comp_data[idx]
-                end
+                # Boussinesq buoyancy: force proportional to composition, no radial weighting
+                force_r[idx] += factor * comp_data[idx]
             end
         end
     end
