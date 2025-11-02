@@ -31,9 +31,20 @@ using NCDatasets
 using LinearAlgebra
 using Base.Threads
 
-# For Julia 1.10 compatibility: Access Statistics from the global scope
-# rather than importing it, since this is a submodule
-const _Statistics = Main.Base.Statistics
+# For Julia 1.10 compatibility: Define simple statistics functions
+# to avoid module resolution issues with Statistics stdlib in submodules
+_mean(x) = sum(x) / length(x)
+_std(x) = begin
+    m = _mean(x)
+    n = length(x)
+    n <= 1 && return zero(eltype(x))
+    sqrt(sum((xi - m)^2 for xi in x) / (n - 1))
+end
+
+# Create a module-like object for compatibility with existing code
+module _Statistics
+    import ..BoundaryConditions: _mean as mean, _std as std
+end
 
 # ================================================================================
 # Core Boundary Condition Types and Interfaces
