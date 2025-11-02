@@ -316,13 +316,13 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
     zero_velocity_work_arrays!(fields)
     
     # Step 1: Use enhanced vector synthesis with automatic transpose handling
-    shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
-    
+    shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity; domain=oc_domain)
+
     # Step 2: Compute vorticity in spectral space with enhanced derivative computation
     compute_vorticity_spectral_full!(fields, oc_domain)
-    
+
     # Step 3: Transform vorticity to physical space with batched operations
-    shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
+    shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity; domain=oc_domain)
     
     # Step 4: Compute all nonlinear terms with enhanced memory access patterns
     compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, oc_domain)

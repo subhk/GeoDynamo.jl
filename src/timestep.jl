@@ -1070,13 +1070,79 @@ end
 Compute φ2(A) = (exp(A) - I - A) / A² efficiently with comprehensive error handling.
 Uses series expansion for small ||A|| to avoid numerical issues.
 """
-function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}) where T
+"""
+    Phi2ConditioningMonitor
+
+Global structure for monitoring φ₂ function conditioning during ERK2 integration.
+Tracks worst conditioning, series expansion usage, and numerical issues.
+"""
+mutable struct Phi2ConditioningMonitor
+    worst_rcond::Float64
+    worst_l::Int
+    series_expansion_count::Int
+    lu_failure_count::Int
+    nonfinite_count::Int
+    last_report_step::Int
+    enable_monitoring::Bool
+end
+
+# Global monitor instance
+const PHI2_MONITOR = Phi2ConditioningMonitor(1.0, 0, 0, 0, 0, 0, true)
+
+"""
+    reset_phi2_monitor!()
+
+Reset φ₂ conditioning monitor statistics.
+"""
+function reset_phi2_monitor!()
+    PHI2_MONITOR.worst_rcond = 1.0
+    PHI2_MONITOR.worst_l = 0
+    PHI2_MONITOR.series_expansion_count = 0
+    PHI2_MONITOR.lu_failure_count = 0
+    PHI2_MONITOR.nonfinite_count = 0
+    PHI2_MONITOR.last_report_step = 0
+end
+
+"""
+    report_phi2_conditioning(step::Int; interval::Int=100)
+
+Report φ₂ conditioning statistics periodically during simulation.
+"""
+function report_phi2_conditioning(step::Int; interval::Int=100)
+    if !PHI2_MONITOR.enable_monitoring
+        return
+    end
+
+    if step - PHI2_MONITOR.last_report_step >= interval
+        if get_rank() == 0
+            @info """
+            ╔══════════════════════════════════════════════════════════╗
+            ║            φ₂ Conditioning Report (Step $step)
+            ╠══════════════════════════════════════════════════════════╣
+            ║ Worst rcond:             $(PHI2_MONITOR.worst_rcond)
+            ║ Worst mode (l):          $(PHI2_MONITOR.worst_l)
+            ║ Series expansion used:   $(PHI2_MONITOR.series_expansion_count) times
+            ║ LU failures:             $(PHI2_MONITOR.lu_failure_count) times
+            ║ Non-finite values:       $(PHI2_MONITOR.nonfinite_count) times
+            ╚══════════════════════════════════════════════════════════╝
+            """
+        end
+        PHI2_MONITOR.last_report_step = step
+        # Reset counters for next interval
+        reset_phi2_monitor!()
+    end
+end
+
+function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) where T
     nr = size(A, 1)
     I_mat = Matrix{T}(I, nr, nr)
 
     # Check for NaN or Inf in inputs
     if !all(isfinite.(A)) || !all(isfinite.(expA))
-        @warn "Non-finite values detected in φ2 computation, using zero approximation"
+        if PHI2_MONITOR.enable_monitoring
+            PHI2_MONITOR.nonfinite_count += 1
+        end
+        @warn "Non-finite values detected in φ2 computation (l=$l), using zero approximation"
         return zeros(T, nr, nr)
     end
 
@@ -1109,10 +1175,20 @@ function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}) where T
     try
         lu_A = lu(A)
 
-        # Check condition number
+        # Check condition number and track worst conditioning
         rcond_val = rcond(lu_A)
+        if PHI2_MONITOR.enable_monitoring
+            if rcond_val < PHI2_MONITOR.worst_rcond
+                PHI2_MONITOR.worst_rcond = rcond_val
+                PHI2_MONITOR.worst_l = l
+            end
+        end
+
         if rcond_val < sqrt(eps(T))
-            @warn "Ill-conditioned matrix in φ2 computation (rcond = $rcond_val), using series expansion"
+            if PHI2_MONITOR.enable_monitoring
+                PHI2_MONITOR.series_expansion_count += 1
+            end
+            @warn "Ill-conditioned matrix in φ2 computation (l=$l, rcond=$rcond_val), using series expansion"
             # Fall back to series expansion: φ2(A) = Σ(k=0 to ∞) A^k/(k+2)!
             result = I_mat / 2  # k=0: A⁰/2! = I/2
             A_power = copy(A)   # k=1: A¹/3!
@@ -1155,7 +1231,10 @@ function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}) where T
         return result
 
     catch e
-        @warn "LU factorization failed in φ2 computation: $e, using series expansion"
+        if PHI2_MONITOR.enable_monitoring
+            PHI2_MONITOR.lu_failure_count += 1
+        end
+        @warn "LU factorization failed in φ2 computation (l=$l): $e, using series expansion"
         try
             # Fall back to series expansion: φ2(A) = Σ(k=0 to ∞) A^k/(k+2)!
             result = I_mat / 2  # k=0: A⁰/2! = I/2

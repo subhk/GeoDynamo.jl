@@ -135,15 +135,15 @@ function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T},
     zero_magnetic_work_arrays!(mag_fields)
     
     # Step 1: Convert spectral B to physical space using enhanced transforms
-    shtnskit_vector_synthesis!(mag_fields.toroidal, mag_fields.poloidal, 
-                               mag_fields.magnetic)
-    
+    shtnskit_vector_synthesis!(mag_fields.toroidal, mag_fields.poloidal,
+                               mag_fields.magnetic; domain=oc_domain)
+
     # Step 2: Compute current density j = ∇ × B in spectral space
     compute_current_density_spectral!(mag_fields, oc_domain)
-    
+
     # Step 3: Transform current to physical space
-    shtnskit_vector_synthesis!(mag_fields.work_tor, mag_fields.work_pol, 
-                               mag_fields.current)
+    shtnskit_vector_synthesis!(mag_fields.work_tor, mag_fields.work_pol,
+                               mag_fields.current; domain=oc_domain)
     
     # Step 4: Compute induction equation: ∂B/∂t = ∇ × (u × B) + η∇²B
     if vel_fields !== nothing

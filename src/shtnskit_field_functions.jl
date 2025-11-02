@@ -245,7 +245,8 @@ end
 """
     shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
                               pol_spec::SHTnsSpectralField{T},
-                              vec_phys::SHTnsVectorField{T}) where T
+                              vec_phys::SHTnsVectorField{T};
+                              domain::Union{RadialDomain,Nothing}=nothing) where T
 
 Vector synthesis using SHTnsKit spheroidal-toroidal decomposition with PencilArrays.
 
@@ -262,13 +263,17 @@ In spherical components:
 
 CRITICAL: SHTnsKit.SHsphtor_to_spat returns ONLY tangential components.
 The radial component v_r MUST be computed separately from the poloidal scalar.
+
+# Parameters
+- `domain`: Optional RadialDomain needed for computing v_r with correct radial scaling.
+            If not provided, v_r will be set to zero (suitable for tests).
 """
 function shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
                                    pol_spec::SHTnsSpectralField{T},
-                                   vec_phys::SHTnsVectorField{T}) where T
+                                   vec_phys::SHTnsVectorField{T};
+                                   domain::Union{RadialDomain,Nothing}=nothing) where T
     config = tor_spec.config
     sht_config = config.sht_config
-    domain = pol_spec.domain  # Need domain for radial grid
 
     # Get data arrays
     tor_real = parent(tor_spec.data_real)
@@ -299,35 +304,42 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
         # ========================================================================
         # CRITICAL: Compute radial component from poloidal scalar
         # v_r = l(l+1)/r * P * Y_lm
+        # Only computed if domain information is provided
         # ========================================================================
 
-        # Get global radial index
-        r_idx_global = r_local + first(r_range) - 1
+        if domain !== nothing
+            # Get global radial index
+            r_idx_global = r_local + first(r_range) - 1
 
-        if r_idx_global <= domain.N
-            r_val = domain.r[r_idx_global, 4]  # Actual radius value
+            if r_idx_global <= domain.N
+                r_val = domain.r[r_idx_global, 4]  # Actual radius value
 
-            if r_val > 1e-15  # Avoid division by zero at r=0
-                # Scale poloidal coefficients by l(l+1)/r
-                lmax, mmax = config.lmax, config.mmax
-                pol_rad_coeffs = zeros(ComplexF64, lmax+1, mmax+1)
+                if r_val > 1e-15  # Avoid division by zero at r=0
+                    # Scale poloidal coefficients by l(l+1)/r
+                    lmax, mmax = config.lmax, config.mmax
+                    pol_rad_coeffs = zeros(ComplexF64, lmax+1, mmax+1)
 
-                for l in 0:lmax
-                    l_factor = l * (l + 1) / r_val
-                    for m in 0:min(l, mmax)
-                        pol_rad_coeffs[l+1, m+1] = pol_coeffs[l+1, m+1] * l_factor
+                    for l in 0:lmax
+                        l_factor = l * (l + 1) / r_val
+                        for m in 0:min(l, mmax)
+                            pol_rad_coeffs[l+1, m+1] = pol_coeffs[l+1, m+1] * l_factor
+                        end
                     end
+
+                    # Synthesize radial component
+                    vr_field = SHTnsKit.synthesis(sht_config, pol_rad_coeffs; real_output=true)
+
+                    # Store radial component
+                    store_scalar_component_generic!(v_r, vr_field, r_local, config)
+                else
+                    # At r=0 (ball geometry), v_r must be zero for regularity
+                    store_zero_component_generic!(v_r, r_local, config)
                 end
-
-                # Synthesize radial component
-                vr_field = SHTnsKit.synthesis(sht_config, pol_rad_coeffs; real_output=true)
-
-                # Store radial component
-                store_scalar_component_generic!(v_r, vr_field, r_local, config)
-            else
-                # At r=0 (ball geometry), v_r must be zero for regularity
-                store_zero_component_generic!(v_r, r_local, config)
             end
+        else
+            # No domain provided - set v_r to zero for all points at this radial level
+            # This is used in tests that don't have domain information
+            store_zero_component_generic!(v_r, r_local, config)
         end
     end
 
@@ -373,10 +385,11 @@ for solenoidal MHD simulations.
 """
 function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
                                   tor_spec::SHTnsSpectralField{T},
-                                  pol_spec::SHTnsSpectralField{T}) where T
+                                  pol_spec::SHTnsSpectralField{T};
+                                  domain::Union{RadialDomain,Nothing}=nothing,
+                                  verify_solenoidal::Bool=false) where T
     config = tor_spec.config
     sht_config = config.sht_config
-    domain = pol_spec.domain  # Need for consistency check
 
     # Get data arrays
     v_r = parent(vec_phys.r_component.data)
@@ -408,8 +421,9 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
         # ========================================================================
         # OPTIONAL: Verify solenoidal constraint using radial component
         # This is a consistency check, not used in the decomposition
+        # Only performed if domain is provided and verify_solenoidal is true
         # ========================================================================
-        if false  # Set to true for debugging/validation
+        if verify_solenoidal && domain !== nothing
             r_idx_global = r_local + first(r_range) - 1
             if r_idx_global <= domain.N
                 r_val = domain.r[r_idx_global, 4]
