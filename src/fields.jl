@@ -61,8 +61,8 @@ function create_shtns_spectral_field(::Type{T}, config::AbstractSHTnsConfig,
     fill!(parent(data_real), zero(T))
     fill!(parent(data_imag), zero(T))
 
-    bc_inner = ones(Int, nlm)
-    bc_outer = ones(Int, nlm)
+    bc_inner = fill(Int(DIRICHLET), nlm)
+    bc_outer = fill(Int(DIRICHLET), nlm)
     boundary_vals = zeros(T, 2, nlm)
 
     return SHTnsSpectralField{T}(config, nlm,
