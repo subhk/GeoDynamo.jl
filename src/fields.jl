@@ -1,7 +1,9 @@
 # ================================================================================
 # Variable Types with SHTnsKit Integration
 # ================================================================================
-    
+
+import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
+
 # Field types that work with PencilArrays using SHTnsKit
 mutable struct SHTnsSpectralField{T<:Number}
     config::AbstractSHTnsConfig

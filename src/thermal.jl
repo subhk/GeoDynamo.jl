@@ -589,8 +589,8 @@ function set_temperature_ic!(temp_field::SHTnsTemperatureField{T},
 end
 
 function set_boundary_conditions!(temp_field::SHTnsTemperatureField{T};
-                                 inner_bc_type::Int = 1,
-                                 outer_bc_type::Int = 1,
+                                 inner_bc_type::Int = Int(DIRICHLET),
+                                 outer_bc_type::Int = Int(DIRICHLET),
                                  inner_value::T = T(1.0),
                                  outer_value::T = T(0.0)) where T
     """
