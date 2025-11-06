@@ -32,8 +32,8 @@ function initialize_boundary_conditions!(field, field_type::FieldType, config)
         # Scalar fields - initialize boundary type arrays
         if !hasfield(typeof(field), :bc_type_inner)
             nlm = SHTnsKit.get_num_modes(config.lmax)
-            field.bc_type_inner = ones(Int, nlm)  # Default to Dirichlet
-            field.bc_type_outer = ones(Int, nlm)
+            field.bc_type_inner = fill(Int(DIRICHLET), nlm)  # Default to Dirichlet
+            field.bc_type_outer = fill(Int(DIRICHLET), nlm)
         end
         
         if !hasfield(typeof(field), :boundary_values)
@@ -54,16 +54,16 @@ function initialize_boundary_conditions!(field, field_type::FieldType, config)
         # Initialize boundary arrays for toroidal component
         if !hasfield(typeof(field.toroidal), :bc_type_inner)
             nlm = SHTnsKit.get_num_modes(config.lmax)
-            field.toroidal.bc_type_inner = ones(Int, nlm)
-            field.toroidal.bc_type_outer = ones(Int, nlm)
+            field.toroidal.bc_type_inner = fill(Int(DIRICHLET), nlm)
+            field.toroidal.bc_type_outer = fill(Int(DIRICHLET), nlm)
             field.toroidal.boundary_values = zeros(config.T, 2, nlm)
         end
-        
-        # Initialize boundary arrays for poloidal component  
+
+        # Initialize boundary arrays for poloidal component
         if !hasfield(typeof(field.poloidal), :bc_type_inner)
             nlm = SHTnsKit.get_num_modes(config.lmax)
-            field.poloidal.bc_type_inner = ones(Int, nlm)
-            field.poloidal.bc_type_outer = ones(Int, nlm)
+            field.poloidal.bc_type_inner = fill(Int(DIRICHLET), nlm)
+            field.poloidal.bc_type_outer = fill(Int(DIRICHLET), nlm)
             field.poloidal.boundary_values = zeros(config.T, 2, nlm)
         end
     end

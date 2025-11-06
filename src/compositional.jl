@@ -338,10 +338,10 @@ function apply_composition_boundary_conditions_spectral!(comp_field::SHTnsCompos
             # Apply inner boundary condition (skip at r=0 for ball)
             if has_inner && domain.r[1,4] > 0
                 r_local = 1
-                if bc_inner == 1  # Fixed composition
+                if bc_inner == Int(DIRICHLET)  # Fixed composition
                     spec_real[local_lm, 1, r_local] = comp_field.boundary_values[1, lm_idx]
                     spec_imag[local_lm, 1, r_local] = 0.0  # Fixed values are real
-                elseif bc_inner == 2  # No-flux (zero gradient)
+                elseif bc_inner == Int(NEUMANN)  # No-flux (zero gradient)
                     # Defer to full no-flux enforcement after loop
                 end
             end
@@ -350,10 +350,10 @@ function apply_composition_boundary_conditions_spectral!(comp_field::SHTnsCompos
             if has_outer
                 r_local = domain.N - first(r_range) + 1
                 if r_local <= size(spec_real, 3)
-                    if bc_outer == 1  # Fixed composition
+                    if bc_outer == Int(DIRICHLET)  # Fixed composition
                         spec_real[local_lm, 1, r_local] = comp_field.boundary_values[2, lm_idx]
                         spec_imag[local_lm, 1, r_local] = 0.0  # Fixed values are real
-                    elseif bc_outer == 2  # No-flux (zero gradient)
+                    elseif bc_outer == Int(NEUMANN)  # No-flux (zero gradient)
                         # Defer to full no-flux enforcement after loop
                     end
                 end
@@ -563,17 +563,17 @@ function set_composition_boundary_conditions!(comp_field::SHTnsCompositionField{
     # Set boundary condition types and values
     
     if bc_inner == :fixed
-        fill!(comp_field.bc_type_inner, 1)
+        fill!(comp_field.bc_type_inner, Int(DIRICHLET))
         comp_field.boundary_values[1, :] .= value_inner
     elseif bc_inner == :no_flux
-        fill!(comp_field.bc_type_inner, 2)
+        fill!(comp_field.bc_type_inner, Int(NEUMANN))
     end
-    
-    if bc_outer == :fixed  
-        fill!(comp_field.bc_type_outer, 1)
+
+    if bc_outer == :fixed
+        fill!(comp_field.bc_type_outer, Int(DIRICHLET))
         comp_field.boundary_values[2, :] .= value_outer
     elseif bc_outer == :no_flux
-        fill!(comp_field.bc_type_outer, 2)
+        fill!(comp_field.bc_type_outer, Int(NEUMANN))
     end
 end
 

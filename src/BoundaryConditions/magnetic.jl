@@ -959,10 +959,10 @@ function enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
         # Potential field boundary: match external field
         # Both components use computed boundary values as Dirichlet BC
 
-        fill!(magnetic_field.toroidal.bc_type_inner, 1)  # Dirichlet
-        fill!(magnetic_field.toroidal.bc_type_outer, 1)  # Dirichlet
-        fill!(magnetic_field.poloidal.bc_type_inner, 1)  # Dirichlet
-        fill!(magnetic_field.poloidal.bc_type_outer, 1)  # Dirichlet
+        fill!(magnetic_field.toroidal.bc_type_inner, Int(DIRICHLET))
+        fill!(magnetic_field.toroidal.bc_type_outer, Int(DIRICHLET))
+        fill!(magnetic_field.poloidal.bc_type_inner, Int(DIRICHLET))
+        fill!(magnetic_field.poloidal.bc_type_outer, Int(DIRICHLET))
 
     elseif bc_type == :custom
         # Custom boundary conditions - leave arrays as set by user

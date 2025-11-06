@@ -2,6 +2,9 @@
 # Integration with Timestepping Methods
 # ================================================================================
 
+# Import BoundaryType enum constants
+using ..BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
+
 """
     update_boundary_conditions_for_timestep!(state, current_time::Float64)
 
@@ -204,16 +207,16 @@ function apply_temperature_bc_to_rhs!(rhs, temp_field)
         
         for lm in 1:nlm
             # Check boundary condition types (default to Dirichlet for loaded boundary conditions)
-            bc_type_inner = hasfield(typeof(temp_field), :bc_type_inner) ? temp_field.bc_type_inner[lm] : 1
-            bc_type_outer = hasfield(typeof(temp_field), :bc_type_outer) ? temp_field.bc_type_outer[lm] : 1
-            
-            if bc_type_inner == 1  # Dirichlet at inner boundary
+            bc_type_inner = hasfield(typeof(temp_field), :bc_type_inner) ? temp_field.bc_type_inner[lm] : Int(DIRICHLET)
+            bc_type_outer = hasfield(typeof(temp_field), :bc_type_outer) ? temp_field.bc_type_outer[lm] : Int(DIRICHLET)
+
+            if bc_type_inner == Int(DIRICHLET)  # Dirichlet at inner boundary
                 # The boundary condition is already applied to the field boundary_values
                 # The solver should use these values to constrain the solution
                 # This is a placeholder - actual implementation depends on solver structure
             end
-            
-            if bc_type_outer == 1  # Dirichlet at outer boundary  
+
+            if bc_type_outer == Int(DIRICHLET)  # Dirichlet at outer boundary
                 # Similar implementation for outer boundary
                 # The solver will use the outer boundary values for constraint
             end
@@ -246,17 +249,17 @@ function apply_composition_bc_to_rhs!(rhs, comp_field)
         # Apply Dirichlet boundary conditions by modifying RHS
         # Similar to temperature but ensure composition constraints [0,1]
         for lm in 1:nlm
-            bc_type_inner = hasfield(typeof(comp_field), :bc_type_inner) ? comp_field.bc_type_inner[lm] : 1
-            bc_type_outer = hasfield(typeof(comp_field), :bc_type_outer) ? comp_field.bc_type_outer[lm] : 1
-            
-            if bc_type_inner == 1  # Dirichlet at inner boundary
+            bc_type_inner = hasfield(typeof(comp_field), :bc_type_inner) ? comp_field.bc_type_inner[lm] : Int(DIRICHLET)
+            bc_type_outer = hasfield(typeof(comp_field), :bc_type_outer) ? comp_field.bc_type_outer[lm] : Int(DIRICHLET)
+
+            if bc_type_inner == Int(DIRICHLET)  # Dirichlet at inner boundary
                 # Apply composition boundary with range constraint
                 # Composition values should be clamped to [0,1] range
                 inner_value = clamp(real(inner_bc[lm]), 0.0, 1.0)
                 # Solver will use this constrained value
             end
-            
-            if bc_type_outer == 1  # Dirichlet at outer boundary
+
+            if bc_type_outer == Int(DIRICHLET)  # Dirichlet at outer boundary
                 # Apply composition boundary with range constraint
                 outer_value = clamp(real(outer_bc[lm]), 0.0, 1.0)
                 # Solver will use this constrained value
@@ -293,24 +296,24 @@ function apply_velocity_bc_to_rhs!(rhs, velocity_field)
         for lm in 1:nlm
             # Get boundary condition types
             bc_type_inner = hasfield(typeof(velocity_field.toroidal), :bc_type_inner) ?
-                           velocity_field.toroidal.bc_type_inner[lm] : 1
+                           velocity_field.toroidal.bc_type_inner[lm] : Int(DIRICHLET)
             bc_type_outer = hasfield(typeof(velocity_field.toroidal), :bc_type_outer) ?
-                           velocity_field.toroidal.bc_type_outer[lm] : 1
+                           velocity_field.toroidal.bc_type_outer[lm] : Int(DIRICHLET)
 
             # Apply toroidal boundary conditions
-            if bc_type_inner == 1  # Dirichlet (no-slip): T = prescribed value
+            if bc_type_inner == Int(DIRICHLET)  # Dirichlet (no-slip): T = prescribed value
                 # For no-slip: T = 0 (no tangential velocity)
                 # For prescribed tangential velocity: T = prescribed value
                 # The RHS modification depends on the specific discretization
                 # This is typically handled by the solver using boundary_values
-            elseif bc_type_inner == 2  # Neumann (stress-free): ∂T/∂r = 0
+            elseif bc_type_inner == Int(NEUMANN)  # Neumann (stress-free): ∂T/∂r = 0
                 # For stress-free: tangential stress = 0
                 # This requires Neumann boundary condition on T
             end
 
-            if bc_type_outer == 1  # Dirichlet
+            if bc_type_outer == Int(DIRICHLET)  # Dirichlet
                 # Similar to inner boundary
-            elseif bc_type_outer == 2  # Neumann
+            elseif bc_type_outer == Int(NEUMANN)  # Neumann
                 # Similar to inner boundary
             end
         end
@@ -325,22 +328,22 @@ function apply_velocity_bc_to_rhs!(rhs, velocity_field)
         for lm in 1:nlm
             # Get boundary condition types
             bc_type_inner = hasfield(typeof(velocity_field.poloidal), :bc_type_inner) ?
-                           velocity_field.poloidal.bc_type_inner[lm] : 1
+                           velocity_field.poloidal.bc_type_inner[lm] : Int(DIRICHLET)
             bc_type_outer = hasfield(typeof(velocity_field.poloidal), :bc_type_outer) ?
-                           velocity_field.poloidal.bc_type_outer[lm] : 1
+                           velocity_field.poloidal.bc_type_outer[lm] : Int(DIRICHLET)
 
             # Apply poloidal boundary conditions
-            if bc_type_inner == 1  # Dirichlet: P = prescribed value
+            if bc_type_inner == Int(DIRICHLET)  # Dirichlet: P = prescribed value
                 # For no-slip: P and ∂P/∂r constrained to give v_r = v_θ = v_φ = 0
                 # For impermeable boundary: ∂P/∂r constrained to give v_r = 0
                 # The specific constraint depends on the velocity field representation
-            elseif bc_type_inner == 2  # Neumann: ∂P/∂r = prescribed value
+            elseif bc_type_inner == Int(NEUMANN)  # Neumann: ∂P/∂r = prescribed value
                 # For stress-free: specific stress conditions
             end
 
-            if bc_type_outer == 1  # Dirichlet
+            if bc_type_outer == Int(DIRICHLET)  # Dirichlet
                 # Similar to inner boundary
-            elseif bc_type_outer == 2  # Neumann
+            elseif bc_type_outer == Int(NEUMANN)  # Neumann
                 # Similar to inner boundary
             end
         end
@@ -379,17 +382,17 @@ function apply_magnetic_bc_to_rhs!(rhs, magnetic_field)
                 # bc_type = 2: Neumann (fixed derivative)
 
                 # Inner boundary
-                if bc_inner[lm] == 1  # Dirichlet: B_tor = prescribed value
+                if bc_inner[lm] == Int(DIRICHLET)  # Dirichlet: B_tor = prescribed value
                     # RHS modification for fixed boundary value
                     # (specific implementation depends on discretization)
-                elseif bc_inner[lm] == 2  # Neumann: ∂B_tor/∂r = 0 (insulating)
+                elseif bc_inner[lm] == Int(NEUMANN)  # Neumann: ∂B_tor/∂r = 0 (insulating)
                     # RHS modification for natural boundary condition
                 end
 
                 # Outer boundary (similar logic)
-                if bc_outer[lm] == 1
+                if bc_outer[lm] == Int(DIRICHLET)
                     # Apply Dirichlet BC at outer boundary
-                elseif bc_outer[lm] == 2
+                elseif bc_outer[lm] == Int(NEUMANN)
                     # Apply Neumann BC at outer boundary
                 end
             end
@@ -411,15 +414,15 @@ function apply_magnetic_bc_to_rhs!(rhs, magnetic_field)
                 # Apply boundary conditions for poloidal component
                 # (radial magnetic field component)
 
-                if bc_inner[lm] == 1  # Dirichlet: B_pol = prescribed value
+                if bc_inner[lm] == Int(DIRICHLET)  # Dirichlet: B_pol = prescribed value
                     # Apply fixed boundary value constraint
-                elseif bc_inner[lm] == 2  # Neumann: ∂B_pol/∂r = 0
+                elseif bc_inner[lm] == Int(NEUMANN)  # Neumann: ∂B_pol/∂r = 0
                     # Apply natural boundary condition
                 end
 
-                if bc_outer[lm] == 1
+                if bc_outer[lm] == Int(DIRICHLET)
                     # Apply Dirichlet BC at outer boundary
-                elseif bc_outer[lm] == 2
+                elseif bc_outer[lm] == Int(NEUMANN)
                     # Apply Neumann BC at outer boundary
                 end
             end
@@ -545,18 +548,18 @@ function enforce_velocity_bc_in_solution!(solution, velocity_field)
         for lm in 1:nlm
             # Get boundary condition types
             bc_type_inner = hasfield(typeof(velocity_field.toroidal), :bc_type_inner) ?
-                           velocity_field.toroidal.bc_type_inner[lm] : 1
+                           velocity_field.toroidal.bc_type_inner[lm] : Int(DIRICHLET)
             bc_type_outer = hasfield(typeof(velocity_field.toroidal), :bc_type_outer) ?
-                           velocity_field.toroidal.bc_type_outer[lm] : 1
+                           velocity_field.toroidal.bc_type_outer[lm] : Int(DIRICHLET)
 
             # Enforce toroidal boundary conditions
-            if bc_type_inner == 1  # Dirichlet: enforce T = boundary_value at inner boundary
+            if bc_type_inner == Int(DIRICHLET)  # Dirichlet: enforce T = boundary_value at inner boundary
                 # The specific implementation depends on solution vector structure
                 # Typically involves setting specific components of the solution vector
                 # to match the prescribed boundary values
             end
 
-            if bc_type_outer == 1  # Dirichlet: enforce T = boundary_value at outer boundary
+            if bc_type_outer == Int(DIRICHLET)  # Dirichlet: enforce T = boundary_value at outer boundary
                 # Similar enforcement for outer boundary
             end
         end
@@ -571,18 +574,18 @@ function enforce_velocity_bc_in_solution!(solution, velocity_field)
         for lm in 1:nlm
             # Get boundary condition types
             bc_type_inner = hasfield(typeof(velocity_field.poloidal), :bc_type_inner) ?
-                           velocity_field.poloidal.bc_type_inner[lm] : 1
+                           velocity_field.poloidal.bc_type_inner[lm] : Int(DIRICHLET)
             bc_type_outer = hasfield(typeof(velocity_field.poloidal), :bc_type_outer) ?
-                           velocity_field.poloidal.bc_type_outer[lm] : 1
+                           velocity_field.poloidal.bc_type_outer[lm] : Int(DIRICHLET)
 
             # Enforce poloidal boundary conditions
-            if bc_type_inner == 1  # Dirichlet: enforce P = boundary_value at inner boundary
+            if bc_type_inner == Int(DIRICHLET)  # Dirichlet: enforce P = boundary_value at inner boundary
                 # For no-slip: both P and ∂P/∂r must be constrained
                 # For impermeable: only ∂P/∂r is constrained (v_r = 0)
                 # Implementation depends on how P is discretized in the radial direction
             end
 
-            if bc_type_outer == 1  # Dirichlet: enforce P = boundary_value at outer boundary
+            if bc_type_outer == Int(DIRICHLET)  # Dirichlet: enforce P = boundary_value at outer boundary
                 # Similar enforcement for outer boundary
             end
         end
