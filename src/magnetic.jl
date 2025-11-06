@@ -18,6 +18,7 @@
 #
 #
 import .BoundaryConditions
+import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
 import .GeoDynamoBall
 
 mutable struct SHTnsMagneticFields{T}

@@ -17,6 +17,7 @@ using LinearAlgebra
 using SparseArrays
 
 import .BoundaryConditions
+import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
 import .GeoDynamoBall
 
 # scalar_field_common.jl is included in main module - functions are available here
@@ -109,10 +110,10 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     internal_sources = zeros(T, oc_domain.N)
     boundary_values  = zeros(T, 2, config.nlm)
     
-    # Default boundary conditions (1 = fixed value, 2 = flux)
+    # Default boundary conditions (DIRICHLET = fixed value, NEUMANN = flux)
     # For composition: typically no-flux at both boundaries
-    bc_type_inner = fill(2, config.nlm)  # No-flux at inner boundary
-    bc_type_outer = fill(2, config.nlm)  # No-flux at outer boundary
+    bc_type_inner = fill(Int(NEUMANN), config.nlm)  # No-flux at inner boundary
+    bc_type_outer = fill(Int(NEUMANN), config.nlm)  # No-flux at outer boundary
     
     # Pre-compute l(l+1) factors for diffusion operator
     l_factors = zeros(Float64, config.nlm)
@@ -360,7 +361,7 @@ function apply_composition_boundary_conditions_spectral!(comp_field::SHTnsCompos
         end
     end
     # Apply flux boundary conditions using the common scalar field implementation
-    if any(comp_field.bc_type_inner .== 2) || any(comp_field.bc_type_outer .== 2)
+    if any(comp_field.bc_type_inner .== Int(NEUMANN)) || any(comp_field.bc_type_outer .== Int(NEUMANN))
         # Use the robust tau method for flux boundary conditions
         apply_scalar_flux_bc_spectral!(comp_field, domain; method=:tau)
     end

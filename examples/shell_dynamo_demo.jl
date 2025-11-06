@@ -15,6 +15,7 @@
 #   JULIA_NUM_THREADS=8 mpiexecjl -n 4 julia --project examples/shell_dynamo_demo.jl
 
 using GeoDynamo
+using GeoDynamo.BoundaryConditions: DIRICHLET, NEUMANN
 using MPI
 using Random
 
@@ -109,8 +110,8 @@ end
 # 3) Temperature boundary conditions for spherical shell
 #    Fixed temperature at inner and outer boundaries (Dirichlet)
 set_boundary_conditions!(state.temperature;
-    inner_bc_type=1, inner_value=1.0,   # hot inner boundary
-    outer_bc_type=1, outer_value=0.0,   # cold outer boundary
+    inner_bc_type=Int(DIRICHLET), inner_value=1.0,   # hot inner boundary
+    outer_bc_type=Int(DIRICHLET), outer_value=0.0,   # cold outer boundary
 )
 
 # 4) Random initial conditions (small perturbations)

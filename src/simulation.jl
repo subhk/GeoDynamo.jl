@@ -516,8 +516,8 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
         
         # Update simulation state
         simulation_time += dt
-        state.timestep_state.current_time = simulation_time
-        state.timestep_state.step_count = step
+        state.timestep_state.time = simulation_time
+        state.timestep_state.step = step
         
         step_time = MPI.Wtime() - step_start
         
@@ -695,8 +695,8 @@ function run_simulation!(state::SimulationState{T}) where T
         
         # Update simulation state
         simulation_time += dt
-        state.timestep_state.current_time = simulation_time
-        state.timestep_state.step_count = step
+        state.timestep_state.time = simulation_time
+        state.timestep_state.step = step
         
         step_time = MPI.Wtime() - step_start
         
@@ -1561,8 +1561,7 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     end
     
     # Update time-dependent boundary conditions if enabled
-    current_time = state.timestep_state.step * dt
-    update_time_dependent_temperature_boundaries!(state.temperature, current_time)
+    update_time_dependent_temperature_boundaries!(state.temperature, state.timestep_state.time)
     
     if ts_scheme === :erk2
         erk2_integrate_full_step!(state, dt)

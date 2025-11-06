@@ -10,6 +10,8 @@ using SHTnsKit
 using LinearAlgebra
 using SparseArrays
 
+import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
+
 # BandedMatrix type is defined in linear_algebra.jl and available in parent module scope
 
 # ================================================================================
@@ -1176,8 +1178,8 @@ function apply_scalar_flux_bc_spectral!(field::AbstractScalarField{T}, domain::R
             local_lm = lm_idx - first(lm_range) + 1
             
             # Check if this mode needs flux BC
-            apply_inner = (field.bc_type_inner[lm_idx] == 2) && (1 in r_range)
-            apply_outer = (field.bc_type_outer[lm_idx] == 2) && (domain.N in r_range)
+            apply_inner = (field.bc_type_inner[lm_idx] == Int(NEUMANN)) && (1 in r_range)
+            apply_outer = (field.bc_type_outer[lm_idx] == Int(NEUMANN)) && (domain.N in r_range)
             
             if apply_inner || apply_outer
                 # Apply flux BC using specified method

@@ -19,38 +19,42 @@ using SHTnsKit
 using LinearAlgebra
 using SparseArrays
 
+import .BoundaryConditions
+import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
+import .GeoDynamoBall
+
 # scalar_field_common.jl is included in main module - functions are available here
 
-struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
+mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
     # Physical space temperature
     temperature::SHTnsPhysicalField{T}
     gradient::SHTnsVectorField{T}
-    
+
     # Spectral representation
     spectral::SHTnsSpectralField{T}
-    
+
     # Nonlinear terms (advection)
     nonlinear::SHTnsSpectralField{T}
     prev_nonlinear::SHTnsSpectralField{T}
-    
+
     # Work arrays for efficient computation
     work_spectral::SHTnsSpectralField{T}
     work_physical::SHTnsPhysicalField{T}
     advection_physical::SHTnsPhysicalField{T}
-    
+
     # Gradient spectral components for efficiency
     grad_theta_spec::SHTnsSpectralField{T}
     grad_phi_spec::SHTnsSpectralField{T}
     grad_r_spec::SHTnsSpectralField{T}
-    
+
     # Sources and boundary conditions
     internal_sources::Vector{T}        # Radial profile of heating
     boundary_values::Matrix{T}         # [2, nlm] for ICB and CMB
     bc_type_inner::Vector{Int}         # BC type for each mode at inner
     bc_type_outer::Vector{Int}         # BC type for each mode at outer
-    
+
     # File-based boundary condition support
-    boundary_condition_set::Union{Dict{String, Any}, Nothing}        # Loaded boundary conditions
+    boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}  # Loaded boundary conditions
     boundary_interpolation_cache::Dict{String, Any}                  # Cached interpolated data
     boundary_time_index::Ref{Int}                                    # Current time index for time-dependent BCs
     
@@ -109,9 +113,9 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     internal_sources = zeros(T, oc_domain.N)
     boundary_values  = zeros(T, 2, config.nlm)
     
-    # Default BC types (1 = Dirichlet, 2 = Neumann)
-    bc_type_inner = ones(Int, config.nlm)  # Default to fixed temperature
-    bc_type_outer = ones(Int, config.nlm)
+    # Default BC types (DIRICHLET = fixed temperature, NEUMANN = fixed flux)
+    bc_type_inner = fill(Int(DIRICHLET), config.nlm)  # Default to fixed temperature
+    bc_type_outer = fill(Int(DIRICHLET), config.nlm)
     
     # Storage for file-based boundary conditions
     boundary_data_cache = Dict{String, Any}()
@@ -280,30 +284,30 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
             
             # Inner boundary (skip at r=0 for ball geometry)
             if has_inner && domain.r[1, 4] > 0
-                if temp_field.bc_type_inner[lm_idx] == 1    # Dirichlet
+                if temp_field.bc_type_inner[lm_idx] == Int(DIRICHLET)
                     local_r = 1 - first(r_range) + 1
                     spec_real[local_lm, 1, local_r] = temp_field.boundary_values[1, lm_idx]
                     spec_imag[local_lm, 1, local_r] = 0.0
-                elseif temp_field.bc_type_inner[lm_idx] == 2  # Neumann
+                elseif temp_field.bc_type_inner[lm_idx] == Int(NEUMANN)
                     # Defer to full flux BC application after loop
                     # (handled by apply_flux_bc_spectral!(temp_field, domain))
                 end
             end
-            
+
             # Outer boundary
             if has_outer
-                if temp_field.bc_type_outer[lm_idx] == 1      # Dirichlet
+                if temp_field.bc_type_outer[lm_idx] == Int(DIRICHLET)
                     local_r = domain.N - first(r_range) + 1
                     spec_real[local_lm, 1, local_r] = temp_field.boundary_values[2, lm_idx]
                     spec_imag[local_lm, 1, local_r] = 0.0
-                elseif temp_field.bc_type_outer[lm_idx] == 2  # Neumann
+                elseif temp_field.bc_type_outer[lm_idx] == Int(NEUMANN)
                     # Defer to full flux BC application after loop
                 end
             end
         end
     end
     # If any Neumann BCs present, apply the complete spectral flux BC correction
-    if any(temp_field.bc_type_inner .== 2) || any(temp_field.bc_type_outer .== 2)
+    if any(temp_field.bc_type_inner .== Int(NEUMANN)) || any(temp_field.bc_type_outer .== Int(NEUMANN))
         apply_flux_bc_spectral!(temp_field, domain)
     end
 
@@ -355,16 +359,16 @@ function validate_flux_bc(temp_field, domain)
             local_lm = lm_idx - first(lm_range) + 1
             
             # Check inner boundary
-            if temp_field.bc_type_inner[lm_idx] == 2
+            if temp_field.bc_type_inner[lm_idx] == Int(NEUMANN)
                 prescribed = get_flux_value(lm_idx, 1, temp_field)
-                actual = compute_flux_at_boundary(spec_real, spec_imag, local_lm, 
+                actual = compute_flux_at_boundary(spec_real, spec_imag, local_lm,
                                                  1, temp_field, domain)
                 error = abs(prescribed - actual)
                 max_error = max(max_error, error)
             end
-            
+
             # Check outer boundary
-            if temp_field.bc_type_outer[lm_idx] == 2
+            if temp_field.bc_type_outer[lm_idx] == Int(NEUMANN)
                 prescribed = get_flux_value(lm_idx, 2, temp_field)
                 actual = compute_flux_at_boundary(spec_real, spec_imag, local_lm,
                                                  domain.N, temp_field, domain)

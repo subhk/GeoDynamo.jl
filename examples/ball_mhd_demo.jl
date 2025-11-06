@@ -11,6 +11,7 @@
 #   JULIA_NUM_THREADS=8 julia --project examples/ball_mhd_demo.jl
 
 using GeoDynamo
+using GeoDynamo.BoundaryConditions: DIRICHLET, NEUMANN
 using Random
 
 # 1) Set parameters (ball geometry and physics)
@@ -102,11 +103,11 @@ end
 
 # 3) Temperature boundary conditions (Dirichlet inner/outer)
 #    Options:
-#    - Dirichlet (fixed T): inner_bc_type=1, outer_bc_type=1, values below
-#    - Neumann (flux): use inner_bc_type=2/outer_bc_type=2; flux profile is built-in for l=0
+#    - Dirichlet (fixed T): inner_bc_type=Int(DIRICHLET), values below
+#    - Neumann (flux): use inner_bc_type=Int(NEUMANN)/outer_bc_type=Int(NEUMANN); flux profile is built-in for l=0
 set_boundary_conditions!(state.temperature;
-    inner_bc_type=1, inner_value=1.0,
-    outer_bc_type=1, outer_value=0.0,
+    inner_bc_type=Int(DIRICHLET), inner_value=1.0,
+    outer_bc_type=Int(DIRICHLET), outer_value=0.0,
 )
 
 # Alternative: programmatic uniform boundaries via hybrid API
