@@ -143,15 +143,15 @@ module GeoDynamo
     # Include base modules in dependency order
     include("pencil_decomps.jl")
     include("shtnskit_transforms.jl")  # New SHTnsKit-based transforms (includes SHTnsKitConfig)
+    include("BoundaryConditions/BoundaryConditions.jl")  # Needed before field types import BC enums
+    include("fields.jl")  # Field/type definitions needed by subsequent modules
     include("shtnskit_field_functions.jl")  # Field-dependent transform functions
-    include("linear_algebra.jl")
+    include("linear_algebra.jl")  # Requires RadialDomain/SHTns field types
 
     # include("shtns_transforms.jl")  # Legacy - replaced by shtnskit_transforms.jl
     # include("shtns_config.jl")      # Legacy - replaced by SHTnsKit configurations
 
-    include("scalar_field_common.jl")  # Include shared scalar field functions once
-    include("BoundaryConditions/BoundaryConditions.jl")
-    include("fields.jl")  # After BoundaryConditions so enums are available
+    include("scalar_field_common.jl")  # Depends on BandedMatrix definitions
     
     include("timestep.jl")
     include("magnetic.jl")
