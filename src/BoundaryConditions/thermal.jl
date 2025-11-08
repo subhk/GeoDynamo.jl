@@ -60,19 +60,25 @@ function load_temperature_boundary_conditions!(temp_field, boundary_specs::Dict)
         throw(ArgumentError("Invalid boundary specification format"))
     end
     
-    # Store boundary conditions in module-level cache since field expects Dict
-    if !isdefined(@__MODULE__, :_temperature_boundary_cache)
-        global _temperature_boundary_cache = Dict{UInt64, Any}()
+    if hasfield(typeof(temp_field), :boundary_condition_set)
+        temp_field.boundary_condition_set = boundary_set
+        temp_field.boundary_time_index[] = 1
+        temp_field.boundary_interpolation_cache = create_temperature_interpolation_cache(boundary_set, temp_field.config)
+    else
+        # Legacy fallback for field structures without direct storage
+        if !isdefined(@__MODULE__, :_temperature_boundary_cache)
+            global _temperature_boundary_cache = Dict{UInt64, Any}()
+        end
+
+        field_id = objectid(temp_field)
+        _temperature_boundary_cache[field_id] = Dict(
+            :boundary_set => boundary_set,
+            :interpolation_cache => create_temperature_interpolation_cache(boundary_set, temp_field.config),
+            :time_index => 1
+        )
     end
 
-    field_id = objectid(temp_field)
-    _temperature_boundary_cache[field_id] = Dict(
-        :boundary_set => boundary_set,
-        :interpolation_cache => create_temperature_interpolation_cache(boundary_set, temp_field.config),
-        :time_index => 1
-    )
-
-    # Apply initial boundary conditions (no need to modify immutable field structure)
+    # Apply initial boundary conditions (field-level storage preferred when available)
     apply_temperature_boundary_conditions!(temp_field)
 
     if get_rank() == 0
