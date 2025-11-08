@@ -107,13 +107,9 @@ function get_boundary_data(field, field_type::FieldType)
             end
         end
     elseif field_type == VELOCITY
-        if hasfield(typeof(field), :boundary_condition_set)
-            return field.boundary_condition_set, field.boundary_interpolation_cache
-        end
+        return get_velocity_boundary_data(field)
     elseif field_type == MAGNETIC
-        if hasfield(typeof(field), :boundary_condition_set)
-            return field.boundary_condition_set, field.boundary_interpolation_cache
-        end
+        return get_magnetic_boundary_data(field)
     end
     return nothing, nothing
 end

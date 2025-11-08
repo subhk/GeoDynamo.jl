@@ -226,7 +226,8 @@ enforce the corresponding Dirichlet values in spectral space.
 """
 function apply_magnetic_boundary_conditions!(fields::SHTnsMagneticFields{T};
                                               time_index::Union{Nothing,Int}=nothing) where T
-    if fields.boundary_condition_set === nothing
+    boundary_set, _ = BoundaryConditions.get_magnetic_boundary_data(fields)
+    if boundary_set === nothing
         return fields
     end
 

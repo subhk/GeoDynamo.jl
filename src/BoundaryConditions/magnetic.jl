@@ -66,13 +66,26 @@ function load_magnetic_boundary_conditions!(magnetic_field, boundary_specs::Dict
         throw(ArgumentError("Invalid boundary specification format"))
     end
     
-    # Store boundary conditions in field
-    magnetic_field.boundary_condition_set = boundary_set
-    magnetic_field.boundary_time_index[] = 1
-    
-    # Create interpolation cache
-    magnetic_field.boundary_interpolation_cache = create_magnetic_interpolation_cache(boundary_set, magnetic_field.config)
-    
+    cache = create_magnetic_interpolation_cache(boundary_set, magnetic_field.config)
+
+    if hasfield(typeof(magnetic_field), :boundary_condition_set)
+        magnetic_field.boundary_condition_set = boundary_set
+        if hasfield(typeof(magnetic_field), :boundary_time_index)
+            magnetic_field.boundary_time_index[] = 1
+        end
+        magnetic_field.boundary_interpolation_cache = cache
+    else
+        if !isdefined(@__MODULE__, :_magnetic_boundary_cache)
+            global _magnetic_boundary_cache = Dict{UInt64, Any}()
+        end
+        field_id = objectid(magnetic_field)
+        _magnetic_boundary_cache[field_id] = Dict(
+            :boundary_set => boundary_set,
+            :interpolation_cache => cache,
+            :time_index => 1
+        )
+    end
+
     # Apply initial boundary conditions
     apply_magnetic_boundary_conditions!(magnetic_field)
     
@@ -525,13 +538,11 @@ Apply magnetic field boundary conditions to the field.
 """
 function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
     
-    if magnetic_field.boundary_condition_set === nothing
+    boundary_set, cache = get_magnetic_boundary_data(magnetic_field)
+    if boundary_set === nothing || cache === nothing
         @warn "No boundary conditions loaded for magnetic field"
         return magnetic_field
     end
-    
-    boundary_set = magnetic_field.boundary_condition_set
-    cache = magnetic_field.boundary_interpolation_cache
     
     # Interpolate boundary data to simulation grid
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
@@ -629,11 +640,10 @@ function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
     end
     
     # Update time index
-    magnetic_field.boundary_time_index[] = time_index
+    update_magnetic_time_index!(magnetic_field, time_index)
 
     # Enforce magnetic boundary condition constraints based on boundary pattern
     # Infer constraint type from boundary description strings
-    boundary_set = magnetic_field.boundary_condition_set
 
     # Determine boundary constraint type by parsing description strings
     primary_constraint = :potential_field  # Default
@@ -714,11 +724,10 @@ Update time-dependent magnetic boundary conditions.
 """
 function update_time_dependent_magnetic_boundaries!(magnetic_field, current_time::Float64)
     
-    if magnetic_field.boundary_condition_set === nothing
+    boundary_set, _ = get_magnetic_boundary_data(magnetic_field)
+    if boundary_set === nothing
         return magnetic_field
     end
-    
-    boundary_set = magnetic_field.boundary_condition_set
     
     # Check if boundaries are time-dependent
     if !boundary_set.inner_boundary.is_time_dependent && !boundary_set.outer_boundary.is_time_dependent
@@ -727,9 +736,10 @@ function update_time_dependent_magnetic_boundaries!(magnetic_field, current_time
     
     # Find time index for current time
     time_index = find_boundary_time_index(boundary_set, current_time)
+    current_time_index = get_magnetic_time_index(magnetic_field)
     
     # Only update if time index has changed
-    if time_index != magnetic_field.boundary_time_index[]
+    if time_index != current_time_index
         apply_magnetic_boundary_conditions!(magnetic_field, time_index)
         
         if get_rank() == 0
@@ -747,13 +757,12 @@ Get current magnetic field boundary conditions.
 """
 function get_current_magnetic_boundaries(magnetic_field)
     
-    if magnetic_field.boundary_condition_set === nothing
+    boundary_set, cache = get_magnetic_boundary_data(magnetic_field)
+    if boundary_set === nothing || cache === nothing
         return Dict(:error => "No boundary conditions loaded")
     end
     
-    boundary_set = magnetic_field.boundary_condition_set
-    time_index = magnetic_field.boundary_time_index[]
-    cache = magnetic_field.boundary_interpolation_cache
+    time_index = get_magnetic_time_index(magnetic_field)
     
     # Get current boundary data
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
@@ -793,6 +802,68 @@ function set_programmatic_magnetic_boundaries!(magnetic_field, inner_spec::Tuple
     
     boundary_specs = Dict(:inner => inner_spec, :outer => outer_spec)
     return load_magnetic_boundary_conditions!(magnetic_field, boundary_specs)
+end
+
+"""
+    get_magnetic_boundary_data(magnetic_field)
+
+Return `(boundary_set, cache)` for the magnetic field, falling back to a
+module-level cache when the field struct lacks boundary storage.
+"""
+function get_magnetic_boundary_data(magnetic_field)
+    if isdefined(@__MODULE__, :_magnetic_boundary_cache)
+        field_id = objectid(magnetic_field)
+        if haskey(_magnetic_boundary_cache, field_id)
+            data = _magnetic_boundary_cache[field_id]
+            return data[:boundary_set], data[:interpolation_cache]
+        end
+    end
+
+    if hasfield(typeof(magnetic_field), :boundary_condition_set)
+        return magnetic_field.boundary_condition_set,
+               magnetic_field.boundary_interpolation_cache
+    end
+
+    return nothing, nothing
+end
+
+"""
+    get_magnetic_time_index(magnetic_field)
+
+Fetch the currently active boundary time index, honoring legacy cache storage.
+"""
+function get_magnetic_time_index(magnetic_field)
+    if isdefined(@__MODULE__, :_magnetic_boundary_cache)
+        field_id = objectid(magnetic_field)
+        if haskey(_magnetic_boundary_cache, field_id)
+            return _magnetic_boundary_cache[field_id][:time_index]
+        end
+    end
+
+    if hasfield(typeof(magnetic_field), :boundary_time_index)
+        return magnetic_field.boundary_time_index[]
+    end
+
+    return 1
+end
+
+"""
+    update_magnetic_time_index!(magnetic_field, time_index)
+
+Persist the provided time index to both the magnetic field structure and the
+module-level cache when available.
+"""
+function update_magnetic_time_index!(magnetic_field, time_index::Int)
+    if isdefined(@__MODULE__, :_magnetic_boundary_cache)
+        field_id = objectid(magnetic_field)
+        if haskey(_magnetic_boundary_cache, field_id)
+            _magnetic_boundary_cache[field_id][:time_index] = time_index
+        end
+    end
+
+    if hasfield(typeof(magnetic_field), :boundary_time_index)
+        magnetic_field.boundary_time_index[] = time_index
+    end
 end
 
 """
