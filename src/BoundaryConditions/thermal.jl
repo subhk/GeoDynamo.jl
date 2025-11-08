@@ -287,6 +287,12 @@ function apply_temperature_boundary_conditions!(temp_field, time_index::Int=1)
     inner_bc_type = infer_temperature_bc_type(boundary_set.inner_boundary)
     outer_bc_type = infer_temperature_bc_type(boundary_set.outer_boundary)
 
+    # Validate that BC data matches BC type (only on rank 0 to avoid spam)
+    if get_rank() == 0
+        validate_temperature_flux_boundary(boundary_set.inner_boundary, inner_bc_type)
+        validate_temperature_flux_boundary(boundary_set.outer_boundary, outer_bc_type)
+    end
+
     fill!(temp_field.bc_type_inner, inner_bc_type)
     fill!(temp_field.bc_type_outer, outer_bc_type)
 
@@ -761,8 +767,173 @@ function enforce_temperature_boundary_constraints!(temp_field, bc_spec::Dict)
     return temp_field
 end
 
+"""
+    validate_flux_boundary_values(values::Array, field_type::String;
+                                  typical_value_range::Tuple=(0.0, 1e10),
+                                  check_units::Bool=true)
+
+Validate that boundary values are physically reasonable for flux boundary conditions.
+
+For heat flux boundaries:
+- Values should be in W/m² or dimensionless heat flux
+- Typical range: 0.01 - 1000 W/m² for Earth
+- Check that values aren't accidentally in Kelvin (which would be 100-1000× larger)
+
+# Arguments
+- `values`: Boundary data array
+- `field_type`: Type of field ("temperature", "composition")
+- `typical_value_range`: Expected range for flux values
+- `check_units`: Whether to perform unit sanity checks
+
+# Returns
+- `is_valid`: Boolean
+- `warnings`: Array of warning messages
+"""
+function validate_flux_boundary_values(values::Array, field_type::String;
+                                      typical_value_range::Tuple=(0.0, 1e10),
+                                      check_units::Bool=true)
+    warnings = String[]
+    is_valid = true
+
+    # Compute statistics
+    values_abs = abs.(values)
+    min_val = minimum(values_abs[values_abs .> 1e-15])
+    max_val = maximum(values_abs)
+    mean_val = _Statistics.mean(values_abs[values_abs .> 1e-15])
+
+    # Check if values are in expected range
+    min_expected, max_expected = typical_value_range
+
+    if max_val > max_expected
+        push!(warnings, """
+            Maximum flux value ($(max_val)) exceeds expected range ($(max_expected)).
+
+            Possible issues:
+            1. Values may be in wrong units (e.g., temperature K instead of flux W/m²)
+            2. Data may need dimensional scaling
+            3. Flux values may be unrealistic for the physical system
+            """)
+        is_valid = false
+    end
+
+    if field_type == "temperature" && check_units
+        # For temperature: check if values look like temperature instead of flux
+        # Typical Earth: CMB heat flux ~ 0.1 W/m², temperatures ~ 1000-4000 K
+
+        if mean_val > 100.0  # If mean "flux" > 100, probably temperature in K
+            push!(warnings, """
+                Heat flux values unusually large (mean = $(mean_val)).
+
+                ⚠️ CRITICAL: Are these temperature values (K) instead of flux (W/m²)?
+
+                Expected heat flux range: 0.01 - 100 W/m² for Earth-like bodies
+                Your values: $(min_val) - $(max_val)
+
+                If these are temperature values, change BC type to DIRICHLET!
+                """)
+            is_valid = false
+        end
+
+        # Check for dimensionless flux (should be O(1) or less)
+        if minimum(values_abs) < 1e-6 && maximum(values_abs) < 1e-3
+            push!(warnings, """
+                Heat flux values very small (< 1e-3).
+
+                This might be correct for:
+                - Dimensionless formulation with small Rayleigh number
+                - Very weak heating
+
+                Or it might indicate:
+                - Missing dimensional scaling
+                - Incorrect units
+                """)
+        end
+    end
+
+    return is_valid, warnings
+end
+
+"""
+    validate_temperature_flux_boundary(boundary::BoundaryData, bc_type::Int)
+
+Validate that a temperature boundary condition has correct data type for its BC type.
+
+For Neumann (flux) BCs: ensures values represent heat flux, not temperature
+For Dirichlet BCs: ensures values represent temperature
+"""
+function validate_temperature_flux_boundary(boundary::BoundaryData, bc_type::Int)
+
+    if bc_type == Int(NEUMANN)
+        # For flux BC, values should be flux (W/m² or dimensionless)
+        # NOT temperature (K)
+
+        # Check units field
+        units_lower = lowercase(boundary.units)
+        is_temp_units = occursin("k", units_lower) || occursin("kelvin", units_lower) ||
+                       occursin("celsius", units_lower) || occursin("°", units_lower)
+
+        if is_temp_units
+            @warn """
+            ⚠️ CRITICAL: Neumann (flux) BC specified but units indicate temperature!
+
+            Boundary: $(boundary.description)
+            Units: $(boundary.units)
+            BC type: NEUMANN (expects flux)
+
+            Neumann BCs require heat FLUX values (W/m² or ∂T/∂r), not temperature!
+
+            Fix options:
+            1. Change description to remove "flux" keywords → will use DIRICHLET
+            2. Provide actual flux data with correct units (W/m² or dimensionless)
+            3. Set units to "W/m²" or "dimensionless" to match data type
+
+            Proceeding, but results will be INCORRECT if data is actually temperature!
+            """
+        end
+
+        # Validate flux values are reasonable
+        is_valid, warnings = validate_flux_boundary_values(
+            boundary.values, "temperature";
+            typical_value_range=(0.0, 1000.0),  # W/m²
+            check_units=true
+        )
+
+        if !is_valid && get_rank() == 0
+            for warning in warnings
+                @warn warning
+            end
+        end
+
+    else  # DIRICHLET
+        # For fixed temperature, values should be temperature (K)
+
+        # Check if values look like flux instead of temperature
+        values_abs = abs.(boundary.values)
+        max_val = maximum(values_abs)
+
+        if max_val < 10.0  # If max temperature < 10 K, probably flux values
+            @warn """
+            Dirichlet (fixed T) BC but values very small (max = $(max_val)).
+
+            Expected temperature: 100-10000 K for planetary interiors
+            Your values: 0 - $(max_val)
+
+            Possible issues:
+            1. Values might be heat flux instead of temperature
+            2. Missing dimensional scaling
+            3. Using dimensionless temperature with small scale
+
+            Check if BC type should be NEUMANN instead!
+            """
+        end
+    end
+
+    return nothing
+end
+
 export load_temperature_boundary_conditions!, set_programmatic_temperature_boundaries!
 export update_time_dependent_temperature_boundaries!, get_current_temperature_boundaries
-export validate_temperature_boundary_files, create_layered_temperature_boundary
+export validate_temperature_boundary_files
+export validate_flux_boundary_values, validate_temperature_flux_boundary, create_layered_temperature_boundary
 export apply_temperature_boundaries!, enforce_temperature_boundary_constraints!
 export infer_temperature_bc_type
