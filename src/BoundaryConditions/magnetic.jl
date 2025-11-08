@@ -656,6 +656,51 @@ function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
         primary_constraint = :perfect_conductor
     end
 
+    # Validate insulating boundaries if applicable
+    if primary_constraint == :insulating && get_rank() == 0
+        # Check inner boundary
+        if occursin("insulating", inner_desc)
+            is_valid_inner, violation_inner = validate_insulating_boundary(
+                inner_physical[:, :, 1], inner_physical[:, :, 2], inner_physical[:, :, 3],
+                boundary_set.inner_boundary.theta, boundary_set.inner_boundary.phi;
+                tolerance=0.05  # 5% relative error allowed
+            )
+            if !is_valid_inner
+                @warn """
+                Inner boundary violates insulating condition!
+                Maximum |(∇×B)_r| / |B| = $(violation_inner)
+
+                For insulating boundaries, (∇×B)_r = 0 is required (no normal current).
+                Your boundary data may not be from a potential field.
+
+                Recommendations:
+                1. If using file-based boundaries, ensure they're computed from a potential field
+                2. Use programmatic :insulating pattern for guaranteed correctness
+                3. Consider computing matching tangential components from B_r
+
+                Proceeding with Dirichlet BC, but results may be unphysical.
+                """
+            end
+        end
+
+        # Check outer boundary
+        if occursin("insulating", outer_desc)
+            is_valid_outer, violation_outer = validate_insulating_boundary(
+                outer_physical[:, :, 1], outer_physical[:, :, 2], outer_physical[:, :, 3],
+                boundary_set.outer_boundary.theta, boundary_set.outer_boundary.phi;
+                tolerance=0.05
+            )
+            if !is_valid_outer
+                @warn """
+                Outer boundary violates insulating condition!
+                Maximum |(∇×B)_r| / |B| = $(violation_outer)
+
+                See recommendations above for inner boundary.
+                """
+            end
+        end
+    end
+
     # Apply the determined constraint
     enforce_magnetic_boundary_constraints!(magnetic_field, primary_constraint)
 
@@ -806,6 +851,88 @@ function validate_magnetic_boundary_files(boundary_specs::Dict, config)
     end
     
     return true
+end
+
+"""
+    compute_radial_curl_component(B_r, B_theta, B_phi, theta, phi)
+
+Compute the radial component of ∇×B to verify insulating boundary conditions.
+
+For insulating boundaries, (∇×B)_r should be zero.
+In spherical coordinates:
+    (∇×B)_r = (1/(r sin θ))[∂(B_φ sin θ)/∂θ - ∂B_θ/∂φ]
+
+# Arguments
+- `B_r, B_theta, B_phi`: Magnetic field components on boundary [nlat, nlon]
+- `theta, phi`: Coordinate arrays
+
+# Returns
+- `curl_r`: Radial component of curl [nlat, nlon]
+- `max_curl`: Maximum absolute value of (∇×B)_r
+"""
+function compute_radial_curl_component(B_r, B_theta, B_phi, theta, phi)
+    nlat, nlon = size(B_r)
+    curl_r = zeros(eltype(B_r), nlat, nlon)
+
+    # Compute derivatives using finite differences
+    for i in 2:nlat-1
+        for j in 1:nlon
+            θ = theta[i]
+            sin_theta = sin(θ)
+
+            # Handle periodicity in phi
+            j_plus = (j == nlon) ? 1 : j + 1
+            j_minus = (j == 1) ? nlon : j - 1
+
+            # Compute ∂(B_φ sin θ)/∂θ
+            B_phi_sin_theta_plus = B_phi[i+1, j] * sin(theta[i+1])
+            B_phi_sin_theta_minus = B_phi[i-1, j] * sin(theta[i-1])
+            dtheta = theta[i+1] - theta[i-1]
+            d_Bphi_sintheta_dtheta = (B_phi_sin_theta_plus - B_phi_sin_theta_minus) / dtheta
+
+            # Compute ∂B_θ/∂φ
+            dphi = phi[j_plus] - phi[j_minus]
+            if dphi < 0  # Handle wrap-around
+                dphi += 2π
+            end
+            dBtheta_dphi = (B_theta[i, j_plus] - B_theta[i, j_minus]) / dphi
+
+            # (∇×B)_r = (1/(r sin θ))[∂(B_φ sin θ)/∂θ - ∂B_θ/∂φ]
+            # At boundary r = constant, so we ignore the r factor
+            curl_r[i, j] = (d_Bphi_sintheta_dtheta - dBtheta_dphi) / (sin_theta + 1e-15)
+        end
+    end
+
+    max_curl = maximum(abs, curl_r)
+    return curl_r, max_curl
+end
+
+"""
+    validate_insulating_boundary(B_r, B_theta, B_phi, theta, phi; tolerance=1e-2)
+
+Validate that a magnetic field satisfies the insulating boundary condition (∇×B)_r = 0.
+
+# Arguments
+- `B_r, B_theta, B_phi`: Magnetic field components [nlat, nlon]
+- `theta, phi`: Coordinate arrays
+- `tolerance`: Maximum allowed |(∇×B)_r| / |B|
+
+# Returns
+- `is_valid`: Boolean indicating if condition is satisfied
+- `max_violation`: Maximum |(∇×B)_r| / |B|
+"""
+function validate_insulating_boundary(B_r, B_theta, B_phi, theta, phi; tolerance=1e-2)
+    curl_r, max_curl = compute_radial_curl_component(B_r, B_theta, B_phi, theta, phi)
+
+    # Compute typical field magnitude for normalization
+    B_magnitude = sqrt.(B_r.^2 .+ B_theta.^2 .+ B_phi.^2)
+    typical_B = _Statistics.mean(B_magnitude)
+
+    # Relative violation
+    max_violation = max_curl / (typical_B + 1e-15)
+    is_valid = max_violation < tolerance
+
+    return is_valid, max_violation
 end
 
 """
@@ -988,3 +1115,4 @@ export load_magnetic_boundary_conditions!, set_programmatic_magnetic_boundaries!
 export update_time_dependent_magnetic_boundaries!, get_current_magnetic_boundaries
 export validate_magnetic_boundary_files, create_programmatic_magnetic_boundary
 export magnetic_to_qst_coefficients, enforce_magnetic_boundary_constraints!
+export compute_radial_curl_component, validate_insulating_boundary
