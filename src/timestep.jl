@@ -829,6 +829,8 @@ Stores precomputed matrix exponentials and φ functions for each spherical harmo
 """
 struct ERK2Cache{T}
     dt::Float64
+    diffusivity::Float64
+    nr::Int
     l_values::Vector{Int}
 
     # Matrix exponentials: exp(dt/2 * A_l) and exp(dt * A_l)
@@ -957,8 +959,8 @@ function create_erk2_cache(::Type{T}, config::SHTnsKitConfig, domain::RadialDoma
     # Ensure MPI consistency
     MPI.Barrier(get_comm())
     
-    return ERK2Cache{T}(dt, lvals, E_half, E_full, phi1_half, phi1_full, phi2_full,
-                       use_krylov, m, tol, true)
+    return ERK2Cache{T}(dt, diffusivity, nr, lvals, E_half, E_full, phi1_half, phi1_full,
+                       phi2_full, use_krylov, m, tol, true)
 end
 
 """
@@ -1269,35 +1271,40 @@ Retrieve or create ERK2 cache with automatic invalidation when parameters change
 function get_erk2_cache!(caches::Dict{Symbol,Any}, key::Symbol, diffusivity::Float64,
                         ::Type{T}, config::SHTnsKitConfig, domain::RadialDomain, dt::Float64;
                         use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T
-    
-    entry = get(caches, key, nothing)
     nr = domain.N
-    
-    # Check if cache needs to be rebuilt
-    if entry === nothing || 
-       get(entry, :diffusivity, nothing) != diffusivity ||
-       get(entry, :nr, nothing) != nr ||
-       get(entry, :dt, nothing) != dt ||
-       !get(entry, :mpi_consistent, false)
-        
+    cache = _normalize_erk2_cache_entry(get(caches, key, nothing))
+
+    needs_rebuild = cache === nothing ||
+                    cache.diffusivity != diffusivity ||
+                    cache.nr != nr ||
+                    cache.dt != dt ||
+                    cache.use_krylov != use_krylov ||
+                    !cache.mpi_consistent
+
+    if needs_rebuild
         if get_rank() == 0
             @info "Creating new ERK2 cache for $key (ν=$diffusivity, nr=$nr, dt=$dt)"
         end
-        
-        cache = create_erk2_cache(T, config, domain, diffusivity, dt; 
-                                use_krylov, m, tol)
-        
-        entry = Dict{Symbol,Any}(
-            :cache => cache,
-            :diffusivity => diffusivity,
-            :nr => nr,
-            :dt => dt,
-            :mpi_consistent => true
-        )
-        caches[key] = entry
+
+        cache = create_erk2_cache(T, config, domain, diffusivity, dt;
+                                  use_krylov=use_krylov, m=m, tol=tol)
     end
-    
-    return entry[:cache]
+
+    caches[key] = cache
+    return cache
+end
+
+function _normalize_erk2_cache_entry(entry)
+    if entry isa ERK2Cache
+        return entry
+    elseif entry isa Dict
+        cache = get(entry, :cache, nothing)
+        return cache isa ERK2Cache ? cache : nothing
+    elseif entry === nothing
+        return nothing
+    else
+        return nothing
+    end
 end
 
 """
@@ -1315,6 +1322,18 @@ function save_erk2_cache_bundle(path::AbstractString,
         file["metadata"] = meta
     end
     return path
+end
+
+function save_erk2_cache_bundle(path::AbstractString,
+                                caches::Dict{Symbol,Any};
+                                metadata::Dict{String,Any}=Dict{String,Any}())
+    bundle = Dict{Symbol,ERK2Cache}()
+    for (key, value) in caches
+        cache = _normalize_erk2_cache_entry(value)
+        cache === nothing && continue
+        bundle[key] = cache
+    end
+    return save_erk2_cache_bundle(path, bundle; metadata=metadata)
 end
 
 """
@@ -1338,8 +1357,10 @@ end
 Copy ERK2 caches from `bundle` into the target cache dictionary.
 """
 function install_erk2_cache_bundle!(target::Dict{Symbol,Any},
-                                    bundle::Dict{Symbol,<:ERK2Cache})
-    for (key, cache) in bundle
+                                    bundle::Dict{Symbol,<:Any})
+    for (key, value) in bundle
+        cache = _normalize_erk2_cache_entry(value)
+        cache === nothing && continue
         target[key] = cache
     end
     return target
