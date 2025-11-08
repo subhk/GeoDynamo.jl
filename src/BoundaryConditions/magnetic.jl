@@ -366,9 +366,8 @@ function create_programmatic_magnetic_boundary(pattern::Symbol, config, amplitud
         file_path="programmatic"
     )
 
-    # Add pattern information for constraint enforcement
-    boundary_data.pattern = pattern
-    boundary_data.amplitude = amplitude
+    # Note: Pattern information is encoded in the description string
+    # and will be parsed later if needed for constraint enforcement
 
     return boundary_data
 end
