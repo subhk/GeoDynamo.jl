@@ -824,7 +824,7 @@ function validate_flux_boundary_values(values::Array, field_type::String;
             push!(warnings, """
                 Heat flux values unusually large (mean = $(mean_val)).
 
-                ⚠️ CRITICAL: Are these temperature values (K) instead of flux (W/m²)?
+                CRITICAL: Are these temperature values (K) instead of flux (W/m²)?
 
                 Expected heat flux range: 0.01 - 100 W/m² for Earth-like bodies
                 Your values: $(min_val) - $(max_val)
