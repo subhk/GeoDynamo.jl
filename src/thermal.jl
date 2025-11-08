@@ -77,6 +77,9 @@ mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
     transform_time::Ref{Float64}
     comm_time::Ref{Float64}
     spectral_time::Ref{Float64}
+
+    # Geometry
+    domain::RadialDomain
 end
 
 # Specialization for temperature field (moved after struct definition)
@@ -143,8 +146,74 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
         l_factors, config,
         dr_matrix, d2r_matrix,
         theta_derivative_matrix, theta_recurrence_coeffs,
-        Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0)
+        Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),
+        oc_domain
     )
+end
+
+"""
+    enforce_temperature_boundary_values!(field)
+
+Anchor spectral boundary coefficients to stored Dirichlet values when needed.
+"""
+function enforce_temperature_boundary_values!(field::SHTnsTemperatureField{T}) where T
+    spec_real = parent(field.spectral.data_real)
+    spec_imag = parent(field.spectral.data_imag)
+
+    lm_range = range_local(field.config.pencils.spec, 1)
+    r_range  = range_local(field.config.pencils.spec, 3)
+
+    has_inner = 1 in r_range && field.domain.r[1, 4] > 0
+    has_outer = field.domain.N in r_range
+
+    inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
+    outer_idx = has_outer ? (field.domain.N - first(r_range) + 1) : 0
+
+    dirichlet = Int(DIRICHLET)
+
+    for lm_idx in lm_range
+        if lm_idx <= field.config.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+
+            if has_inner && 1 <= inner_idx <= size(spec_real, 3) && field.bc_type_inner[lm_idx] == dirichlet
+                spec_real[local_lm, 1, inner_idx] = field.boundary_values[1, lm_idx]
+                spec_imag[local_lm, 1, inner_idx] = zero(T)
+            end
+
+            if has_outer && 1 <= outer_idx <= size(spec_real, 3) && field.bc_type_outer[lm_idx] == dirichlet
+                spec_real[local_lm, 1, outer_idx] = field.boundary_values[2, lm_idx]
+                spec_imag[local_lm, 1, outer_idx] = zero(T)
+            end
+        end
+    end
+
+    return field
+end
+
+"""
+    apply_temperature_boundary_conditions!(field; time_index=nothing)
+
+Refresh cached boundary values through the BoundaryConditions subsystem and
+enforce Dirichlet data directly in spectral space when appropriate.
+"""
+function apply_temperature_boundary_conditions!(field::SHTnsTemperatureField{T};
+                                                 time_index::Union{Nothing,Int}=nothing) where T
+    boundary_set, _ = BoundaryConditions.get_temperature_boundary_data(field)
+    boundary_set === nothing && return field
+
+    if time_index === nothing
+        BoundaryConditions.apply_temperature_boundary_conditions!(field)
+    else
+        BoundaryConditions.apply_temperature_boundary_conditions!(field, time_index)
+    end
+
+    enforce_temperature_boundary_values!(field)
+
+    if field.domain.r[1, 4] == 0.0
+        GeoDynamoBall.apply_ball_temperature_regularity!(field)
+    end
+
+    return field
 end
 
 # ================================================================================
@@ -186,6 +255,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     temp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 6: Apply boundary conditions in spectral space
+    apply_temperature_boundary_conditions!(temp_field)
     apply_temperature_boundary_conditions_spectral!(temp_field, oc_domain)
     
     if ENABLE_TIMING[]
