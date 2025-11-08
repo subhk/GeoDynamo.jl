@@ -150,7 +150,8 @@ immediately enforce Dirichlet constraints in spectral space.
 """
 function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T};
                                               time_index::Union{Nothing,Int}=nothing) where T
-    if fields.boundary_condition_set === nothing
+    boundary_set, _ = BoundaryConditions.get_velocity_boundary_data(fields)
+    if boundary_set === nothing
         return fields
     end
 
@@ -357,14 +358,14 @@ end
 
 """
     apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
-                                   apply_inner, apply_outer, field, domain, r_range)
+                                   apply_inner, apply_outer, domain, r_range)
 
 Apply flux boundary conditions using direct substitution.
 Sets the boundary point derivative to zero by adjusting the boundary value.
 """
 function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
                                         apply_inner, apply_outer,
-                                        field::SHTnsSpectralField, domain, r_range)
+                                        domain, r_range)
     T = eltype(spec_real)
     nr = domain.N
 
@@ -552,7 +553,7 @@ For incompressible flow with v_r = 0:
 - `r_val`: Radial position
 
 # Returns
-- `tau_theta, tau_phi`: Stress components [nlat, nlon] (μ = 1)
+- `tau_theta, tau_phi`: Stress components [nlat, nlon] with μ = 1
 - `max_stress`: Maximum stress magnitude
 """
 function compute_tangential_stress_components(v_theta, v_phi, dv_theta_dr, dv_phi_dr, r_val)

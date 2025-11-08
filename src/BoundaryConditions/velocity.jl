@@ -66,13 +66,26 @@ function load_velocity_boundary_conditions!(velocity_field, boundary_specs::Dict
         throw(ArgumentError("Invalid boundary specification format"))
     end
     
-    # Store boundary conditions in field
-    velocity_field.boundary_condition_set = boundary_set
-    velocity_field.boundary_time_index[] = 1
-    
-    # Create interpolation cache
-    velocity_field.boundary_interpolation_cache = create_velocity_interpolation_cache(boundary_set, velocity_field.config)
-    
+    cache = create_velocity_interpolation_cache(boundary_set, velocity_field.config)
+
+    if hasfield(typeof(velocity_field), :boundary_condition_set)
+        velocity_field.boundary_condition_set = boundary_set
+        if hasfield(typeof(velocity_field), :boundary_time_index)
+            velocity_field.boundary_time_index[] = 1
+        end
+        velocity_field.boundary_interpolation_cache = cache
+    else
+        if !isdefined(@__MODULE__, :_velocity_boundary_cache)
+            global _velocity_boundary_cache = Dict{UInt64, Any}()
+        end
+        field_id = objectid(velocity_field)
+        _velocity_boundary_cache[field_id] = Dict(
+            :boundary_set => boundary_set,
+            :interpolation_cache => cache,
+            :time_index => 1
+        )
+    end
+
     # Apply initial boundary conditions
     apply_velocity_boundary_conditions!(velocity_field)
     
@@ -383,13 +396,11 @@ Apply velocity boundary conditions to the field.
 """
 function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
     
-    if velocity_field.boundary_condition_set === nothing
+    boundary_set, cache = get_velocity_boundary_data(velocity_field)
+    if boundary_set === nothing || cache === nothing
         @warn "No boundary conditions loaded for velocity field"
         return velocity_field
     end
-    
-    boundary_set = velocity_field.boundary_condition_set
-    cache = velocity_field.boundary_interpolation_cache
     
     # Interpolate boundary data to simulation grid
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
@@ -487,7 +498,7 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
     end
     
     # Update time index
-    velocity_field.boundary_time_index[] = time_index
+    update_velocity_time_index!(velocity_field, time_index)
 
     return velocity_field
 end
@@ -499,11 +510,10 @@ Update time-dependent velocity boundary conditions.
 """
 function update_time_dependent_velocity_boundaries!(velocity_field, current_time::Float64)
     
-    if velocity_field.boundary_condition_set === nothing
+    boundary_set, _ = get_velocity_boundary_data(velocity_field)
+    if boundary_set === nothing
         return velocity_field
     end
-    
-    boundary_set = velocity_field.boundary_condition_set
     
     # Check if boundaries are time-dependent
     if !boundary_set.inner_boundary.is_time_dependent && !boundary_set.outer_boundary.is_time_dependent
@@ -512,9 +522,10 @@ function update_time_dependent_velocity_boundaries!(velocity_field, current_time
     
     # Find time index for current time
     time_index = find_boundary_time_index(boundary_set, current_time)
+    current_time_index = get_velocity_time_index(velocity_field)
     
     # Only update if time index has changed
-    if time_index != velocity_field.boundary_time_index[]
+    if time_index != current_time_index
         apply_velocity_boundary_conditions!(velocity_field, time_index)
         
         if get_rank() == 0
@@ -532,13 +543,12 @@ Get current velocity boundary conditions.
 """
 function get_current_velocity_boundaries(velocity_field)
     
-    if velocity_field.boundary_condition_set === nothing
+    boundary_set, cache = get_velocity_boundary_data(velocity_field)
+    if boundary_set === nothing || cache === nothing
         return Dict(:error => "No boundary conditions loaded")
     end
     
-    boundary_set = velocity_field.boundary_condition_set
-    time_index = velocity_field.boundary_time_index[]
-    cache = velocity_field.boundary_interpolation_cache
+    time_index = get_velocity_time_index(velocity_field)
     
     # Get current boundary data
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
@@ -578,6 +588,67 @@ function set_programmatic_velocity_boundaries!(velocity_field, inner_spec::Tuple
     
     boundary_specs = Dict(:inner => inner_spec, :outer => outer_spec)
     return load_velocity_boundary_conditions!(velocity_field, boundary_specs)
+end
+
+"""
+    get_velocity_boundary_data(velocity_field)
+
+Return `(boundary_set, cache)` for the provided velocity field, falling back to
+module-level storage when the struct does not carry boundary metadata.
+"""
+function get_velocity_boundary_data(velocity_field)
+    if isdefined(@__MODULE__, :_velocity_boundary_cache)
+        field_id = objectid(velocity_field)
+        if haskey(_velocity_boundary_cache, field_id)
+            data = _velocity_boundary_cache[field_id]
+            return data[:boundary_set], data[:interpolation_cache]
+        end
+    end
+
+    if hasfield(typeof(velocity_field), :boundary_condition_set)
+        return velocity_field.boundary_condition_set, velocity_field.boundary_interpolation_cache
+    end
+
+    return nothing, nothing
+end
+
+"""
+    get_velocity_time_index(velocity_field)
+
+Fetch the current boundary time index for a velocity field, honoring fallback storage.
+"""
+function get_velocity_time_index(velocity_field)
+    if isdefined(@__MODULE__, :_velocity_boundary_cache)
+        field_id = objectid(velocity_field)
+        if haskey(_velocity_boundary_cache, field_id)
+            return _velocity_boundary_cache[field_id][:time_index]
+        end
+    end
+
+    if hasfield(typeof(velocity_field), :boundary_time_index)
+        return velocity_field.boundary_time_index[]
+    end
+
+    return 1
+end
+
+"""
+    update_velocity_time_index!(velocity_field, time_index)
+
+Update cached time indices for velocity boundary conditions in both the field
+and the module-level fallback cache (when present).
+"""
+function update_velocity_time_index!(velocity_field, time_index::Int)
+    if isdefined(@__MODULE__, :_velocity_boundary_cache)
+        field_id = objectid(velocity_field)
+        if haskey(_velocity_boundary_cache, field_id)
+            _velocity_boundary_cache[field_id][:time_index] = time_index
+        end
+    end
+
+    if hasfield(typeof(velocity_field), :boundary_time_index)
+        velocity_field.boundary_time_index[] = time_index
+    end
 end
 
 """
