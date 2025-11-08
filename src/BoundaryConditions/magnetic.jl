@@ -632,19 +632,28 @@ function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
     magnetic_field.boundary_time_index[] = time_index
 
     # Enforce magnetic boundary condition constraints based on boundary pattern
+    # Infer constraint type from boundary description strings
     boundary_set = magnetic_field.boundary_condition_set
 
-    # Determine boundary constraint type
+    # Determine boundary constraint type by parsing description strings
     primary_constraint = :potential_field  # Default
 
-    # Check for pattern information in boundary data
-    if hasfield(typeof(boundary_set.inner_boundary), :pattern)
-        primary_constraint = boundary_set.inner_boundary.pattern
-    elseif hasfield(typeof(boundary_set.outer_boundary), :pattern)
-        primary_constraint = boundary_set.outer_boundary.pattern
-    elseif hasfield(typeof(boundary_set), :constraint_type)
-        # Use explicit constraint if specified
-        primary_constraint = boundary_set.constraint_type
+    # Check inner boundary description
+    inner_desc = lowercase(boundary_set.inner_boundary.description)
+    if occursin("insulating", inner_desc)
+        primary_constraint = :insulating
+    elseif occursin("perfect conductor", inner_desc) || occursin("perfect_conductor", inner_desc)
+        primary_constraint = :perfect_conductor
+    elseif occursin("potential", inner_desc)
+        primary_constraint = :potential_field
+    end
+
+    # Override with outer boundary if it's more specific
+    outer_desc = lowercase(boundary_set.outer_boundary.description)
+    if occursin("insulating", outer_desc) && primary_constraint == :potential_field
+        primary_constraint = :insulating
+    elseif occursin("perfect conductor", outer_desc) || occursin("perfect_conductor", outer_desc)
+        primary_constraint = :perfect_conductor
     end
 
     # Apply the determined constraint

@@ -101,7 +101,7 @@ function enforce_velocity_boundary_values!(fields::SHTnsVelocityFields{T}) where
     pol_bc = fields.poloidal.boundary_values
 
     lm_range = get_local_range(fields.toroidal.pencil, 1)
-    r_range = get_local_range(fields.toroidal.pencil, 3)
+    r_range  = get_local_range(fields.toroidal.pencil, 3)
 
     has_inner = 1 in r_range && domain.r[1, 4] > 0
     has_outer = domain.N in r_range
@@ -561,19 +561,19 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     vorticity = create_shtns_vector_field(T, config, oc_domain, pencils)
     
     # Spectral fields
-    toroidal    = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    poloidal    = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    vort_toroidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    vort_poloidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    nl_toroidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    nl_poloidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    toroidal         = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    poloidal         = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    vort_toroidal    = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    vort_poloidal    = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    nl_toroidal      = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    nl_poloidal      = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     prev_nl_toroidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     prev_nl_poloidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     
     # Work arrays
-    work_tor = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    work_pol = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    work_physical = create_shtns_vector_field(T, config, oc_domain, pencils)
+    work_tor           = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    work_pol           = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    work_physical      = create_shtns_vector_field(T, config, oc_domain, pencils)
     advection_physical = create_shtns_vector_field(T, config, oc_domain, pencils)
     
     # Pre-compute l(l+1) factors
@@ -587,8 +587,8 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     end
     
     # Create radial derivative matrices
-    dr_matrix = create_derivative_matrix(1, oc_domain)
-    d2r_matrix = create_derivative_matrix(2, oc_domain)
+    dr_matrix        = create_derivative_matrix(1, oc_domain)
+    d2r_matrix       = create_derivative_matrix(2, oc_domain)
     laplacian_matrix = create_radial_laplacian(oc_domain)
     
     # Create transpose plans for efficient data movement
