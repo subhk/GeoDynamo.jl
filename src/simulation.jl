@@ -877,9 +877,15 @@ function predictor_step!(state::SimulationState{T}) where T
                              d_Pm, state.timestep_state.dt;
                              nl_prev=state.velocity.prev_nl_poloidal,
                              matrices=state.implicit_matrices[:velocity])
-    solve_implicit_step!(state.velocity.poloidal, rhs_pol, 
+    solve_implicit_step!(state.velocity.poloidal, rhs_pol,
                         state.implicit_matrices[:velocity])
-    
+
+    # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
+    apply_velocity_flux_bc_spectral!(state.velocity, state.oc_domain; method=:direct)
+
+    # Enforce Dirichlet boundary conditions for velocity
+    enforce_velocity_boundary_values!(state.velocity)
+
     # Magnetic field (toroidal)
     rhs_mag_tor = similar(state.magnetic.toroidal)
     apply_explicit_operator!(rhs_mag_tor, state.magnetic.toroidal,
@@ -1013,7 +1019,13 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
                         state.implicit_matrices[:velocity], dt)
     solve_implicit_step!(state.velocity.poloidal, state.velocity.nl_poloidal,
                         state.implicit_matrices[:velocity], dt)
-    
+
+    # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
+    apply_velocity_flux_bc_spectral!(state.velocity, state.oc_domain; method=:direct)
+
+    # Enforce Dirichlet boundary conditions for velocity
+    enforce_velocity_boundary_values!(state.velocity)
+
     # Magnetic (if enabled)
     if i_B == 1
         solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
@@ -1690,6 +1702,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         execute_task_graph!(task_graph, state.master_parallelizer.cpu_parallelizer.thread_manager)
     end
 
+    # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
+    apply_velocity_flux_bc_spectral!(state.velocity, state.oc_domain; method=:direct)
+
+    # Apply Dirichlet boundary conditions for velocity
     apply_velocity_boundary_conditions!(state.velocity)
     if i_B == 1 && state.magnetic !== nothing
         apply_magnetic_boundary_conditions!(state.magnetic)

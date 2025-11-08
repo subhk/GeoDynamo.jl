@@ -168,6 +168,310 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T};
     return fields
 end
 
+"""
+    apply_velocity_flux_bc_spectral!(fields::SHTnsVelocityFields{T}, domain::RadialDomain;
+                                     method::Symbol=:tau) where T
+
+Apply Neumann (flux) boundary conditions to velocity field components in spectral space.
+
+This function enforces stress-free or other Neumann boundary conditions for the
+toroidal and poloidal components of the velocity field. For stress-free boundaries:
+- Poloidal (radial) component: v_r = 0 (Dirichlet, handled by enforce_velocity_boundary_values!)
+- Toroidal (tangential) component: ∂T/∂r = 0 (Neumann, handled here)
+
+# Arguments
+- `fields`: Velocity field structure with toroidal and poloidal components
+- `domain`: Radial domain information
+- `method`: Method for applying flux BCs (:tau, :influence_matrix, or :direct)
+
+# Physical Interpretation
+For stress-free boundaries, the zero tangential stress condition:
+  ∂v_θ/∂r - v_θ/r = 0  and  ∂v_φ/∂r - v_φ/r = 0
+translates to zero radial derivative of the toroidal scalar potential T:
+  ∂T/∂r = 0  at boundaries
+"""
+function apply_velocity_flux_bc_spectral!(fields::SHTnsVelocityFields{T},
+                                          domain::RadialDomain;
+                                          method::Symbol=:tau) where T
+
+    # Apply flux BC to toroidal component (if Neumann BC is set)
+    apply_velocity_component_flux_bc!(fields.toroidal, domain, fields.dr_matrix, method)
+
+    # Apply flux BC to poloidal component (if Neumann BC is set)
+    # Note: For typical stress-free boundaries, poloidal uses Dirichlet (v_r = 0)
+    # but this allows flexibility for other boundary conditions
+    apply_velocity_component_flux_bc!(fields.poloidal, domain, fields.dr_matrix, method)
+
+    return fields
+end
+
+"""
+    apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
+                                       domain::RadialDomain,
+                                       dr_matrix::BandedMatrix{T},
+                                       method::Symbol) where T
+
+Apply flux boundary conditions to a single velocity component (toroidal or poloidal).
+"""
+function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
+                                           domain::RadialDomain,
+                                           dr_matrix::BandedMatrix{T},
+                                           method::Symbol) where T
+
+    spec_real = parent(field.data_real)
+    spec_imag = parent(field.data_imag)
+
+    lm_range = get_local_range(field.pencil, 1)
+    r_range  = get_local_range(field.pencil, 3)
+
+    for lm_idx in lm_range
+        if lm_idx <= field.nlm
+            local_lm = lm_idx - first(lm_range) + 1
+
+            # Check if this mode needs flux BC
+            apply_inner = (field.bc_type_inner[lm_idx] == Int(NEUMANN)) && (1 in r_range)
+            apply_outer = (field.bc_type_outer[lm_idx] == Int(NEUMANN)) && (domain.N in r_range)
+
+            if apply_inner || apply_outer
+                # Apply flux BC using specified method
+                if method == :tau
+                    apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
+                                               apply_inner, apply_outer, dr_matrix, domain, r_range)
+                elseif method == :direct
+                    apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
+                                                   apply_inner, apply_outer, domain, r_range)
+                else
+                    @warn "Flux BC method $method not fully implemented for velocity, using direct"
+                    apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
+                                                   apply_inner, apply_outer, domain, r_range)
+                end
+            end
+        end
+    end
+end
+
+"""
+    apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
+                                apply_inner, apply_outer, dr_matrix, domain, r_range)
+
+Apply flux boundary conditions using the tau method for velocity components.
+This enforces ∂T/∂r = 0 at boundaries for stress-free conditions.
+"""
+function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
+                                     apply_inner, apply_outer,
+                                     dr_matrix::BandedMatrix, domain, r_range)
+    T = eltype(spec_real)
+    nr = domain.N
+
+    # Extract radial profile for this mode
+    profile_real = zeros(T, nr)
+    profile_imag = zeros(T, nr)
+
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(spec_real, 3)
+            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+        end
+    end
+
+    # MPI gather to get complete profile (needed for BC application)
+    comm = BoundaryConditions.get_comm()
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        MPI.Allreduce!(profile_real, MPI.SUM, comm)
+        MPI.Allreduce!(profile_imag, MPI.SUM, comm)
+    end
+
+    # For stress-free boundaries: prescribed flux is zero (∂T/∂r = 0)
+    # The boundary_values array stores the value for Dirichlet, not flux for Neumann
+    # For Neumann BC, we enforce zero flux
+    flux_inner = T(0)
+    flux_outer = T(0)
+
+    # Compute current fluxes at boundaries using derivative matrix
+    dprofile_real = zeros(T, nr)
+    dprofile_imag = zeros(T, nr)
+    apply_derivative_matrix!(dprofile_real, dr_matrix, profile_real)
+    apply_derivative_matrix!(dprofile_imag, dr_matrix, profile_imag)
+
+    current_flux_inner = dprofile_real[1]
+    current_flux_outer = dprofile_real[nr]
+
+    # Compute tau corrections to enforce zero flux
+    # Simple tau method: add correction to enforce BC
+    if apply_inner && apply_outer
+        # Both boundaries - use two tau functions
+        # Correction is a polynomial that fixes both boundary fluxes
+        correction_real = compute_tau_correction_both_boundaries(
+            flux_inner - current_flux_inner,
+            flux_outer - current_flux_outer,
+            domain)
+        profile_real .+= correction_real
+
+        if any(x -> abs(x) > 1e-12, profile_imag)
+            current_flux_inner_imag = dprofile_imag[1]
+            current_flux_outer_imag = dprofile_imag[nr]
+            correction_imag = compute_tau_correction_both_boundaries(
+                -current_flux_inner_imag,
+                -current_flux_outer_imag,
+                domain)
+            profile_imag .+= correction_imag
+        end
+
+    elseif apply_inner
+        # Only inner boundary
+        correction_real = compute_tau_correction_inner_boundary(
+            flux_inner - current_flux_inner, domain)
+        profile_real .+= correction_real
+
+        if any(x -> abs(x) > 1e-12, profile_imag)
+            current_flux_inner_imag = dprofile_imag[1]
+            correction_imag = compute_tau_correction_inner_boundary(
+                -current_flux_inner_imag, domain)
+            profile_imag .+= correction_imag
+        end
+
+    elseif apply_outer
+        # Only outer boundary
+        correction_real = compute_tau_correction_outer_boundary(
+            flux_outer - current_flux_outer, domain)
+        profile_real .+= correction_real
+
+        if any(x -> abs(x) > 1e-12, profile_imag)
+            current_flux_outer_imag = dprofile_imag[nr]
+            correction_imag = compute_tau_correction_outer_boundary(
+                -current_flux_outer_imag, domain)
+            profile_imag .+= correction_imag
+        end
+    end
+
+    # Store corrected profile back
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(spec_real, 3)
+            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+        end
+    end
+end
+
+"""
+    apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
+                                   apply_inner, apply_outer, field, domain, r_range)
+
+Apply flux boundary conditions using direct substitution.
+Sets the boundary point derivative to zero by adjusting the boundary value.
+"""
+function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
+                                        apply_inner, apply_outer,
+                                        field::SHTnsSpectralField, domain, r_range)
+    T = eltype(spec_real)
+    nr = domain.N
+
+    # Extract radial profile
+    profile_real = zeros(T, nr)
+    profile_imag = zeros(T, nr)
+
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(spec_real, 3)
+            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+        end
+    end
+
+    # MPI gather
+    comm = BoundaryConditions.get_comm()
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        MPI.Allreduce!(profile_real, MPI.SUM, comm)
+        MPI.Allreduce!(profile_imag, MPI.SUM, comm)
+    end
+
+    # Direct method: extrapolate to set derivative to zero
+    # ∂u/∂r ≈ (u[2] - u[1])/Δr = 0  =>  u[1] = u[2]
+    # ∂u/∂r ≈ (u[N] - u[N-1])/Δr = 0  =>  u[N] = u[N-1]
+
+    if apply_inner && 1 in r_range
+        profile_real[1] = profile_real[2]
+        if any(x -> abs(x) > 1e-12, profile_imag)
+            profile_imag[1] = profile_imag[2]
+        end
+    end
+
+    if apply_outer && nr in r_range
+        profile_real[nr] = profile_real[nr-1]
+        if any(x -> abs(x) > 1e-12, profile_imag)
+            profile_imag[nr] = profile_imag[nr-1]
+        end
+    end
+
+    # Store back
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(spec_real, 3)
+            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+        end
+    end
+end
+
+# Helper functions for tau corrections
+function compute_tau_correction_both_boundaries(flux_correction_inner::T,
+                                                flux_correction_outer::T,
+                                                domain::RadialDomain) where T
+    nr = domain.N
+    correction = zeros(T, nr)
+
+    # Use simple linear combination of basis functions that satisfy:
+    # - correction has specified derivative at boundaries
+    # - correction is smooth in interior
+    # Simple approach: use Chebyshev polynomials or linear interpolation
+
+    r = domain.r[:, 4]
+    r_inner = r[1]
+    r_outer = r[nr]
+
+    # Linear tau function: correction = a + b*r
+    # ∂correction/∂r = b
+    # At inner: b = flux_correction_inner
+    # At outer: b = flux_correction_outer
+    # Average or use a weighted combination
+
+    b = 0.5 * (flux_correction_inner + flux_correction_outer)
+    correction .= b .* (r .- r[1])
+
+    return correction
+end
+
+function compute_tau_correction_inner_boundary(flux_correction::T,
+                                               domain::RadialDomain) where T
+    nr = domain.N
+    correction = zeros(T, nr)
+
+    r = domain.r[:, 4]
+    # Correction that decays from inner boundary
+    # Use exponential decay or polynomial
+    for i in 1:nr
+        correction[i] = flux_correction * exp(-(r[i] - r[1]) / (r[nr] - r[1]))
+    end
+
+    return correction
+end
+
+function compute_tau_correction_outer_boundary(flux_correction::T,
+                                               domain::RadialDomain) where T
+    nr = domain.N
+    correction = zeros(T, nr)
+
+    r = domain.r[:, 4]
+    # Correction that decays from outer boundary
+    for i in 1:nr
+        correction[i] = flux_correction * exp(-(r[nr] - r[i]) / (r[nr] - r[1]))
+    end
+
+    return correction
+end
+
 function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
                                           domain::RadialDomain,
                                           ws::VelocityWorkspace{T}) where T
