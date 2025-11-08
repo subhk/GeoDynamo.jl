@@ -851,6 +851,20 @@ struct ERK2Cache{T}
     mpi_consistent::Bool
 end
 
+# Backward-compatible constructor for legacy cache bundles (pre-diffusivity metadata)
+function ERK2Cache{T}(dt::Float64, l_values::Vector{Int},
+                      E_half::Vector{Matrix{T}}, E_full::Vector{Matrix{T}},
+                      phi1_half::Vector{Matrix{T}}, phi1_full::Vector{Matrix{T}},
+                      phi2_full::Vector{Matrix{T}}, use_krylov::Bool,
+                      krylov_m::Int, krylov_tol::Float64, mpi_consistent::Bool) where T
+    nr = isempty(E_half) ? 0 : size(E_half[1], 1)
+    return ERK2Cache{T}(dt, NaN, nr, l_values, E_half, E_full,
+                        phi1_half, phi1_full, phi2_full,
+                        use_krylov, krylov_m, krylov_tol, mpi_consistent)
+end
+
+ERK2Cache(args...) = ERK2Cache{Float64}(args...)
+
 const ERK2_DIAGNOSTICS_ENABLED = Ref(false)
 const ERK2_DIAGNOSTICS_INTERVAL = Ref(1)
 
