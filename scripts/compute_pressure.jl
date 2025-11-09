@@ -16,6 +16,20 @@ gives the pressure Poisson equation:
 In spectral space (spherical harmonics), this becomes:
     For each (l,m) mode: [d²/dr² + 2/r d/dr - l(l+1)/r²] p_lm = RHS_lm
 
+# Boundary Conditions
+
+The solver uses **Neumann boundary conditions** derived from the radial momentum equation:
+
+At boundaries where velocity is constrained (no-slip or stress-free):
+    ∂p/∂r|_boundary = (buoyancy + Lorentz)_r
+
+This is physically correct and consistent with the momentum equation. The boundary
+forces are computed from temperature, composition, and magnetic field values at
+the inner and outer boundaries.
+
+For the l=0 (spherically symmetric) mode, an additional constraint p(r_mid) = 0
+is applied to fix the arbitrary pressure constant.
+
 # Usage
 
 ```julia
