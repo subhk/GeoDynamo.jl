@@ -30,38 +30,22 @@ the inner and outer boundaries.
 For the l=0 (spherically symmetric) mode, an additional constraint p(r_mid) = 0
 is applied to fix the arbitrary pressure constant.
 
-# Method: Divergence Computation (v3.0 SPECTRAL- PRODUCTION)
+# Method: Divergence Computation (v2.0 Physical)
 
-**The solver uses SPECTRAL method for divergence computation!**
+Force fields that appear in the pressure Poisson equation are not solenoidal,
+so their divergence cannot be inferred from a toroidal–poloidal representation.
+The production solver therefore constructs the RHS entirely in physical space:
 
-### Algorithm
+1. **Assemble the total force** `F = -u×ω + 2Ω×u + buoyancy + Lorentz` on the
+   Gauss–Legendre grid used by SHTnsKit.
+2. **Evaluate the spherical-coordinate divergence** using second-order finite
+   differences in r, θ, and φ.
+3. **Transform the scalar divergence** back to spectral space before solving
+   the radial Poisson problem mode-by-mode.
 
-1. **Transform each component separately to spectral:**
-   F_r^lm = ∫ F_r Y_lm dΩ  (scalar transform, NOT toroidal-poloidal!)
-   F_θ^lm = ∫ F_θ Y_lm dΩ  (scalar transform)
-   F_φ^lm = ∫ F_φ Y_lm dΩ  (scalar transform)
-
-2. **Compute divergence mode-by-mode:**
-   For each (l,m):
-     • Radial part (EXACT): (1/r²) d(r²F_r^lm)/dr using spectral derivatives
-     • Horizontal part (APPROXIMATE): Using √[l(l+1)] scaling and ∂Y_lm/∂φ = im
-     • Combine: (∇·F)^lm = radial + horizontal
-
-3. **Solve Poisson equation:**
-   [d²/dr² + 2/r d/dr - l(l+1)/r²] p_lm = (∇·F)^lm
-
-
-## Method Selection
-
-```julia
-# Production runs (DEFAULT)
-compute_pressure_rhs!(rhs, ..., method=:spectral)  # v3.0
-
-# Validation/debugging
-compute_pressure_rhs!(rhs, ..., method=:physical)  # v2.0
-```
-
-For detailed comparison, see: `docs/SPECTRAL_DIVERGENCE_METHODS.md`
+This pipeline preserves the full divergence information and matches the fix
+described in `scripts/DIVERGENCE_CORRECTION.md`. An experimental spectral-only
+implementation lives in `scripts/compute_pressure_SPECTRAL.jl`.
 
 # Usage
 
@@ -94,342 +78,17 @@ if !isdefined(Main, :MPI)
 end
 
 """
-    compute_divergence_spectral(vector_field::SHTnsVectorField{T},
-                                 config::SHTnsKitConfig,
-                                 domain::RadialDomain) where T
-
-Compute the divergence of a vector field in spectral space.
-
-For a vector field V in spherical coordinates:
-    ∇·V = 1/r² ∂(r²V_r)/∂r + 1/(r sinθ) ∂(sinθ V_θ)/∂θ + 1/(r sinθ) ∂V_φ/∂φ
-
-In spectral space using toroidal-poloidal decomposition:
-    ∇·V can be computed from the spectral coefficients
-"""
-function compute_divergence_spectral(vector_field::SHTnsVectorField{T},
-                                      config::SHTnsKitConfig,
-                                      domain::RadialDomain) where T
-    # First transform vector field to spectral toroidal-poloidal form
-    tor_field = create_shtns_spectral_field(T, config, domain, config.pencils.spec)
-    pol_field = create_shtns_spectral_field(T, config, domain, config.pencils.spec)
-
-    # Transform to spectral space
-    shtnskit_vector_analysis!(vector_field, tor_field, pol_field)
-
-    # Create divergence field (scalar in spectral space)
-    div_field = create_shtns_spectral_field(T, config, domain, config.pencils.spec)
-
-    # Get data views
-    tor_real = parent(tor_field.data_real)
-    tor_imag = parent(tor_field.data_imag)
-    pol_real = parent(pol_field.data_real)
-    pol_imag = parent(pol_field.data_imag)
-
-    div_real = parent(div_field.data_real)
-    div_imag = parent(div_field.data_imag)
-
-    # Get ranges
-    lm_range = get_local_range(div_field.pencil, 1)
-    r_range = get_local_range(div_field.pencil, 3)
-    nr = domain.N
-
-    # Buffers for radial derivatives
-    pol_profile_real = zeros(T, nr)
-    pol_profile_imag = zeros(T, nr)
-    dpol_dr_real = zeros(T, nr)
-    dpol_dr_imag = zeros(T, nr)
-
-    # Create derivative matrix
-    dr_matrix = create_derivative_matrix(1, domain)
-
-    # Compute divergence for each mode
-    for lm_idx in lm_range
-        if lm_idx <= div_field.nlm
-            local_lm = lm_idx - first(lm_range) + 1
-            l = config.l_values[lm_idx]
-            l_factor = l * (l + 1)
-
-            # Extract poloidal radial profiles
-            for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
-                if local_r <= size(pol_real, 3)
-                    pol_profile_real[r_idx] = pol_real[local_lm, 1, local_r]
-                    pol_profile_imag[r_idx] = pol_imag[local_lm, 1, local_r]
-                end
-            end
-
-            # Compute radial derivative
-            apply_derivative_matrix!(dpol_dr_real, dr_matrix, pol_profile_real)
-            apply_derivative_matrix!(dpol_dr_imag, dr_matrix, pol_profile_imag)
-
-            # For solenoidal (divergence-free) velocity: ∇·u = 0
-            # This is automatically satisfied by toroidal-poloidal decomposition
-            # But for a general vector field:
-            # ∇·V = -l(l+1)/r² P + d²P/dr² + 2/r dP/dr  (poloidal contribution only)
-
-            for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
-                if local_r <= size(div_real, 3)
-                    r_val = domain.r[r_idx, 4]
-                    if r_val > 0
-                        r_inv = domain.r[r_idx, 3]
-                        r_inv2 = domain.r[r_idx, 2]
-
-                        # Note: For velocity field, this should be ~0 (incompressibility)
-                        # For force fields, this gives the divergence
-                        div_real[local_lm, 1, local_r] = (
-                            2.0 * r_inv * dpol_dr_real[r_idx]
-                            # + d²P/dr² would need second derivative
-                        )
-                        div_imag[local_lm, 1, local_r] = (
-                            2.0 * r_inv * dpol_dr_imag[r_idx]
-                        )
-                    else
-                        div_real[local_lm, 1, local_r] = 0
-                        div_imag[local_lm, 1, local_r] = 0
-                    end
-                end
-            end
-        end
-    end
-
-    return div_field
-end
-
-
-"""
-    compute_divergence_spectral!(div_spec::SHTnsSpectralField{T},
-                                  vector_field::SHTnsVectorField{T},
-                                  domain::RadialDomain,
-                                  config::SHTnsKitConfig,
-                                  dr_matrix) where T
-
-Compute divergence of a vector field using SPECTRAL methods (spherical harmonics).
-
-For a non-solenoidal vector field V = (V_r, V_θ, V_φ):
-    ∇·V = (1/r²)∂(r²V_r)/∂r + (1/r·sinθ))∂(sinθ·V_θ)/∂θ + (1/r·sinθ)∂V_φ/∂φ
-
-# Spectral Implementation
-1. Transform each component to spectral space SEPARATELY (not toroidal-poloidal!)
-   V_r^lm = ∫ V_r Y_lm dΩ
-   V_θ^lm = ∫ V_θ Y_lm dΩ
-   V_φ^lm = ∫ V_φ Y_lm dΩ
-
-2. Compute radial term: (1/r²)d(r²V_r^lm)/dr using spectral derivatives
-
-3. Compute horizontal terms using spherical harmonic properties:
-   ∫ ∂(sinθ·V_θ)/∂θ Y_lm dΩ and ∫ ∂V_φ/∂φ Y_lm dΩ
-
-This gives SPECTRAL ACCURACY with no finite difference errors!
-
-# Why Not Toroidal-Poloidal?
-Toroidal-poloidal decomposition assumes ∇·V = 0, which is WRONG for force fields.
-Instead, we transform components separately and compute divergence properly.
-"""
-function compute_divergence_spectral!(div_spec::SHTnsSpectralField{T},
-                                       vector_field::SHTnsVectorField{T},
-                                       domain::RadialDomain,
-                                       config::SHTnsKitConfig,
-                                       dr_matrix) where T
-
-    # Step 1: Transform each vector component to spectral space separately
-    # These are SCALAR transforms, not toroidal-poloidal!
-    V_r_spec = create_shtns_spectral_field(T, config, domain, config.pencils.spec)
-    V_θ_spec = create_shtns_spectral_field(T, config, domain, config.pencils.spec)
-    V_φ_spec = create_shtns_spectral_field(T, config, domain, config.pencils.spec)
-
-    # Use scalar spherical harmonic analysis for each component
-    shtnskit_scalar_analysis!(vector_field.r_component, V_r_spec)
-    shtnskit_scalar_analysis!(vector_field.θ_component, V_θ_spec)
-    shtnskit_scalar_analysis!(vector_field.φ_component, V_φ_spec)
-
-    # Step 2: Compute divergence in spectral space
-    compute_divergence_from_spectral_components!(
-        div_spec, V_r_spec, V_θ_spec, V_φ_spec, domain, config, dr_matrix
-    )
-
-    return div_spec
-end
-
-
-"""
-    compute_divergence_from_spectral_components!(div_spec, V_r_spec, V_θ_spec, V_φ_spec,
-                                                   domain, config, dr_matrix)
-
-Compute divergence from spectral components using SPECTRAL-ENHANCED method.
-
-# Mathematical Background
-
-For each (l,m) mode in spherical coordinates:
-    (∇·V)^lm = (1/r²) d(r²V_r^lm)/dr + (1/r) × [horizontal divergence]
-
-# Implementation Strategy
-
-## Radial Part (EXACT - Spectral Accuracy):
-    (1/r²) d(r²V_r^lm)/dr
-
-    Computed using radial derivative operator with exponential convergence.
-
-## Horizontal Part (APPROXIMATE - Based on Spherical Harmonic Properties):
-    (1/r·sinθ)[∂(sinθ·V_θ)/∂θ + ∂V_φ/∂φ]
-
-    For fields expanded as V_θ = Σ V_θ^lm Y_lm, V_φ = Σ V_φ^lm Y_lm, we use:
-
-    - θ-derivative: Approximated using √[l(l+1)] scaling from ∇Y_lm
-    - φ-derivative: Exact using ∂Y_lm/∂φ = im·Y_lm
-
-    This approximation is valid for smooth fields dominated by large-scale structure.
-
-# Accuracy
-
-- Radial divergence: Exponential convergence (spectral accuracy)
-- Horizontal divergence: Approximate (dominant for l ≥ 1)
-- Overall: Much better than pure FDM, especially for radially-stratified flows
-
-# Note for Future Improvement
-
-For full spectral accuracy in horizontal divergence, would need to implement:
-1. Gaunt coefficients for mode coupling
-2. Recursion relations for ∂Y_lm/∂θ
-3. Full vector spherical harmonic formalism
-
-Current implementation is suitable for most geodynamo applications where
-radial divergence dominates.
-"""
-function compute_divergence_from_spectral_components!(
-    div_spec::SHTnsSpectralField{T},
-    V_r_spec::SHTnsSpectralField{T},
-    V_θ_spec::SHTnsSpectralField{T},
-    V_φ_spec::SHTnsSpectralField{T},
-    domain::RadialDomain,
-    config::SHTnsKitConfig,
-    dr_matrix) where T
-
-    div_real = parent(div_spec.data_real)
-    div_imag = parent(div_spec.data_imag)
-
-    Vr_real = parent(V_r_spec.data_real)
-    Vr_imag = parent(V_r_spec.data_imag)
-    Vθ_real = parent(V_θ_spec.data_real)
-    Vθ_imag = parent(V_θ_spec.data_imag)
-    Vφ_real = parent(V_φ_spec.data_real)
-    Vφ_imag = parent(V_φ_spec.data_imag)
-
-    lm_range = get_local_range(div_spec.pencil, 1)
-    r_range = get_local_range(div_spec.pencil, 3)
-    nr = domain.N
-
-    # Buffers for radial operations
-    Vr_profile_real = zeros(T, nr)
-    Vr_profile_imag = zeros(T, nr)
-    dVr_dr_real = zeros(T, nr)
-    dVr_dr_imag = zeros(T, nr)
-
-    # Process each spectral mode
-    Threads.@threads for lm_idx in lm_range
-        if lm_idx <= div_spec.nlm
-            local_lm = lm_idx - first(lm_range) + 1
-
-            # Extract radial profiles for V_r
-            for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
-                if local_r <= size(Vr_real, 3)
-                    Vr_profile_real[r_idx] = Vr_real[local_lm, 1, local_r]
-                    Vr_profile_imag[r_idx] = Vr_imag[local_lm, 1, local_r]
-                end
-            end
-
-            # Compute radial derivative of V_r
-            apply_derivative_matrix!(dVr_dr_real, dr_matrix, Vr_profile_real)
-            apply_derivative_matrix!(dVr_dr_imag, dr_matrix, Vr_profile_imag)
-
-            # Compute divergence for this mode
-            for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
-                if local_r <= size(div_real, 3)
-                    r_val = domain.r[r_idx, 4]
-
-                    if r_val > 0
-                        r_inv = domain.r[r_idx, 3]
-                        r_inv2 = domain.r[r_idx, 2]
-
-                        # Radial divergence: (1/r²) d(r²V_r)/dr
-                        radial_div_real = r_inv2 * (
-                            2.0 * r_val * Vr_profile_real[r_idx] +
-                            r_val * r_val * dVr_dr_real[r_idx]
-                        )
-                        radial_div_imag = r_inv2 * (
-                            2.0 * r_val * Vr_profile_imag[r_idx] +
-                            r_val * r_val * dVr_dr_imag[r_idx]
-                        )
-
-                        # Horizontal divergence contribution
-                        # Get l and m for this mode
-                        l = config.l_values[lm_idx]
-                        m = config.m_values[lm_idx]
-
-                        # Get V_θ and V_φ spectral coefficients
-                        Vθ_real_val = Vθ_real[local_lm, 1, local_r]
-                        Vθ_imag_val = Vθ_imag[local_lm, 1, local_r]
-                        Vφ_real_val = Vφ_real[local_lm, 1, local_r]
-                        Vφ_imag_val = Vφ_imag[local_lm, 1, local_r]
-
-                        # Horizontal divergence from spherical harmonic properties
-                        # For scalar expansions V_θ = Σ V_θ^lm Y_lm, V_φ = Σ V_φ^lm Y_lm
-                        # The horizontal divergence (1/r·sinθ)[∂(sinθ·V_θ)/∂θ + ∂V_φ/∂φ]
-                        # can be approximated using the l(l+1) eigenvalue property
-                        #
-                        # This is an approximation valid for smooth fields where the
-                        # angular structure is dominated by the Y_lm pattern.
-                        # For more accuracy, would need full mode coupling via
-                        # Gaunt coefficients, but this captures the dominant scaling.
-
-                        if l > 0
-                            # Approximate horizontal divergence using l-scaling
-                            # Factor of √[l(l+1)] comes from magnitude of ∇_horizontal Y_lm
-                            l_factor = sqrt(T(l * (l + 1)))
-                            horizontal_div_real = r_inv * l_factor * Vθ_real_val
-                            horizontal_div_imag = r_inv * l_factor * Vθ_imag_val
-
-                            # Add φ-derivative contribution: (im/sinθ) ∂V_φ/∂φ
-                            # For Y_lm, ∂/∂φ → im, so this couples to V_φ
-                            # The sinθ factor averages out in the spectral representation
-                            if m != 0
-                                horizontal_div_real += -r_inv * T(m) * Vφ_imag_val
-                                horizontal_div_imag += r_inv * T(m) * Vφ_real_val
-                            end
-                        else
-                            # l=0 mode: spherically symmetric, no horizontal divergence
-                            horizontal_div_real = 0.0
-                            horizontal_div_imag = 0.0
-                        end
-
-                        # Total divergence
-                        div_real[local_lm, 1, local_r] = radial_div_real + horizontal_div_real
-                        div_imag[local_lm, 1, local_r] = radial_div_imag + horizontal_div_imag
-                    else
-                        div_real[local_lm, 1, local_r] = 0
-                        div_imag[local_lm, 1, local_r] = 0
-                    end
-                end
-            end
-        end
-    end
-
-    return div_spec
-end
-
-
-"""
     compute_divergence_physical!(div_field::SHTnsPhysicalField{T},
                                   vector_field::SHTnsVectorField{T},
                                   domain::RadialDomain,
                                   config::SHTnsKitConfig) where T
 
-Compute divergence in physical space using finite differences (fallback method).
+Compute the divergence of a general vector field directly in physical space.
 
-This is used when spectral method is not available or for validation.
-Less accurate than spectral method but simpler to implement.
+Force fields in the momentum equation are not solenoidal, so their divergence
+must be evaluated component-wise rather than inferred from a toroidal-poloidal
+representation. This routine applies the exact spherical-coordinate formula
+with finite differences in r, θ, and φ.
 """
 function compute_divergence_physical!(div_field::SHTnsPhysicalField{T},
                                        vector_field::SHTnsVectorField{T},
@@ -472,23 +131,19 @@ function compute_divergence_physical!(div_field::SHTnsPhysicalField{T},
 
                 for i in 1:nlon
                     # Term 1: (1/r²)∂(r²V_r)/∂r
-                    # Use finite difference in radial direction
                     if k == 1 && size(div_data, 3) > 1
-                        # Forward difference at inner boundary
                         dVr_dr = (V_r[j, i, k+1] - V_r[j, i, k]) / (domain.r[r_idx+1, 4] - r)
                     elseif k == size(div_data, 3) && k > 1
-                        # Backward difference at outer boundary
                         dVr_dr = (V_r[j, i, k] - V_r[j, i, k-1]) / (r - domain.r[r_idx-1, 4])
                     elseif size(div_data, 3) > 2
-                        # Central difference in interior
-                        dVr_dr = (V_r[j, i, k+1] - V_r[j, i, k-1]) / (domain.r[r_idx+1, 4] - domain.r[r_idx-1, 4])
+                        dVr_dr = (V_r[j, i, k+1] - V_r[j, i, k-1]) /
+                                 (domain.r[r_idx+1, 4] - domain.r[r_idx-1, 4])
                     else
                         dVr_dr = 0.0
                     end
                     term1 = r_inv2 * (2.0 * r * Vr_slice[j, i] + r * r * dVr_dr)
 
                     # Term 2: (1/(r·sinθ))∂(sinθ·V_θ)/∂θ
-                    # Use finite difference in theta direction
                     if j == 1
                         d_sinθ_Vθ = sin(theta[j+1]) * Vθ_slice[j+1, i] - sin_theta * Vθ_slice[j, i]
                         d_sinθ_Vθ /= (theta[j+1] - theta[j])
@@ -501,15 +156,16 @@ function compute_divergence_physical!(div_field::SHTnsPhysicalField{T},
                     end
                     term2 = r_inv * sin_theta_inv * d_sinθ_Vθ
 
-                    # Term 3: (1/(r·sinθ))∂V_φ/∂φ
-                    # Use finite difference in phi direction (periodic)
+                    # Term 3: (1/(r·sinθ))∂V_φ/∂φ (periodic in φ)
                     i_next = i == nlon ? 1 : i + 1
                     i_prev = i == 1 ? nlon : i - 1
-                    dphi = 2π / nlon
+                    dphi = phi[i_next] - phi[i]
+                    if dphi < 0
+                        dphi += 2π
+                    end
                     dVφ_dφ = (Vφ_slice[j, i_next] - Vφ_slice[j, i_prev]) / (2 * dphi)
                     term3 = r_inv * sin_theta_inv * dVφ_dφ
 
-                    # Total divergence
                     div_data[j, i, k] = term1 + term2 + term3
                 end
             end
@@ -540,31 +196,17 @@ From momentum equation:
 Taking divergence (using ∇·u = 0):
     ∇²p = -ρ[∇·(u×ω) - ∇·(2Ω ẑ×u) + ∇·(buoyancy) + ∇·(Lorentz)]
 
-# Methods Available
-- `:spectral` - Compute divergence in spectral space (RECOMMENDED - spectral accuracy!)
-- `:physical` - Compute divergence in physical space using FDM (simpler but less accurate)
-
-# Implementation
-VERSION 3.0 (SPECTRAL):
+# Implementation (v2.0 Physical)
 1. Compute forces F in physical space
-2. Transform each component (F_r, F_θ, F_φ) to spectral space separately
-3. Compute ∇·F directly in spectral space mode-by-mode
-   → SPECTRAL ACCURACY (no finite difference errors!)
-
-VERSION 2.0 (PHYSICAL):
-1. Compute forces F in physical space
-2. Compute ∇·F in physical space using finite differences
-3. Transform scalar divergence to spectral space
-   → O(Δx²) accuracy from finite differences
-
-Note: Both avoid the v1.0 error of using toroidal-poloidal (which assumes ∇·F = 0)
+2. Compute ∇·F in physical space using finite differences (see `compute_divergence_physical!`)
+3. Transform the scalar divergence to spectral space
 """
 function compute_pressure_rhs!(rhs_field::SHTnsSpectralField{T},
                                 velocity_fields::SHTnsVelocityFields{T},
                                 temp_field, comp_field, mag_field,
                                 domain::RadialDomain,
                                 params;
-                                method::Symbol=:spectral) where T
+                                method::Symbol=:physical) where T
 
     # Step 1: Compute all forces in physical space
     compute_velocity_nonlinear!(velocity_fields, temp_field, comp_field, mag_field, domain)
@@ -573,27 +215,15 @@ function compute_pressure_rhs!(rhs_field::SHTnsSpectralField{T},
 
     config = velocity_fields.config
 
-    if method == :spectral
-        # SPECTRAL METHOD (v3.0) - RECOMMENDED
-        # Compute divergence directly in spectral space
-        compute_divergence_spectral!(
-            rhs_field,
-            velocity_fields.advection_physical,
-            domain,
-            config,
-            velocity_fields.dr_matrix
-        )
-
-    elseif method == :physical
-        # PHYSICAL SPACE METHOD (v2.0) - Fallback
-        # Compute divergence in physical space, then transform
-        div_physical = create_shtns_physical_field(T, config, domain, config.pencils.r)
-        compute_divergence_physical!(div_physical, velocity_fields.advection_physical, domain, config)
-        shtnskit_scalar_analysis!(div_physical, rhs_field)
-
-    else
-        error("Unknown divergence method: $method. Use :spectral or :physical")
+    if method != :physical
+        error("Only method = :physical is supported in scripts/compute_pressure.jl. " *
+              "See scripts/compute_pressure_SPECTRAL.jl for experimental options.")
     end
+
+    # Compute divergence in physical space, then transform
+    div_physical = create_shtns_physical_field(T, config, domain, config.pencils.r)
+    compute_divergence_physical!(div_physical, velocity_fields.advection_physical, domain, config)
+    shtnskit_scalar_analysis!(div_physical, rhs_field)
 
     return rhs_field
 end
@@ -887,10 +517,10 @@ function compute_pressure_poisson(velocity_fields::SHTnsVelocityFields{T},
     pressure_spectral = create_shtns_spectral_field(T, config, domain, config.pencils.spec)
     rhs_spectral = create_shtns_spectral_field(T, config, domain, config.pencils.spec)
 
-    # Step 1: Compute RHS = ∇·(force terms) using SPECTRAL method
-    println("  Computing RHS (spectral divergence - v3.0)...")
+    # Step 1: Compute RHS = ∇·(force terms) using the corrected physical-space method
+    println("  Computing RHS (physical-space divergence - v2.0)...")
     compute_pressure_rhs!(rhs_spectral, velocity_fields, temp_field, comp_field, mag_field, domain, params;
-                          method=:spectral)  # Use spectral for maximum accuracy!
+                          method=:physical)
 
     # Step 2: Solve Poisson equation ∇²p = RHS with Neumann BCs
     println("  Solving Poisson equation (Neumann BCs from momentum equation)...")
