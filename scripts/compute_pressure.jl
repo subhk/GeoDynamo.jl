@@ -308,11 +308,13 @@ function compute_boundary_forces(velocity_fields, temp_field, comp_field,
     # Lorentz force contribution (j×B)_r at boundaries
     if mag_field !== nothing
         lorentz_factor = rossby_factor
+        prepare_magnetic_force_fields!(mag_field, domain)
 
-        # For detailed implementation, would compute current density j = ∇×B
-        # and then (j×B)_r at boundaries from spectral coefficients
-        # Simplified here - in practice, extract from pre-computed current field
-        # if available in mag_field structure
+        lorentz_inner = get_boundary_lorentz_average(mag_field, domain, :inner)
+        lorentz_outer = get_boundary_lorentz_average(mag_field, domain, :outer)
+
+        force_inner += lorentz_factor * lorentz_inner
+        force_outer += lorentz_factor * lorentz_outer
     end
 
     # Note: For stress-free BC, viscous stress = 0 by definition
@@ -320,6 +322,57 @@ function compute_boundary_forces(velocity_fields, temp_field, comp_field,
     # but typically the dominant terms are buoyancy and Lorentz
 
     return (force_inner, force_outer)
+end
+
+function prepare_magnetic_force_fields!(mag_field::SHTnsMagneticFields, domain::RadialDomain)
+    cache = mag_field.boundary_cache
+    if get(cache, "lorentz_ready", false)
+        return mag_field
+    end
+
+    # Populate physical magnetic field and current density needed for j×B evaluation
+    shtnskit_vector_synthesis!(mag_field.toroidal, mag_field.poloidal, mag_field.magnetic; domain=domain)
+    compute_current_density_spectral!(mag_field, domain)
+    shtnskit_vector_synthesis!(mag_field.work_tor, mag_field.work_pol, mag_field.current; domain=domain)
+
+    cache["lorentz_ready"] = true
+    return mag_field
+end
+
+function get_boundary_lorentz_average(mag_field::SHTnsMagneticFields{T},
+                                      domain::RadialDomain,
+                                      boundary::Symbol) where T
+    boundary_idx = boundary === :inner ? 1 : domain.N
+
+    j_θ = parent(mag_field.current.θ_component.data)
+    j_φ = parent(mag_field.current.φ_component.data)
+    B_θ = parent(mag_field.magnetic.θ_component.data)
+    B_φ = parent(mag_field.magnetic.φ_component.data)
+
+    r_range = get_local_range(mag_field.current.r_component.pencil, 3)
+
+    local_sum = zero(T)
+    local_count = zero(Int)
+
+    if boundary_idx in r_range
+        local_r = boundary_idx - first(r_range) + 1
+        if 1 <= local_r <= size(j_θ, 3)
+            lorentz_slice = j_θ[:, :, local_r] .* B_φ[:, :, local_r] .-
+                            j_φ[:, :, local_r] .* B_θ[:, :, local_r]
+            local_sum = sum(lorentz_slice)
+            local_count = length(lorentz_slice)
+        end
+    end
+
+    if MPI.Initialized()
+        total_sum = MPI.Allreduce(local_sum, +, MPI.COMM_WORLD)
+        total_count = MPI.Allreduce(local_count, +, MPI.COMM_WORLD)
+    else
+        total_sum = local_sum
+        total_count = local_count
+    end
+
+    return total_count == 0 ? zero(T) : total_sum / T(total_count)
 end
 
 
@@ -800,13 +853,14 @@ function compute_pressure_from_output(input_file::String;
         mag_field = nothing
         if "magnetic_toroidal_real" in keys(nc.vars)
             println("\nLoading magnetic fields...")
-            mag_field = create_shtns_magnetic_fields(Float64, config, domain, pencils)
+            mag_field = create_shtns_magnetic_fields(Float64, config, domain, domain, pencils, pencils.spec)
             mag_field.toroidal = load_spectral_field_from_nc(
                 nc, "magnetic_toroidal", config, domain, Float64
             )
             mag_field.poloidal = load_spectral_field_from_nc(
                 nc, "magnetic_poloidal", config, domain, Float64
             )
+            prepare_magnetic_force_fields!(mag_field, domain)
             println("  ✓ Magnetic fields loaded")
         end
 
