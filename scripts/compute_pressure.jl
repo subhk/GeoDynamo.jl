@@ -30,30 +30,9 @@ the inner and outer boundaries.
 For the l=0 (spherically symmetric) mode, an additional constraint p(r_mid) = 0
 is applied to fix the arbitrary pressure constant.
 
-# Method: Divergence Computation (v3.0 SPECTRAL-ENHANCED - PRODUCTION)
+# Method: Divergence Computation (v3.0 SPECTRAL- PRODUCTION)
 
-**The solver uses SPECTRAL-ENHANCED method for divergence computation!**
-
-## Evolution of Implementation
-
-**v1.0 (WRONG):** Used toroidal-poloidal decomposition
-  ❌ Assumes ∇·F = 0 (incorrect for force fields!)
-  ❌ REMOVED - Do not use!
-
-**v2.0 (CORRECTED - FDM):** Computed divergence in physical space using FDM
-  ✓ Mathematically correct
-  ✓ Works for any vector field
-  ❌ O(Δx²) errors from finite differences
-  ⚠ Available as fallback (method=:physical)
-
-**v3.0 (FINAL - SPECTRAL-ENHANCED):** Hybrid spectral/physical method
-  ✓ Mathematically correct
-  ✓ Spectral accuracy for radial divergence (exponential convergence!)
-  ✓ Spherical harmonic properties for horizontal divergence
-  ✓ Optimal for radially-stratified flows (geodynamo)
-  ✅ DEFAULT METHOD (method=:spectral)
-
-## Spectral-Enhanced Divergence Method
+**The solver uses SPECTRAL method for divergence computation!**
 
 ### Algorithm
 
@@ -71,25 +50,6 @@ is applied to fix the arbitrary pressure constant.
 3. **Solve Poisson equation:**
    [d²/dr² + 2/r d/dr - l(l+1)/r²] p_lm = (∇·F)^lm
 
-### Accuracy
-
-- **Radial divergence**: Exponential convergence (spectral accuracy)
-- **Horizontal divergence**: Approximate using spherical harmonic properties
-- **Overall**: Much better than FDM, ideal for geodynamo applications
-
-### Why NOT Toroidal-Poloidal?
-
-Toroidal-poloidal decomposition theorem states: V = ∇×(T r̂) + ∇×∇×(P r̂) → ∇·V = 0
-
-This is ONLY valid for **solenoidal (divergence-free) fields**.
-
-**Force fields are NOT solenoidal:**
-- Buoyancy forces: ∇·(T r̂) ≠ 0
-- Lorentz forces: ∇·(j×B) ≠ 0 in general
-- Using toroidal-poloidal loses the divergence information!
-
-**Solution**: Use SCALAR transforms for each component separately.
-This preserves full divergence information with spectral accuracy.
 
 ## Method Selection
 
