@@ -255,6 +255,8 @@ function compute_boundary_forces(velocity_fields, temp_field, comp_field,
     # Get parameters for scaling
     rossby_factor = params.d_Pm / params.d_E
 
+    prepare_velocity_field_for_forces!(velocity_fields, domain)
+
     # Buoyancy contribution at boundaries
     if temp_field !== nothing
         buoyancy_factor = rossby_factor * (params.d_Pm / params.d_Pr) * params.d_Ra
@@ -317,11 +319,67 @@ function compute_boundary_forces(velocity_fields, temp_field, comp_field,
         force_outer += lorentz_factor * lorentz_outer
     end
 
-    # Note: For stress-free BC, viscous stress = 0 by definition
-    # For no-slip BC, viscous stress could be added here if needed
-    # but typically the dominant terms are buoyancy and Lorentz
+    # Viscous stress contribution for no-slip boundaries
+    if params.i_vel_bc == 1  # no-slip
+        visc_factor = rossby_factor
+        visc_inner = get_boundary_viscous_average(velocity_fields, domain, :inner)
+        visc_outer = get_boundary_viscous_average(velocity_fields, domain, :outer)
+        force_inner += visc_factor * visc_inner
+        force_outer += visc_factor * visc_outer
+    end
 
     return (force_inner, force_outer)
+end
+
+function prepare_velocity_field_for_forces!(velocity_fields::SHTnsVelocityFields, domain::RadialDomain)
+    cache = velocity_fields.boundary_interpolation_cache
+    if get(cache, "velocity_ready", false)
+        return velocity_fields
+    end
+    shtnskit_vector_synthesis!(velocity_fields.toroidal, velocity_fields.poloidal,
+                               velocity_fields.velocity; domain=domain)
+    cache["velocity_ready"] = true
+    return velocity_fields
+end
+
+function get_boundary_viscous_average(velocity_fields::SHTnsVelocityFields{T},
+                                      domain::RadialDomain,
+                                      boundary::Symbol) where T
+    boundary_idx = boundary === :inner ? 1 : domain.N
+    neighbor_idx = boundary === :inner ? min(domain.N, boundary_idx + 1) : max(1, boundary_idx - 1)
+
+    vel_r = parent(velocity_fields.velocity.r_component.data)
+    r_range = get_local_range(velocity_fields.velocity.r_component.pencil, 3)
+
+    local_sum = zero(T)
+    local_count = zero(Int)
+
+    if boundary_idx in r_range && neighbor_idx in r_range
+        local_boundary = boundary_idx - first(r_range) + 1
+        local_neighbor = neighbor_idx - first(r_range) + 1
+        if 1 <= local_boundary <= size(vel_r, 3) && 1 <= local_neighbor <= size(vel_r, 3)
+            dr = abs(domain.r[neighbor_idx, 4] - domain.r[boundary_idx, 4])
+            if dr > 0
+                if boundary === :inner
+                    derivative = (vel_r[:, :, local_neighbor] - vel_r[:, :, local_boundary]) / dr
+                else
+                    derivative = (vel_r[:, :, local_boundary] - vel_r[:, :, local_neighbor]) / dr
+                end
+                local_sum = sum(derivative)
+                local_count = length(derivative)
+            end
+        end
+    end
+
+    if MPI.Initialized()
+        total_sum = MPI.Allreduce(local_sum, +, MPI.COMM_WORLD)
+        total_count = MPI.Allreduce(local_count, +, MPI.COMM_WORLD)
+    else
+        total_sum = local_sum
+        total_count = local_count
+    end
+
+    return total_count == 0 ? zero(T) : total_sum / T(total_count)
 end
 
 function prepare_magnetic_force_fields!(mag_field::SHTnsMagneticFields, domain::RadialDomain)
