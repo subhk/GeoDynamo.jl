@@ -625,10 +625,13 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
                         ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx]
                                                             - d2pol_dr2_real[r_idx]
                                                             - 2.0 * r_inv * dpol_dr_real[r_idx])
+
                         ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx]
                                                             - d2pol_dr2_imag[r_idx]
                                                             - 2.0 * r_inv * dpol_dr_imag[r_idx])
+
                         ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_real[r_idx]
+                        
                         ω_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_imag[r_idx]
                     end
                 end
@@ -883,24 +886,24 @@ Dimensionless parameters:
 
 # Non-Dimensional Momentum Equation
 
-(E/Pm) ∂ũ/∂τ = -(Pm/E)ũ×ω̃ + (Pm/E)ẑ×ũ + ∇²ũ - ∇p̃
-                + (Pm/E)(Pm/Pr)Ra·T̃·r̂ + (Pm/E)(Pm/Sc)Ra_C·C̃·r̂
-                + (Pm/E)(∇×B̃)×B̃
+(E/Pm) ∂ũ/∂τ + (E/Pm)(∇×ũ)×ũ + ẑ×ũ = -∇p̃
+                + (Pm/Pr)Ra·T̃·r̂ + (Pm/Sc)Ra_C·C̃·r̂
+                + (∇×B̃)×B̃ + E∇²ũ
 
 where tilde denotes dimensionless quantities.
 
 # Implementation Notes
 
-This function computes the RIGHT HAND SIDE (excluding viscous diffusion):
-RHS = -(Pm/E)[ũ×ω̃ - ẑ×ũ] + (Pm/E)(Pm/Pr)Ra·T̃·r̂ + (Pm/E)(Pm/Sc)Ra_C·C̃·r̂ + (Pm/E)(∇×B̃)×B̃
+After dividing Eq. (1) by E/Pm, the explicit RHS entering the time integrator is:
+RHS = ũ×ω̃ - (Pm/E)(ẑ×ũ)
+      + (Pm/E)(Pm/Pr)Ra·T̃·r̂ + (Pm/E)(Pm/Sc)Ra_C·C̃·r̂
+      + (Pm/E)(∇×B̃)×B̃
 
-The prefactor (Pm/E) = rossby_factor appears throughout because:
-- Advection u×ω has coefficient Pm/E
-- Coriolis ẑ×u has coefficient Pm/E
-- Buoyancy has coefficient (Pm/E)·(Pm/Pr)·Ra or (Pm/E)·(Pm/Sc)·Ra_C
-- Lorentz force has coefficient Pm/E
+- The advection term ũ×ω̃ already matches −(∇×ũ)×ũ without extra scaling.
+- Coriolis, buoyancy, and Lorentz forces carry the (Pm/E) prefactor (=`rossby_factor`).
+- Viscous diffusion is treated implicitly with coefficient Pm (passed via `diffusivity`).
 
-The time derivative has coefficient E/Pm on the LHS, which is handled by the time integrator.
+The time derivative retains the (E/Pm) mass term and is handled by the integrator.
 """
 function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
                                                temp_field, comp_field, mag_field,
@@ -935,7 +938,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     r_range = range_local(config.pencils.r, 3)
     
     # Main fused computation loop with enhanced indexing (parallel over r-slices)
-    adv_coeff = -rossby_factor
+    adv_coeff = one(T)  # u×ω coefficient (matches -(∇×u)×u term in Eq. (1))
     @inbounds Threads.@threads for k in 1:local_size[3]
         # Get radius for this level using pencil range
         r_idx = k + first(r_range) - 1
@@ -966,7 +969,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
                     ω_θ = vort_θ[linear_idx]
                     ω_φ = vort_φ[linear_idx]
                     
-                    # Advection: u × ω scaled by Pm/E prefactor
+                    # Advection: u × ω (equivalent to - (∇×u) × u)
                     adv_r_val = adv_coeff * (u_θ * ω_φ - u_φ * ω_θ)
                     adv_θ_val = adv_coeff * (u_φ * ω_r - u_r * ω_φ)
                     adv_φ_val = adv_coeff * (u_r * ω_θ - u_θ * ω_r)
@@ -1088,10 +1091,12 @@ end
 function add_lorentz_force!(fields::SHTnsVelocityFields{T}, 
                            mag_field::SHTnsMagneticFields{T},
                            domain::RadialDomain) where T
+
     # Compute Lorentz force F = (Pm/E) (∇ × B) × B with vectorization
     if iszero(d_E)
         throw(ArgumentError("Ekman number d_E must be nonzero when evaluating the velocity equation in magnetic-diffusion scaling."))
     end
+    
     lorentz_factor = d_Pm / d_E
     
     # Step 1: Use pre-computed current density from magnetic field
