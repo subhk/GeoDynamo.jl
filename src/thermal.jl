@@ -21,7 +21,6 @@ using SparseArrays
 
 import .BoundaryConditions
 import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
-import .GeoDynamoBall
 
 # scalar_field_common.jl is included in main module - functions are available here
 
@@ -210,7 +209,7 @@ function apply_temperature_boundary_conditions!(field::SHTnsTemperatureField{T};
     enforce_temperature_boundary_values!(field)
 
     if field.domain.r[1, 4] == 0.0
-        GeoDynamoBall.apply_ball_temperature_regularity!(field)
+        apply_ball_temperature_regularity!(field)
     end
 
     return field
@@ -248,7 +247,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
     if geometry === :ball
-        GeoDynamoBall.ball_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
+        ball_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
     else
         shtnskit_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
     end
@@ -382,7 +381,7 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
     end
 
     if domain.r[1, 4] == 0.0
-        GeoDynamoBall.apply_ball_temperature_regularity!(temp_field)
+        apply_ball_temperature_regularity!(temp_field)
     end
 end
 
