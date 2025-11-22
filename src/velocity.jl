@@ -1,6 +1,5 @@
 import .BoundaryConditions
 import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
-import .GeoDynamoBall
 
 # ================================================================================
 # Physics Modules with SHTns
@@ -71,17 +70,34 @@ function create_velocity_workspace(::Type{T}, nr::Int, nthreads::Int=Threads.nth
 end
 
 # Global optional workspace reference (set by user to enable reuse across steps)
-const VELOCITY_WS = Ref{Any}(nothing)
+# Type-stable: only accepts VelocityWorkspace or nothing
+const VELOCITY_WS = Ref{Union{VelocityWorkspace, Nothing}}(nothing)
 
 """
-    set_velocity_workspace!(ws)
+    set_velocity_workspace!(ws::Union{VelocityWorkspace{T}, Nothing}) where T
 
 Register a global VelocityWorkspace to be used by velocity kernels when available.
 Pass `nothing` to disable and fall back to internal buffers.
+Type-stable version that only accepts VelocityWorkspace or nothing.
 """
-function set_velocity_workspace!(ws)
+function set_velocity_workspace!(ws::Union{VelocityWorkspace{T}, Nothing}) where T
     VELOCITY_WS[] = ws
     return ws
+end
+
+"""
+    get_velocity_workspace(::Type{T})::Union{VelocityWorkspace{T}, Nothing} where T
+
+Get the global velocity workspace if available and matches type T.
+Returns nothing if not set or type mismatch.
+"""
+function get_velocity_workspace(::Type{T})::Union{VelocityWorkspace{T}, Nothing} where T
+    ws = VELOCITY_WS[]
+    if ws isa VelocityWorkspace{T}
+        return ws
+    else
+        return nothing
+    end
 end
 
 """
@@ -164,7 +180,7 @@ function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T};
     enforce_velocity_boundary_values!(fields)
 
     if fields.domain.r[1, 4] == 0.0
-        GeoDynamoBall.enforce_ball_vector_regularity!(fields.toroidal, fields.poloidal)
+        enforce_ball_vector_regularity!(fields.toroidal, fields.poloidal)
     end
     return fields
 end
@@ -591,6 +607,15 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             local_lm = lm_idx - first(lm_range) + 1
             l_factor = fields.l_factors[lm_idx]
             tid = Threads.threadid()
+
+            # Thread safety: ensure thread ID is within workspace bounds
+            if tid > length(ws.pol_profile_real)
+                error("Thread ID $tid exceeds workspace size $(length(ws.pol_profile_real)). " *
+                      "This indicates the workspace was created for fewer threads than are currently active. " *
+                      "Workspace threads: $(length(ws.pol_profile_real)), Active threads: $(Threads.nthreads()). " *
+                      "Recreate the workspace with the correct thread count.")
+            end
+
             pol_profile_real = ws.pol_profile_real[tid]
             pol_profile_imag = ws.pol_profile_imag[tid]
             tor_profile_real = ws.tor_profile_real[tid]
@@ -790,8 +815,14 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             local_lm = lm_idx - first(lm_range) + 1
             l_factor = fields.l_factors[lm_idx]
 
-            # Select thread-local buffers (clamp tid to valid range)
-            tid = min(Threads.threadid(), nT)
+            # Select thread-local buffers with proper bounds checking
+            tid = Threads.threadid()
+            if tid > nT
+                error("Thread ID $tid exceeds allocated workspace size $nT. " *
+                      "Active threads: $(Threads.nthreads()). " *
+                      "This indicates a thread count mismatch. " *
+                      "The clamping approach (min(tid, nT)) was removed because it causes data races.")
+            end
             pol_profile_real = pol_profile_real_bufs[tid]
             pol_profile_imag = pol_profile_imag_bufs[tid]
             tor_profile_real = tor_profile_real_bufs[tid]
