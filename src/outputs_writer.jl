@@ -213,26 +213,41 @@ struct FieldInfo
     
     # Spectral dimensions (for velocity/magnetic)
     nlm::Int
-    
+
     # Coordinate arrays
     theta::Vector{Float64}
     phi::Vector{Float64}
     r::Vector{Float64}
     l_values::Vector{Int}
     m_values::Vector{Int}
-    
-    # Pencil decomposition information
-    pencils::Union{NamedTuple, Nothing}
-    config::Union{SHTnsKitConfig, Nothing}
-    
+
+    # Pencil decomposition information (optional - use accessor functions for type stability)
+    has_pencils::Bool
+    pencils::NamedTuple  # Empty NamedTuple() if not available
+    has_config::Bool
+    config::SHTnsKitConfig  # Dummy config if not available
+
     # Local range information
     local_ranges::Dict{Symbol, UnitRange{Int}}
 end
 
-# Default constructor for FieldInfo
+# Default constructor for FieldInfo without pencils/config
 function FieldInfo()
-    return FieldInfo(0, 0, 0, 0, Float64[], Float64[], Float64[], 
-                     Int[], Int[], nothing, nothing, Dict{Symbol, UnitRange{Int}}())
+    # Create a minimal dummy SHTnsKitConfig for type stability
+    # This will never be used if has_config=false
+    dummy_config = SHTnsKitConfig(0, 0, 0, 0, Int[], Int[], Float64[], Float64[], nothing, nothing)
+    return FieldInfo(0, 0, 0, 0, Float64[], Float64[], Float64[],
+                     Int[], Int[], false, NamedTuple(), false, dummy_config, Dict{Symbol, UnitRange{Int}}())
+end
+
+# Constructor with pencils and config
+function FieldInfo(nlat::Int, nlon::Int, nr::Int, nlm::Int,
+                   theta::Vector{Float64}, phi::Vector{Float64}, r::Vector{Float64},
+                   l_values::Vector{Int}, m_values::Vector{Int},
+                   pencils::NamedTuple, config::SHTnsKitConfig,
+                   local_ranges::Dict{Symbol, UnitRange{Int}})
+    return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values,
+                     true, pencils, true, config, local_ranges)
 end
 
 function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConfig,Nothing}=nothing, 
@@ -326,9 +341,23 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConf
         theta = config.theta_grid
         phi = config.phi_grid
     end
-    
-    return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values, 
-                     pencils, config, local_ranges)
+
+    # Create FieldInfo with type-stable constructor
+    if pencils !== nothing && config !== nothing
+        # Both available - use full constructor
+        return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values,
+                         pencils, config, local_ranges)
+    else
+        # Create dummy values for type stability
+        dummy_config = SHTnsKitConfig(nlat, nlon, nlat, nlon, l_values, m_values,
+                                      theta, phi, nothing, nothing)
+        dummy_pencils = NamedTuple()
+
+        return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values,
+                         pencils !== nothing, pencils !== nothing ? pencils : dummy_pencils,
+                         config !== nothing, config !== nothing ? config : dummy_config,
+                         local_ranges)
+    end
 end
 
 # ================================================================================
