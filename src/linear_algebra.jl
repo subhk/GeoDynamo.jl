@@ -110,17 +110,17 @@ end
 function create_derivative_matrix(order::Int, domain::RadialDomain)
     # Create finite difference matrix for given derivative order
     N = domain.N
-    bandwidth = i_KL
-    
+    bandwidth = get_parameters().i_KL
+
     # Initialize banded matrix storage
     data = zeros(2*bandwidth + 1, N)
-    
+
     # Compute finite difference coefficients using Chebyshev points
     for n in 1:N
         left = max(1, n - bandwidth)
         right = min(N, n + bandwidth)
         stencil_size = right - left + 1
-        
+
         # Vandermonde matrix for interpolation
         V = ones(stencil_size, stencil_size)
         points = domain.r[left:right, 4]  # r values
@@ -146,15 +146,15 @@ function create_derivative_matrix(order::Int, domain::RadialDomain)
             rhs[order + 1] = factorial(order)
         end
 
-        try
-            coeffs = V \ rhs
+        coeffs = try
+            V \ rhs
         catch e
             error("Failed to solve Vandermonde system at grid point $n. " *
                   "This indicates severe ill-conditioning. " *
                   "Consider using a different grid spacing or derivative method. " *
                   "Original error: $e")
         end
-        
+
         # Store in banded format
         for (i, idx) in enumerate(left:right)
             band_row = bandwidth + 1 + n - idx
@@ -163,7 +163,7 @@ function create_derivative_matrix(order::Int, domain::RadialDomain)
             end
         end
     end
-    
+
     return BandedMatrix(data, bandwidth, N)
 end
 
@@ -171,19 +171,20 @@ function create_radial_laplacian(domain::RadialDomain)
     # d²/dr² + (2/r) d/dr
     d2_matrix = create_derivative_matrix(2, domain)
     d1_matrix = create_derivative_matrix(1, domain)
-    
+
+    bandwidth = get_parameters().i_KL
     laplacian_data = copy(d2_matrix.data)
-    
+
     # Add (2/r) * d/dr term
     for n in 1:domain.N
         r_inv = domain.r[n, 3]  # 1/r
-        for j in max(1, n - i_KL):min(domain.N, n + i_KL)
-            band_row = i_KL + 1 + n - j
+        for j in max(1, n - bandwidth):min(domain.N, n + bandwidth)
+            band_row = bandwidth + 1 + n - j
             laplacian_data[band_row, j] += 2.0 * r_inv * d1_matrix.data[band_row, j]
         end
     end
-    
-    return BandedMatrix(laplacian_data, i_KL, domain.N)
+
+    return BandedMatrix(laplacian_data, bandwidth, domain.N)
 end
 
 # Apply banded matrix to PencilArray data
