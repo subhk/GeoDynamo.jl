@@ -32,6 +32,17 @@ function factorize_banded(A::BandedMatrix{T}) where T
             continue
         end
         piv = lu[piv_row, k]
+
+        # Check for singular matrix (zero or near-zero pivot)
+        if abs(piv) < eps(T) * 100
+            error("Singular matrix detected during LU factorization at pivot $k. " *
+                  "Pivot value = $piv, which is below tolerance $(eps(T) * 100). " *
+                  "This may indicate:\n" *
+                  "  1. Ill-conditioned derivative matrix\n" *
+                  "  2. Incorrect boundary conditions\n" *
+                  "  3. Numerical instability in grid setup")
+        end
+
         # Eliminate entries below pivot within bandwidth
         i_max = min(N, k + bw)
         for i in k+1:i_max
@@ -82,7 +93,16 @@ function solve_banded!(x::Vector{T}, lu::BandedLU{T}, b::Vector{T}) where T
             end
         end
         diag_row = _band_row(i, i, bw)
-        x[i] = (x[i] - s) / lu.lu[diag_row, i]
+        diag_val = lu.lu[diag_row, i]
+
+        # Check for zero diagonal during back substitution
+        if abs(diag_val) < eps(T) * 100
+            error("Zero diagonal detected during back substitution at row $i. " *
+                  "Diagonal value = $diag_val, which is below tolerance $(eps(T) * 100). " *
+                  "The LU factorization is singular.")
+        end
+
+        x[i] = (x[i] - s) / diag_val
     end
     return x
 end
@@ -104,20 +124,36 @@ function create_derivative_matrix(order::Int, domain::RadialDomain)
         # Vandermonde matrix for interpolation
         V = ones(stencil_size, stencil_size)
         points = domain.r[left:right, 4]  # r values
-        
+
         for j in 2:stencil_size
             for i in 1:stencil_size
                 V[i, j] = V[i, j-1] * (points[i] - domain.r[n, 4])
             end
         end
-        
-        # Solve for derivative coefficients
+
+        # Check condition number of Vandermonde matrix (known to be ill-conditioned)
+        # Only warn in development builds, not in production (too expensive)
+        if @isdefined(DEBUG_LINEAR_ALGEBRA) && DEBUG_LINEAR_ALGEBRA
+            cond_num = cond(V)
+            if cond_num > 1e12
+                @warn "Ill-conditioned Vandermonde matrix at grid point $n" cond_num stencil_size
+            end
+        end
+
+        # Solve for derivative coefficients with error handling
         rhs = zeros(stencil_size)
         if order <= stencil_size
             rhs[order + 1] = factorial(order)
         end
-        
-        coeffs = V \ rhs
+
+        try
+            coeffs = V \ rhs
+        catch e
+            error("Failed to solve Vandermonde system at grid point $n. " *
+                  "This indicates severe ill-conditioning. " *
+                  "Consider using a different grid spacing or derivative method. " *
+                  "Original error: $e")
+        end
         
         # Store in banded format
         for (i, idx) in enumerate(left:right)
