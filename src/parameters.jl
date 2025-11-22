@@ -134,6 +134,147 @@ function update_derived_parameters!(params::GeoDynamoParameters)
 end
 
 """
+    validate_parameters(params::GeoDynamoParameters; strict::Bool=false)
+
+Validate all simulation parameters for physical correctness and numerical stability.
+
+# Arguments
+- `params::GeoDynamoParameters`: Parameters to validate
+- `strict::Bool=false`: If true, throw errors on invalid params; if false, issue warnings
+
+# Returns
+- `(is_valid::Bool, errors::Vector{String}, warnings::Vector{String})`
+"""
+function validate_parameters(params::GeoDynamoParameters; strict::Bool=false)
+    errors = String[]
+    warnings = String[]
+
+    # Grid parameters validation
+    if params.i_N < 8
+        push!(errors, "i_N (radial points) = $(params.i_N) is too small (minimum 8)")
+    elseif params.i_N < 16
+        push!(warnings, "i_N = $(params.i_N) is very coarse; consider i_N >= 32 for accuracy")
+    end
+
+    if params.i_L < 1
+        push!(errors, "i_L (max spherical harmonic degree) = $(params.i_L) must be >= 1")
+    end
+
+    if params.i_M < 0 || params.i_M > params.i_L
+        push!(errors, "i_M = $(params.i_M) must be in range [0, i_L=$(params.i_L)]")
+    end
+
+    if params.i_Th < 2 * params.i_L
+        push!(warnings, "i_Th = $(params.i_Th) < 2*i_L = $(2*params.i_L); may cause aliasing")
+    end
+
+    if params.i_Ph < 2 * params.i_M
+        push!(warnings, "i_Ph = $(params.i_Ph) < 2*i_M = $(2*params.i_M); may cause aliasing")
+    end
+
+    # Physical parameters validation
+    if params.d_rratio < 0.0 || params.d_rratio >= 1.0
+        push!(errors, "d_rratio = $(params.d_rratio) must be in range [0, 1) for shell geometry")
+    end
+
+    if params.d_Ra <= 0.0
+        push!(errors, "d_Ra (Rayleigh number) = $(params.d_Ra) must be positive")
+    elseif params.d_Ra > 1e10
+        push!(warnings, "d_Ra = $(params.d_Ra) is very large; ensure numerical stability")
+    end
+
+    if params.d_E <= 0.0
+        push!(errors, "d_E (Ekman number) = $(params.d_E) must be positive")
+    elseif params.d_E < 1e-8
+        push!(warnings, "d_E = $(params.d_E) is very small; may require fine resolution")
+    end
+
+    if params.d_Pr <= 0.0
+        push!(errors, "d_Pr (Prandtl number) = $(params.d_Pr) must be positive")
+    end
+
+    if params.d_Pm <= 0.0
+        push!(errors, "d_Pm (Magnetic Prandtl number) = $(params.d_Pm) must be positive")
+    end
+
+    if params.d_Sc <= 0.0
+        push!(errors, "d_Sc (Schmidt number) = $(params.d_Sc) must be positive")
+    end
+
+    # Timestepping validation
+    if params.d_timestep <= 0.0
+        push!(errors, "d_timestep = $(params.d_timestep) must be positive")
+    elseif params.d_timestep > 1.0
+        push!(warnings, "d_timestep = $(params.d_timestep) is very large; check CFL condition")
+    end
+
+    if params.i_maxtstep < 1
+        push!(errors, "i_maxtstep = $(params.i_maxtstep) must be >= 1")
+    end
+
+    # CFL condition estimate (rough check)
+    # For spectral methods: dt < C / (l_max^2 * diffusivity)
+    max_diffusivity = max(params.d_Pm, params.d_Pm / params.d_Pr, params.d_Pm / params.d_Sc)
+    cfl_limit = 0.1 / (params.i_L^2 * max_diffusivity)
+    if params.d_timestep > cfl_limit
+        push!(warnings, "d_timestep = $(params.d_timestep) may violate CFL condition " *
+                        "(estimated limit: $(cfl_limit) for spectral stability)")
+    end
+
+    # Timestepping scheme validation
+    valid_schemes = [:cnab2, :theta, :erk2, :etd]
+    if !(params.ts_scheme in valid_schemes)
+        push!(errors, "ts_scheme = $(params.ts_scheme) not recognized. " *
+                      "Valid schemes: $(valid_schemes)")
+    end
+
+    # Output precision validation
+    if !(params.output_precision in [:float32, :float64])
+        push!(errors, "output_precision = $(params.output_precision) must be :float32 or :float64")
+    end
+
+    # Geometry validation
+    if !(params.geometry in [:shell, :ball])
+        push!(errors, "geometry = $(params.geometry) must be :shell or :ball")
+    end
+
+    if params.geometry == :ball && params.d_rratio != 0.0
+        push!(warnings, "geometry = :ball but d_rratio = $(params.d_rratio) != 0; should be 0 for full ball")
+    end
+
+    # Report results
+    is_valid = isempty(errors)
+
+    if get_rank() == 0  # Only print on rank 0
+        if !isempty(errors)
+            println("\n⚠️  PARAMETER VALIDATION ERRORS:")
+            for (i, err) in enumerate(errors)
+                println("  $i. $err")
+            end
+        end
+
+        if !isempty(warnings)
+            println("\n⚠️  PARAMETER VALIDATION WARNINGS:")
+            for (i, warn) in enumerate(warnings)
+                println("  $i. $warn")
+            end
+        end
+
+        if is_valid && isempty(warnings)
+            println("\n✅ All parameters validated successfully")
+        end
+    end
+
+    # Strict mode: throw error if invalid
+    if strict && !is_valid
+        error("Parameter validation failed with $(length(errors)) error(s). " *
+              "Fix parameters or set strict=false to proceed with warnings.")
+    end
+
+    return (is_valid, errors, warnings)
+end
+
+"""
     load_parameters(config_file::String = "")
 
 Load parameters from a configuration file. If no file is specified,
@@ -389,30 +530,63 @@ function create_parameter_template(filename::String)
     @info "Parameter template created at $filename"
 end
 
-# Global parameter instance (will be set during module initialization)
+# Global parameter instance with thread-safe initialization
+# Using a lock to ensure thread-safe lazy initialization
 const GEODYNAMO_PARAMS = Ref{Union{GeoDynamoParameters, Nothing}}(nothing)
+const PARAMS_LOCK = ReentrantLock()
 
 """
     get_parameters()
 
 Get the current global parameters. If not set, loads default parameters.
+Thread-safe lazy initialization with type-stable return.
 """
-function get_parameters()
-    if GEODYNAMO_PARAMS[] === nothing
-        GEODYNAMO_PARAMS[] = load_parameters()
+function get_parameters()::GeoDynamoParameters
+    # Fast path: already initialized (no lock needed for read)
+    params = GEODYNAMO_PARAMS[]
+    if params !== nothing
+        return params::GeoDynamoParameters
     end
-    return GEODYNAMO_PARAMS[]
+
+    # Slow path: need to initialize (acquire lock)
+    lock(PARAMS_LOCK) do
+        # Double-check after acquiring lock (another thread may have initialized)
+        params = GEODYNAMO_PARAMS[]
+        if params !== nothing
+            return params::GeoDynamoParameters
+        end
+
+        # Initialize parameters
+        params = load_parameters()
+        GEODYNAMO_PARAMS[] = params
+        return params::GeoDynamoParameters
+    end
 end
 
 """
-    set_parameters!(params::GeoDynamoParameters)
+    set_parameters!(params::GeoDynamoParameters; validate::Bool=true, strict::Bool=false)
 
-Set the global parameters.
+Set the global parameters (thread-safe) with optional validation.
+
+# Arguments
+- `params::GeoDynamoParameters`: Parameters to set
+- `validate::Bool=true`: Whether to validate parameters before setting
+- `strict::Bool=false`: If true, throw error on invalid parameters; if false, proceed with warnings
 """
-function set_parameters!(params::GeoDynamoParameters)
-    update_derived_parameters!(params)
-    GEODYNAMO_PARAMS[] = params
-    update_global_parameters!()  # Update global variables
+function set_parameters!(params::GeoDynamoParameters; validate::Bool=true, strict::Bool=false)
+    # Validate parameters if requested
+    if validate
+        is_valid, errors, warnings = validate_parameters(params; strict=strict)
+        if !is_valid && get_rank() == 0
+            @warn "Setting parameters despite validation errors. Set strict=true to enforce validation."
+        end
+    end
+
+    lock(PARAMS_LOCK) do
+        update_derived_parameters!(params)
+        GEODYNAMO_PARAMS[] = params
+        update_global_parameters!()  # Update global variables
+    end
     return params
 end
 
