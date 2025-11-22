@@ -18,7 +18,6 @@ using SparseArrays
 
 import .BoundaryConditions
 import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
-import .GeoDynamoBall
 
 # scalar_field_common.jl is included in main module - functions are available here
 
@@ -211,7 +210,7 @@ function apply_composition_boundary_conditions!(field::SHTnsCompositionField{T};
     enforce_composition_boundary_values!(field)
 
     if field.domain.r[1, 4] == 0.0
-        GeoDynamoBall.apply_ball_composition_regularity!(field)
+        apply_ball_composition_regularity!(field)
     end
 
     return field
@@ -244,7 +243,7 @@ function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
     if geometry === :ball
-        GeoDynamoBall.ball_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
+        ball_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
     else
         shtnskit_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
     end
@@ -367,7 +366,7 @@ function apply_composition_boundary_conditions_spectral!(comp_field::SHTnsCompos
     end
 
     if domain.r[1, 4] == 0.0
-        GeoDynamoBall.apply_ball_composition_regularity!(comp_field)
+        apply_ball_composition_regularity!(comp_field)
     end
 end
 
