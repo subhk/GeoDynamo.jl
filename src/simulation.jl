@@ -7,18 +7,9 @@ using Base.Threads
 using LinearAlgebra
 using Printf
 
-# Import geometry modules - safe to do even if they're not available
-try
-    using .GeoDynamoBall
-catch e
-    @debug "GeoDynamoBall not available: $e"
-end
-
-try
-    using .GeoDynamoShell
-catch e
-    @debug "GeoDynamoShell not available: $e"
-end
+# Geometry modules are now imported in main GeoDynamo module
+# Functions like create_shell_radial_domain, create_ball_radial_domain, etc.
+# are available directly without module prefix
 
 # ================================================================================
 # Banner Display
@@ -71,8 +62,9 @@ end
 
 """
     SimulationState{T}
-    
+
 Unified simulation state with comprehensive parallelization and diagnostics.
+Type-stable version with concrete cache types for optimal performance.
 """
 struct SimulationState{T}
     # Original components
@@ -80,21 +72,21 @@ struct SimulationState{T}
     magnetic::SHTnsMagneticFields{T}
     temperature::SHTnsTemperatureField{T}
     composition::Union{SHTnsCompositionField{T}, Nothing}
-    
+
     # Geometric data
     shtns_config::SHTnsKitConfig
     oc_domain::RadialDomain
     ic_domain::RadialDomain
-    
+
     # Unified master parallelization system
     master_parallelizer::MasterParallelizer{T}
-    
-    # Timestepping
+
+    # Timestepping with type-stable caches
     timestep_state::TimestepState
     implicit_matrices::Dict{Symbol, SHTnsImplicitMatrices{T}}
-    etd_caches::Dict{Symbol, Any}
-    erk2_caches::Dict{Symbol, Any}  # ERK2 method caches
-    
+    etd_caches::Dict{Symbol, EAB2ALUCacheEntry{T}}  # Type-stable ETD caches
+    erk2_caches::Dict{Symbol, ERK2Cache{T}}  # Type-stable ERK2 caches
+
     # Enhanced I/O
     output_counter::Int
     auto_optimization::Bool
@@ -149,19 +141,19 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
     
     geom = get_parameters().geometry
     if geom === :ball
-        oc_domain = GeoDynamoBall.create_ball_radial_domain(i_N)
+        oc_domain = create_ball_radial_domain(i_N)
         ic_domain = oc_domain
-        velocity = GeoDynamoBall.create_ball_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = GeoDynamoBall.create_ball_magnetic_fields(T, shtns_config; nr=i_N)
-        temperature = GeoDynamoBall.create_ball_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? GeoDynamoBall.create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
+        velocity = create_ball_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = create_ball_magnetic_fields(T, shtns_config; nr=i_N)
+        temperature = create_ball_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
     else
-        oc_domain = GeoDynamoShell.create_shell_radial_domain(i_N)
-        ic_domain = GeoDynamoShell.create_shell_radial_domain(i_Nic)
-        velocity = GeoDynamoShell.create_shell_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = GeoDynamoShell.create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
-        temperature = GeoDynamoShell.create_shell_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? GeoDynamoShell.create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
+        oc_domain = create_shell_radial_domain(i_N)
+        ic_domain = create_shell_radial_domain(i_Nic)
+        velocity = create_shell_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
+        temperature = create_shell_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
     end
     
     # Initialize hybrid parallelization system
@@ -234,19 +226,19 @@ function initialize_simulation(::Type{T}=Float64;
     
     geom = get_parameters().geometry
     if geom === :ball
-        oc_domain = GeoDynamoBall.create_ball_radial_domain(i_N)
+        oc_domain = create_ball_radial_domain(i_N)
         ic_domain = oc_domain
-        velocity = GeoDynamoBall.create_ball_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = GeoDynamoBall.create_ball_magnetic_fields(T, shtns_config; nr=i_N)
-        temperature = GeoDynamoBall.create_ball_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? GeoDynamoBall.create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
+        velocity = create_ball_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = create_ball_magnetic_fields(T, shtns_config; nr=i_N)
+        temperature = create_ball_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
     else
-        oc_domain = GeoDynamoShell.create_shell_radial_domain(i_N)
-        ic_domain = GeoDynamoShell.create_shell_radial_domain(i_Nic)
-        velocity = GeoDynamoShell.create_shell_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = GeoDynamoShell.create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
-        temperature = GeoDynamoShell.create_shell_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? GeoDynamoShell.create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
+        oc_domain = create_shell_radial_domain(i_N)
+        ic_domain = create_shell_radial_domain(i_Nic)
+        velocity = create_shell_velocity_fields(T, shtns_config; nr=i_N)
+        magnetic = create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
+        temperature = create_shell_temperature_field(T, shtns_config; nr=i_N)
+        composition = include_composition ? create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
     end
     
     # Initialize unified master parallelization system
@@ -289,8 +281,8 @@ function initialize_simulation(::Type{T}=Float64;
         shtns_config, oc_domain, ic_domain,
         master_parallelizer,
         timestep_state, implicit_matrices,
-        Dict{Symbol,Any}(),  # etd_caches
-        Dict{Symbol,Any}(),  # erk2_caches
+        Dict{Symbol, EAB2ALUCacheEntry{T}}(),  # Type-stable etd_caches
+        Dict{Symbol, ERK2Cache{T}}(),  # Type-stable erk2_caches
         0, auto_optimize, adaptive_threading, geom
     )
 end
