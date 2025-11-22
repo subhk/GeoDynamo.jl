@@ -172,6 +172,30 @@ module GeoDynamo
     include("Shell/Shell.jl")
     include("Ball/Ball.jl")
 
+    # Import Ball functions into GeoDynamo namespace for direct use
+    using .GeoDynamoBall: enforce_ball_vector_regularity!, apply_ball_temperature_regularity!,
+                           apply_ball_composition_regularity!, ball_physical_to_spectral!,
+                           ball_vector_analysis!, create_ball_radial_domain,
+                           create_ball_velocity_fields, create_ball_magnetic_fields,
+                           create_ball_temperature_field, create_ball_composition_field
+
+    # Import Shell functions into GeoDynamo namespace for direct use
+    using .GeoDynamoShell: create_shell_radial_domain, create_shell_velocity_fields,
+                            create_shell_magnetic_fields, create_shell_temperature_field,
+                            create_shell_composition_field
+
+    # Re-export Ball functions for convenience
+    export enforce_ball_vector_regularity!, apply_ball_temperature_regularity!,
+           apply_ball_composition_regularity!, ball_physical_to_spectral!,
+           ball_vector_analysis!, create_ball_radial_domain,
+           create_ball_velocity_fields, create_ball_magnetic_fields,
+           create_ball_temperature_field, create_ball_composition_field
+
+    # Re-export Shell functions for convenience
+    export create_shell_radial_domain, create_shell_velocity_fields,
+           create_shell_magnetic_fields, create_shell_temperature_field,
+           create_shell_composition_field
+
     # Expose combiner APIs under GeoDynamo namespace
     export FieldCombiner, CombinerConfig, create_combiner_config
     export combine_distributed_time, list_available_times
