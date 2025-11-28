@@ -5,6 +5,9 @@ import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
 # Physics Modules with SHTns
 # ================================================================================
 
+# Include optimized workspace-based BC functions
+include("velocity_bc.jl")
+
 # Velocity field components with SHTns
 mutable struct SHTnsVelocityFields{T}
     # Physical space velocities
