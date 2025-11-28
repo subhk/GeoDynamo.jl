@@ -798,8 +798,13 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             apply_derivative_matrix!(d2pol_dr2_real, fields.d2r_matrix, pol_profile_real)
             apply_derivative_matrix!(d2pol_dr2_imag, fields.d2r_matrix, pol_profile_imag)
 
-            @inbounds @simd for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
+            r_first = first(r_range)
+            r_last = min(last(r_range), nr)
+            if r_last < r_first
+                continue
+            end
+            @inbounds @simd for r_idx in r_first:r_last
+                local_r = r_idx - r_first + 1
                 if local_r <= size(ω_tor_real, 3)
                     r_val = domain.r[r_idx, 4]
                     if r_val == 0.0
@@ -1008,8 +1013,13 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             apply_derivative_matrix!(d2pol_dr2_imag, fields.d2r_matrix, pol_profile_imag)
             
             # Compute vorticity components
-            @simd for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
+            r_first = first(r_range)
+            r_last = min(last(r_range), nr)
+            if r_last < r_first
+                continue
+            end
+            @simd for r_idx in r_first:r_last
+                local_r = r_idx - r_first + 1
                 if local_r <= size(ω_tor_real, 3)
                     r_val = domain.r[r_idx, 4]
                     if r_val == 0.0
