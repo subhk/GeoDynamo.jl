@@ -1133,7 +1133,7 @@ function compute_field_energy(field_data::Array{T,3}) where T
     local_energy = 0.5 * sum(abs2, field_data)
     # Sum across all MPI ranks
     if Initialized()
-        return Allreduce(local_energy, +, COMM_WORLD)
+        return Allreduce(local_energy, +, MPI.COMM_WORLD)
     else
         return local_energy
     end
@@ -1148,7 +1148,7 @@ function compute_vector_energy(v_r::Array{T,3}, v_theta::Array{T,3}, v_phi::Arra
     local_energy = 0.5 * (sum(abs2, v_r) + sum(abs2, v_theta) + sum(abs2, v_phi))
     # Sum across all MPI ranks
     if Initialized()
-        return Allreduce(local_energy, +, COMM_WORLD)
+        return Allreduce(local_energy, +, MPI.COMM_WORLD)
     else
         return local_energy
     end
@@ -1319,8 +1319,8 @@ function compute_divergence_spectral(tor_spec::SHTnsSpectralField{T},
                                abs.(pol_real[:]), abs.(pol_imag[:])))
 
     if Initialized()
-        l2_norm = Allreduce(local_l2, +, COMM_WORLD)
-        linf_norm = Allreduce(local_linf, max, COMM_WORLD)
+        l2_norm = Allreduce(local_l2, +, MPI.COMM_WORLD)
+        linf_norm = Allreduce(local_linf, max, MPI.COMM_WORLD)
     else
         l2_norm = local_l2
         linf_norm = local_linf

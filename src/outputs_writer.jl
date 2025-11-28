@@ -4,13 +4,13 @@
 # ================================================================================
 
 using MPI
-using NetCDF  
+using NetCDF
 using LinearAlgebra
 using Statistics
 using Dates
 using Printf
 
-const comm = COMM_WORLD
+const comm = MPI.COMM_WORLD
 
 # ================================================================================
 # Configuration
@@ -2009,7 +2009,7 @@ while simulation_time < 2.0
     did_output = write_fields!(fields, tracker, metadata, config)
     
     if did_output
-        rank = Comm_rank(COMM_WORLD)
+        rank = Comm_rank(MPI.COMM_WORLD)
         if rank == 0
             println("Mixed output at time: $simulation_time")
             println("  Temperature: Physical (32×64×20)")
