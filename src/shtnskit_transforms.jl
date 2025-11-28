@@ -298,16 +298,16 @@ function create_pencil_fft_plans(pencils, dims::Tuple{Int,Int,Int})
             # Create a sample array for planning
             sample_array = PencilArray{ComplexF64}(undef, pencils.phi)
 
-            # PencilFFTs plans for phi direction (dimension 2)
-            fft_plans[:phi_forward] = PencilFFTs.plan_fft!(sample_array, 2)
-            fft_plans[:phi_backward] = PencilFFTs.plan_ifft!(sample_array, 2)
+            # FFTW plans extended by PencilFFTs for phi direction (dimension 2)
+            fft_plans[:phi_forward] = plan_fft(sample_array, 2)
+            fft_plans[:phi_backward] = plan_ifft(sample_array, 2)
         end
 
         # Create plans for other orientations if needed
         if haskey(pencils, :theta)
             sample_theta = PencilArray{ComplexF64}(undef, pencils.theta)
-            fft_plans[:theta_forward] = PencilFFTs.plan_fft!(sample_theta, 2)
-            fft_plans[:theta_backward] = PencilFFTs.plan_ifft!(sample_theta, 2)
+            fft_plans[:theta_forward] = plan_fft(sample_theta, 2)
+            fft_plans[:theta_backward] = plan_ifft(sample_theta, 2)
         end
 
         if get_rank() == 0
@@ -329,31 +329,55 @@ Create transpose plans for efficient pencil reorientations.
 function create_shtnskit_transpose_plans(pencils)
     transpose_plans = Dict{Symbol, Any}()
 
-    try
-        # Create transpose operations needed for spherical harmonic transforms
-        if haskey(pencils, :theta) && haskey(pencils, :phi)
-            # Transpose between theta and phi pencils for FFT operations
+    # Create transpose operations between adjacent pencils
+    # PencilArrays requires pencils differ in at most 1 dimension
+    # For multi-step transposes, store intermediate plans
+
+    if haskey(pencils, :theta) && haskey(pencils, :phi)
+        try
             transpose_plans[:theta_to_phi] = _shtns_make_transpose(pencils.theta => pencils.phi)
             transpose_plans[:phi_to_theta] = _shtns_make_transpose(pencils.phi => pencils.theta)
+        catch e
+            if get_rank() == 0
+                @debug "Could not create theta<->phi transpose: $e"
+            end
         end
+    end
 
-        if haskey(pencils, :r) && haskey(pencils, :theta)
-            # Transpose to r-pencil for radial operations
+    if haskey(pencils, :r) && haskey(pencils, :theta)
+        try
             transpose_plans[:theta_to_r] = _shtns_make_transpose(pencils.theta => pencils.r)
             transpose_plans[:r_to_theta] = _shtns_make_transpose(pencils.r => pencils.theta)
+        catch e
+            if get_rank() == 0
+                @debug "Could not create theta<->r transpose: $e"
+            end
         end
+    end
 
-        if haskey(pencils, :phi) && haskey(pencils, :r)
-            # Transpose from phi-pencil to r-pencil
+    if haskey(pencils, :phi) && haskey(pencils, :r)
+        try
             transpose_plans[:phi_to_r] = _shtns_make_transpose(pencils.phi => pencils.r)
             transpose_plans[:r_to_phi] = _shtns_make_transpose(pencils.r => pencils.phi)
+        catch e
+            # This is expected to fail if phi and r differ in >1 dimension
+            # Store as multi-step transpose: phi -> theta -> r
+            if haskey(transpose_plans, :phi_to_theta) && haskey(transpose_plans, :theta_to_r)
+                transpose_plans[:phi_to_r] = :multi_step  # Marker for multi-step
+                transpose_plans[:r_to_phi] = :multi_step
+                if get_rank() == 0
+                    @debug "Using multi-step transpose for phi<->r via theta"
+                end
+            else
+                if get_rank() == 0
+                    @debug "Could not create phi<->r transpose: $e"
+                end
+            end
         end
+    end
 
-        if get_rank() == 0
-            @info "Created $(length(transpose_plans)) transpose plans for pencil reorientations"
-        end
-    catch e
-        @warn "Could not create all transpose plans: $e"
+    if get_rank() == 0
+        @info "Created $(length(transpose_plans)) transpose plans for pencil reorientations"
     end
 
     return transpose_plans

@@ -32,8 +32,8 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     phys  = GeoDynamo.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.phi)
 
     Random.seed!(1234 + rank)
-    parent(spec1.data_real) .= randn.(Float64)
-    parent(spec1.data_imag) .= randn.(Float64)
+    randn!(parent(spec1.data_real))
+    randn!(parent(spec1.data_imag))
 
     # Enforce spherical harmonic constraint: m=0 modes must have zero imaginary part
     for idx in eachindex(IndexLinear(), view(parent(spec1.data_real), :, 1, 1))
@@ -65,10 +65,10 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     pol2 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     vec  = GeoDynamo.create_shtns_vector_field(Float64, cfg, dom, (cfg.pencils.phi, cfg.pencils.phi, cfg.pencils.phi))
 
-    parent(tor1.data_real) .= randn.(Float64)
-    parent(tor1.data_imag) .= randn.(Float64)
-    parent(pol1.data_real) .= randn.(Float64)
-    parent(pol1.data_imag) .= randn.(Float64)
+    randn!(parent(tor1.data_real))
+    randn!(parent(tor1.data_imag))
+    randn!(parent(pol1.data_real))
+    randn!(parent(pol1.data_imag))
 
     # Enforce spherical harmonic constraints for vector fields:
     # 1. m=0 modes must have zero imaginary part

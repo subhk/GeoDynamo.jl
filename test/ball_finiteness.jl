@@ -25,13 +25,23 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
     dom = Ball.create_ball_radial_domain(nr)
 
+    # Create velocity workspace for all potentially active threads
+    # Use Threads.maxthreads() if available, otherwise use a safe buffer
+    nthreads_workspace = if isdefined(Threads, :maxthreads)
+        Threads.maxthreads()
+    else
+        max(Threads.nthreads(), 4)
+    end
+    ws = GeoDynamo.create_velocity_workspace(Float64, nr, nthreads_workspace)
+    GeoDynamo.set_velocity_workspace!(ws)
+
     # Velocity vorticity finiteness at r=0
-    vfields = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, dom, cfg.pencils, cfg.pencils.spec)
+    vfields = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, dom)
     # Fill toroidal/poloidal spectra with random values (no regularity enforced here)
-    parent(vfields.toroidal.data_real) .= randn.(Float64)
-    parent(vfields.toroidal.data_imag) .= randn.(Float64)
-    parent(vfields.poloidal.data_real) .= randn.(Float64)
-    parent(vfields.poloidal.data_imag) .= randn.(Float64)
+    randn!(parent(vfields.toroidal.data_real))
+    randn!(parent(vfields.toroidal.data_imag))
+    randn!(parent(vfields.poloidal.data_real))
+    randn!(parent(vfields.poloidal.data_imag))
 
     GeoDynamo.compute_vorticity_spectral_full!(vfields, dom)
 
@@ -57,10 +67,10 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
     # Magnetic current density finiteness at r=0
     mfields = GeoDynamo.create_shtns_magnetic_fields(Float64, cfg, dom, dom)
-    parent(mfields.toroidal.data_real) .= randn.(Float64)
-    parent(mfields.toroidal.data_imag) .= randn.(Float64)
-    parent(mfields.poloidal.data_real) .= randn.(Float64)
-    parent(mfields.poloidal.data_imag) .= randn.(Float64)
+    randn!(parent(mfields.toroidal.data_real))
+    randn!(parent(mfields.toroidal.data_imag))
+    randn!(parent(mfields.poloidal.data_real))
+    randn!(parent(mfields.poloidal.data_imag))
 
     GeoDynamo.compute_current_density_spectral!(mfields, dom)
 

@@ -2,6 +2,7 @@ using Test
 const Ball = GeoDynamo.GeoDynamoBall
 
 @testset "Ball geometry regularity and roundtrip" begin
+    
     # Small config for quick test
     lmax = 6; mmax = 6
     nlat = max(lmax + 2, 12)
@@ -14,11 +15,14 @@ const Ball = GeoDynamo.GeoDynamoBall
     # Scalar: random physical -> analysis with regularity -> check inner r plane zero for l>0
     spec = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     phys = GeoDynamo.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.r)
-    parent(phys.data) .= randn.(Float64)
+    
+    randn!(parent(phys.data))
+    
     Ball.ball_physical_to_spectral!(phys, spec)
 
     sreal = parent(spec.data_real); simag = parent(spec.data_imag)
     lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)
+    
     @test !isempty(lm_range)
     if size(sreal, 3) >= 1
         for (k, lm_idx) in enumerate(lm_range)
@@ -34,13 +38,15 @@ const Ball = GeoDynamo.GeoDynamoBall
     tor = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     pol = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     vec = GeoDynamo.create_shtns_vector_field(Float64, cfg, dom, (cfg.pencils.θ, cfg.pencils.φ, cfg.pencils.r))
-    parent(vec.r_component.data)      .= randn.(Float64)
-    parent(vec.θ_component.data)      .= randn.(Float64)
-    parent(vec.φ_component.data)      .= randn.(Float64)
+    
+    randn!(parent(vec.r_component.data))
+    randn!(parent(vec.θ_component.data))
+    randn!(parent(vec.φ_component.data))
 
     Ball.ball_vector_analysis!(vec, tor, pol)
     treal = parent(tor.data_real); timag = parent(tor.data_imag)
     preal = parent(pol.data_real); pimag = parent(pol.data_imag)
+
     if size(treal, 3) >= 1
         for (k, lm_idx) in enumerate(lm_range)
             l = cfg.l_values[lm_idx]

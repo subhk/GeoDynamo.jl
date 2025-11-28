@@ -531,40 +531,53 @@ function exchange_dimension_halos!(data::Array, pencil::Pencil, dim::Int,
     
     # Post non-blocking communications
     requests = MPI.Request[]
-    
+
+    # Use -1 as null proc indicator if MPI.MPI_PROC_NULL doesn't exist
+    mpi_proc_null = isdefined(MPI, :MPI_PROC_NULL) ? MPI.MPI_PROC_NULL : -1
+
     # Send left boundary to left neighbor, receive from right neighbor
-    if left_neighbor != MPI.MPI_PROC_NULL
+    if left_neighbor != mpi_proc_null
         req_send_left = MPI.Isend(send_left_data, left_neighbor, 0, comm)
         push!(requests, req_send_left)
     end
-    
-    if right_neighbor != MPI.MPI_PROC_NULL
-        req_recv_right = MPI.Irecv!(recv_right_data, right_neighbor, 0, comm)
+
+    if right_neighbor != mpi_proc_null
+        # Use Irecv! if available, otherwise try irecv!
+        if isdefined(MPI, :Irecv!)
+            req_recv_right = MPI.Irecv!(recv_right_data, right_neighbor, 0, comm)
+        else
+            req_recv_right = MPI.irecv!(recv_right_data, right_neighbor, 0, comm)
+        end
         push!(requests, req_recv_right)
     end
-    
-    # Send right boundary to right neighbor, receive from left neighbor  
-    if right_neighbor != MPI.MPI_PROC_NULL
+
+    # Send right boundary to right neighbor, receive from left neighbor
+    if right_neighbor != mpi_proc_null
         req_send_right = MPI.Isend(send_right_data, right_neighbor, 1, comm)
         push!(requests, req_send_right)
     end
-    
-    if left_neighbor != MPI.MPI_PROC_NULL
-        req_recv_left = MPI.Irecv!(recv_left_data, left_neighbor, 1, comm)
+
+    if left_neighbor != mpi_proc_null
+        # Use Irecv! if available, otherwise try irecv!
+        if isdefined(MPI, :Irecv!)
+            req_recv_left = MPI.Irecv!(recv_left_data, left_neighbor, 1, comm)
+        else
+            req_recv_left = MPI.irecv!(recv_left_data, left_neighbor, 1, comm)
+        end
         push!(requests, req_recv_left)
     end
-    
+
     # Wait for all communications to complete
     if !isempty(requests)
         MPI.Waitall(requests)
     end
-    
+
     # Copy received data into halo regions
-    if left_neighbor != MPI.MPI_PROC_NULL
+    if left_neighbor != mpi_proc_null
         data[recv_left_slice...] .= recv_left_data
     end
-    
-    if right_neighbor != MPI.MPI_PROC_NULL
+
+    if right_neighbor != mpi_proc_null
         data[recv_right_slice...] .= recv_right_data
     end
     
@@ -582,7 +595,19 @@ function get_dimension_neighbors(pencil::Pencil, dim::Int, boundaries::Symbol)
     topology = pencil.topology
     
     # Check if we have MPI Cartesian topology
-    if hasfield(typeof(topology), :comm) && MPI.Cart_test(topology.comm)[1]
+    has_cart_topology = false
+    if hasfield(typeof(topology), :comm)
+        try
+            # Try to use MPI Cartesian topology if available
+            if isdefined(MPI, :Cart_test)
+                has_cart_topology = MPI.Cart_test(topology.comm)[1]
+            end
+        catch
+            has_cart_topology = false
+        end
+    end
+
+    if has_cart_topology
         # Use MPI Cartesian shift to find neighbors
         left_neighbor, right_neighbor = MPI.Cart_shift(topology.comm, dim-1, 1)
     else
@@ -608,8 +633,10 @@ function calculate_linear_neighbors(rank::Int, dim::Int, proc_dims::Tuple, bound
     nprocs_dim = prod(proc_dims)
     
     # Simple linear arrangement calculation
-    left_neighbor = (rank > 0) ? rank - 1 : MPI.MPI_PROC_NULL
-    right_neighbor = (rank < nprocs_dim - 1) ? rank + 1 : MPI.MPI_PROC_NULL
+    # Use -1 as PROC_NULL indicator (MPI.MPI_PROC_NULL may not exist in all MPI versions)
+    mpi_proc_null = isdefined(MPI, :MPI_PROC_NULL) ? MPI.MPI_PROC_NULL : -1
+    left_neighbor = (rank > 0) ? rank - 1 : mpi_proc_null
+    right_neighbor = (rank < nprocs_dim - 1) ? rank + 1 : mpi_proc_null
     
     # Apply periodic boundaries if requested
     if boundaries == :periodic

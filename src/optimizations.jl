@@ -990,20 +990,20 @@ Coordinates MPI and threads for maximum CPU parallelization.
 """
 struct HybridParallelizer{T}
     # MPI level
-    mpi_comm::Comm
+    mpi_comm::MPI.Comm
     mpi_rank::Int
     mpi_nprocs::Int
-    
+
     # Thread level
     thread_count::Int
     threading_accelerator::ThreadingAccelerator{T}
-    
+
     # Async communication
     async_comm::AsyncCommManager{T}
-    
+
     # Dynamic load balancing
     load_balancer::DynamicLoadBalancer
-    
+
     # I/O optimization
     io_optimizer::ParallelIOOptimizer{T}
 end
@@ -1040,11 +1040,11 @@ Comprehensive parallelization system combining all techniques.
 """
 struct MasterParallelizer{T}
     # MPI optimization
-    mpi_comm::Comm
+    mpi_comm::MPI.Comm
     mpi_rank::Int
     mpi_nprocs::Int
     async_comm::AsyncCommManager{T}
-    
+
     # CPU optimization
     cpu_parallelizer::CPUParallelizer{T}
     
