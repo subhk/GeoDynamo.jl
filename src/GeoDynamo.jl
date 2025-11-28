@@ -215,7 +215,12 @@ module GeoDynamo
                     @warn "Could not load MPI (continuing without MPI support): $mpi_e"
                 end
             else
-                @info "GeoDynamo.jl detected MPI already available"
+                try
+                    @eval using MPI: Allgather, Allreduce, Allreduce!, Barrier, COMM_WORLD, Cart_shift, Cart_test, Comm, Comm_rank, Comm_size, Finalize, Gather, Init, Initialized, Irecv, Isend, MAX, MIN, MPI_PROC_NULL, Request, SUM, Waitall, Wtime, bcast
+                    @info "GeoDynamo.jl detected MPI already available"
+                catch mpi_e
+                    @warn "MPI appears loaded but importing symbols failed: $mpi_e"
+                end
             end
 
             initialize_parameters()
