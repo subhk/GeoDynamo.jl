@@ -5,7 +5,27 @@ import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
 # Physics Modules with SHTns
 # ================================================================================
 
-# Include optimized workspace-based BC functions
+# ---------------------------------
+# Optional shared workspace support (defined before velocity_bc.jl needs it)
+# ---------------------------------
+struct VelocityWorkspace{T}
+    pol_profile_real::Vector{Vector{T}}
+    pol_profile_imag::Vector{Vector{T}}
+    tor_profile_real::Vector{Vector{T}}
+    tor_profile_imag::Vector{Vector{T}}
+    dpol_dr_real::Vector{Vector{T}}
+    dpol_dr_imag::Vector{Vector{T}}
+    d2pol_dr2_real::Vector{Vector{T}}
+    d2pol_dr2_imag::Vector{Vector{T}}
+    # Pre-allocated buffers for BC operations (avoid allocations per mode)
+    bc_profile_real::Vector{Vector{T}}
+    bc_profile_imag::Vector{Vector{T}}
+    bc_dprofile_real::Vector{Vector{T}}
+    bc_dprofile_imag::Vector{Vector{T}}
+    bc_correction::Vector{Vector{T}}
+end
+
+# Include optimized workspace-based BC functions (now VelocityWorkspace is defined)
 include("velocity_bc.jl")
 
 # Velocity field components with SHTns
@@ -51,26 +71,7 @@ mutable struct SHTnsVelocityFields{T}
     boundary_time_index::Ref{Int}
 end
 
-# ---------------------------------
-# Optional shared workspace support
-# ---------------------------------
-struct VelocityWorkspace{T}
-    pol_profile_real::Vector{Vector{T}}
-    pol_profile_imag::Vector{Vector{T}}
-    tor_profile_real::Vector{Vector{T}}
-    tor_profile_imag::Vector{Vector{T}}
-    dpol_dr_real::Vector{Vector{T}}
-    dpol_dr_imag::Vector{Vector{T}}
-    d2pol_dr2_real::Vector{Vector{T}}
-    d2pol_dr2_imag::Vector{Vector{T}}
-    # Pre-allocated buffers for BC operations (avoid allocations per mode)
-    bc_profile_real::Vector{Vector{T}}
-    bc_profile_imag::Vector{Vector{T}}
-    bc_dprofile_real::Vector{Vector{T}}
-    bc_dprofile_imag::Vector{Vector{T}}
-    bc_correction::Vector{Vector{T}}
-end
-
+# VelocityWorkspace creation function (struct defined at top of file)
 function create_velocity_workspace(::Type{T}, nr::Int, nthreads::Int=Threads.nthreads()) where T
     bufs() = [zeros(T, nr) for _ in 1:nthreads]
     return VelocityWorkspace{T}(
