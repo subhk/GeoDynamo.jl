@@ -536,7 +536,7 @@ function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config
     end
     coeffs_gathered = config._buffer_cache[buffer_gathered_key]
 
-    Allreduce!(coeffs_buffer, coeffs_gathered, SUM, get_comm())
+    Allreduce!(coeffs_buffer, coeffs_gathered, MPI.SUM, get_comm())
 
     # Return a copy to avoid buffer aliasing when called multiple times
     # (e.g., for both toroidal and poloidal coefficients in vector transforms)
