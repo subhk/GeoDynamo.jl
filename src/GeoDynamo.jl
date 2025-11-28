@@ -3,7 +3,7 @@ module GeoDynamo
     using LinearAlgebra
     using SparseArrays
     using SHTnsKit   # Load SHTnsKit before MPI to avoid eager extension load during precompile
-    using MPI
+    using MPI: Allgather, Allreduce, Allreduce!, Barrier, COMM_WORLD, Cart_shift, Cart_test, Comm, Comm_rank, Comm_size, Finalize, Gather, Init, Initialized, Irecv, Isend, MAX, MIN, MPI_PROC_NULL, Request, SUM, Waitall, Wtime, bcast
     using PencilArrays
     using PencilFFTs
     using HDF5
@@ -209,7 +209,7 @@ module GeoDynamo
             # This is needed for SHTnsKit parallel extensions to work properly
             if !isdefined(Main, :MPI)
                 try
-                    @eval using MPI
+                    @eval using MPI: Allgather, Allreduce, Allreduce!, Barrier, COMM_WORLD, Cart_shift, Cart_test, Comm, Comm_rank, Comm_size, Finalize, Gather, Init, Initialized, Irecv, Isend, MAX, MIN, MPI_PROC_NULL, Request, SUM, Waitall, Wtime, bcast
                     @info "GeoDynamo.jl loaded MPI at runtime"
                 catch mpi_e
                     @warn "Could not load MPI (continuing without MPI support): $mpi_e"

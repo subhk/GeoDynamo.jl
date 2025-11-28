@@ -221,20 +221,20 @@ end
 function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
                                         vel_fields, oc_domain::RadialDomain; 
                                         geometry::Symbol = get_parameters().geometry) where T
-    t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
+    t_start = ENABLE_TIMING[] ? Wtime() : 0.0
     
     # Zero work arrays
     zero_scalar_work_arrays!(temp_field)
     
     # Step 1: Compute ALL gradients in spectral space (NO COMMUNICATION!)
-    t_spectral = MPI.Wtime()
+    t_spectral = Wtime()
     compute_all_gradients_spectral!(temp_field, oc_domain)
-    temp_field.spectral_time[] += MPI.Wtime() - t_spectral
+    temp_field.spectral_time[] += Wtime() - t_spectral
     
     # Step 2: Single batched transform of temperature and gradients to physical
-    t_transform = MPI.Wtime()
+    t_transform = Wtime()
     transform_field_and_gradients_to_physical!(temp_field)
-    temp_field.transform_time[] += MPI.Wtime() - t_transform
+    temp_field.transform_time[] += Wtime() - t_transform
     
     # Step 3: Compute advection term -u·∇T in physical space (local operation)
     if vel_fields !== nothing
@@ -245,20 +245,20 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     add_internal_sources_local!(temp_field, oc_domain)
     
     # Step 5: Transform advection + sources back to spectral space
-    t_transform = MPI.Wtime()
+    t_transform = Wtime()
     if geometry === :ball
         ball_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
     else
         shtnskit_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
     end
-    temp_field.transform_time[] += MPI.Wtime() - t_transform
+    temp_field.transform_time[] += Wtime() - t_transform
     
     # Step 6: Apply boundary conditions in spectral space
     apply_temperature_boundary_conditions!(temp_field)
     apply_temperature_boundary_conditions_spectral!(temp_field, oc_domain)
     
     if ENABLE_TIMING[]
-        temp_field.computation_time[] += MPI.Wtime() - t_start
+        temp_field.computation_time[] += Wtime() - t_start
     end
 end
 
@@ -448,7 +448,7 @@ function validate_flux_bc(temp_field, domain)
     end
     
     # Global maximum error
-    global_max_error = MPI.Allreduce(max_error, MPI.MAX, get_comm())
+    global_max_error = Allreduce(max_error, MAX, get_comm())
     
     if get_rank() == 0
         println("Maximum flux BC error: $(global_max_error)")
@@ -512,7 +512,7 @@ function compute_thermal_energy(temp_field::SHTnsTemperatureField{T}) where T
     end
     
     # Global sum across all processes
-    return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
+    return 0.5 * Allreduce(local_energy, SUM, get_comm())
 end
 
 
@@ -550,7 +550,7 @@ function compute_surface_flux(field::SHTnsPhysicalField{T}, r_level::Int,
     end
     
     # Global reduction
-    return MPI.Allreduce(local_flux, MPI.SUM, get_comm())
+    return Allreduce(local_flux, SUM, get_comm())
 end
 
 
@@ -567,15 +567,15 @@ function get_temperature_statistics(temp_field::SHTnsTemperatureField{T},
     local_min = minimum(temp_data)
     local_max = maximum(temp_data)
     
-    global_min = MPI.Allreduce(local_min, MPI.MIN, get_comm())
-    global_max = MPI.Allreduce(local_max, MPI.MAX, get_comm())
+    global_min = Allreduce(local_min, MIN, get_comm())
+    global_max = Allreduce(local_max, MAX, get_comm())
     
     # RMS temperature
     local_sum = sum(temp_data.^2)
     local_count = length(temp_data)
     
-    global_sum = MPI.Allreduce(local_sum, MPI.SUM, get_comm())
-    global_count = MPI.Allreduce(local_count, MPI.SUM, get_comm())
+    global_sum = Allreduce(local_sum, SUM, get_comm())
+    global_count = Allreduce(local_count, SUM, get_comm())
     
     rms_temp = sqrt(global_sum / global_count)
     

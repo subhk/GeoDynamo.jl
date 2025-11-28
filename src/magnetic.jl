@@ -540,7 +540,7 @@ function compute_magnetic_energy(mag_fields::SHTnsMagneticFields{T}) where T
     end
     
     # Global sum across all processes
-    return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
+    return 0.5 * Allreduce(local_energy, SUM, get_comm())
 end
 
 function compute_ohmic_dissipation(mag_fields::SHTnsMagneticFields{T}) where T
@@ -576,7 +576,7 @@ function compute_ohmic_dissipation(mag_fields::SHTnsMagneticFields{T}) where T
     end
     
     # Scale by diffusivity (unity in magnetic-diffusion units) and global sum
-    return MPI.Allreduce(local_dissipation, MPI.SUM, get_comm())
+    return Allreduce(local_dissipation, SUM, get_comm())
 end
 
 
@@ -732,7 +732,7 @@ function compute_magnetic_helicity(mag_fields::SHTnsMagneticFields{T}) where T
     end
     
     # Global sum across all processes
-    return MPI.Allreduce(local_helicity, MPI.SUM, get_comm())
+    return Allreduce(local_helicity, SUM, get_comm())
 end
 
 

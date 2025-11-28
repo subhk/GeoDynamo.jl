@@ -10,7 +10,7 @@ using Statistics
 using Dates
 using Printf
 
-const comm = MPI.COMM_WORLD
+const comm = COMM_WORLD
 
 # ================================================================================
 # Configuration
@@ -393,8 +393,8 @@ end
 
 function create_netcdf_file(filename::String, config::OutputConfig, 
                             field_info::FieldInfo, metadata::Dict{String,Any})
-    rank = MPI.Comm_rank(comm)
-    nprocs = MPI.Comm_size(comm)
+    rank = Comm_rank(comm)
+    nprocs = Comm_size(comm)
     
     if config.overwrite_files && isfile(filename)
         rm(filename)
@@ -842,7 +842,7 @@ This is written only once by rank 0 at the start of the simulation.
 function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
                          shtns_config::Union{SHTnsKitConfig,Nothing},
                          metadata::Dict{String,Any})
-    rank = MPI.Comm_rank(comm)
+    rank = Comm_rank(comm)
 
     # Only rank 0 writes the grid file
     if rank != 0
@@ -1142,7 +1142,7 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
                         metadata::Dict{String,Any}, config::OutputConfig = output_config_from_parameters(),
                         shtns_config::Union{SHTnsKitConfig,Nothing} = nothing,
                         pencils::Union{NamedTuple,Nothing} = nothing)
-    rank = MPI.Comm_rank(comm)
+    rank = Comm_rank(comm)
     current_time = metadata["current_time"]
     current_step = metadata["current_step"]
     
@@ -1177,7 +1177,7 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
             mkpath(config.output_dir)
             println("Rank 0: Created output directory: $(config.output_dir)")
         end
-        MPI.Barrier(comm)
+        Barrier(comm)
     end
     
     # Extract field information (needed for both grid file and regular output)
@@ -1189,7 +1189,7 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
         tracker.grid_file_written = true
         # Ensure all ranks know the grid file has been written
         if !config.independent_writes
-            MPI.Barrier(comm)
+            Barrier(comm)
         end
     end
 
@@ -1266,7 +1266,7 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
     update_tracker!(tracker, current_time, config, should_output, should_restart)
 
     if !config.independent_writes
-        MPI.Barrier(comm)
+        Barrier(comm)
         if rank == 0 && should_output
             println("All ranks completed output at time $current_time")
             println("Next output: $(tracker.next_output_time)")
@@ -1275,8 +1275,8 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
         # For independent writes, optionally verify all ranks completed
         if should_output && config.include_metadata
             write_success = 1  # 1 = success
-            all_success = MPI.Allreduce(write_success, MPI.SUM, comm)
-            expected_success = MPI.Comm_size(comm)
+            all_success = Allreduce(write_success, SUM, comm)
+            expected_success = Comm_size(comm)
 
             if rank == 0
                 if all_success == expected_success
@@ -1298,7 +1298,7 @@ end
 
 function write_restart!(fields::Dict{String,Any}, tracker::TimeTracker, 
                         metadata::Dict{String,Any}, config::OutputConfig)
-    rank = MPI.Comm_rank(comm)
+    rank = Comm_rank(comm)
     current_time = metadata["current_time"]
     current_step = metadata["current_step"]
     
@@ -1353,7 +1353,7 @@ end
 
 function read_restart!(tracker::TimeTracker, restart_dir::String, 
                         restart_time::Float64, config::OutputConfig)
-    rank = MPI.Comm_rank(comm)
+    rank = Comm_rank(comm)
     
     # Find restart file for this rank near the target time
     restart_files = find_restart_files(restart_dir, restart_time, rank)
@@ -1427,16 +1427,16 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
     # Broadcast metadata and tracker state
     for key in ["current_time", "current_step"]
         if haskey(metadata, key)
-            metadata[key] = MPI.bcast(metadata[key], 0, comm)
+            metadata[key] = bcast(metadata[key], 0, comm)
         end
     end
     
-    tracker.last_output_time = MPI.bcast(tracker.last_output_time, 0, comm)
-    tracker.output_count = MPI.bcast(tracker.output_count, 0, comm)
-    tracker.restart_count = MPI.bcast(tracker.restart_count, 0, comm)
-    tracker.next_output_time = MPI.bcast(tracker.next_output_time, 0, comm)
-    tracker.next_restart_time = MPI.bcast(tracker.next_restart_time, 0, comm)
-    tracker.grid_file_written = MPI.bcast(tracker.grid_file_written, 0, comm)
+    tracker.last_output_time = bcast(tracker.last_output_time, 0, comm)
+    tracker.output_count = bcast(tracker.output_count, 0, comm)
+    tracker.restart_count = bcast(tracker.restart_count, 0, comm)
+    tracker.next_output_time = bcast(tracker.next_output_time, 0, comm)
+    tracker.next_restart_time = bcast(tracker.next_restart_time, 0, comm)
+    tracker.grid_file_written = bcast(tracker.grid_file_written, 0, comm)
     
     if rank == 0
         println("Restart completed from time $(metadata["current_time"])")
@@ -1922,7 +1922,7 @@ using MPI
 using .NetCDFOutputWriter
 
 # Initialize MPI
-MPI.Init()
+Init()
 
 # Create configuration for mixed fields
 config = OutputConfig(
@@ -2009,7 +2009,7 @@ while simulation_time < 2.0
     did_output = write_fields!(fields, tracker, metadata, config)
     
     if did_output
-        rank = MPI.Comm_rank(MPI.COMM_WORLD)
+        rank = Comm_rank(COMM_WORLD)
         if rank == 0
             println("Mixed output at time: $simulation_time")
             println("  Temperature: Physical (32×64×20)")
@@ -2036,7 +2036,7 @@ println("Files in range 1.0-1.5: ", length(files))
 # Cleanup
 cleanup_old_files("./mixed_output", 5)
 
-MPI.Finalize()
+Finalize()
 ```
 
 This provides a complete, efficient NetCDF output system with:

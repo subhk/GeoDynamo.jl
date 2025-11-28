@@ -17,7 +17,7 @@ function shtnskit_spectral_to_physical!(spec::SHTnsSpectralField{T},
     perform_synthesis_direct!(spec, phys, config)
 
     # Synchronize MPI processes
-    MPI.Barrier(get_comm())
+    Barrier(get_comm())
 end
 
 """
@@ -137,7 +137,7 @@ function shtnskit_physical_to_spectral!(phys::SHTnsPhysicalField{T},
     perform_analysis_direct!(phys, spec, config)
     
     # Synchronize MPI processes
-    MPI.Barrier(get_comm())
+    Barrier(get_comm())
 end
 
 """
@@ -343,7 +343,7 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
         end
     end
 
-    MPI.Barrier(get_comm())
+    Barrier(get_comm())
 end
 
 """
@@ -454,7 +454,7 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
         end
     end
 
-    MPI.Barrier(get_comm())
+    Barrier(get_comm())
 end
 
 # ================================================================================
@@ -536,7 +536,7 @@ function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config
     end
     coeffs_gathered = config._buffer_cache[buffer_gathered_key]
 
-    MPI.Allreduce!(coeffs_buffer, coeffs_gathered, MPI.SUM, get_comm())
+    Allreduce!(coeffs_buffer, coeffs_gathered, SUM, get_comm())
 
     # Return a copy to avoid buffer aliasing when called multiple times
     # (e.g., for both toroidal and poloidal coefficients in vector transforms)
@@ -661,7 +661,7 @@ function extract_physical_slice_phi_local!(slice_buffer::Matrix{T}, phys_data, r
     end
 
     # Gather complete grid across all MPI processes
-    MPI.Allreduce!(slice_buffer, MPI.SUM, get_comm())
+    Allreduce!(slice_buffer, SUM, get_comm())
 
     return slice_buffer
 end
@@ -703,7 +703,7 @@ function extract_physical_slice_generic!(slice_buffer::Matrix{T}, phys_data, r_l
     end
 
     # Gather complete grid across all MPI processes
-    MPI.Allreduce!(slice_buffer, MPI.SUM, get_comm())
+    Allreduce!(slice_buffer, SUM, get_comm())
 
     return slice_buffer
 end
@@ -744,7 +744,7 @@ function extract_vector_component_generic!(component_buffer::Matrix{T}, v_data, 
     end
 
     # Gather complete grid across all MPI processes
-    MPI.Allreduce!(component_buffer, MPI.SUM, get_comm())
+    Allreduce!(component_buffer, SUM, get_comm())
 
     return component_buffer
 end
@@ -881,8 +881,8 @@ Synchronize PencilArray data across MPI processes to ensure consistency.
 """
 function synchronize_pencil_data!(field::Union{SHTnsSpectralField{T}, SHTnsPhysicalField{T}}) where T
     # Synchronize the underlying PencilArray data
-    if hasmethod(MPI.Barrier, Tuple{typeof(get_comm())})
-        MPI.Barrier(get_comm())
+    if hasmethod(Barrier, Tuple{typeof(get_comm())})
+        Barrier(get_comm())
     end
     return field
 end
@@ -1002,13 +1002,13 @@ function optimize_erk2_transforms!(config::SHTnsKitConfig)
             fill!(parent(spec_test), complex(1.0, 0.0))
             
             # Test a few transforms to warm up the system
-            start_time = MPI.Wtime()
+            start_time = Wtime()
             for i in 1:3
                 # Perform synthesis (would use actual SHTnsKit functions in practice)
                 fill!(parent(phys_test), 1.0)
-                MPI.Barrier(get_comm())
+                Barrier(get_comm())
             end
-            end_time = MPI.Wtime()
+            end_time = Wtime()
             
             if rank == 0
                 avg_time = (end_time - start_time) / 3.0

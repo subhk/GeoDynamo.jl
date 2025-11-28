@@ -115,8 +115,8 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
                                         thread_count::Int=Threads.nthreads()) where T
     
     # Initialize MPI first
-    if !MPI.Initialized()
-        MPI.Init()
+    if !Initialized()
+        Init()
     end
     
     rank = get_rank()
@@ -198,8 +198,8 @@ function initialize_simulation(::Type{T}=Float64;
                                               thread_count::Int=Threads.nthreads()) where T
     
     # Initialize MPI first
-    if !MPI.Initialized()
-        MPI.Init()
+    if !Initialized()
+        Init()
     end
     
     rank = get_rank()
@@ -429,17 +429,17 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
     dt = d_timestep
     
     # Performance monitoring
-    total_start = MPI.Wtime()
+    total_start = Wtime()
     last_output_time = simulation_time
     
     while simulation_time < 1.0 && step < i_maxtstep
         step += 1
-        step_start = MPI.Wtime()
+        step_start = Wtime()
         
         # === ENHANCED PHYSICS COMPUTATION ===
         
         # 1. Hybrid nonlinear computation (MPI + Threads)
-        compute_start = MPI.Wtime()
+        compute_start = Wtime()
         
         # Temperature evolution with all optimizations
         hybrid_compute_nonlinear!(state.hybrid_parallelizer, state.temperature, 
@@ -460,18 +460,18 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
             compute_composition_nonlinear!(state.composition, state.velocity, state.oc_domain)
         end
         
-        compute_time = MPI.Wtime() - compute_start
+        compute_time = Wtime() - compute_start
         
         # 2. Enhanced time integration
-        integrate_start = MPI.Wtime()
+        integrate_start = Wtime()
         
         # Apply implicit time integration with enhanced solvers
         apply_enhanced_implicit_step!(state, dt)
         
-        integrate_time = MPI.Wtime() - integrate_start
+        integrate_time = Wtime() - integrate_start
         
         # 3. Asynchronous I/O (non-blocking)
-        io_start = MPI.Wtime()
+        io_start = Wtime()
         
         if should_output_now(time_tracker, simulation_time, output_config)
             fields = extract_all_fields(state)
@@ -485,11 +485,11 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
             end
         end
         
-        io_time = MPI.Wtime() - io_start
+        io_time = Wtime() - io_start
         
         # 4. Performance monitoring and adaptive optimization
         if state.auto_optimization && step % 50 == 0
-            monitor_start = MPI.Wtime()
+            monitor_start = Wtime()
             
             # Update performance metrics
             update_performance_metrics!(state.performance_monitor, step, 
@@ -503,7 +503,7 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
                 auto_tune_parameters!(state)
             end
             
-            monitor_time = MPI.Wtime() - monitor_start
+            monitor_time = Wtime() - monitor_start
         end
         
         # Update simulation state
@@ -511,7 +511,7 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
         state.timestep_state.time = simulation_time
         state.timestep_state.step = step
         
-        step_time = MPI.Wtime() - step_start
+        step_time = Wtime() - step_start
         
         # Adaptive timestep (if enabled)
         if step % 10 == 0
@@ -519,7 +519,7 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
         end
     end
     
-    total_time = MPI.Wtime() - total_start
+    total_time = Wtime() - total_start
     
     # Final performance analysis
     if rank == 0
@@ -579,7 +579,7 @@ function run_simulation!(state::SimulationState{T}) where T
     dt = d_timestep
     
     # Performance monitoring
-    total_start = MPI.Wtime()
+    total_start = Wtime()
     last_output_time = simulation_time
     
     # Adaptive threading state
@@ -588,12 +588,12 @@ function run_simulation!(state::SimulationState{T}) where T
     
     while simulation_time < 1.0 && step < i_maxtstep
         step += 1
-        step_start = MPI.Wtime()
+        step_start = Wtime()
         
         # === ADVANCED PHYSICS COMPUTATION ===
         
         # 1. Advanced nonlinear computation (CPU + SIMD + Task-based)
-        compute_start = MPI.Wtime()
+        compute_start = Wtime()
         
         # Temperature evolution with maximum CPU optimizations
         compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, state.temperature, 
@@ -614,18 +614,18 @@ function run_simulation!(state::SimulationState{T}) where T
             compute_composition_nonlinear_master!(state, state.velocity, state.oc_domain)
         end
         
-        compute_time = MPI.Wtime() - compute_start
+        compute_time = Wtime() - compute_start
         
         # 2. Advanced time integration with task scheduling
-        integrate_start = MPI.Wtime()
+        integrate_start = Wtime()
         
         # Apply implicit time integration with advanced solvers
         apply_master_implicit_step!(state, dt)
         
-        integrate_time = MPI.Wtime() - integrate_start
+        integrate_time = Wtime() - integrate_start
         
         # 3. Asynchronous I/O with memory-aware scheduling
-        io_start = MPI.Wtime()
+        io_start = Wtime()
         
         if should_output_now(time_tracker, simulation_time, output_config)
             fields = extract_all_fields_enhanced(state)
@@ -647,11 +647,11 @@ function run_simulation!(state::SimulationState{T}) where T
             end
         end
         
-        io_time = MPI.Wtime() - io_start
+        io_time = Wtime() - io_start
         
         # 4. Advanced performance monitoring and adaptive optimization
         if state.auto_optimization && step % 25 == 0  # More frequent optimization
-            monitor_start = MPI.Wtime()
+            monitor_start = Wtime()
             
             # Update performance metrics
             update_performance_metrics!(state.master_parallelizer.performance_monitor, step, 
@@ -682,7 +682,7 @@ function run_simulation!(state::SimulationState{T}) where T
                 optimize_memory_usage!(state)
             end
             
-            monitor_time = MPI.Wtime() - monitor_start
+            monitor_time = Wtime() - monitor_start
         end
         
         # Update simulation state
@@ -690,7 +690,7 @@ function run_simulation!(state::SimulationState{T}) where T
         state.timestep_state.time = simulation_time
         state.timestep_state.step = step
         
-        step_time = MPI.Wtime() - step_start
+        step_time = Wtime() - step_start
         
         # Adaptive timestep with CPU-aware scaling
         if step % 5 == 0  # More frequent timestep adaptation
@@ -698,7 +698,7 @@ function run_simulation!(state::SimulationState{T}) where T
         end
     end
     
-    total_time = MPI.Wtime() - total_start
+    total_time = Wtime() - total_start
     
     # Final detailed performance analysis
     if rank == 0
@@ -956,7 +956,7 @@ function compute_cfl_timestep!(state::SimulationState{T}) where T
     
     # Global maximum across all processes
     comm = get_comm()
-    global_max_vel = MPI.Allreduce(max_velocity, MPI.MAX, comm)
+    global_max_vel = Allreduce(max_velocity, MAX, comm)
     
     # Compute grid spacing (approximate)
     dr_min = minimum(diff(state.oc_domain.r[:, 4]))
@@ -1132,8 +1132,8 @@ Compute L2 energy of a 3D field: E = ½ ∫ |f|² dV ≈ ½ Σ |f_ijk|²
 function compute_field_energy(field_data::Array{T,3}) where T
     local_energy = 0.5 * sum(abs2, field_data)
     # Sum across all MPI ranks
-    if MPI.Initialized()
-        return MPI.Allreduce(local_energy, +, MPI.COMM_WORLD)
+    if Initialized()
+        return Allreduce(local_energy, +, COMM_WORLD)
     else
         return local_energy
     end
@@ -1147,8 +1147,8 @@ Compute kinetic/magnetic energy: E = ½ ∫ |v|² dV = ½ ∫ (v_r² + v_θ² + 
 function compute_vector_energy(v_r::Array{T,3}, v_theta::Array{T,3}, v_phi::Array{T,3}) where T
     local_energy = 0.5 * (sum(abs2, v_r) + sum(abs2, v_theta) + sum(abs2, v_phi))
     # Sum across all MPI ranks
-    if MPI.Initialized()
-        return MPI.Allreduce(local_energy, +, MPI.COMM_WORLD)
+    if Initialized()
+        return Allreduce(local_energy, +, COMM_WORLD)
     else
         return local_energy
     end
@@ -1318,9 +1318,9 @@ function compute_divergence_spectral(tor_spec::SHTnsSpectralField{T},
     local_linf = maximum(vcat(abs.(tor_real[:]), abs.(tor_imag[:]),
                                abs.(pol_real[:]), abs.(pol_imag[:])))
 
-    if MPI.Initialized()
-        l2_norm = MPI.Allreduce(local_l2, +, MPI.COMM_WORLD)
-        linf_norm = MPI.Allreduce(local_linf, max, MPI.COMM_WORLD)
+    if Initialized()
+        l2_norm = Allreduce(local_l2, +, COMM_WORLD)
+        linf_norm = Allreduce(local_linf, max, COMM_WORLD)
     else
         l2_norm = local_l2
         linf_norm = local_linf
@@ -1788,21 +1788,21 @@ end
 function run_shtns_geodynamo_simulation()
     state = initialize_shtns_simulation(Float64)
     run_shtns_simulation!(state)
-    MPI.Finalize()
+    Finalize()
 end
 
 # Main entry point for enhanced simulation
 function run_enhanced_geodynamo_simulation()
     state = initialize_enhanced_simulation(Float64)
     run_enhanced_simulation!(state)
-    MPI.Finalize()
+    Finalize()
 end
 
 # Main entry point for master simulation
 function run_master_geodynamo_simulation()
     state = initialize_master_simulation(Float64)
     run_master_simulation!(state)
-    MPI.Finalize()
+    Finalize()
 end
 
 # Exports are handled by the main GeoDynamo.jl module

@@ -667,13 +667,13 @@ Advanced asynchronous communication manager for overlapping computation and comm
 """
 mutable struct AsyncCommManager{T}
     # Non-blocking communication
-    send_requests::Vector{MPI.Request}
-    recv_requests::Vector{MPI.Request}
+    send_requests::Vector{Request}
+    recv_requests::Vector{Request}
     send_buffers::Vector{Vector{T}}
     recv_buffers::Vector{Vector{T}}
     
     # Communication pools for reuse
-    request_pool::Vector{MPI.Request}
+    request_pool::Vector{Request}
     buffer_pool::Vector{Vector{T}}
     
     # Asynchronous scheduling
@@ -688,11 +688,11 @@ end
 
 function create_async_comm_manager(::Type{T}, max_concurrent::Int=16) where T
     return AsyncCommManager{T}(
-        Vector{MPI.Request}(undef, max_concurrent),
-        Vector{MPI.Request}(undef, max_concurrent),
+        Vector{Request}(undef, max_concurrent),
+        Vector{Request}(undef, max_concurrent),
         [Vector{T}() for _ in 1:max_concurrent],
         [Vector{T}() for _ in 1:max_concurrent],
-        Vector{MPI.Request}(),
+        Vector{Request}(),
         Vector{Vector{T}}(),
         Vector{Function}(),
         Vector{Function}(),
@@ -733,7 +733,7 @@ function start_async_exchange!(manager::AsyncCommManager{T},
             # Non-blocking send
             if !isempty(send_data)
                 manager.send_buffers[req_idx] = send_data
-                manager.send_requests[req_idx] = MPI.Isend(
+                manager.send_requests[req_idx] = Isend(
                     send_data, target_rank, 42, comm)
                 req_idx += 1
             end
@@ -747,7 +747,7 @@ function start_async_exchange!(manager::AsyncCommManager{T},
             recv_size = compute_recv_size(source_rank, spec_field)
             if recv_size > 0
                 resize!(manager.recv_buffers[req_idx], recv_size)
-                manager.recv_requests[req_idx] = MPI.Irecv!(
+                manager.recv_requests[req_idx] = Irecv!(
                     manager.recv_buffers[req_idx], source_rank, 42, comm)
                 req_idx += 1
             end
@@ -990,7 +990,7 @@ Coordinates MPI and threads for maximum CPU parallelization.
 """
 struct HybridParallelizer{T}
     # MPI level
-    mpi_comm::MPI.Comm
+    mpi_comm::Comm
     mpi_rank::Int
     mpi_nprocs::Int
     
@@ -1040,7 +1040,7 @@ Comprehensive parallelization system combining all techniques.
 """
 struct MasterParallelizer{T}
     # MPI optimization
-    mpi_comm::MPI.Comm
+    mpi_comm::Comm
     mpi_rank::Int
     mpi_nprocs::Int
     async_comm::AsyncCommManager{T}

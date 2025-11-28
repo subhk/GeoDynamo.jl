@@ -302,9 +302,9 @@ function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
 
     # MPI gather to get complete profile (needed for BC application)
     comm = BoundaryConditions.get_comm()
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        MPI.Allreduce!(profile_real, MPI.SUM, comm)
-        MPI.Allreduce!(profile_imag, MPI.SUM, comm)
+    if comm !== nothing && Comm_size(comm) > 1
+        Allreduce!(profile_real, SUM, comm)
+        Allreduce!(profile_imag, SUM, comm)
     end
 
     # For stress-free boundaries: prescribed flux is zero (∂T/∂r = 0)
@@ -410,9 +410,9 @@ function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
 
     # MPI gather
     comm = BoundaryConditions.get_comm()
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        MPI.Allreduce!(profile_real, MPI.SUM, comm)
-        MPI.Allreduce!(profile_imag, MPI.SUM, comm)
+    if comm !== nothing && Comm_size(comm) > 1
+        Allreduce!(profile_real, SUM, comm)
+        Allreduce!(profile_imag, SUM, comm)
     end
 
     # Direct method: extrapolate to set derivative to zero
@@ -480,9 +480,9 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
 
     # MPI gather
     comm = BoundaryConditions.get_comm()
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        MPI.Allreduce!(profile_real, MPI.SUM, comm)
-        MPI.Allreduce!(profile_imag, MPI.SUM, comm)
+    if comm !== nothing && Comm_size(comm) > 1
+        Allreduce!(profile_real, SUM, comm)
+        Allreduce!(profile_imag, SUM, comm)
     end
 
     # Physical stress method: enforce ∂T/∂r = T/r
@@ -1396,7 +1396,7 @@ function compute_kinetic_energy(fields::SHTnsVelocityFields{T}, oc_domain::Radia
     end
     
     # Global sum
-    return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
+    return 0.5 * Allreduce(local_energy, SUM, get_comm())
 end
 
 
@@ -1417,12 +1417,12 @@ function compute_reynolds_stress(fields::SHTnsVelocityFields{T}) where T
     R_θφ = mean(vel_θ .* vel_φ)
     
     # Global averages
-    R_rr = MPI.Allreduce(R_rr, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_θθ = MPI.Allreduce(R_θθ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_φφ = MPI.Allreduce(R_φφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_rθ = MPI.Allreduce(R_rθ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_rφ = MPI.Allreduce(R_rφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_θφ = MPI.Allreduce(R_θφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_rr = Allreduce(R_rr, SUM, get_comm()) / Comm_size(get_comm())
+    R_θθ = Allreduce(R_θθ, SUM, get_comm()) / Comm_size(get_comm())
+    R_φφ = Allreduce(R_φφ, SUM, get_comm()) / Comm_size(get_comm())
+    R_rθ = Allreduce(R_rθ, SUM, get_comm()) / Comm_size(get_comm())
+    R_rφ = Allreduce(R_rφ, SUM, get_comm()) / Comm_size(get_comm())
+    R_θφ = Allreduce(R_θφ, SUM, get_comm()) / Comm_size(get_comm())
     
     return (R_rr, R_θθ, R_φφ, R_rθ, R_rφ, R_θφ)
 end
