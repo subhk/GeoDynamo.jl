@@ -60,12 +60,20 @@ struct VelocityWorkspace{T}
     dpol_dr_imag::Vector{Vector{T}}
     d2pol_dr2_real::Vector{Vector{T}}
     d2pol_dr2_imag::Vector{Vector{T}}
+    # Pre-allocated buffers for BC operations (avoid allocations per mode)
+    bc_profile_real::Vector{Vector{T}}
+    bc_profile_imag::Vector{Vector{T}}
+    bc_dprofile_real::Vector{Vector{T}}
+    bc_dprofile_imag::Vector{Vector{T}}
+    bc_correction::Vector{Vector{T}}
 end
 
 function create_velocity_workspace(::Type{T}, nr::Int, nthreads::Int=Threads.nthreads()) where T
     bufs() = [zeros(T, nr) for _ in 1:nthreads]
     return VelocityWorkspace{T}(
-        bufs(), bufs(), bufs(), bufs(), bufs(), bufs(), bufs(), bufs()
+        bufs(), bufs(), bufs(), bufs(), bufs(), bufs(), bufs(), bufs(),
+        # BC buffers
+        bufs(), bufs(), bufs(), bufs(), bufs()
     )
 end
 
@@ -234,6 +242,10 @@ Apply flux boundary conditions to a single velocity component (toroidal or poloi
 - `:direct` - Enforces ∂T/∂r ≈ 0 (may be incorrect for stress-free)
 - `:tau` - Tau method for ∂T/∂r = 0
 - `:physical_stress` - Enforces ∂T/∂r = T/r (correct for stress-free)
+
+# Performance
+Uses pre-allocated workspace buffers if available (set via set_velocity_workspace!).
+Otherwise allocates temporary arrays (slower).
 """
 function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
                                            domain::RadialDomain,
@@ -246,6 +258,10 @@ function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
     lm_range = get_local_range(field.pencil, 1)
     r_range  = get_local_range(field.pencil, 3)
 
+    # Try to get workspace for better performance
+    ws = get_velocity_workspace(T)
+    tid = Threads.threadid()
+
     for lm_idx in lm_range
         if lm_idx <= field.nlm
             local_lm = lm_idx - first(lm_range) + 1
@@ -255,20 +271,41 @@ function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
             apply_outer = (field.bc_type_outer[lm_idx] == Int(NEUMANN)) && (domain.N in r_range)
 
             if apply_inner || apply_outer
-                # Apply flux BC using specified method
+                # Apply flux BC using specified method (use workspace if available)
                 if method == :tau
-                    apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
-                                               apply_inner, apply_outer, dr_matrix, domain, r_range)
+                    if ws !== nothing
+                        apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
+                                                       apply_inner, apply_outer, dr_matrix,
+                                                       domain, r_range, ws, tid)
+                    else
+                        apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
+                                                   apply_inner, apply_outer, dr_matrix, domain, r_range)
+                    end
                 elseif method == :direct
-                    apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
-                                                   apply_inner, apply_outer, domain, r_range)
+                    if ws !== nothing
+                        apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_idx,
+                                                          apply_inner, apply_outer, domain, r_range, ws, tid)
+                    else
+                        apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
+                                                       apply_inner, apply_outer, domain, r_range)
+                    end
                 elseif method == :physical_stress
-                    apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
-                                                           apply_inner, apply_outer, domain, r_range)
+                    if ws !== nothing
+                        apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
+                                                                   apply_inner, apply_outer, domain, r_range, ws, tid)
+                    else
+                        apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
+                                                               apply_inner, apply_outer, domain, r_range)
+                    end
                 else
                     @warn "Flux BC method $method not implemented for velocity, using :physical_stress"
-                    apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
-                                                           apply_inner, apply_outer, domain, r_range)
+                    if ws !== nothing
+                        apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
+                                                                   apply_inner, apply_outer, domain, r_range, ws, tid)
+                    else
+                        apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
+                                                               apply_inner, apply_outer, domain, r_range)
+                    end
                 end
             end
         end
@@ -521,60 +558,93 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
     end
 end
 
-# Helper functions for tau corrections
+# Helper functions for tau corrections (in-place versions to avoid allocations)
+
+"""
+    compute_tau_correction_both_boundaries!(correction::Vector{T}, ...)
+
+In-place version that writes to pre-allocated correction buffer.
+"""
+function compute_tau_correction_both_boundaries!(correction::Vector{T},
+                                                 flux_correction_inner::T,
+                                                 flux_correction_outer::T,
+                                                 domain::RadialDomain) where T
+    nr = domain.N
+    r = domain.r[:, 4]
+
+    # Linear tau function: correction = a + b*r
+    # Average the two flux corrections
+    b = 0.5 * (flux_correction_inner + flux_correction_outer)
+
+    # In-place computation
+    @inbounds for i in 1:nr
+        correction[i] = b * (r[i] - r[1])
+    end
+
+    return correction
+end
+
+"""
+    compute_tau_correction_inner_boundary!(correction::Vector{T}, ...)
+
+In-place version that writes to pre-allocated correction buffer.
+"""
+function compute_tau_correction_inner_boundary!(correction::Vector{T},
+                                                flux_correction::T,
+                                                domain::RadialDomain) where T
+    nr = domain.N
+    r = domain.r[:, 4]
+    decay_scale = r[nr] - r[1]
+
+    # Exponential decay from inner boundary (in-place)
+    @inbounds for i in 1:nr
+        correction[i] = flux_correction * exp(-(r[i] - r[1]) / decay_scale)
+    end
+
+    return correction
+end
+
+"""
+    compute_tau_correction_outer_boundary!(correction::Vector{T}, ...)
+
+In-place version that writes to pre-allocated correction buffer.
+"""
+function compute_tau_correction_outer_boundary!(correction::Vector{T},
+                                                flux_correction::T,
+                                                domain::RadialDomain) where T
+    nr = domain.N
+    r = domain.r[:, 4]
+    decay_scale = r[nr] - r[1]
+
+    # Exponential decay from outer boundary (in-place)
+    @inbounds for i in 1:nr
+        correction[i] = flux_correction * exp(-(r[nr] - r[i]) / decay_scale)
+    end
+
+    return correction
+end
+
+# Fallback allocating versions (for backward compatibility or when workspace not available)
 function compute_tau_correction_both_boundaries(flux_correction_inner::T,
                                                 flux_correction_outer::T,
                                                 domain::RadialDomain) where T
-    nr = domain.N
-    correction = zeros(T, nr)
-
-    # Use simple linear combination of basis functions that satisfy:
-    # - correction has specified derivative at boundaries
-    # - correction is smooth in interior
-    # Simple approach: use Chebyshev polynomials or linear interpolation
-
-    r = domain.r[:, 4]
-    r_inner = r[1]
-    r_outer = r[nr]
-
-    # Linear tau function: correction = a + b*r
-    # ∂correction/∂r = b
-    # At inner: b = flux_correction_inner
-    # At outer: b = flux_correction_outer
-    # Average or use a weighted combination
-
-    b = 0.5 * (flux_correction_inner + flux_correction_outer)
-    correction .= b .* (r .- r[1])
-
+    correction = zeros(T, domain.N)
+    compute_tau_correction_both_boundaries!(correction, flux_correction_inner,
+                                           flux_correction_outer, domain)
     return correction
 end
 
 function compute_tau_correction_inner_boundary(flux_correction::T,
                                                domain::RadialDomain) where T
-    nr = domain.N
-    correction = zeros(T, nr)
-
-    r = domain.r[:, 4]
-    # Correction that decays from inner boundary
-    # Use exponential decay or polynomial
-    for i in 1:nr
-        correction[i] = flux_correction * exp(-(r[i] - r[1]) / (r[nr] - r[1]))
-    end
-
+    correction = zeros(T, domain.N)
+    compute_tau_correction_inner_boundary!(correction, flux_correction, domain)
     return correction
 end
 
 function compute_tau_correction_outer_boundary(flux_correction::T,
                                                domain::RadialDomain) where T
-    nr = domain.N
-    correction = zeros(T, nr)
-
-    r = domain.r[:, 4]
-    # Correction that decays from outer boundary
-    for i in 1:nr
-        correction[i] = flux_correction * exp(-(r[nr] - r[i]) / (r[nr] - r[1]))
-    end
-
+    correction = zeros(T, domain.N)
+    compute_tau_correction_outer_boundary!(correction, flux_correction, domain)
     return correction
 end
 
