@@ -3,7 +3,7 @@ module GeoDynamo
     using LinearAlgebra
     using SparseArrays
     using SHTnsKit   # Load SHTnsKit before MPI to avoid eager extension load during precompile
-    using MPI: Allgather, Allreduce, Allreduce!, Barrier, COMM_WORLD, Cart_shift, Cart_test, Comm, Comm_rank, Comm_size, Finalize, Gather, Init, Initialized, Irecv, Isend, MAX, MIN, MPI_PROC_NULL, Request, SUM, Waitall, Wtime, bcast
+    using MPI
     using PencilArrays
     using PencilFFTs
     using HDF5
