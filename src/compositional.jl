@@ -489,8 +489,8 @@ function get_composition_statistics(comp_field::SHTnsCompositionField{T},
     local_min = minimum(comp_data)
     local_max = maximum(comp_data)
     
-    global_min = Allreduce(local_min, MIN, get_comm())
-    global_max = Allreduce(local_max, MAX, get_comm())
+    global_min = Allreduce(local_min, MPI.MIN, get_comm())
+    global_max = Allreduce(local_max, MPI.MAX, get_comm())
     
     # RMS composition
     local_sum = sum(comp_data.^2)

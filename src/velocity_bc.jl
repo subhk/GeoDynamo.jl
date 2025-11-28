@@ -48,8 +48,8 @@ function apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_id
     # MPI gather
     comm = BoundaryConditions.get_comm()
     if comm !== nothing && Comm_size(comm) > 1
-        Allreduce!(profile_real, SUM, comm)
-        Allreduce!(profile_imag, SUM, comm)
+        Allreduce!(profile_real, MPI.SUM, comm)
+        Allreduce!(profile_imag, MPI.SUM, comm)
     end
 
     # Apply BC: ∂T/∂r = 0
@@ -111,8 +111,8 @@ function apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_
     # MPI gather
     comm = BoundaryConditions.get_comm()
     if comm !== nothing && Comm_size(comm) > 1
-        Allreduce!(profile_real, SUM, comm)
-        Allreduce!(profile_imag, SUM, comm)
+        Allreduce!(profile_real, MPI.SUM, comm)
+        Allreduce!(profile_imag, MPI.SUM, comm)
     end
 
     # Apply BC: ∂T/∂r = T/r (physically correct for stress-free)
@@ -183,8 +183,8 @@ function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
     # MPI gather
     comm = BoundaryConditions.get_comm()
     if comm !== nothing && Comm_size(comm) > 1
-        Allreduce!(profile_real, SUM, comm)
-        Allreduce!(profile_imag, SUM, comm)
+        Allreduce!(profile_real, MPI.SUM, comm)
+        Allreduce!(profile_imag, MPI.SUM, comm)
     end
 
     # Prescribed flux for stress-free

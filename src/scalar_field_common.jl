@@ -470,7 +470,7 @@ function compute_scalar_rms(field::AbstractScalarField{T}, oc_domain::RadialDoma
     
     # Global reduction
     comm = get_comm()
-    global_sum = Allreduce(local_sum, SUM, comm)
+    global_sum = Allreduce(local_sum, MPI.SUM, comm)
     
     return sqrt(global_sum / (oc_domain.N * field.config.nlm))
 end
@@ -505,7 +505,7 @@ function compute_scalar_energy(field::AbstractScalarField{T}, oc_domain::RadialD
     
     # Global reduction
     comm = get_comm()
-    global_energy = Allreduce(local_energy, SUM, comm)
+    global_energy = Allreduce(local_energy, MPI.SUM, comm)
     
     return global_energy / (field.config.nlat * field.config.nlon * oc_domain.N)
 end
@@ -885,8 +885,8 @@ function apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
     
     # MPI gather to get complete profile (needed for BC application)
     if Comm_size(get_comm()) > 1
-        Allreduce!(profile_real, SUM, get_comm())
-        Allreduce!(profile_imag, SUM, get_comm())
+        Allreduce!(profile_real, MPI.SUM, get_comm())
+        Allreduce!(profile_imag, MPI.SUM, get_comm())
     end
     
     # Get prescribed flux values
@@ -1047,8 +1047,8 @@ function apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
     end
     
     if Comm_size(get_comm()) > 1
-        Allreduce!(profile_real, SUM, get_comm())
-        Allreduce!(profile_imag, SUM, get_comm())
+        Allreduce!(profile_real, MPI.SUM, get_comm())
+        Allreduce!(profile_imag, MPI.SUM, get_comm())
     end
     
     # Compute current flux at boundaries

@@ -805,7 +805,7 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             end
             @inbounds @simd for r_idx in r_first:r_last
                 local_r = r_idx - r_first + 1
-                if local_r <= size(ω_tor_real, 3)
+                if local_r <= size(ω_tor_real, 3) && r_idx <= size(domain.r, 1)
                     r_val = domain.r[r_idx, 4]
                     if r_val == 0.0
                         ω_tor_real[local_lm, 1, local_r] = 0

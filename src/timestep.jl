@@ -1831,8 +1831,8 @@ function erk2_stage_residual_stats(buffers::ERK2FieldBuffers{T}) where T
 
     if Initialized() && Comm_size(get_comm()) > 1
         comm = get_comm()
-        global_max = MPI.allreduce(local_max, MAX, comm)
-        global_sum = MPI.allreduce(local_sum, SUM, comm)
+        global_max = MPI.allreduce(local_max, MPI.MAX, comm)
+        global_sum = MPI.allreduce(local_sum, MPI.SUM, comm)
     else
         global_max = local_max
         global_sum = local_sum

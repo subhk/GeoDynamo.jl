@@ -448,7 +448,7 @@ function validate_flux_bc(temp_field, domain)
     end
     
     # Global maximum error
-    global_max_error = Allreduce(max_error, MAX, get_comm())
+    global_max_error = Allreduce(max_error, MPI.MAX, get_comm())
     
     if get_rank() == 0
         println("Maximum flux BC error: $(global_max_error)")
@@ -567,8 +567,8 @@ function get_temperature_statistics(temp_field::SHTnsTemperatureField{T},
     local_min = minimum(temp_data)
     local_max = maximum(temp_data)
     
-    global_min = Allreduce(local_min, MIN, get_comm())
-    global_max = Allreduce(local_max, MAX, get_comm())
+    global_min = Allreduce(local_min, MPI.MIN, get_comm())
+    global_max = Allreduce(local_max, MPI.MAX, get_comm())
     
     # RMS temperature
     local_sum = sum(temp_data.^2)
