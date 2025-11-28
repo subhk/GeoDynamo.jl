@@ -435,10 +435,10 @@ function eab2_update_krylov!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T}
                 end
             end
             if multi
-                Allreduce!(ur, SUM, comm)
-                Allreduce!(ui, SUM, comm)
-                Allreduce!(nrn, SUM, comm)
-                Allreduce!(nin, SUM, comm)
+                Allreduce!(ur, MPI.SUM, comm)
+                Allreduce!(ui, MPI.SUM, comm)
+                Allreduce!(nrn, MPI.SUM, comm)
+                Allreduce!(nin, MPI.SUM, comm)
             end
             # Define Aop! using banded apply
             tmp = zeros(T, nr)
@@ -526,10 +526,10 @@ function eab2_update_krylov_cached!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralF
                 end
             end
             if multi
-                Allreduce!(ur, SUM, comm)
-                Allreduce!(ui, SUM, comm)
-                Allreduce!(nrn, SUM, comm)
-                Allreduce!(nin, SUM, comm)
+                Allreduce!(ur, MPI.SUM, comm)
+                Allreduce!(ui, MPI.SUM, comm)
+                Allreduce!(nrn, MPI.SUM, comm)
+                Allreduce!(nin, MPI.SUM, comm)
             end
             # Define Aop! using banded apply
             tmp = zeros(T, nr)
@@ -595,10 +595,10 @@ function eab2_update!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
                 end
             end
             if multi
-                Allreduce!(ur, SUM, comm)
-                Allreduce!(ui, SUM, comm)
-                Allreduce!(nrn, SUM, comm)
-                Allreduce!(nin, SUM, comm)
+                Allreduce!(ur, MPI.SUM, comm)
+                Allreduce!(ui, MPI.SUM, comm)
+                Allreduce!(nrn, MPI.SUM, comm)
+                Allreduce!(nin, MPI.SUM, comm)
             end
             mul!(linear_r_work, E, ur)
             mul!(phi_tmp, P1, nrn)
@@ -789,8 +789,8 @@ function build_rhs_cnab2!(rhs::SHTnsSpectralField{T}, un::SHTnsSpectralField{T},
                 end
 
                 if multi
-                    Allreduce!(ur, SUM, comm)
-                    Allreduce!(ui, SUM, comm)
+                    Allreduce!(ur, MPI.SUM, comm)
+                    Allreduce!(ui, MPI.SUM, comm)
                 end
 
                 fill!(lin_r, zero(T)); fill!(lin_i, zero(T))
@@ -882,7 +882,7 @@ function compute_timestep_error(new_field::SHTnsSpectralField{T},
     end
     
     # Global reduction across all MPI processes
-    global_error = Allreduce(error, SUM, get_comm())
+    global_error = Allreduce(error, MPI.SUM, get_comm())
     return sqrt(global_error)
 end
 
@@ -1627,10 +1627,10 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField
             end
 
             if multi
-                Allreduce!(ur, SUM, comm)
-                Allreduce!(ui, SUM, comm)
-                Allreduce!(nr_vec, SUM, comm)
-                Allreduce!(ni_vec, SUM, comm)
+                Allreduce!(ur, MPI.SUM, comm)
+                Allreduce!(ui, MPI.SUM, comm)
+                Allreduce!(nr_vec, MPI.SUM, comm)
+                Allreduce!(ni_vec, MPI.SUM, comm)
             end
 
             mul!(linear_tmp, E_full, ur)
@@ -1742,10 +1742,10 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralFiel
             end
 
             if multi
-                Allreduce!(tmp_linear, SUM, comm)
-                Allreduce!(tmp_k1, SUM, comm)
-                Allreduce!(tmp_Nn, SUM, comm)
-                Allreduce!(tmp_stage, SUM, comm)
+                Allreduce!(tmp_linear, MPI.SUM, comm)
+                Allreduce!(tmp_k1, MPI.SUM, comm)
+                Allreduce!(tmp_Nn, MPI.SUM, comm)
+                Allreduce!(tmp_stage, MPI.SUM, comm)
             end
 
             delta .= tmp_stage
@@ -1776,10 +1776,10 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralFiel
             end
 
             if multi
-                Allreduce!(tmp_linear, SUM, comm)
-                Allreduce!(tmp_k1, SUM, comm)
-                Allreduce!(tmp_Nn, SUM, comm)
-                Allreduce!(tmp_stage, SUM, comm)
+                Allreduce!(tmp_linear, MPI.SUM, comm)
+                Allreduce!(tmp_k1, MPI.SUM, comm)
+                Allreduce!(tmp_Nn, MPI.SUM, comm)
+                Allreduce!(tmp_stage, MPI.SUM, comm)
             end
 
             delta .= tmp_stage
