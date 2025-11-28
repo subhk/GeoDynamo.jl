@@ -229,6 +229,11 @@ end
                                        method::Symbol) where T
 
 Apply flux boundary conditions to a single velocity component (toroidal or poloidal).
+
+# Methods
+- `:direct` - Enforces ∂T/∂r ≈ 0 (may be incorrect for stress-free)
+- `:tau` - Tau method for ∂T/∂r = 0
+- `:physical_stress` - Enforces ∂T/∂r = T/r (correct for stress-free)
 """
 function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
                                            domain::RadialDomain,
@@ -257,10 +262,13 @@ function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
                 elseif method == :direct
                     apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
                                                    apply_inner, apply_outer, domain, r_range)
+                elseif method == :physical_stress
+                    apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
+                                                           apply_inner, apply_outer, domain, r_range)
                 else
-                    @warn "Flux BC method $method not fully implemented for velocity, using direct"
-                    apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
-                                                   apply_inner, apply_outer, domain, r_range)
+                    @warn "Flux BC method $method not implemented for velocity, using :physical_stress"
+                    apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
+                                                           apply_inner, apply_outer, domain, r_range)
                 end
             end
         end
@@ -378,6 +386,9 @@ end
 
 Apply flux boundary conditions using direct substitution.
 Sets the boundary point derivative to zero by adjusting the boundary value.
+
+NOTE: This method enforces ∂T/∂r ≈ 0, which may be INCORRECT for stress-free boundaries.
+The correct condition may be ∂T/∂r = T/r. Use :physical_stress method for proper stress-free.
 """
 function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
                                         apply_inner, apply_outer,
@@ -419,6 +430,84 @@ function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
         profile_real[nr] = profile_real[nr-1]
         if any(x -> abs(x) > 1e-12, profile_imag)
             profile_imag[nr] = profile_imag[nr-1]
+        end
+    end
+
+    # Store back
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(spec_real, 3)
+            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+        end
+    end
+end
+
+"""
+    apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
+                                            apply_inner, apply_outer, domain, r_range)
+
+Apply flux boundary conditions for proper stress-free boundaries.
+Enforces ∂T/∂r = T/r at boundaries, which corresponds to zero tangential stress.
+
+# Physical Justification
+For stress-free boundaries: τ = ∂v_tan/∂r - v_tan/r = 0
+In spectral form with v_tan = T(r) × f(θ,φ):
+  ∂(T×f)/∂r - (T×f)/r = 0
+  (∂T/∂r - T/r) × f = 0
+  => ∂T/∂r = T/r
+
+This is the CORRECT condition for stress-free boundaries in spherical coordinates.
+"""
+function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
+                                                 apply_inner, apply_outer,
+                                                 domain, r_range)
+    T = eltype(spec_real)
+    nr = domain.N
+    r = domain.r[:, 4]
+
+    # Extract radial profile
+    profile_real = zeros(T, nr)
+    profile_imag = zeros(T, nr)
+
+    for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r <= size(spec_real, 3)
+            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+        end
+    end
+
+    # MPI gather
+    comm = BoundaryConditions.get_comm()
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        MPI.Allreduce!(profile_real, MPI.SUM, comm)
+        MPI.Allreduce!(profile_imag, MPI.SUM, comm)
+    end
+
+    # Physical stress method: enforce ∂T/∂r = T/r
+    # Using finite difference: (T[2] - T[1])/Δr = T[1]/r[1]
+    # Solve for T[1]: T[1] = T[2] / (1 + Δr/r[1])
+
+    if apply_inner && 1 in r_range
+        Δr = r[2] - r[1]
+        scaling_factor = 1.0 / (1.0 + Δr / r[1])
+        profile_real[1] = profile_real[2] * scaling_factor
+
+        if any(x -> abs(x) > 1e-12, profile_imag)
+            profile_imag[1] = profile_imag[2] * scaling_factor
+        end
+    end
+
+    if apply_outer && nr in r_range
+        Δr = r[nr] - r[nr-1]
+        # For outer boundary: (T[N] - T[N-1])/Δr = T[N]/r[N]
+        # Solve for T[N]: T[N] = T[N-1] / (1 - Δr/r[N])
+        scaling_factor = 1.0 / (1.0 - Δr / r[nr])
+        profile_real[nr] = profile_real[nr-1] * scaling_factor
+
+        if any(x -> abs(x) > 1e-12, profile_imag)
+            profile_imag[nr] = profile_imag[nr-1] * scaling_factor
         end
     end
 
