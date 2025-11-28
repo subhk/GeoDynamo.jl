@@ -667,19 +667,19 @@ Advanced asynchronous communication manager for overlapping computation and comm
 """
 mutable struct AsyncCommManager{T}
     # Non-blocking communication
-    send_requests::Vector{Request}
-    recv_requests::Vector{Request}
+    send_requests::Vector{MPI.Request}
+    recv_requests::Vector{MPI.Request}
     send_buffers::Vector{Vector{T}}
     recv_buffers::Vector{Vector{T}}
-    
+
     # Communication pools for reuse
-    request_pool::Vector{Request}
+    request_pool::Vector{MPI.Request}
     buffer_pool::Vector{Vector{T}}
-    
+
     # Asynchronous scheduling
     comm_queue::Vector{Function}
     compute_queue::Vector{Function}
-    
+
     # Performance tracking
     overlap_efficiency::Ref{Float64}
     comm_time::Ref{Float64}
@@ -688,11 +688,11 @@ end
 
 function create_async_comm_manager(::Type{T}, max_concurrent::Int=16) where T
     return AsyncCommManager{T}(
-        Vector{Request}(undef, max_concurrent),
-        Vector{Request}(undef, max_concurrent),
+        Vector{MPI.Request}(undef, max_concurrent),
+        Vector{MPI.Request}(undef, max_concurrent),
         [Vector{T}() for _ in 1:max_concurrent],
         [Vector{T}() for _ in 1:max_concurrent],
-        Vector{Request}(),
+        Vector{MPI.Request}(),
         Vector{Vector{T}}(),
         Vector{Function}(),
         Vector{Function}(),
