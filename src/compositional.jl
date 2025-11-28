@@ -496,8 +496,8 @@ function get_composition_statistics(comp_field::SHTnsCompositionField{T},
     local_sum = sum(comp_data.^2)
     local_count = length(comp_data)
     
-    global_sum = Allreduce(local_sum, SUM, get_comm())
-    global_count = Allreduce(local_count, SUM, get_comm())
+    global_sum = Allreduce(local_sum, MPI.SUM, get_comm())
+    global_count = Allreduce(local_count, MPI.SUM, get_comm())
     
     rms_comp = sqrt(global_sum / global_count)
     

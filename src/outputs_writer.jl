@@ -1275,7 +1275,7 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
         # For independent writes, optionally verify all ranks completed
         if should_output && config.include_metadata
             write_success = 1  # 1 = success
-            all_success = Allreduce(write_success, SUM, comm)
+            all_success = Allreduce(write_success, MPI.SUM, comm)
             expected_success = Comm_size(comm)
 
             if rank == 0
