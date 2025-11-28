@@ -67,7 +67,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
 
     # Use enhanced pencil topology from config if not provided
     if pencils === nothing
-        pencils = create_pencil_topology(config, optimize=true)
+        pencils = config.pencils
     end
     pencil_θ, pencil_φ, pencil_r = pencils.θ, pencils.φ, pencils.r
     

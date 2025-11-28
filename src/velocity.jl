@@ -832,9 +832,9 @@ end
 function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig, 
                                       oc_domain::RadialDomain, 
                                       pencils=nothing, pencil_spec=nothing) where T
-    # Use enhanced pencil topology from config if not provided
+    # Use pencils from config by default (they already encode the correct nr)
     if pencils === nothing
-        pencils = create_pencil_topology(config, optimize=true)
+        pencils = config.pencils
     end
     pencil_θ, pencil_φ, pencil_r = pencils.θ, pencils.φ, pencils.r
     
