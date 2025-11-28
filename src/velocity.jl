@@ -419,14 +419,14 @@ function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
     # ∂u/∂r ≈ (u[2] - u[1])/Δr = 0  =>  u[1] = u[2]
     # ∂u/∂r ≈ (u[N] - u[N-1])/Δr = 0  =>  u[N] = u[N-1]
 
-    if apply_inner && 1 in r_range
+    if apply_inner  # apply_inner already checks 1 in r_range
         profile_real[1] = profile_real[2]
         if any(x -> abs(x) > 1e-12, profile_imag)
             profile_imag[1] = profile_imag[2]
         end
     end
 
-    if apply_outer && nr in r_range
+    if apply_outer  # apply_outer already checks nr in r_range
         profile_real[nr] = profile_real[nr-1]
         if any(x -> abs(x) > 1e-12, profile_imag)
             profile_imag[nr] = profile_imag[nr-1]
@@ -489,7 +489,7 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
     # Using finite difference: (T[2] - T[1])/Δr = T[1]/r[1]
     # Solve for T[1]: T[1] = T[2] / (1 + Δr/r[1])
 
-    if apply_inner && 1 in r_range
+    if apply_inner  # apply_inner already checks 1 in r_range
         Δr = r[2] - r[1]
         scaling_factor = 1.0 / (1.0 + Δr / r[1])
         profile_real[1] = profile_real[2] * scaling_factor
@@ -499,7 +499,7 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
         end
     end
 
-    if apply_outer && nr in r_range
+    if apply_outer  # apply_outer already checks nr in r_range
         Δr = r[nr] - r[nr-1]
         # For outer boundary: (T[N] - T[N-1])/Δr = T[N]/r[N]
         # Solve for T[N]: T[N] = T[N-1] / (1 - Δr/r[N])
