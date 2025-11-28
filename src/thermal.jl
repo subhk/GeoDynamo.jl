@@ -512,7 +512,7 @@ function compute_thermal_energy(temp_field::SHTnsTemperatureField{T}) where T
     end
     
     # Global sum across all processes
-    return 0.5 * Allreduce(local_energy, SUM, get_comm())
+    return 0.5 * Allreduce(local_energy, MPI.SUM, get_comm())
 end
 
 
@@ -550,7 +550,7 @@ function compute_surface_flux(field::SHTnsPhysicalField{T}, r_level::Int,
     end
     
     # Global reduction
-    return Allreduce(local_flux, SUM, get_comm())
+    return Allreduce(local_flux, MPI.SUM, get_comm())
 end
 
 
@@ -574,8 +574,8 @@ function get_temperature_statistics(temp_field::SHTnsTemperatureField{T},
     local_sum = sum(temp_data.^2)
     local_count = length(temp_data)
     
-    global_sum = Allreduce(local_sum, SUM, get_comm())
-    global_count = Allreduce(local_count, SUM, get_comm())
+    global_sum = Allreduce(local_sum, MPI.SUM, get_comm())
+    global_count = Allreduce(local_count, MPI.SUM, get_comm())
     
     rms_temp = sqrt(global_sum / global_count)
     

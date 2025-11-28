@@ -442,7 +442,7 @@ function compute_composition_rms(comp_field::SHTnsCompositionField{T}, oc_domain
     
     # Global reduction
     comm = get_comm()
-    global_sum = Allreduce(local_sum, SUM, comm)
+    global_sum = Allreduce(local_sum, MPI.SUM, comm)
     
     return sqrt(global_sum / (oc_domain.N * comp_field.config.nlm))
 end
@@ -470,7 +470,7 @@ function compute_composition_energy(comp_field::SHTnsCompositionField{T}, oc_dom
     
     # Global reduction
     comm = get_comm()
-    global_energy = Allreduce(local_energy, SUM, comm)
+    global_energy = Allreduce(local_energy, MPI.SUM, comm)
     
     return global_energy / (comp_field.config.nlat * comp_field.config.nlon * oc_domain.N)
 end

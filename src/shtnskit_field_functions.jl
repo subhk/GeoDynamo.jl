@@ -661,7 +661,7 @@ function extract_physical_slice_phi_local!(slice_buffer::Matrix{T}, phys_data, r
     end
 
     # Gather complete grid across all MPI processes
-    Allreduce!(slice_buffer, SUM, get_comm())
+    Allreduce!(slice_buffer, MPI.SUM, get_comm())
 
     return slice_buffer
 end
@@ -703,7 +703,7 @@ function extract_physical_slice_generic!(slice_buffer::Matrix{T}, phys_data, r_l
     end
 
     # Gather complete grid across all MPI processes
-    Allreduce!(slice_buffer, SUM, get_comm())
+    Allreduce!(slice_buffer, MPI.SUM, get_comm())
 
     return slice_buffer
 end
@@ -744,7 +744,7 @@ function extract_vector_component_generic!(component_buffer::Matrix{T}, v_data, 
     end
 
     # Gather complete grid across all MPI processes
-    Allreduce!(component_buffer, SUM, get_comm())
+    Allreduce!(component_buffer, MPI.SUM, get_comm())
 
     return component_buffer
 end

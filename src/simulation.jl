@@ -956,7 +956,7 @@ function compute_cfl_timestep!(state::SimulationState{T}) where T
     
     # Global maximum across all processes
     comm = get_comm()
-    global_max_vel = Allreduce(max_velocity, MAX, comm)
+    global_max_vel = Allreduce(max_velocity, MPI.MAX, comm)
     
     # Compute grid spacing (approximate)
     dr_min = minimum(diff(state.oc_domain.r[:, 4]))
