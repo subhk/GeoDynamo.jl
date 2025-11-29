@@ -956,7 +956,7 @@ function compute_cfl_timestep!(state::SimulationState{T}) where T
     
     # Global maximum across all processes
     comm = get_comm()
-    global_max_vel = Allreduce(max_velocity, MPI.MAX, comm)
+    global_max_vel = MPI.Allreduce(max_velocity, MPI.MAX, comm)
     
     # Compute grid spacing (approximate)
     dr_min = minimum(diff(state.oc_domain.r[:, 4]))
@@ -1132,8 +1132,8 @@ Compute L2 energy of a 3D field: E = ½ ∫ |f|² dV ≈ ½ Σ |f_ijk|²
 function compute_field_energy(field_data::Array{T,3}) where T
     local_energy = 0.5 * sum(abs2, field_data)
     # Sum across all MPI ranks
-    if Initialized()
-        return Allreduce(local_energy, +, MPI.COMM_WORLD)
+    if MPI.Initialized()
+        return MPI.Allreduce(local_energy, +, MPI.COMM_WORLD)
     else
         return local_energy
     end
@@ -1147,8 +1147,8 @@ Compute kinetic/magnetic energy: E = ½ ∫ |v|² dV = ½ ∫ (v_r² + v_θ² + 
 function compute_vector_energy(v_r::Array{T,3}, v_theta::Array{T,3}, v_phi::Array{T,3}) where T
     local_energy = 0.5 * (sum(abs2, v_r) + sum(abs2, v_theta) + sum(abs2, v_phi))
     # Sum across all MPI ranks
-    if Initialized()
-        return Allreduce(local_energy, +, MPI.COMM_WORLD)
+    if MPI.Initialized()
+        return MPI.Allreduce(local_energy, +, MPI.COMM_WORLD)
     else
         return local_energy
     end
@@ -1318,9 +1318,9 @@ function compute_divergence_spectral(tor_spec::SHTnsSpectralField{T},
     local_linf = maximum(vcat(abs.(tor_real[:]), abs.(tor_imag[:]),
                                abs.(pol_real[:]), abs.(pol_imag[:])))
 
-    if Initialized()
-        l2_norm = Allreduce(local_l2, +, MPI.COMM_WORLD)
-        linf_norm = Allreduce(local_linf, max, MPI.COMM_WORLD)
+    if MPI.Initialized()
+        l2_norm = MPI.Allreduce(local_l2, +, MPI.COMM_WORLD)
+        linf_norm = MPI.Allreduce(local_linf, max, MPI.COMM_WORLD)
     else
         l2_norm = local_l2
         linf_norm = local_linf

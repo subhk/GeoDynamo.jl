@@ -442,7 +442,7 @@ function compute_composition_rms(comp_field::SHTnsCompositionField{T}, oc_domain
     
     # Global reduction
     comm = get_comm()
-    global_sum = Allreduce(local_sum, MPI.SUM, comm)
+    global_sum = MPI.Allreduce(local_sum, MPI.SUM, comm)
     
     return sqrt(global_sum / (oc_domain.N * comp_field.config.nlm))
 end
@@ -470,7 +470,7 @@ function compute_composition_energy(comp_field::SHTnsCompositionField{T}, oc_dom
     
     # Global reduction
     comm = get_comm()
-    global_energy = Allreduce(local_energy, MPI.SUM, comm)
+    global_energy = MPI.Allreduce(local_energy, MPI.SUM, comm)
     
     return global_energy / (comp_field.config.nlat * comp_field.config.nlon * oc_domain.N)
 end
@@ -488,16 +488,16 @@ function get_composition_statistics(comp_field::SHTnsCompositionField{T},
     comp_data = parent(comp_field.composition.data)
     local_min = minimum(comp_data)
     local_max = maximum(comp_data)
-    
-    global_min = Allreduce(local_min, MPI.MIN, get_comm())
-    global_max = Allreduce(local_max, MPI.MAX, get_comm())
-    
+
+    global_min = MPI.Allreduce(local_min, MPI.MIN, get_comm())
+    global_max = MPI.Allreduce(local_max, MPI.MAX, get_comm())
+
     # RMS composition
     local_sum = sum(comp_data.^2)
     local_count = length(comp_data)
-    
-    global_sum = Allreduce(local_sum, MPI.SUM, get_comm())
-    global_count = Allreduce(local_count, MPI.SUM, get_comm())
+
+    global_sum = MPI.Allreduce(local_sum, MPI.SUM, get_comm())
+    global_count = MPI.Allreduce(local_count, MPI.SUM, get_comm())
     
     rms_comp = sqrt(global_sum / global_count)
     

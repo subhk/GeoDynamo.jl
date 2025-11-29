@@ -391,10 +391,10 @@ end
 # NetCDF File Operations
 # ================================================================================
 
-function create_netcdf_file(filename::String, config::OutputConfig, 
+function create_netcdf_file(filename::String, config::OutputConfig,
                             field_info::FieldInfo, metadata::Dict{String,Any})
     rank = MPI.Comm_rank(comm)
-    nprocs = Comm_size(comm)
+    nprocs = MPI.Comm_size(comm)
     
     if config.overwrite_files && isfile(filename)
         rm(filename)
@@ -1275,8 +1275,8 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
         # For independent writes, optionally verify all ranks completed
         if should_output && config.include_metadata
             write_success = 1  # 1 = success
-            all_success = Allreduce(write_success, MPI.SUM, comm)
-            expected_success = Comm_size(comm)
+            all_success = MPI.Allreduce(write_success, MPI.SUM, comm)
+            expected_success = MPI.Comm_size(comm)
 
             if rank == 0
                 if all_success == expected_success

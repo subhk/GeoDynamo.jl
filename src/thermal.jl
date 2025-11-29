@@ -448,7 +448,7 @@ function validate_flux_bc(temp_field, domain)
     end
     
     # Global maximum error
-    global_max_error = Allreduce(max_error, MPI.MAX, get_comm())
+    global_max_error = MPI.Allreduce(max_error, MPI.MAX, get_comm())
     
     if get_rank() == 0
         println("Maximum flux BC error: $(global_max_error)")
@@ -512,7 +512,7 @@ function compute_thermal_energy(temp_field::SHTnsTemperatureField{T}) where T
     end
     
     # Global sum across all processes
-    return 0.5 * Allreduce(local_energy, MPI.SUM, get_comm())
+    return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
 end
 
 
@@ -550,7 +550,7 @@ function compute_surface_flux(field::SHTnsPhysicalField{T}, r_level::Int,
     end
     
     # Global reduction
-    return Allreduce(local_flux, MPI.SUM, get_comm())
+    return MPI.Allreduce(local_flux, MPI.SUM, get_comm())
 end
 
 
@@ -566,16 +566,16 @@ function get_temperature_statistics(temp_field::SHTnsTemperatureField{T},
     temp_data = parent(temp_field.temperature.data)
     local_min = minimum(temp_data)
     local_max = maximum(temp_data)
-    
-    global_min = Allreduce(local_min, MPI.MIN, get_comm())
-    global_max = Allreduce(local_max, MPI.MAX, get_comm())
-    
+
+    global_min = MPI.Allreduce(local_min, MPI.MIN, get_comm())
+    global_max = MPI.Allreduce(local_max, MPI.MAX, get_comm())
+
     # RMS temperature
     local_sum = sum(temp_data.^2)
     local_count = length(temp_data)
-    
-    global_sum = Allreduce(local_sum, MPI.SUM, get_comm())
-    global_count = Allreduce(local_count, MPI.SUM, get_comm())
+
+    global_sum = MPI.Allreduce(local_sum, MPI.SUM, get_comm())
+    global_count = MPI.Allreduce(local_count, MPI.SUM, get_comm())
     
     rms_temp = sqrt(global_sum / global_count)
     

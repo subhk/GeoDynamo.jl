@@ -1480,7 +1480,7 @@ function compute_kinetic_energy(fields::SHTnsVelocityFields{T}, oc_domain::Radia
     end
     
     # Global sum
-    return 0.5 * Allreduce(local_energy, MPI.SUM, get_comm())
+    return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
 end
 
 
@@ -1501,12 +1501,12 @@ function compute_reynolds_stress(fields::SHTnsVelocityFields{T}) where T
     R_θφ = mean(vel_θ .* vel_φ)
     
     # Global averages
-    R_rr = Allreduce(R_rr, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_θθ = Allreduce(R_θθ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_φφ = Allreduce(R_φφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_rθ = Allreduce(R_rθ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_rφ = Allreduce(R_rφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_θφ = Allreduce(R_θφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_rr = MPI.Allreduce(R_rr, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_θθ = MPI.Allreduce(R_θθ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_φφ = MPI.Allreduce(R_φφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_rθ = MPI.Allreduce(R_rθ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_rφ = MPI.Allreduce(R_rφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    R_θφ = MPI.Allreduce(R_θφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
     
     return (R_rr, R_θθ, R_φφ, R_rθ, R_rφ, R_θφ)
 end
