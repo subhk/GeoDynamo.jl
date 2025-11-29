@@ -219,15 +219,15 @@ end
 function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T}, 
                                         vel_fields, oc_domain::RadialDomain; 
                                         geometry::Symbol = get_parameters().geometry) where T
-    t_start = ENABLE_TIMING[] ? Wtime() : 0.0
+    t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Zero work arrays
     zero_scalar_work_arrays!(comp_field)
     
     # Step 1: Transform composition to physical space for advection
-    t_transform = Wtime()
+    t_transform = MPI.Wtime()
     shtnskit_spectral_to_physical!(comp_field.spectral, comp_field.composition)
-    comp_field.transform_time[] += Wtime() - t_transform
+    comp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 2: Compute gradient in physical space if needed for diffusion
     compute_composition_gradient_local!(comp_field, oc_domain)
@@ -241,20 +241,20 @@ function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
     add_internal_sources_local!(comp_field, oc_domain)
     
     # Step 5: Transform advection + sources back to spectral space
-    t_transform = Wtime()
+    t_transform = MPI.Wtime()
     if geometry === :ball
         ball_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
     else
         shtnskit_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
     end
-    comp_field.transform_time[] += Wtime() - t_transform
+    comp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 6: Apply boundary conditions in spectral space
     apply_composition_boundary_conditions!(comp_field)
     apply_composition_boundary_conditions_spectral!(comp_field, oc_domain)
     
     if ENABLE_TIMING[]
-        comp_field.computation_time[] += Wtime() - t_start
+        comp_field.computation_time[] += MPI.Wtime() - t_start
     end
 end
 

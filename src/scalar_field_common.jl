@@ -884,7 +884,7 @@ function apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
     end
     
     # MPI gather to get complete profile (needed for BC application)
-    if Comm_size(get_comm()) > 1
+    if MPI.Comm_size(get_comm()) > 1
         Allreduce!(profile_real, MPI.SUM, get_comm())
         Allreduce!(profile_imag, MPI.SUM, get_comm())
     end
@@ -1046,7 +1046,7 @@ function apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
         end
     end
     
-    if Comm_size(get_comm()) > 1
+    if MPI.Comm_size(get_comm()) > 1
         Allreduce!(profile_real, MPI.SUM, get_comm())
         Allreduce!(profile_imag, MPI.SUM, get_comm())
     end

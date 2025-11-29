@@ -47,7 +47,7 @@ function apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_id
 
     # MPI gather
     comm = BoundaryConditions.get_comm()
-    if comm !== nothing && Comm_size(comm) > 1
+    if comm !== nothing && MPI.Comm_size(comm) > 1
         Allreduce!(profile_real, MPI.SUM, comm)
         Allreduce!(profile_imag, MPI.SUM, comm)
     end
@@ -110,7 +110,7 @@ function apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_
 
     # MPI gather
     comm = BoundaryConditions.get_comm()
-    if comm !== nothing && Comm_size(comm) > 1
+    if comm !== nothing && MPI.Comm_size(comm) > 1
         Allreduce!(profile_real, MPI.SUM, comm)
         Allreduce!(profile_imag, MPI.SUM, comm)
     end
@@ -182,7 +182,7 @@ function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
 
     # MPI gather
     comm = BoundaryConditions.get_comm()
-    if comm !== nothing && Comm_size(comm) > 1
+    if comm !== nothing && MPI.Comm_size(comm) > 1
         Allreduce!(profile_real, MPI.SUM, comm)
         Allreduce!(profile_imag, MPI.SUM, comm)
     end

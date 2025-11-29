@@ -416,7 +416,7 @@ function eab2_update_krylov!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T}
     r_range  = get_local_range(u.pencil, 3)
     nr = domain.N
     comm = get_comm()
-    multi = Comm_size(comm) > 1
+    multi = MPI.Comm_size(comm) > 1
     for lm_idx in lm_range
         if lm_idx <= u.nlm
             l = config.l_values[lm_idx]
@@ -500,7 +500,7 @@ function eab2_update_krylov_cached!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralF
     r_range  = get_local_range(u.pencil, 3)
     nr = domain.N
     comm = get_comm()
-    multi = Comm_size(comm) > 1
+    multi = MPI.Comm_size(comm) > 1
     for lm_idx in lm_range
         if lm_idx <= u.nlm
             l = config.l_values[lm_idx]
@@ -570,7 +570,7 @@ function eab2_update!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
     r_range  = get_local_range(u.pencil, 3)
     nr_full = size(etd.E[1], 1)
     comm = get_comm()
-    multi = Comm_size(comm) > 1
+    multi = MPI.Comm_size(comm) > 1
     linear_r_work = zeros(T, nr_full)
     linear_i_work = similar(linear_r_work)
     phi_tmp = similar(linear_r_work)
@@ -767,7 +767,7 @@ function build_rhs_cnab2!(rhs::SHTnsSpectralField{T}, un::SHTnsSpectralField{T},
     lin_i = add_linear ? zeros(T, nr_global) : T[]
 
     comm = get_comm()
-    multi = Comm_size(comm) > 1
+    multi = MPI.Comm_size(comm) > 1
 
     @inbounds for lm_idx in lm_range
         if lm_idx <= un.nlm
@@ -893,7 +893,7 @@ Ensure all pending PencilFFTs operations are completed and data is consistent ac
 """
 function synchronize_pencil_transforms!(field::SHTnsSpectralField{T}) where T
     # Synchronize data across pencil decomposition
-    Barrier(get_comm())
+    MPI.Barrier(get_comm())
     return field
 end
 
@@ -923,8 +923,8 @@ function validate_mpi_consistency!(field::SHTnsSpectralField{T}) where T
         end
         
         # Gather samples from all processes
-        all_samples_real = Allgather(local_samples_real, comm)
-        all_samples_imag = Allgather(local_samples_imag, comm)
+        all_samples_real = MPI.Allgather(local_samples_real, comm)
+        all_samples_imag = MPI.Allgather(local_samples_imag, comm)
         
         # Check consistency on rank 0
         if rank == 0
@@ -1105,7 +1105,7 @@ function create_erk2_cache(::Type{T}, config::SHTnsKitConfig, domain::RadialDoma
     end
     
     # Ensure MPI consistency
-    Barrier(get_comm())
+    MPI.Barrier(get_comm())
     
     return ERK2Cache{T}(dt, diffusivity, nr, lvals, E_half, E_full, phi1_half, phi1_full,
                        phi2_full, use_krylov, m, tol, true)
@@ -1591,7 +1591,7 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField
     half_dt = T(dt) / T(2)
 
     comm = get_comm()
-    multi = Comm_size(comm) > 1
+    multi = MPI.Comm_size(comm) > 1
 
     linear_real = buffers.linear_real
     linear_imag = buffers.linear_imag
@@ -1716,7 +1716,7 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralFiel
     result = similar(tmp_linear)
 
     comm = get_comm()
-    multi = Comm_size(comm) > 1
+    multi = MPI.Comm_size(comm) > 1
 
     for lm_idx in lm_range
         if lm_idx <= u.nlm
@@ -1829,7 +1829,7 @@ function erk2_stage_residual_stats(buffers::ERK2FieldBuffers{T}) where T
         local_sum += abs2(diff)
     end
 
-    if Initialized() && Comm_size(get_comm()) > 1
+    if MPI.Initialized() && MPI.Comm_size(get_comm()) > 1
         comm = get_comm()
         global_max = MPI.allreduce(local_max, MPI.MAX, comm)
         global_sum = MPI.allreduce(local_sum, MPI.SUM, comm)

@@ -221,20 +221,20 @@ end
 function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
                                         vel_fields, oc_domain::RadialDomain; 
                                         geometry::Symbol = get_parameters().geometry) where T
-    t_start = ENABLE_TIMING[] ? Wtime() : 0.0
+    t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
     # Zero work arrays
     zero_scalar_work_arrays!(temp_field)
     
     # Step 1: Compute ALL gradients in spectral space (NO COMMUNICATION!)
-    t_spectral = Wtime()
+    t_spectral = MPI.Wtime()
     compute_all_gradients_spectral!(temp_field, oc_domain)
-    temp_field.spectral_time[] += Wtime() - t_spectral
+    temp_field.spectral_time[] += MPI.Wtime() - t_spectral
     
     # Step 2: Single batched transform of temperature and gradients to physical
-    t_transform = Wtime()
+    t_transform = MPI.Wtime()
     transform_field_and_gradients_to_physical!(temp_field)
-    temp_field.transform_time[] += Wtime() - t_transform
+    temp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 3: Compute advection term -u·∇T in physical space (local operation)
     if vel_fields !== nothing
@@ -245,20 +245,20 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     add_internal_sources_local!(temp_field, oc_domain)
     
     # Step 5: Transform advection + sources back to spectral space
-    t_transform = Wtime()
+    t_transform = MPI.Wtime()
     if geometry === :ball
         ball_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
     else
         shtnskit_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
     end
-    temp_field.transform_time[] += Wtime() - t_transform
+    temp_field.transform_time[] += MPI.Wtime() - t_transform
     
     # Step 6: Apply boundary conditions in spectral space
     apply_temperature_boundary_conditions!(temp_field)
     apply_temperature_boundary_conditions_spectral!(temp_field, oc_domain)
     
     if ENABLE_TIMING[]
-        temp_field.computation_time[] += Wtime() - t_start
+        temp_field.computation_time[] += MPI.Wtime() - t_start
     end
 end
 

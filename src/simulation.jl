@@ -115,8 +115,8 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
                                         thread_count::Int=Threads.nthreads()) where T
     
     # Initialize MPI first
-    if !Initialized()
-        Init()
+    if !MPI.Initialized()
+        MPI.Init()
     end
     
     rank = get_rank()
@@ -198,8 +198,8 @@ function initialize_simulation(::Type{T}=Float64;
                                               thread_count::Int=Threads.nthreads()) where T
     
     # Initialize MPI first
-    if !Initialized()
-        Init()
+    if !MPI.Initialized()
+        MPI.Init()
     end
     
     rank = get_rank()

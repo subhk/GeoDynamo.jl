@@ -17,7 +17,7 @@ function shtnskit_spectral_to_physical!(spec::SHTnsSpectralField{T},
     perform_synthesis_direct!(spec, phys, config)
 
     # Synchronize MPI processes
-    Barrier(get_comm())
+    MPI.Barrier(get_comm())
 end
 
 """
@@ -137,7 +137,7 @@ function shtnskit_physical_to_spectral!(phys::SHTnsPhysicalField{T},
     perform_analysis_direct!(phys, spec, config)
     
     # Synchronize MPI processes
-    Barrier(get_comm())
+    MPI.Barrier(get_comm())
 end
 
 """
@@ -343,7 +343,7 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
         end
     end
 
-    Barrier(get_comm())
+    MPI.Barrier(get_comm())
 end
 
 """
@@ -454,7 +454,7 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
         end
     end
 
-    Barrier(get_comm())
+    MPI.Barrier(get_comm())
 end
 
 # ================================================================================
@@ -881,8 +881,8 @@ Synchronize PencilArray data across MPI processes to ensure consistency.
 """
 function synchronize_pencil_data!(field::Union{SHTnsSpectralField{T}, SHTnsPhysicalField{T}}) where T
     # Synchronize the underlying PencilArray data
-    if hasmethod(Barrier, Tuple{typeof(get_comm())})
-        Barrier(get_comm())
+    if hasmethod(MPI.Barrier, Tuple{typeof(get_comm())})
+        MPI.Barrier(get_comm())
     end
     return field
 end
@@ -1002,13 +1002,13 @@ function optimize_erk2_transforms!(config::SHTnsKitConfig)
             fill!(parent(spec_test), complex(1.0, 0.0))
             
             # Test a few transforms to warm up the system
-            start_time = Wtime()
+            start_time = MPI.Wtime()
             for i in 1:3
                 # Perform synthesis (would use actual SHTnsKit functions in practice)
                 fill!(parent(phys_test), 1.0)
-                Barrier(get_comm())
+                MPI.Barrier(get_comm())
             end
-            end_time = Wtime()
+            end_time = MPI.Wtime()
             
             if rank == 0
                 avg_time = (end_time - start_time) / 3.0

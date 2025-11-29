@@ -733,7 +733,7 @@ function start_async_exchange!(manager::AsyncCommManager{T},
             # Non-blocking send
             if !isempty(send_data)
                 manager.send_buffers[req_idx] = send_data
-                manager.send_requests[req_idx] = Isend(
+                manager.send_requests[req_idx] = MPI.Isend(
                     send_data, target_rank, 42, comm)
                 req_idx += 1
             end
@@ -747,7 +747,7 @@ function start_async_exchange!(manager::AsyncCommManager{T},
             recv_size = compute_recv_size(source_rank, spec_field)
             if recv_size > 0
                 resize!(manager.recv_buffers[req_idx], recv_size)
-                manager.recv_requests[req_idx] = Irecv!(
+                manager.recv_requests[req_idx] = MPI.Irecv!(
                     manager.recv_buffers[req_idx], source_rank, 42, comm)
                 req_idx += 1
             end
