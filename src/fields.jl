@@ -1,96 +1,275 @@
 # ================================================================================
 # Variable Types with SHTnsKit Integration
 # ================================================================================
+#
+# This file defines the core data structures for representing physical fields
+# in the geodynamo simulation. Fields can be represented in either:
+# - Spectral space: Spherical harmonic coefficients f_l^m(r)
+# - Physical space: Grid point values f(θ, φ, r)
+#
+# All field types use PencilArrays for MPI-distributed storage, enabling
+# efficient parallel computation on distributed memory systems.
+#
+# FIELD REPRESENTATION OVERVIEW:
+# ------------------------------
+# Scalar fields (temperature, composition):
+#   - Spectral: SHTnsSpectralField storing (l,m) coefficients
+#   - Physical: SHTnsPhysicalField storing grid point values
+#
+# Vector fields (velocity, magnetic field):
+#   - Physical: SHTnsVectorField with (r, θ, φ) components
+#   - Spectral: SHTnsTorPolField with toroidal (T) and poloidal (P) scalars
+#     The toroidal-poloidal decomposition: v = ∇×(T r̂) + ∇×∇×(P r̂)
+#     ensures ∇·v = 0 by construction (useful for incompressible flow)
+#
+# ================================================================================
 
 import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
 
-# Field types that work with PencilArrays using SHTnsKit
+# ================================================================================
+# Spectral Field Type
+# ================================================================================
+
+"""
+    SHTnsSpectralField{T}
+
+A scalar field represented in spectral space as spherical harmonic coefficients.
+
+# Storage Layout
+Coefficients are stored as separate real and imaginary parts in 3D arrays:
+- Dimension 1: Combined (l,m) spectral index (1 to nlm)
+- Dimension 2: Dummy dimension (size 1) for PencilArrays compatibility
+- Dimension 3: Radial level index
+
+# Boundary Conditions
+Each (l,m) mode can have independent boundary conditions at the inner
+and outer radial boundaries. Common types:
+- DIRICHLET: Specified value at boundary
+- NEUMANN: Specified derivative at boundary
+
+# Fields
+- `config`: SHTnsKit configuration (grid and transform parameters)
+- `nlm`: Total number of spectral modes
+- `data_real`, `data_imag`: Real/imaginary parts of coefficients
+- `pencil`: PencilArrays pencil defining data distribution
+- `bc_type_inner/outer`: Boundary condition type for each mode
+- `boundary_values`: Boundary values [2, nlm] for inner/outer
+"""
 mutable struct SHTnsSpectralField{T<:Number}
     config::AbstractSHTnsConfig
     nlm::Int
-    data_real::PencilArray{T,3}
-    data_imag::PencilArray{T,3}
-    pencil::Pencil{3}  # Store pencil for local range info
-    bc_type_inner::Vector{Int}
-    bc_type_outer::Vector{Int}
-    boundary_values::Matrix{T}          # [2, nlm] inner/outer boundary spectral values
+    data_real::PencilArray{T,3}   # Real part of f_l^m(r)
+    data_imag::PencilArray{T,3}   # Imaginary part of f_l^m(r)
+    pencil::Pencil{3}             # Data distribution specification
+    bc_type_inner::Vector{Int}    # BC type at inner boundary for each mode
+    bc_type_outer::Vector{Int}    # BC type at outer boundary for each mode
+    boundary_values::Matrix{T}    # [2, nlm] boundary values (row 1=inner, row 2=outer)
 end
 
-# Physical field on SHTnsKit grid
+# ================================================================================
+# Physical Field Type
+# ================================================================================
+
+"""
+    SHTnsPhysicalField{T}
+
+A scalar field represented on the physical (θ, φ, r) grid.
+
+# Storage Layout
+Field values stored in a 3D array:
+- Dimension 1: Latitude index (1 to nlat), Gauss-Legendre points
+- Dimension 2: Longitude index (1 to nlon), uniform spacing
+- Dimension 3: Radial level index
+
+# Pencil Orientation
+The `pencil` field specifies how data is distributed across MPI processes.
+Different pencil orientations are optimal for different operations:
+- phi pencil: Optimal for FFTs (all longitudes local)
+- theta pencil: Optimal for Legendre transforms (all latitudes local)
+- r pencil: Optimal for radial operations (all radii local)
+"""
 struct SHTnsPhysicalField{T<:Number}
     config::AbstractSHTnsConfig
-    nlat::Int
-    nlon::Int
-    data::PencilArray{T,3}  # Single array, transpose as needed
-    pencil::Pencil{3}       # Current pencil orientation
+    nlat::Int                     # Number of latitude points
+    nlon::Int                     # Number of longitude points
+    data::PencilArray{T,3}        # Field values f(θ, φ, r)
+    pencil::Pencil{3}             # Current data distribution
 end
 
+# ================================================================================
+# Vector Field Types
+# ================================================================================
 
-# Vector field with SHTns
+"""
+    SHTnsVectorField{T}
+
+A vector field represented by its three spherical components in physical space.
+
+Components:
+- `r_component`: Radial component v_r(θ, φ, r)
+- `θ_component`: Latitudinal component v_θ(θ, φ, r)
+- `φ_component`: Longitudinal component v_φ(θ, φ, r)
+
+Each component is a SHTnsPhysicalField, potentially with different pencil
+orientations for optimal computation of different operations.
+"""
 struct SHTnsVectorField{T<:Number}
     r_component::SHTnsPhysicalField{T}
     θ_component::SHTnsPhysicalField{T}
     φ_component::SHTnsPhysicalField{T}
 end
 
-# Toroidal-Poloidal decomposition with SHTns
+"""
+    SHTnsTorPolField{T}
+
+Vector field in toroidal-poloidal spectral representation.
+
+# The Toroidal-Poloidal Decomposition
+Any solenoidal (divergence-free) vector field can be written as:
+    v = ∇ × (T r̂) + ∇ × ∇ × (P r̂)
+
+where T and P are scalar functions called the toroidal and poloidal potentials.
+
+# Why This Representation?
+1. Automatically satisfies ∇·v = 0 (mass conservation for incompressible flow)
+2. Decouples certain physical processes in the equations
+3. Reduces storage: 2 scalars instead of 3 vector components
+4. Natural for spherical geometry and spectral methods
+
+# Fields
+- `toroidal`: Toroidal potential T(l,m,r) in spectral space
+- `poloidal`: Poloidal potential P(l,m,r) in spectral space
+"""
 struct SHTnsTorPolField{T<:Number}
     toroidal::SHTnsSpectralField{T}
     poloidal::SHTnsSpectralField{T}
 end
 
-# Radial domain (unchanged)
+# ================================================================================
+# Radial Domain
+# ================================================================================
+
+"""
+    RadialDomain
+
+Specification of the radial discretization for the spherical shell.
+
+# Radial Grid
+The simulation domain is a spherical shell between inner radius r_i (e.g., inner
+core boundary) and outer radius r_o (e.g., core-mantle boundary). The radial
+direction is discretized using Chebyshev collocation for spectral accuracy.
+
+# Fields
+- `N`: Number of radial points
+- `local_range`: Indices of radial points local to this MPI process
+- `r`: Radial coordinate values [1, N]
+- `dr_matrices`: Radial derivative matrices (1st, 2nd order, etc.)
+- `radial_laplacian`: Matrix for radial part of Laplacian
+- `integration_weights`: Quadrature weights for radial integration
+"""
 struct RadialDomain
-    N::Int
-    local_range::UnitRange{Int}
-    r::Matrix{Float64}
-    dr_matrices::Vector{Matrix{Float64}}
-    radial_laplacian::Matrix{Float64}
-    integration_weights::Vector{Float64}
+    N::Int                                  # Number of radial points
+    local_range::UnitRange{Int}             # Local radial indices for this process
+    r::Matrix{Float64}                      # Radial coordinates [1, N]
+    dr_matrices::Vector{Matrix{Float64}}    # Derivative matrices
+    radial_laplacian::Matrix{Float64}       # Radial Laplacian operator
+    integration_weights::Vector{Float64}    # Integration quadrature weights
 end
 
-# Constructor functions compatible with PencilArrays using SHTnsKit
-function create_shtns_spectral_field(::Type{T}, config::AbstractSHTnsConfig, 
+# ================================================================================
+# Field Constructor Functions
+# ================================================================================
+
+"""
+    create_shtns_spectral_field(T, config, oc_domain, pencil_spec) -> SHTnsSpectralField{T}
+
+Create a new spectral field initialized to zero with default Dirichlet BCs.
+
+# Arguments
+- `T`: Element type (typically Float64)
+- `config`: SHTnsKit configuration providing nlm and other parameters
+- `oc_domain`: RadialDomain specifying the radial discretization
+- `pencil_spec`: PencilArrays Pencil defining the data distribution
+
+# Returns
+A new SHTnsSpectralField with:
+- All spectral coefficients initialized to zero
+- Dirichlet boundary conditions on all modes
+- Zero boundary values
+"""
+function create_shtns_spectral_field(::Type{T}, config::AbstractSHTnsConfig,
                                     oc_domain::RadialDomain,
                                     pencil_spec::Pencil{3}) where T
     nlm = config.nlm
-    
-    # Create PencilArrays with the given pencil
+
+    # Allocate distributed arrays for real and imaginary parts
     data_real = PencilArray{T}(undef, pencil_spec)
     data_imag = PencilArray{T}(undef, pencil_spec)
 
-    # Initialize to zero
+    # Initialize coefficients to zero
     fill!(parent(data_real), zero(T))
     fill!(parent(data_imag), zero(T))
 
+    # Default boundary conditions: Dirichlet (specified value) on all modes
     bc_inner = fill(Int(DIRICHLET), nlm)
     bc_outer = fill(Int(DIRICHLET), nlm)
-    boundary_vals = zeros(T, 2, nlm)
+    boundary_vals = zeros(T, 2, nlm)  # Row 1: inner, Row 2: outer
 
     return SHTnsSpectralField{T}(config, nlm,
                         data_real, data_imag, pencil_spec,
                         bc_inner, bc_outer, boundary_vals)
 end
 
+"""
+    create_shtns_physical_field(T, config, oc_domain, pencil) -> SHTnsPhysicalField{T}
 
+Create a new physical space field initialized to zero.
+
+# Arguments
+- `T`: Element type (typically Float64)
+- `config`: SHTnsKit configuration providing grid dimensions
+- `oc_domain`: RadialDomain (for consistency with spectral field API)
+- `pencil`: PencilArrays Pencil defining the data distribution
+
+# Returns
+A new SHTnsPhysicalField with all grid values initialized to zero.
+"""
 function create_shtns_physical_field(::Type{T}, config::AbstractSHTnsConfig,
                                     oc_domain::RadialDomain,
                                     pencil::Pencil{3}) where T
     nlat = config.nlat
     nlon = config.nlon
-    
-    # Create a single PencilArray
+
+    # Allocate distributed array for field values
     data = PencilArray{T}(undef, pencil)
     fill!(parent(data), zero(T))
-    
+
     return SHTnsPhysicalField{T}(config, nlat, nlon, data, pencil)
 end
 
+"""
+    create_shtns_vector_field(T, config, oc_domain, pencils) -> SHTnsVectorField{T}
 
+Create a new vector field with three physical space components.
+
+# Arguments
+- `T`: Element type
+- `config`: SHTnsKit configuration
+- `oc_domain`: RadialDomain specification
+- `pencils`: Either a NamedTuple with :theta/:θ, :phi/:φ, :r keys,
+             or a tuple (pencil_θ, pencil_φ, pencil_r)
+
+# Returns
+A new SHTnsVectorField with all components initialized to zero.
+Each component uses a potentially different pencil orientation for
+optimal computation of different operations.
+"""
 function create_shtns_vector_field(::Type{T}, config::AbstractSHTnsConfig,
                                     oc_domain::RadialDomain,
                                     pencils) where T
+    # Handle both NamedTuple and plain tuple input for pencils
     if pencils isa NamedTuple
+        # Support both Unicode (θ, φ) and ASCII (theta, phi) names
         pencil_θ = hasproperty(pencils, Symbol("θ")) ? getproperty(pencils, Symbol("θ")) : getproperty(pencils, :theta)
         pencil_φ = hasproperty(pencils, Symbol("φ")) ? getproperty(pencils, Symbol("φ")) : getproperty(pencils, :phi)
         pencil_r = getproperty(pencils, :r)

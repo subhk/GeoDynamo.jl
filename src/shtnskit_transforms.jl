@@ -4,8 +4,37 @@
 #
 # This module implements spherical harmonic transforms using SHTnsKit.jl
 # with MPI parallelization across theta and phi directions using PencilArrays
-# and efficient FFTs using PencilFFTs
+# and efficient FFTs using PencilFFTs.
 #
+# ARCHITECTURE OVERVIEW:
+# ----------------------
+# The geodynamo simulation uses spherical harmonic (SH) transforms to convert
+# between physical space (θ, φ, r) and spectral space (l, m, r). This module
+# provides the infrastructure for these transforms with MPI parallelization.
+#
+# Key Components:
+# 1. SHTnsKitConfig - Configuration struct holding all transform parameters
+# 2. Pencil Decomposition - Data distribution strategy across MPI processes
+# 3. FFT Plans - Precomputed FFTW plans for efficient longitude transforms
+# 4. Transpose Plans - Plans for redistributing data between pencil orientations
+#
+# DATA LAYOUT:
+# ------------
+# Physical space: (nlat, nlon, nr) - latitude × longitude × radius
+# Spectral space: (nlm, 1, nr) - spectral modes × 1 × radius
+#   where nlm = number of (l,m) mode pairs = Σ(min(l,mmax)+1) for l=0:lmax
+#
+# PENCIL DECOMPOSITION:
+# ---------------------
+# "Pencils" are 1D decompositions where one dimension is fully local.
+# - theta pencil: θ dimension local, (φ, r) distributed
+# - phi pencil: φ dimension local, (θ, r) distributed
+# - r pencil: r dimension local, (θ, φ) distributed
+#
+# This allows efficient computation along the local dimension without
+# MPI communication, with transposes used to switch between orientations.
+#
+# ================================================================================
 
 using SHTnsKit
 using PencilArrays
@@ -14,6 +43,22 @@ using FFTW
 using LinearAlgebra
 using Base.Threads
 
+# ================================================================================
+# Utility Functions
+# ================================================================================
+
+"""
+    _shtns_make_transpose(pair)
+
+Create a PencilArrays transpose plan between two pencil configurations.
+Used internally to set up efficient data redistribution operations.
+
+# Arguments
+- `pair`: A Pair of source and destination Pencil objects (src => dest)
+
+# Returns
+- A Transposition object that can be used with `mul!` for data redistribution
+"""
 @inline function _shtns_make_transpose(pair)
     src = first(pair)
     dest = last(pair)
@@ -26,11 +71,30 @@ using Base.Threads
     return PencilArrays.Transpositions.Transposition(dest_array, src_array)
 end
 
-# Simple heuristic for number of simultaneously allocated fields (for memory estimate)
+# ================================================================================
+# Memory Estimation Helpers
+# ================================================================================
+
+"""
+    estimate_field_count() -> Int
+
+Estimate the number of field arrays typically allocated simultaneously.
+Used for memory usage estimation. Returns 6 as a reasonable default
+covering velocity (3 components), temperature, composition, and magnetic field.
+"""
 estimate_field_count() = 6
 
-# Default grid size getters that work during precompilation
-# These provide fallback values when the parameter system isn't loaded
+# ================================================================================
+# Default Grid Size Functions
+# ================================================================================
+
+"""
+    get_default_nlat() -> Int
+
+Get the default number of latitude points for the grid.
+Tries to read from the parameter system first, falls back to 64.
+Used during precompilation when parameters may not be available.
+"""
 function get_default_nlat()
     # Try to use parameter system if available, otherwise use reasonable default
     try
@@ -41,6 +105,13 @@ function get_default_nlat()
     end
 end
 
+"""
+    get_default_nlon() -> Int
+
+Get the default number of longitude points for the grid.
+Tries to read from the parameter system first, falls back to 128.
+Power of 2 is preferred for efficient FFT operations.
+"""
 function get_default_nlon()
     # Try to use parameter system if available, otherwise use reasonable default
     try
@@ -55,49 +126,116 @@ end
 # SHTnsKit Configuration Structure
 # ================================================================================
 
-# Forward declaration for fields.jl
+# Forward declaration for fields.jl - allows type hierarchy for SHT configs
 abstract type AbstractSHTnsConfig end
 
+"""
+    SHTnsKitConfig <: AbstractSHTnsConfig
+
+Main configuration structure for spherical harmonic transforms using SHTnsKit.
+This struct encapsulates all parameters needed for transforms and parallelization.
+
+# Fields
+## Core SHTnsKit Configuration
+- `sht_config`: The underlying SHTnsKit.SHTConfig object
+
+## Grid Parameters
+- `nlat::Int`: Number of latitude (theta) points (Gauss-Legendre grid)
+- `nlon::Int`: Number of longitude (phi) points (uniform grid)
+- `lmax::Int`: Maximum spherical harmonic degree
+- `mmax::Int`: Maximum spherical harmonic order (≤ lmax)
+- `nlm::Int`: Total number of (l,m) spectral mode pairs
+
+## Parallelization Infrastructure
+- `pencils::NamedTuple`: Collection of PencilArrays Pencil objects for different
+  data orientations (:theta, :phi, :r, :spec, :mixed)
+- `fft_plans::Dict{Symbol,Any}`: Precomputed FFTW plans for FFT operations
+- `transpose_plans::Dict{Symbol,Any}`: Plans for data redistribution between pencils
+
+## Auxiliary Data
+- `memory_estimate::String`: Human-readable memory usage estimate
+- `l_values::Vector{Int}`: Spherical harmonic degree for each spectral index
+- `m_values::Vector{Int}`: Spherical harmonic order for each spectral index
+- `theta_grid::Vector{Float64}`: Latitude values (Gauss-Legendre nodes)
+- `phi_grid::Vector{Float64}`: Longitude values (uniform spacing)
+- `gauss_weights::Vector{Float64}`: Gauss-Legendre quadrature weights
+
+## Internal
+- `_buffer_cache::Dict{Symbol,Any}`: Reusable work arrays to reduce allocations
+
+# Usage
+```julia
+config = create_shtnskit_config(lmax=32, mmax=32, nlat=64, nlon=128)
+```
+"""
 struct SHTnsKitConfig <: AbstractSHTnsConfig
-    # SHTnsKit configuration
+    # SHTnsKit configuration - the underlying transform engine
     sht_config::SHTnsKit.SHTConfig
 
-    # Grid parameters
-    nlat::Int
-    nlon::Int
-    lmax::Int
-    mmax::Int
-    nlm::Int
+    # Grid parameters defining the resolution
+    nlat::Int   # Number of latitude points (Gauss-Legendre)
+    nlon::Int   # Number of longitude points (equispaced)
+    lmax::Int   # Maximum spherical harmonic degree
+    mmax::Int   # Maximum spherical harmonic order
+    nlm::Int    # Total number of spectral modes
 
-    # PencilArrays decomposition for parallelization
+    # PencilArrays decomposition for MPI parallelization
+    # Contains :theta, :phi, :r, :spec, :mixed pencil configurations
     pencils::NamedTuple
 
-    # PencilFFTs plans for efficient phi-direction FFTs
+    # FFTW plans for longitude FFTs (keyed by :phi_forward, :phi_backward, etc.)
     fft_plans::Dict{Symbol, Any}
 
-    # Transpose plans for pencil reorientations
+    # Transpose plans for switching between pencil orientations
     transpose_plans::Dict{Symbol, Any}
 
-    # Memory estimate
+    # Human-readable memory estimate string (e.g., "256.5 MB")
     memory_estimate::String
 
-    # Convenience fields for compatibility with legacy code paths
+    # Arrays mapping spectral index to (l,m) values for convenience
     l_values::Vector{Int}
     m_values::Vector{Int}
-    theta_grid::Vector{Float64}
-    phi_grid::Vector{Float64}
-    gauss_weights::Vector{Float64}
 
-    # Memory-efficient buffer cache for reuse
+    # Physical grid coordinates
+    theta_grid::Vector{Float64}    # Colatitude values [0, π]
+    phi_grid::Vector{Float64}      # Longitude values [0, 2π)
+    gauss_weights::Vector{Float64} # Quadrature weights for integration
+
+    # Internal buffer cache to avoid repeated allocations
     _buffer_cache::Dict{Symbol, Any}
 end
 
 """
-    create_shtnskit_config(; lmax::Int, mmax::Int=lmax, nlat::Int=lmax+2,
-                           nlon::Int=max(2*lmax+1, 4), optimize_decomp::Bool=true) -> SHTnsKitConfig
+    create_shtnskit_config(; lmax, mmax, nlat, nlon, nr, optimize_decomp) -> SHTnsKitConfig
 
-Create SHTnsKit configuration with MPI parallelization using PencilArrays.
-This creates proper integration with ../SHTnsKit.jl, PencilArrays, and PencilFFTs.
+Create and initialize a complete SHTnsKit configuration for spherical harmonic
+transforms with MPI parallelization.
+
+# Keyword Arguments
+- `lmax::Int`: Maximum spherical harmonic degree (required)
+- `mmax::Int=lmax`: Maximum spherical harmonic order (≤ lmax)
+- `nlat::Int`: Number of latitude points. Must be ≥ lmax+1 for numerical accuracy.
+  Defaults to max(lmax+2, parameter system value)
+- `nlon::Int`: Number of longitude points. Must be ≥ 2*mmax+1 for alias-free transforms.
+  Powers of 2 are preferred for FFT efficiency.
+- `nr::Int=i_N`: Number of radial points (from parameter system)
+- `optimize_decomp::Bool=true`: Whether to optimize MPI process topology
+
+# Returns
+- `SHTnsKitConfig`: Fully initialized configuration ready for transforms
+
+# Algorithm
+1. Create base SHTnsKit configuration with Gauss-Legendre grid
+2. Set up pencil decomposition for MPI parallelization
+3. Create FFT plans for longitude transforms
+4. Create transpose plans for data redistribution
+5. Initialize grid coordinates and quadrature weights
+
+# Example
+```julia
+# Create config for lmax=63 simulation
+config = create_shtnskit_config(lmax=63, nlat=96, nlon=192)
+```
 """
 function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
                                nlat::Int=max(lmax+2, get_default_nlat()),
@@ -105,11 +243,13 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
                                nr::Int=i_N,
                                optimize_decomp::Bool=true)
 
-    # Create SHTnsKit configuration using the local ../SHTnsKit.jl
+    # Step 1: Create base SHTnsKit configuration
+    # Uses Gauss-Legendre quadrature for latitude (exact integration up to degree 2*nlat-1)
+    # and uniform grid for longitude (FFT-based)
     sht_config = SHTnsKit.create_gauss_config(lmax, nlat;
                                             mmax=mmax,
                                             nlon=nlon,
-                                            norm=:orthonormal)
+                                            norm=:orthonormal)  # Orthonormal Y_l^m normalization
 
     # Disable precomputed Legendre polynomial tables to avoid version-dependent
     # dimension mismatches between SHTnsKit's table creation and transform code.
@@ -117,43 +257,58 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
     # minimal for typical problem sizes.
     SHTnsKit.disable_plm_tables!(sht_config)
 
-    # Get MPI communicator
-    comm = get_comm()
-    nprocs = get_nprocs()
+    # Step 2: Set up MPI parallelization infrastructure
+    comm = get_comm()      # Get MPI communicator (or serial fallback)
+    nprocs = get_nprocs()  # Number of MPI processes
 
-    # Create pencil decomposition for parallel theta-phi transforms
+    # Step 3: Create pencil decomposition for distributed memory parallelism
+    # Pencils define how data is distributed across MPI processes
     pencils = create_pencil_decomposition_shtnskit(nlat, nlon, nr, sht_config, comm, optimize_decomp)
 
-    # Create PencilFFTs plans for efficient phi-direction transforms
+    # Step 4: Create FFT plans for longitude (phi) direction transforms
+    # These are precomputed FFTW plans for efficiency
     fft_plans = create_pencil_fft_plans(pencils, (nlat, nlon, nr))
 
-    # Create transpose plans between different pencil orientations
+    # Step 5: Create transpose plans for data redistribution between pencils
+    # Transposes are needed when switching which dimension is local
     transpose_plans = create_shtnskit_transpose_plans(pencils)
 
-    # Estimate memory usage
+    # Estimate memory usage for user information
     field_count = estimate_field_count()
     memory_mb = estimate_memory_usage_shtnskit(nlat, nlon, lmax, field_count, Float64)
     memory_estimate = "$(round(memory_mb, digits=1)) MB"
 
+    # Get total number of spectral modes from SHTnsKit
     nlm = sht_config.nlm
 
-    # Populate compatibility grids and index arrays
+    # Step 6: Initialize grid coordinates and quadrature weights
+    # These are used for physical space operations and integration
+
+    # Latitude grid (Gauss-Legendre nodes, colatitude in [0, π])
     theta_grid = try
         Vector{Float64}(SHTnsKit.grid_latitudes(sht_config))
     catch
+        # Fallback: uniform grid (less accurate but works)
         range(-pi/2, stop=pi/2, length=nlat) |> collect |> Vector{Float64}
     end
+
+    # Longitude grid (uniform spacing in [0, 2π))
     phi_grid = try
         Vector{Float64}(SHTnsKit.grid_longitudes(sht_config))
     catch
         range(0, stop=2pi, length=nlon+1)[1:end-1] |> collect |> Vector{Float64}
     end
+
+    # Gauss-Legendre quadrature weights for numerical integration over θ
     gauss_weights = try
         Vector{Float64}(SHTnsKit.get_gauss_weights(sht_config))
     catch
-        ones(Float64, nlat)
+        ones(Float64, nlat)  # Fallback: uniform weights
     end
-    # Construct l/m arrays matching nlm ordering
+
+    # Step 7: Build spectral index to (l,m) mapping arrays
+    # These allow quick lookup of the degree l and order m for each spectral index
+    # Ordering follows the SHTnsKit convention: m varies fastest within each l
     l_vals = Vector{Int}(undef, nlm)
     m_vals = Vector{Int}(undef, nlm)
     idx = 1
@@ -182,75 +337,148 @@ end
 """
     create_pencil_decomposition_shtnskit(nlat, nlon, nr, sht_config, comm, optimize)
 
-Create PencilArrays decomposition optimized for theta-phi parallelization.
+Create PencilArrays decomposition optimized for spherical harmonic transforms.
+
+# The Pencil Decomposition Strategy
+
+In a pencil decomposition, 3D data is distributed across MPI processes such that
+one dimension is always fully local (not split across processes). This enables
+efficient operations along that dimension without MPI communication.
+
+## Physical Space Pencils (nlat × nlon × nr)
+
+```
+theta pencil:  [θ local] × [φ distributed] × [r distributed]
+               → Best for operations along latitude (Legendre transforms)
+
+phi pencil:    [θ distributed] × [φ local] × [r distributed]
+               → Best for FFTs along longitude
+
+r pencil:      [θ distributed] × [φ distributed] × [r local]
+               → Best for radial operations (derivatives, boundary conditions)
+```
+
+## Spectral Space Pencil (nlm × 1 × nr)
+The spectral pencil stores spherical harmonic coefficients indexed by a
+combined (l,m) index. The middle dimension is 1 (dummy) for compatibility.
+
+# Arguments
+- `nlat, nlon, nr`: Grid dimensions
+- `sht_config`: SHTnsKit configuration (provides nlm)
+- `comm`: MPI communicator
+- `optimize`: Whether to optimize process topology for load balance
+
+# Returns
+NamedTuple with pencil configurations: (:theta, :θ, :phi, :φ, :r, :spec, :mixed)
 """
 function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
                                              sht_config::SHTnsKit.SHTConfig,
                                              comm, optimize::Bool=true)
     nprocs = MPI.Comm_size(comm)
 
-    # Determine optimal process topology for theta-phi parallelization
+    # Determine optimal 2D process grid for theta-phi parallelization
+    # Goal: balance load across processes while respecting grid dimensions
     if optimize && nprocs > 1
         proc_dims = optimize_process_topology_shtnskit(nprocs, nlat, nlon)
     else
-        proc_dims = (nprocs, 1)
+        proc_dims = (nprocs, 1)  # Simple 1D decomposition
     end
 
-    # Create PencilArrays topology
-    # Construct MPI-aware topology via dynamic lookup (MPITopology in recent versions)
+    # Create PencilArrays MPI topology
+    # MPITopology maps the 2D process grid to MPI ranks
     TopoCtor = getproperty(PencilArrays, Symbol("MPITopology"))
     topology = TopoCtor(comm, proc_dims)
 
-    # Physical space pencils for theta-phi parallelization
-    # Note: The tuple passed to Pencil specifies the two distributed axes.
-    #       The remaining axis (not listed) is locally contiguous.
-
+    # Create physical space pencils
+    # The tuple (i, j) in Pencil(..., (i, j)) specifies which dimensions are DISTRIBUTED
+    # The remaining dimension is LOCAL (contiguous in memory on each process)
     dims = (nlat, nlon, nr)
-    pencil_theta = Pencil(topology, dims, (2, 3))  # Theta contiguous; distributes phi and r
-    pencil_phi   = Pencil(topology, dims, (1, 3))  # Phi contiguous; distributes theta and r
-    pencil_r     = Pencil(topology, dims, (1, 2))  # Radial contiguous; distributes theta and phi
 
-    # Spectral space pencil (for (l,m) modes)
-    # Use SHTnsKit configuration's nlm
+    # Theta pencil: dimension 1 (theta) is local
+    # Dimensions 2 (phi) and 3 (r) are distributed across processes
+    # Use this when you need all theta values for a given (phi, r) point
+    pencil_theta = Pencil(topology, dims, (2, 3))
+
+    # Phi pencil: dimension 2 (phi) is local
+    # Needed for FFTs along longitude direction
+    pencil_phi = Pencil(topology, dims, (1, 3))
+
+    # R pencil: dimension 3 (r) is local
+    # Needed for radial derivatives and boundary conditions
+    pencil_r = Pencil(topology, dims, (1, 2))
+
+    # Create spectral space pencil
+    # nlm = total number of (l,m) mode pairs
     nlm = sht_config.nlm
-    spec_dims = (nlm, 1, nr)
-    pencil_spec = Pencil(topology, spec_dims, (1, 3))  # distribute spectral and radial indices
+    spec_dims = (nlm, 1, nr)  # Middle dimension is dummy (size 1)
+    pencil_spec = Pencil(topology, spec_dims, (1, 3))
+
+    # Mixed pencil for intermediate computations
     mixed_dims = (nlm, nlat, nr)
     pencil_mixed = Pencil(topology, mixed_dims, (1, 2))
 
+    # Return named tuple with both ASCII and Unicode names for convenience
     return (; theta=pencil_theta,
-            θ=pencil_theta,
+            θ=pencil_theta,      # Unicode alias
             phi=pencil_phi,
-            φ=pencil_phi,
+            φ=pencil_phi,        # Unicode alias
             r=pencil_r,
             spec=pencil_spec,
             mixed=pencil_mixed)
 end
 
 """
-    optimize_process_topology_shtnskit(nprocs, nlat, nlon)
+    optimize_process_topology_shtnskit(nprocs, nlat, nlon) -> Tuple{Int,Int}
 
-Optimize MPI process topology for theta-phi parallelization.
+Find optimal 2D MPI process grid for theta-phi parallelization.
+
+# The Optimization Problem
+Given `nprocs` MPI processes, we need to factor it as `nprocs = p_theta × p_phi`
+such that:
+1. Each process gets at least 2 grid points in each direction
+2. Load imbalance (due to non-divisibility) is minimized
+3. The decomposition is valid (exact factorization)
+
+# Algorithm
+Iterates through all valid factorizations and scores them by load imbalance.
+The load imbalance for a dimension is: |grid_size mod processes| / grid_size
+
+# Example
+For nprocs=12, nlat=64, nlon=128:
+- Possible factorizations: (1,12), (2,6), (3,4), (4,3), (6,2), (12,1)
+- (4,3) gives nlat/4=16 points/proc in θ, nlon/3≈43 points/proc in φ
+- This might be optimal if it minimizes total imbalance
+
+# Arguments
+- `nprocs`: Total number of MPI processes
+- `nlat`: Number of latitude points
+- `nlon`: Number of longitude points
+
+# Returns
+- `(p_theta, p_phi)`: Optimal process grid dimensions
 """
 function optimize_process_topology_shtnskit(nprocs::Int, nlat::Int, nlon::Int)
-    # Find factorization that balances theta and phi parallelization
+    # Start with default 1D decomposition
     best_dims = (nprocs, 1)
     best_score = Inf
 
+    # Try all valid factorizations of nprocs
     for p_theta in 1:nprocs
         if nprocs % p_theta == 0
             p_phi = nprocs ÷ p_theta
 
-            # Check if decomposition makes sense
+            # Ensure at least 2 grid points per process in each direction
+            # Fewer than 2 points causes issues with stencil operations
             if nlat ÷ p_theta < 2 || nlon ÷ p_phi < 2
                 continue
             end
 
-            # Check load balance
+            # Compute load imbalance score
+            # Lower is better: 0 means perfectly divisible
             theta_imbalance = abs(nlat % p_theta) / nlat
             phi_imbalance = abs(nlon % p_phi) / nlon
 
-            # Prefer more balanced decomposition
+            # Total score is sum of imbalances
             score = theta_imbalance + phi_imbalance
 
             if score < best_score
@@ -264,10 +492,33 @@ function optimize_process_topology_shtnskit(nprocs::Int, nlat::Int, nlon::Int)
 end
 
 """
-    create_pencil_fft_plans(pencils, dims)
+    create_pencil_fft_plans(pencils, dims) -> Dict{Symbol,Any}
 
-Create FFT plans for efficient phi-direction transforms.
-Uses FFTW plans on the underlying arrays of PencilArrays for single-dimension transforms.
+Create precomputed FFTW plans for efficient FFT operations.
+
+# Why Precomputed Plans?
+FFTW achieves best performance when FFT plans are created once and reused.
+Plan creation involves:
+1. Analyzing the input size and memory layout
+2. Choosing optimal algorithm (Cooley-Tukey, Bluestein, etc.)
+3. Possibly benchmarking different strategies
+
+# Plan Types Created
+- `:phi_forward` / `:phi_backward`: FFT/IFFT along longitude (dimension 2)
+- `:theta_forward` / `:theta_backward`: FFT/IFFT for theta pencil orientation
+
+# Technical Notes
+- Plans operate on the `parent()` array of PencilArrays (the underlying Julia array)
+- We use FFTW directly rather than PencilFFTPlan because we need single-dimension
+  transforms, not full multi-dimensional distributed FFTs
+- The plans are tied to specific array sizes and memory layouts
+
+# Arguments
+- `pencils`: NamedTuple of Pencil configurations
+- `dims`: Tuple (nlat, nlon, nr) of grid dimensions
+
+# Returns
+Dict mapping plan names to FFTW plan objects. Contains `:fallback => true` on error.
 """
 function create_pencil_fft_plans(pencils, dims::Tuple{Int,Int,Int})
     nlat, nlon, nr = dims
@@ -275,16 +526,18 @@ function create_pencil_fft_plans(pencils, dims::Tuple{Int,Int,Int})
 
     try
         # Create FFT plans for phi-direction (longitude) transforms
-        # For single-dimension FFTs along a specific axis, we use FFTW directly
-        # on the parent array since PencilFFTPlan is designed for multi-dimensional transforms
+        # These are the most commonly used for spherical harmonic transforms
         if haskey(pencils, :phi)
+            # Create a sample array matching the local dimensions on this process
             sample_array = PencilArray{ComplexF64}(undef, pencils.phi)
-            # Create FFTW plans for dimension 2 (phi direction) on the underlying array
+
+            # Plan FFT along dimension 2 (the phi/longitude direction)
+            # parent() extracts the underlying Julia array from the PencilArray
             fft_plans[:phi_forward] = FFTW.plan_fft(parent(sample_array), 2)
             fft_plans[:phi_backward] = FFTW.plan_ifft(parent(sample_array), 2)
         end
 
-        # Create plans for other orientations if needed
+        # Create plans for theta pencil orientation (less commonly used)
         if haskey(pencils, :theta)
             sample_theta = PencilArray{ComplexF64}(undef, pencils.theta)
             fft_plans[:theta_forward] = FFTW.plan_fft(parent(sample_theta), 2)
@@ -295,6 +548,7 @@ function create_pencil_fft_plans(pencils, dims::Tuple{Int,Int,Int})
             @info "FFT plans created successfully for $(length(fft_plans) ÷ 2) orientations"
         end
     catch e
+        # On failure, set fallback flag so calling code can use unplanned FFTs
         @warn "Could not create FFT plans: $e"
         fft_plans[:fallback] = true
     end
@@ -303,17 +557,43 @@ function create_pencil_fft_plans(pencils, dims::Tuple{Int,Int,Int})
 end
 
 """
-    create_shtnskit_transpose_plans(pencils)
+    create_shtnskit_transpose_plans(pencils) -> Dict{Symbol,Any}
 
-Create transpose plans for efficient pencil reorientations.
+Create transpose plans for redistributing data between pencil orientations.
+
+# What is a Transpose?
+In pencil decomposition, a "transpose" is an MPI all-to-all communication that
+redistributes data so a different dimension becomes local. For example:
+- theta → phi transpose: makes longitude local (for FFTs)
+- phi → r transpose: makes radius local (for radial derivatives)
+
+# Why Plans?
+Like FFT plans, transpose plans encode the communication pattern and can
+optimize buffer allocation and MPI operations.
+
+# Transpose Constraints
+PencilArrays requires that source and destination pencils differ in at most
+one distributed dimension. If they differ in two dimensions, we need a
+multi-step transpose (e.g., phi → theta → r).
+
+# Plan Keys Created
+- `:theta_to_phi`, `:phi_to_theta`: Switch between theta and phi local
+- `:theta_to_r`, `:r_to_theta`: Switch between theta and r local
+- `:phi_to_r`, `:r_to_phi`: May be direct or marked as `:multi_step`
+
+# Usage
+```julia
+# Transpose data from theta-local to phi-local orientation
+mul!(dest_array, transpose_plans[:theta_to_phi], src_array)
+```
 """
 function create_shtnskit_transpose_plans(pencils)
     transpose_plans = Dict{Symbol, Any}()
 
     # Create transpose operations between adjacent pencils
-    # PencilArrays requires pencils differ in at most 1 dimension
-    # For multi-step transposes, store intermediate plans
+    # "Adjacent" means they differ in only one distributed dimension
 
+    # Theta ↔ Phi transposes (most common for SH transforms)
     if haskey(pencils, :theta) && haskey(pencils, :phi)
         try
             transpose_plans[:theta_to_phi] = _shtns_make_transpose(pencils.theta => pencils.phi)
@@ -325,6 +605,7 @@ function create_shtnskit_transpose_plans(pencils)
         end
     end
 
+    # Theta ↔ R transposes (for switching to radial operations)
     if haskey(pencils, :r) && haskey(pencils, :theta)
         try
             transpose_plans[:theta_to_r] = _shtns_make_transpose(pencils.theta => pencils.r)
@@ -336,15 +617,17 @@ function create_shtnskit_transpose_plans(pencils)
         end
     end
 
+    # Phi ↔ R transposes
+    # These may fail if phi and r pencils differ in >1 dimension
+    # In that case, use multi-step: phi → theta → r
     if haskey(pencils, :phi) && haskey(pencils, :r)
         try
             transpose_plans[:phi_to_r] = _shtns_make_transpose(pencils.phi => pencils.r)
             transpose_plans[:r_to_phi] = _shtns_make_transpose(pencils.r => pencils.phi)
         catch e
-            # This is expected to fail if phi and r differ in >1 dimension
-            # Store as multi-step transpose: phi -> theta -> r
+            # Expected failure - try multi-step approach
             if haskey(transpose_plans, :phi_to_theta) && haskey(transpose_plans, :theta_to_r)
-                transpose_plans[:phi_to_r] = :multi_step  # Marker for multi-step
+                transpose_plans[:phi_to_r] = :multi_step  # Marker for calling code
                 transpose_plans[:r_to_phi] = :multi_step
                 if get_rank() == 0
                     @debug "Using multi-step transpose for phi<->r via theta"

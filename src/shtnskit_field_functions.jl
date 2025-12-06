@@ -1,49 +1,101 @@
 # ================================================================================
 # Core Transform Functions using SHTnsKit with PencilArrays
 # ================================================================================
+#
+# This file implements the spherical harmonic transform operations that convert
+# between spectral (l,m) representation and physical (θ,φ) representation.
+#
+# TRANSFORM TERMINOLOGY:
+# ----------------------
+# - Synthesis: Spectral → Physical (inverse SH transform)
+#   Reconstructs field values on the (θ,φ) grid from spherical harmonic coefficients
+#
+# - Analysis: Physical → Spectral (forward SH transform)
+#   Computes spherical harmonic coefficients from field values on the grid
+#
+# IMPLEMENTATION STRATEGY:
+# ------------------------
+# For each radial level independently:
+# 1. Extract/prepare spectral coefficients in SHTnsKit's expected format
+# 2. Call SHTnsKit.synthesis() or SHTnsKit.analysis()
+# 3. Store/scatter results to the appropriate PencilArray
+#
+# MPI parallelization is handled through PencilArrays, with MPI.Barrier()
+# synchronization after complete transforms.
+#
+# ================================================================================
 
 """
-    shtnskit_spectral_to_physical!(spec::SHTnsSpectralField{T},
-                                  phys::SHTnsPhysicalField{T}) where T
+    shtnskit_spectral_to_physical!(spec, phys)
 
-Transform from spectral to physical space using SHTnsKit with PencilArrays/PencilFFTs.
+Transform spectral coefficients to physical space values (synthesis).
+
+# The Synthesis Operation
+Given spherical harmonic coefficients f_l^m, compute the physical field:
+    f(θ,φ) = Σ_{l,m} f_l^m × Y_l^m(θ,φ)
+
+where Y_l^m are the spherical harmonics.
+
+# Implementation
+Uses SHTnsKit's synthesis function which:
+1. Performs the Legendre transform (summing over l for each m)
+2. Performs the FFT along longitude (summing over m)
+
+# Arguments
+- `spec::SHTnsSpectralField`: Source spectral field with coefficients
+- `phys::SHTnsPhysicalField`: Destination physical field (modified in-place)
+
+# Side Effects
+Modifies `phys.data` with the synthesized field values
 """
 function shtnskit_spectral_to_physical!(spec::SHTnsSpectralField{T},
                                        phys::SHTnsPhysicalField{T}) where T
     config = spec.config
     sht_config = config.sht_config
 
-    # Simple direct method for all cases
+    # Use direct synthesis method (processes each radial level)
     perform_synthesis_direct!(spec, phys, config)
 
-    # Synchronize MPI processes
+    # Ensure all MPI processes complete before returning
     MPI.Barrier(get_comm())
 end
 
 """
     perform_synthesis_phi_local!(spec, phys, config)
 
-Perform synthesis when physical field is already in phi-pencil (phi is local).
+Perform synthesis when physical field is in phi-pencil orientation.
+
+This is the most efficient synthesis path because:
+1. The phi (longitude) dimension is fully local on each process
+2. SHTnsKit's FFT operates entirely in local memory
+3. No MPI communication needed during the transform itself
+
+# Algorithm for each radial level:
+1. Extract spectral coefficients into SHTnsKit's (lmax+1, mmax+1) matrix format
+2. Call SHTnsKit.synthesis() which does Legendre transform + FFT
+3. Store the resulting (nlat, nlon) physical field slice
 """
-function perform_synthesis_phi_local!(spec::SHTnsSpectralField{T}, 
-                                     phys::SHTnsPhysicalField{T}, 
+function perform_synthesis_phi_local!(spec::SHTnsSpectralField{T},
+                                     phys::SHTnsPhysicalField{T},
                                      config) where T
     sht_config = config.sht_config
-    
-    # Get local data
+
+    # Extract underlying Julia arrays from PencilArrays
     spec_real_data = parent(spec.data_real)
-    spec_imag_data = parent(spec.data_imag) 
+    spec_imag_data = parent(spec.data_imag)
     phys_data = parent(phys.data)
-    
-    # Process each local radial level
+
+    # Process each radial level independently (embarrassingly parallel in r)
     for r_local in axes(phys_data, 3)
-        # Extract spectral coefficients for this radial level
+        # Step 1: Gather spectral coefficients into SHTnsKit's expected format
+        # Returns a (lmax+1) × (mmax+1) complex matrix
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
-        
-        # Perform SHTnsKit synthesis (handles internal FFTs)
+
+        # Step 2: Perform the actual spherical harmonic synthesis
+        # SHTnsKit handles both Legendre transform and longitude FFT internally
         phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
-        
-        # Store in physical array (respecting PencilArray layout)
+
+        # Step 3: Store result in the physical array at this radial level
         store_physical_slice_phi_local!(phys_data, phys_slice, r_local, config)
     end
 end
@@ -51,45 +103,61 @@ end
 """
     perform_synthesis_with_transpose!(spec, phys, config, back_plan)
 
-Perform synthesis with transpose to phi-pencil for optimal FFT performance.
+Perform synthesis when physical field is NOT in phi-pencil orientation.
+
+# Strategy
+When the target physical field is in a non-phi pencil (e.g., theta or r pencil),
+we can't directly use SHTnsKit because it requires all longitude points to be local.
+
+Solution:
+1. Create a temporary phi-pencil array
+2. Perform synthesis to the temporary array (longitude local)
+3. Transpose the result to the target pencil orientation
+
+This involves one extra MPI all-to-all communication (the transpose) but
+ensures the FFT can operate on contiguous local data.
 """
-function perform_synthesis_with_transpose!(spec::SHTnsSpectralField{T}, 
-                                         phys::SHTnsPhysicalField{T}, 
+function perform_synthesis_with_transpose!(spec::SHTnsSpectralField{T},
+                                         phys::SHTnsPhysicalField{T},
                                          config, back_plan) where T
-    # Create temporary phi-pencil array
+    # Allocate temporary array in phi-pencil orientation
     phys_phi = PencilArray{T}(undef, config.pencils.phi)
-    
-    # Perform synthesis to phi-pencil
+
+    # Perform synthesis with longitude local (optimal for SHTnsKit)
     perform_synthesis_to_phi_pencil!(spec, phys_phi, config)
 
-    # Transpose back to original pencil orientation using pre-computed plan
+    # Redistribute data to match target pencil orientation
+    # back_plan encodes the MPI communication pattern
     mul!(phys.data, back_plan, phys_phi)
 end
 
 """
     perform_synthesis_to_phi_pencil!(spec, phys_phi, config)
 
-Perform synthesis directly to phi-pencil array.
+Core synthesis routine that writes directly to a phi-pencil array.
+
+This is the workhorse function called by other synthesis routines.
+It assumes the destination array is already in phi-pencil orientation.
 """
-function perform_synthesis_to_phi_pencil!(spec::SHTnsSpectralField{T}, 
-                                        phys_phi::PencilArray{T,3}, 
+function perform_synthesis_to_phi_pencil!(spec::SHTnsSpectralField{T},
+                                        phys_phi::PencilArray{T,3},
                                         config) where T
     sht_config = config.sht_config
-    
-    # Get data arrays
+
+    # Get underlying Julia arrays
     spec_real_data = parent(spec.data_real)
     spec_imag_data = parent(spec.data_imag)
     phys_phi_data = parent(phys_phi)
-    
-    # Process each radial level
+
+    # Loop over radial levels (each level is independent)
     for r_local in axes(phys_phi_data, 3)
-        # Extract spectral coefficients
+        # Prepare spectral coefficients in SHTnsKit format
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
-        
-        # Perform synthesis
+
+        # SHTnsKit synthesis: spectral → physical for this radial slice
         phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
-        
-        # Store in phi-pencil array
+
+        # Copy result to output array
         store_physical_slice_phi_local!(phys_phi_data, phys_slice, r_local, config)
     end
 end
@@ -97,53 +165,85 @@ end
 """
     perform_synthesis_direct!(spec, phys, config)
 
-Direct synthesis without transpose (fallback method).
+Direct synthesis method that handles any pencil orientation.
+
+This is the default/fallback method. It works regardless of the physical
+field's pencil orientation by using a generic storage function that
+handles the index mapping appropriately.
+
+# Note
+For phi-pencil physical fields, `perform_synthesis_phi_local!` is more
+efficient as it can use optimized storage.
 """
 function perform_synthesis_direct!(spec::SHTnsSpectralField{T},
                                   phys::SHTnsPhysicalField{T},
                                   config) where T
     sht_config = config.sht_config
 
-    # Get local data
+    # Extract underlying arrays from PencilArrays wrapper
     spec_real_data = parent(spec.data_real)
     spec_imag_data = parent(spec.data_imag)
     phys_data = parent(phys.data)
 
     # Process each radial level
     for r_local in axes(phys_data, 3)
-        # Extract coefficients
+        # Gather spectral coefficients for this radial level
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
 
-        # Perform synthesis
+        # Perform SHTnsKit synthesis (Legendre + FFT)
         phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
 
-        # Store result (generic storage for any pencil orientation)
+        # Store using generic method (works for any pencil orientation)
         store_physical_slice_generic!(phys_data, phys_slice, r_local, config)
     end
 end
 
 """
-    shtnskit_physical_to_spectral!(phys::SHTnsPhysicalField{T}, 
-                                  spec::SHTnsSpectralField{T}) where T
+    shtnskit_physical_to_spectral!(phys, spec)
 
-Transform from physical to spectral space using SHTnsKit with PencilArrays.
+Transform physical space values to spectral coefficients (analysis).
+
+# The Analysis Operation
+Given physical field values f(θ,φ), compute spherical harmonic coefficients:
+    f_l^m = ∫∫ f(θ,φ) × Y_l^m*(θ,φ) sin(θ) dθ dφ
+
+The integral is computed numerically using:
+- Gauss-Legendre quadrature for the θ integral
+- FFT for the φ integral (exploiting periodicity)
+
+# Implementation
+Uses SHTnsKit's analysis function which:
+1. Performs the FFT along longitude (extracting Fourier modes)
+2. Performs the Legendre transform (computing l coefficients for each m)
+
+# Arguments
+- `phys::SHTnsPhysicalField`: Source physical field values
+- `spec::SHTnsSpectralField`: Destination spectral field (modified in-place)
+
+# Side Effects
+Modifies `spec.data_real` and `spec.data_imag` with the computed coefficients
 """
-function shtnskit_physical_to_spectral!(phys::SHTnsPhysicalField{T}, 
+function shtnskit_physical_to_spectral!(phys::SHTnsPhysicalField{T},
                                        spec::SHTnsSpectralField{T}) where T
     config = spec.config
     sht_config = config.sht_config
-    
-    # Use direct method - handles distribution via MPI communication
+
+    # Use direct analysis method (processes each radial level)
     perform_analysis_direct!(phys, spec, config)
-    
-    # Synchronize MPI processes
+
+    # Ensure all MPI processes complete before returning
     MPI.Barrier(get_comm())
 end
 
 """
     perform_analysis_phi_local!(phys, spec, config)
 
-Perform analysis when physical field is in phi-pencil (phi is local).
+Perform analysis when physical field is in phi-pencil orientation.
+
+This is the most efficient analysis path because:
+1. The phi (longitude) dimension is fully local on each process
+2. SHTnsKit's FFT operates entirely in local memory
+3. No MPI communication needed during the transform itself
 """
 function perform_analysis_phi_local!(phys::SHTnsPhysicalField{T}, 
                                     spec::SHTnsSpectralField{T}, 
@@ -460,51 +560,92 @@ end
 # ================================================================================
 # Helper Functions for PencilArray Data Management
 # ================================================================================
+#
+# These functions handle the conversion between our internal data layout
+# (PencilArrays with distributed spectral/physical data) and SHTnsKit's
+# expected format (full coefficient matrices).
+#
+# KEY CONCEPTS:
+# -------------
+# 1. Linear spectral index: We store spectral coefficients with a combined (l,m)
+#    index running from 1 to nlm. The mapping is: m varies fastest within each l.
+#
+# 2. SHTnsKit format: Expects a (lmax+1) × (mmax+1) matrix where entry [l+1, m+1]
+#    contains the coefficient f_l^m.
+#
+# 3. MPI gathering: Since spectral data may be distributed, we use MPI.Allreduce
+#    to combine partial coefficient matrices from all processes.
+#
+# ================================================================================
 
 """
-    get_pencil_orientation(pencil::Pencil{3}) -> Symbol
+    get_pencil_orientation(pencil) -> Symbol
 
-Get the orientation of a pencil (which dimensions are local).
+Determine which dimension(s) are fully local in a pencil decomposition.
+
+# Returns
+- `:theta_phi`: Both angular dimensions local (serial or single-node)
+- `:theta`: Latitude (θ) dimension is local
+- `:phi`: Longitude (φ) dimension is local
+- `:r`: Radial dimension is local
+
+# Usage
+Used to choose optimal transform strategies based on data layout.
 """
 function get_pencil_orientation(pencil::Pencil{3})
-    local_ranges = pencil.axes_local
-    global_sizes = pencil.size_global
+    local_ranges = pencil.axes_local    # Index ranges local to this process
+    global_sizes = pencil.size_global   # Full global array dimensions
 
+    # Check if each angular dimension is fully local
     θ_local = length(local_ranges[1]) == global_sizes[1]
     φ_local = length(local_ranges[2]) == global_sizes[2]
 
     if θ_local && φ_local
-        return :theta_phi  # both angular directions fully local
+        return :theta_phi  # Both angular directions fully local (ideal for SHT)
     elseif θ_local
-        return :theta
+        return :theta      # All latitudes local, longitudes distributed
     elseif φ_local
-        return :phi
+        return :phi        # All longitudes local (optimal for FFT)
     else
-        return :r
+        return :r          # Only radial dimension local
     end
 end
 
 """
     extract_coefficients_for_shtnskit!(coeffs_buffer, spec_real, spec_imag, r_local, config)
 
-Extract spectral coefficients in format expected by SHTnsKit using pre-allocated buffer.
+Extract spectral coefficients into SHTnsKit's expected matrix format.
+
+# Data Format Conversion
+Our internal format: Linear array indexed by combined (l,m) index
+SHTnsKit format: Matrix indexed by [l+1, m+1]
+
+# Arguments
+- `coeffs_buffer`: Pre-allocated (lmax+1) × (mmax+1) complex matrix (output)
+- `spec_real`, `spec_imag`: Real and imaginary parts of spectral coefficients
+- `r_local`: Radial level index (1-based)
+- `config`: SHTnsKit configuration
+
+# Threading
+Uses `@threads` for parallel filling of the coefficient matrix.
 """
 function extract_coefficients_for_shtnskit!(coeffs_buffer::Matrix{ComplexF64},
                                            spec_real, spec_imag, r_local, config)
     lmax, mmax = config.lmax, config.mmax
 
-    # Get buffer dimensions (may be larger than our config.lmax/mmax if SHTnsKit uses larger values)
+    # Buffer may be larger than needed if SHTnsKit uses different lmax/mmax internally
     buffer_lmax = size(coeffs_buffer, 1) - 1
     buffer_mmax = size(coeffs_buffer, 2) - 1
 
-    # Clear the buffer for reuse
+    # Reset buffer to zero (important for modes not present in input)
     fill!(coeffs_buffer, zero(ComplexF64))
 
-    # Fill from local spectral data
+    # Convert from linear indexing to (l,m) matrix format
+    # Threaded for performance with large spectral arrays
     Threads.@threads for lm_idx in eachindex(IndexLinear(), view(spec_real, :, 1, 1))
         l, m = index_to_lm_shtnskit(lm_idx, lmax, mmax)
         if r_local <= size(spec_real, 3) && l >= 0 && m >= 0 &&
-           l <= buffer_lmax && m <= buffer_mmax  # Check bounds
+           l <= buffer_lmax && m <= buffer_mmax
             real_part = spec_real[lm_idx, 1, r_local]
             imag_part = spec_imag[lm_idx, 1, r_local]
             coeffs_buffer[l+1, m+1] = complex(real_part, imag_part)
@@ -514,10 +655,26 @@ function extract_coefficients_for_shtnskit!(coeffs_buffer::Matrix{ComplexF64},
     return coeffs_buffer
 end
 
-# Convenience wrapper for backward compatibility - uses buffer cache
+"""
+    extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config) -> Matrix{ComplexF64}
+
+High-level coefficient extraction with automatic buffer management and MPI gathering.
+
+This is the main entry point for preparing spectral coefficients for SHTnsKit.
+It handles:
+1. Buffer allocation/reuse from cache
+2. Local coefficient extraction
+3. MPI Allreduce to combine coefficients from all processes
+
+# Why MPI Gathering?
+Spectral coefficients may be distributed across MPI processes. SHTnsKit needs
+the complete coefficient matrix, so we sum partial contributions from all processes.
+
+# Returns
+A complete (lmax+1) × (mmax+1) coefficient matrix ready for SHTnsKit.synthesis()
+"""
 function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config)
-    # Get or create cached buffer - use config.lmax/mmax (what we requested)
-    # SHTnsKit functions expect matrices of size (lmax+1) × (mmax+1)
+    # Use cached buffer to avoid repeated allocations
     buffer_key = :coeffs_buffer
     if !haskey(config._buffer_cache, buffer_key)
         lmax, mmax = config.lmax, config.mmax
@@ -527,8 +684,7 @@ function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config
     coeffs_buffer = config._buffer_cache[buffer_key]
     extract_coefficients_for_shtnskit!(coeffs_buffer, spec_real, spec_imag, r_local, config)
 
-    # Gather spectral coefficients across all MPI processes
-    # SHTnsKit functions need complete (l,m) coefficient matrices
+    # Second buffer for MPI reduction result
     buffer_gathered_key = :coeffs_buffer_gathered
     if !haskey(config._buffer_cache, buffer_gathered_key)
         lmax, mmax = config.lmax, config.mmax
@@ -536,42 +692,50 @@ function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config
     end
     coeffs_gathered = config._buffer_cache[buffer_gathered_key]
 
+    # Sum partial coefficient matrices from all MPI processes
+    # Each process contributes its local portion; summing gives complete matrix
     Allreduce!(coeffs_buffer, coeffs_gathered, MPI.SUM, get_comm())
 
-    # Return a copy to avoid buffer aliasing when called multiple times
-    # (e.g., for both toroidal and poloidal coefficients in vector transforms)
+    # Return copy to avoid aliasing issues with buffer reuse
     return copy(coeffs_gathered)
 end
 
 """
     store_coefficients_from_shtnskit!(spec_real, spec_imag, coeffs_matrix, r_local, config)
 
-Store coefficients from SHTnsKit format back to spectral field.
+Convert SHTnsKit coefficient matrix format back to our linear spectral storage.
+
+This is the inverse of `extract_coefficients_for_shtnskit!`:
+- Input: SHTnsKit's (lmax+1) × (mmax+1) coefficient matrix
+- Output: Our linear-indexed spectral arrays (real and imaginary parts separate)
+
+# Physical Constraint
+For real-valued physical fields, the m=0 coefficients must be purely real.
+This function enforces this by zeroing the imaginary part for m=0 modes.
 """
 function store_coefficients_from_shtnskit!(spec_real, spec_imag, coeffs_matrix, r_local, config)
-    # Use config.lmax/mmax for iterating over our spectral field
     lmax, mmax = config.lmax, config.mmax
 
-    # Get dimensions of coeffs_matrix returned by SHTnsKit
-    # SHTnsKit may use different lmax/mmax internally
+    # SHTnsKit's matrix dimensions may differ from our config
     matrix_lmax = size(coeffs_matrix, 1) - 1
     matrix_mmax = size(coeffs_matrix, 2) - 1
 
+    # Convert from (l,m) matrix to linear index format
     Threads.@threads for lm_idx in eachindex(IndexLinear(), view(spec_real, :, 1, 1))
         l, m = index_to_lm_shtnskit(lm_idx, lmax, mmax)
         if r_local <= size(spec_real, 3) && l >= 0 && m >= 0
-            # Check if this (l,m) exists in the SHTnsKit matrix
             if l <= matrix_lmax && m <= matrix_mmax
+                # Extract coefficient from SHTnsKit matrix
                 coeff = coeffs_matrix[l+1, m+1]
                 spec_real[lm_idx, 1, r_local] = real(coeff)
                 spec_imag[lm_idx, 1, r_local] = imag(coeff)
 
-                # Ensure m=0 modes are real
+                # Physical constraint: m=0 modes must be real for real-valued fields
                 if m == 0
                     spec_imag[lm_idx, 1, r_local] = 0.0
                 end
             else
-                # Mode doesn't exist in SHTnsKit matrix - set to zero
+                # Mode outside SHTnsKit's range - set to zero
                 spec_real[lm_idx, 1, r_local] = 0.0
                 spec_imag[lm_idx, 1, r_local] = 0.0
             end
@@ -582,10 +746,24 @@ end
 """
     index_to_lm_shtnskit(idx, lmax, mmax) -> (l, m)
 
-Convert linear index to (l,m) for SHTnsKit compatibility.
+Convert linear spectral index to spherical harmonic degree (l) and order (m).
+
+# Index Ordering
+The linear index follows the convention where m varies fastest within each l:
+- idx=1: (l=0, m=0)
+- idx=2: (l=1, m=0)
+- idx=3: (l=1, m=1)
+- idx=4: (l=2, m=0)
+- idx=5: (l=2, m=1)
+- idx=6: (l=2, m=2)
+- ...
+
+# Performance Note
+This function uses a linear search. For performance-critical code with many
+lookups, consider precomputing the l_values and m_values arrays (stored in
+SHTnsKitConfig).
 """
 function index_to_lm_shtnskit(idx::Int, lmax::Int, mmax::Int)
-    # Simple conversion - this should match SHTnsKit's indexing
     current_idx = 0
     for l in 0:lmax
         for m in 0:min(l, mmax)
@@ -595,21 +773,33 @@ function index_to_lm_shtnskit(idx::Int, lmax::Int, mmax::Int)
             end
         end
     end
-    return 0, 0  # fallback
+    return 0, 0  # Fallback for invalid index
 end
 
 """
     store_physical_slice_phi_local!(phys_data, phys_slice, r_local, config)
 
-Store physical slice when in phi-local pencil.
+Copy a 2D physical field slice into a 3D array at a specific radial level.
+
+# Optimized for Phi-Local Layout
+When the physical field is in phi-pencil orientation, the (θ, φ) indices
+correspond directly to the array's first two dimensions, making this a
+straightforward copy operation.
+
+# Arguments
+- `phys_data`: 3D destination array (θ × φ × r)
+- `phys_slice`: 2D source array from SHTnsKit (θ × φ)
+- `r_local`: Radial index to write to
+- `config`: Configuration for grid dimensions
 """
 function store_physical_slice_phi_local!(phys_data, phys_slice, r_local, config)
     nlat, nlon = config.nlat, config.nlon
-    
-    # Store respecting the phi-local layout
+
+    # Determine safe index ranges (handle potential size mismatches)
     common_i_range = 1:min(size(phys_data, 1), nlat, size(phys_slice, 1))
     common_j_range = 1:min(size(phys_data, 2), nlon, size(phys_slice, 2))
-    
+
+    # Threaded copy for large arrays
     Threads.@threads for i in common_i_range
         for j in common_j_range
             if r_local <= size(phys_data, 3)
