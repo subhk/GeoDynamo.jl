@@ -890,7 +890,7 @@ end
 """
     optimize_fft_performance!(config::SHTnsKitConfig)
 
-Optimize PencilFFTs performance by warming up plans and checking efficiency.
+Optimize FFT performance by warming up FFTW plans and checking efficiency.
 """
 function optimize_fft_performance!(config::SHTnsKitConfig)
     # Warm up FFT plans for better performance
@@ -905,14 +905,14 @@ function optimize_fft_performance!(config::SHTnsKitConfig)
             plan_forward = config.fft_plans[:phi_forward]
             plan_backward = config.fft_plans[:phi_backward]
             
-            plan_forward * test_array
-            plan_backward * test_array
-            
+            plan_forward * parent(test_array)
+            plan_backward * parent(test_array)
+
             if get_rank() == 0
-                @info "PencilFFTs plans warmed up successfully"
+                @info "FFT plans warmed up successfully"
             end
         catch e
-            @warn "Could not warm up PencilFFTs plans: $e"
+            @warn "Could not warm up FFT plans: $e"
         end
     end
     return config

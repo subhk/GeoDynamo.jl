@@ -286,7 +286,8 @@ end
 """
     create_pencil_fft_plans(pencils, dims)
 
-Create PencilFFTs plans for efficient phi-direction transforms.
+Create FFT plans for efficient phi-direction transforms.
+Uses FFTW plans on the underlying arrays of PencilArrays for single-dimension transforms.
 """
 function create_pencil_fft_plans(pencils, dims::Tuple{Int,Int,Int})
     nlat, nlon, nr = dims
@@ -294,27 +295,27 @@ function create_pencil_fft_plans(pencils, dims::Tuple{Int,Int,Int})
 
     try
         # Create FFT plans for phi-direction (longitude) transforms
+        # For single-dimension FFTs along a specific axis, we use FFTW directly
+        # on the parent array since PencilFFTPlan is designed for multi-dimensional transforms
         if haskey(pencils, :phi)
-            # Create a sample array for planning
             sample_array = PencilArray{ComplexF64}(undef, pencils.phi)
-
-            # FFTW plans extended by PencilFFTs for phi direction (dimension 2)
-            fft_plans[:phi_forward] = plan_fft(sample_array, 2)
-            fft_plans[:phi_backward] = plan_ifft(sample_array, 2)
+            # Create FFTW plans for dimension 2 (phi direction) on the underlying array
+            fft_plans[:phi_forward] = FFTW.plan_fft(parent(sample_array), 2)
+            fft_plans[:phi_backward] = FFTW.plan_ifft(parent(sample_array), 2)
         end
 
         # Create plans for other orientations if needed
         if haskey(pencils, :theta)
             sample_theta = PencilArray{ComplexF64}(undef, pencils.theta)
-            fft_plans[:theta_forward] = plan_fft(sample_theta, 2)
-            fft_plans[:theta_backward] = plan_ifft(sample_theta, 2)
+            fft_plans[:theta_forward] = FFTW.plan_fft(parent(sample_theta), 2)
+            fft_plans[:theta_backward] = FFTW.plan_ifft(parent(sample_theta), 2)
         end
 
         if get_rank() == 0
-            @info "PencilFFTs plans created successfully for $(length(fft_plans)) orientations"
+            @info "FFT plans created successfully for $(length(fft_plans) ÷ 2) orientations"
         end
     catch e
-        @warn "Could not create PencilFFTs plans: $e. Using fallback FFTW."
+        @warn "Could not create FFT plans: $e"
         fft_plans[:fallback] = true
     end
 
