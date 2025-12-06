@@ -201,23 +201,29 @@ end
     apply_velocity_flux_bc_spectral!(fields::SHTnsVelocityFields{T}, domain::RadialDomain;
                                      method::Symbol=:tau) where T
 
-Apply Neumann (flux) boundary conditions to velocity field components in spectral space.
+Apply stress-free boundary conditions to velocity field components in spectral space.
 
-This function enforces stress-free or other Neumann boundary conditions for the
-toroidal and poloidal components of the velocity field. For stress-free boundaries:
-- Poloidal (radial) component: v_r = 0 (Dirichlet, handled by enforce_velocity_boundary_values!)
-- Toroidal (tangential) component: ∂T/∂r = 0 (Neumann, handled here)
+This function enforces the correct stress-free condition for the toroidal velocity
+potential. For stress-free boundaries:
+- Poloidal (radial) component: P = 0 (Dirichlet, v_r = 0, handled by enforce_velocity_boundary_values!)
+- Toroidal (tangential) component: ∂T/∂r = T/r (stress-free condition, handled here)
 
 # Arguments
 - `fields`: Velocity field structure with toroidal and poloidal components
 - `domain`: Radial domain information
-- `method`: Method for applying flux BCs (:tau, :influence_matrix, or :direct)
+- `method`: Method for applying BCs (default `:tau` recommended for accuracy)
+  - `:tau` - High-order accurate tau method (recommended)
+  - `:direct` - First-order finite difference
+  - `:physical_stress` - First-order finite difference (equivalent to :direct)
 
 # Physical Interpretation
-For stress-free boundaries, the zero tangential stress condition:
-  ∂v_θ/∂r - v_θ/r = 0  and  ∂v_φ/∂r - v_φ/r = 0
-translates to zero radial derivative of the toroidal scalar potential T:
-  ∂T/∂r = 0  at boundaries
+For stress-free boundaries, the zero tangential stress condition requires:
+  σ_rθ = r ∂/∂r(v_θ/r) = ∂v_θ/∂r - v_θ/r = 0
+
+For the toroidal potential T where v_θ ∝ T, this becomes:
+  ∂T/∂r = T/r  at boundaries
+
+Note: This is NOT the same as simple Neumann (∂T/∂r = 0)!
 """
 function apply_velocity_flux_bc_spectral!(fields::SHTnsVelocityFields{T},
                                           domain::RadialDomain;
@@ -240,12 +246,14 @@ end
                                        dr_matrix::BandedMatrix{T},
                                        method::Symbol) where T
 
-Apply flux boundary conditions to a single velocity component (toroidal or poloidal).
+Apply stress-free boundary conditions to a single velocity component (toroidal or poloidal).
+
+All methods now correctly enforce ∂T/∂r = T/r for stress-free boundaries.
 
 # Methods
-- `:direct` - Enforces ∂T/∂r ≈ 0 (may be incorrect for stress-free)
-- `:tau` - Tau method for ∂T/∂r = 0
-- `:physical_stress` - Enforces ∂T/∂r = T/r (correct for stress-free)
+- `:tau` - High-order accurate tau method (recommended, default)
+- `:direct` - First-order finite difference approximation
+- `:physical_stress` - First-order finite difference (equivalent to :direct)
 
 # Performance
 Uses pre-allocated workspace buffers if available (set via set_velocity_workspace!).
@@ -320,14 +328,26 @@ end
     apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
                                 apply_inner, apply_outer, dr_matrix, domain, r_range)
 
-Apply flux boundary conditions using the tau method for velocity components.
-This enforces ∂T/∂r = 0 at boundaries for stress-free conditions.
+Apply stress-free boundary conditions using the tau method for velocity components.
+
+# Stress-Free Boundary Condition Physics
+For the toroidal velocity potential T in spherical coordinates, the stress-free
+(free-slip) boundary condition requires zero tangential stress at the boundary.
+
+The correct condition is: ∂T/∂r = T/r
+
+This means the target flux at each boundary is NOT zero, but T/r:
+- Inner boundary: target_flux = T[1]/r[1]
+- Outer boundary: target_flux = T[nr]/r[nr]
+
+The tau method adds a correction polynomial to enforce this condition exactly.
 """
 function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
                                      apply_inner, apply_outer,
                                      dr_matrix::BandedMatrix, domain, r_range)
     T = eltype(spec_real)
     nr = domain.N
+    r = domain.r[:, 4]  # Radial coordinates
 
     # Extract radial profile for this mode
     profile_real = zeros(T, nr)
@@ -348,38 +368,50 @@ function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
         Allreduce!(profile_imag, MPI.SUM, comm)
     end
 
-    # For stress-free boundaries: prescribed flux is zero (∂T/∂r = 0)
-    # The boundary_values array stores the value for Dirichlet, not flux for Neumann
-    # For Neumann BC, we enforce zero flux
-    flux_inner = T(0)
-    flux_outer = T(0)
-
     # Compute current fluxes at boundaries using derivative matrix
     dprofile_real = zeros(T, nr)
     dprofile_imag = zeros(T, nr)
     apply_derivative_matrix!(dprofile_real, dr_matrix, profile_real)
     apply_derivative_matrix!(dprofile_imag, dr_matrix, profile_imag)
 
-    current_flux_inner = dprofile_real[1]
-    current_flux_outer = dprofile_real[nr]
+    current_flux_inner_real = dprofile_real[1]
+    current_flux_outer_real = dprofile_real[nr]
 
-    # Compute tau corrections to enforce zero flux
-    # Simple tau method: add correction to enforce BC
+    # Target flux for stress-free: ∂T/∂r = T/r
+    # Handle r=0 case (ball geometry) - at r=0, regularity enforces T=0 for l≥1
+    if r[1] < 1e-14
+        # At r=0, the condition ∂T/∂r = T/r is indeterminate (0/0)
+        # By L'Hôpital's rule and regularity, we use ∂T/∂r = 0 at r=0
+        target_flux_inner_real = T(0)
+    else
+        target_flux_inner_real = profile_real[1] / r[1]
+    end
+    target_flux_outer_real = profile_real[nr] / r[nr]
+
+    # Compute tau corrections to enforce ∂T/∂r = T/r
     if apply_inner && apply_outer
         # Both boundaries - use two tau functions
-        # Correction is a polynomial that fixes both boundary fluxes
         correction_real = compute_tau_correction_both_boundaries(
-            flux_inner - current_flux_inner,
-            flux_outer - current_flux_outer,
+            target_flux_inner_real - current_flux_inner_real,
+            target_flux_outer_real - current_flux_outer_real,
             domain)
         profile_real .+= correction_real
 
         if any(x -> abs(x) > 1e-12, profile_imag)
             current_flux_inner_imag = dprofile_imag[1]
             current_flux_outer_imag = dprofile_imag[nr]
+
+            # Target flux for imaginary part
+            if r[1] < 1e-14
+                target_flux_inner_imag = T(0)
+            else
+                target_flux_inner_imag = profile_imag[1] / r[1]
+            end
+            target_flux_outer_imag = profile_imag[nr] / r[nr]
+
             correction_imag = compute_tau_correction_both_boundaries(
-                -current_flux_inner_imag,
-                -current_flux_outer_imag,
+                target_flux_inner_imag - current_flux_inner_imag,
+                target_flux_outer_imag - current_flux_outer_imag,
                 domain)
             profile_imag .+= correction_imag
         end
@@ -387,26 +419,35 @@ function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
     elseif apply_inner
         # Only inner boundary
         correction_real = compute_tau_correction_inner_boundary(
-            flux_inner - current_flux_inner, domain)
+            target_flux_inner_real - current_flux_inner_real, domain)
         profile_real .+= correction_real
 
         if any(x -> abs(x) > 1e-12, profile_imag)
             current_flux_inner_imag = dprofile_imag[1]
+
+            if r[1] < 1e-14
+                target_flux_inner_imag = T(0)
+            else
+                target_flux_inner_imag = profile_imag[1] / r[1]
+            end
+
             correction_imag = compute_tau_correction_inner_boundary(
-                -current_flux_inner_imag, domain)
+                target_flux_inner_imag - current_flux_inner_imag, domain)
             profile_imag .+= correction_imag
         end
 
     elseif apply_outer
         # Only outer boundary
         correction_real = compute_tau_correction_outer_boundary(
-            flux_outer - current_flux_outer, domain)
+            target_flux_outer_real - current_flux_outer_real, domain)
         profile_real .+= correction_real
 
         if any(x -> abs(x) > 1e-12, profile_imag)
             current_flux_outer_imag = dprofile_imag[nr]
+            target_flux_outer_imag = profile_imag[nr] / r[nr]
+
             correction_imag = compute_tau_correction_outer_boundary(
-                -current_flux_outer_imag, domain)
+                target_flux_outer_imag - current_flux_outer_imag, domain)
             profile_imag .+= correction_imag
         end
     end
@@ -425,17 +466,42 @@ end
     apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
                                    apply_inner, apply_outer, domain, r_range)
 
-Apply flux boundary conditions using direct substitution.
-Sets the boundary point derivative to zero by adjusting the boundary value.
+Apply stress-free boundary conditions using direct substitution.
 
-NOTE: This method enforces ∂T/∂r ≈ 0, which may be INCORRECT for stress-free boundaries.
-The correct condition may be ∂T/∂r = T/r. Use :physical_stress method for proper stress-free.
+# Stress-Free Boundary Condition Physics
+For the toroidal velocity potential T in spherical coordinates, the stress-free
+(free-slip) boundary condition requires zero tangential stress at the boundary.
+
+The tangential stress tensor component is:
+    σ_rθ ∝ r ∂/∂r(v_θ/r) + (1/r)∂v_r/∂θ
+
+For toroidal flow (v_r = 0), this reduces to:
+    σ_rθ ∝ r ∂/∂r(v_θ/r) = ∂v_θ/∂r - v_θ/r
+
+Setting σ_rθ = 0 gives: ∂v_θ/∂r = v_θ/r
+
+Since v_θ ∝ T for toroidal flow, this becomes:
+    ∂T/∂r = T/r
+
+This is NOT the same as simple Neumann (∂T/∂r = 0)!
+
+# Implementation
+Using first-order finite difference at boundary:
+    (T[2] - T[1])/Δr = T[1]/r[1]
+
+Solving for T[1]:
+    T[1] = T[2] / (1 + Δr/r[1])
+
+Similarly for outer boundary:
+    (T[nr] - T[nr-1])/Δr = T[nr]/r[nr]
+    T[nr] = T[nr-1] / (1 - Δr/r[nr])
 """
 function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
                                         apply_inner, apply_outer,
                                         domain, r_range)
     T = eltype(spec_real)
     nr = domain.N
+    r = domain.r[:, 4]  # Radial coordinates
 
     # Extract radial profile
     profile_real = zeros(T, nr)
@@ -456,21 +522,33 @@ function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
         Allreduce!(profile_imag, MPI.SUM, comm)
     end
 
-    # Direct method: extrapolate to set derivative to zero
-    # ∂u/∂r ≈ (u[2] - u[1])/Δr = 0  =>  u[1] = u[2]
-    # ∂u/∂r ≈ (u[N] - u[N-1])/Δr = 0  =>  u[N] = u[N-1]
-
-    if apply_inner  # apply_inner already checks 1 in r_range
-        profile_real[1] = profile_real[2]
-        if any(x -> abs(x) > 1e-12, profile_imag)
-            profile_imag[1] = profile_imag[2]
+    # Apply BC: ∂T/∂r = T/r (physically correct stress-free condition)
+    # This ensures zero tangential stress at boundaries
+    if apply_inner
+        Δr = r[2] - r[1]
+        # Handle r[1] = 0 case (ball geometry) - use L'Hôpital's rule limit
+        if r[1] < 1e-14
+            # At r=0, regularity requires T → 0 for smooth fields
+            # This is handled by ball regularity enforcement elsewhere
+            profile_real[1] = profile_real[2]
+            if any(x -> abs(x) > 1e-12, profile_imag)
+                profile_imag[1] = profile_imag[2]
+            end
+        else
+            scaling_factor = 1.0 / (1.0 + Δr / r[1])
+            profile_real[1] = profile_real[2] * scaling_factor
+            if any(x -> abs(x) > 1e-12, profile_imag)
+                profile_imag[1] = profile_imag[2] * scaling_factor
+            end
         end
     end
 
-    if apply_outer  # apply_outer already checks nr in r_range
-        profile_real[nr] = profile_real[nr-1]
+    if apply_outer
+        Δr = r[nr] - r[nr-1]
+        scaling_factor = 1.0 / (1.0 - Δr / r[nr])
+        profile_real[nr] = profile_real[nr-1] * scaling_factor
         if any(x -> abs(x) > 1e-12, profile_imag)
-            profile_imag[nr] = profile_imag[nr-1]
+            profile_imag[nr] = profile_imag[nr-1] * scaling_factor
         end
     end
 
@@ -532,11 +610,20 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
 
     if apply_inner  # apply_inner already checks 1 in r_range
         Δr = r[2] - r[1]
-        scaling_factor = 1.0 / (1.0 + Δr / r[1])
-        profile_real[1] = profile_real[2] * scaling_factor
-
-        if any(x -> abs(x) > 1e-12, profile_imag)
-            profile_imag[1] = profile_imag[2] * scaling_factor
+        # Handle r[1] = 0 case (ball geometry) - use L'Hôpital's rule limit
+        if r[1] < 1e-14
+            # At r=0, regularity requires T → 0 for smooth fields
+            # This is handled by ball regularity enforcement elsewhere
+            profile_real[1] = profile_real[2]
+            if any(x -> abs(x) > 1e-12, profile_imag)
+                profile_imag[1] = profile_imag[2]
+            end
+        else
+            scaling_factor = 1.0 / (1.0 + Δr / r[1])
+            profile_real[1] = profile_real[2] * scaling_factor
+            if any(x -> abs(x) > 1e-12, profile_imag)
+                profile_imag[1] = profile_imag[2] * scaling_factor
+            end
         end
     end
 

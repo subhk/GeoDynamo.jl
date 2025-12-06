@@ -873,7 +873,8 @@ function predictor_step!(state::SimulationState{T}) where T
                         state.implicit_matrices[:velocity])
 
     # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
-    apply_velocity_flux_bc_spectral!(state.velocity, state.oc_domain; method=:direct)
+    # Using :tau method for high-order accurate enforcement of ∂T/∂r = T/r
+    apply_velocity_flux_bc_spectral!(state.velocity, state.oc_domain; method=:tau)
 
     # Enforce Dirichlet boundary conditions for velocity
     enforce_velocity_boundary_values!(state.velocity)
@@ -1013,7 +1014,8 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
                         state.implicit_matrices[:velocity], dt)
 
     # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
-    apply_velocity_flux_bc_spectral!(state.velocity, state.oc_domain; method=:direct)
+    # Using :tau method for high-order accurate enforcement of ∂T/∂r = T/r
+    apply_velocity_flux_bc_spectral!(state.velocity, state.oc_domain; method=:tau)
 
     # Enforce Dirichlet boundary conditions for velocity
     enforce_velocity_boundary_values!(state.velocity)
@@ -1695,7 +1697,8 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     end
 
     # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
-    apply_velocity_flux_bc_spectral!(state.velocity, state.oc_domain; method=:direct)
+    # Using :tau method for high-order accurate enforcement of ∂T/∂r = T/r
+    apply_velocity_flux_bc_spectral!(state.velocity, state.oc_domain; method=:tau)
 
     # Apply Dirichlet boundary conditions for velocity
     apply_velocity_boundary_conditions!(state.velocity)
