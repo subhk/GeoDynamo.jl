@@ -111,31 +111,11 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
                                             nlon=nlon,
                                             norm=:orthonormal)
 
-    # Enable optimized Legendre polynomial tables for better performance.
-    # Some upstream releases store the precomputed tables with dimensions
-    # (lmax+1, nlat) while the fused transform kernels expect
-    # (nlat, lmax+1). Detect and correct the orientation so we can keep
-    # using the faster lookup path; otherwise fall back to on-the-fly
-    # recurrence.
-    try
-        SHTnsKit.prepare_plm_tables!(sht_config)
-        if !isempty(sht_config.plm_tables)
-            tbl = sht_config.plm_tables[1]
-            # If the table is [degree, latitude], transpose to [latitude, degree]
-            if size(tbl, 1) == sht_config.lmax + 1 && size(tbl, 2) == sht_config.nlat
-                sht_config.plm_tables = [permutedims(t, (2, 1)) for t in sht_config.plm_tables]
-            end
-        end
-        if !isempty(sht_config.dplm_tables)
-            dtbl = sht_config.dplm_tables[1]
-            if size(dtbl, 1) == sht_config.lmax + 1 && size(dtbl, 2) == sht_config.nlat
-                sht_config.dplm_tables = [permutedims(t, (2, 1)) for t in sht_config.dplm_tables]
-            end
-        end
-    catch plm_error
-        @warn "Disabling precomputed Legendre tables; falling back to on-the-fly computation" exception=(plm_error, catch_backtrace())
-        SHTnsKit.disable_plm_tables!(sht_config)
-    end
+    # Disable precomputed Legendre polynomial tables to avoid version-dependent
+    # dimension mismatches between SHTnsKit's table creation and transform code.
+    # The on-the-fly Plm computation is reliable and the performance impact is
+    # minimal for typical problem sizes.
+    SHTnsKit.disable_plm_tables!(sht_config)
 
     # Get MPI communicator
     comm = get_comm()
