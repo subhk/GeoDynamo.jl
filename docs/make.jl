@@ -45,8 +45,8 @@ format = Documenter.HTML(;
     prettyurls = get(ENV, "CI", "false") == "true",
     canonical = "https://subhk.github.io/GeoDynamo.jl/stable/",
     assets = String[],
-    size_threshold = 500 * 1024,
-    size_threshold_warn = 200 * 1024,
+    size_threshold = 700 * 1024,  # Increased for large API reference
+    size_threshold_warn = 300 * 1024,
     # Show version selector with dev and stable
     ansicolor = true,
 )

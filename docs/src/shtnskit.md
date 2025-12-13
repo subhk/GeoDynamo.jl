@@ -240,25 +240,4 @@ validate_pencil_decomposition(config)
 
 ## API Reference
 
-```@docs
-SHTnsKitConfig
-create_shtnskit_config
-shtnskit_spectral_to_physical!
-shtnskit_physical_to_spectral!
-shtnskit_vector_synthesis!
-shtnskit_vector_analysis!
-shtnskit_qst_to_spatial!
-shtnskit_spatial_to_qst!
-compute_scalar_energy_spectrum
-compute_vector_energy_spectrum
-compute_total_scalar_energy
-compute_total_vector_energy
-compute_enstrophy
-apply_horizontal_laplacian!
-apply_inverse_horizontal_laplacian!
-rotate_field_z!
-rotate_field_euler!
-apply_spectral_filter!
-apply_exponential_filter!
-get_shtnskit_version_info
-```
+See the [API Reference](@ref) page for complete function documentation.
