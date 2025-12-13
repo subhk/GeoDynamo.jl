@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for Documenter.jl to detect tags
 
       - name: Install system dependencies
         run: |
@@ -38,17 +40,12 @@ jobs:
         run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
 
       - name: Install documentation dependencies
-        run: julia --project=docs -e 'using Pkg; Pkg.instantiate()'
+        run: julia --project=docs -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
 
-      - name: Build documentation
+      - name: Build and deploy documentation
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
         run: julia --project=docs docs/make.jl
-
-      - name: Deploy to GitHub Pages
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./docs/build
+        # Documenter.jl's deploydocs() handles deployment to gh-pages branch
+        # with proper versioning (dev/, stable/, vX.Y.Z/)
