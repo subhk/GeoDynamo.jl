@@ -53,6 +53,62 @@ const SHTNSKIT_USE_QST = true              # Use SHqst_to_spat/spat_to_SHqst for
 const SHTNSKIT_USE_SCRATCH_BUFFERS = true  # Use scratch_spatial/scratch_fft helpers
 
 # ================================================================================
+# Thread-Safe Buffer Cache Access
+# ================================================================================
+# The buffer cache is shared across threads and needs synchronization to avoid
+# race conditions when multiple threads access or create buffers simultaneously.
+
+"""
+    _BUFFER_CACHE_LOCK
+
+Global ReentrantLock for thread-safe access to SHTnsKitConfig buffer caches.
+All access to config._buffer_cache should be protected by this lock.
+"""
+const _BUFFER_CACHE_LOCK = ReentrantLock()
+
+"""
+    get_cached_buffer!(config, key::Symbol, create_func::Function)
+
+Thread-safe accessor for buffer cache. Returns existing buffer if present,
+otherwise creates a new one using `create_func()` and caches it.
+
+# Arguments
+- `config`: SHTnsKitConfig object containing the buffer cache
+- `key::Symbol`: Key to look up in the buffer cache
+- `create_func::Function`: Zero-argument function to create buffer if not cached
+
+# Returns
+The cached or newly created buffer.
+
+# Example
+```julia
+buffer = get_cached_buffer!(config, :my_buffer) do
+    zeros(Float64, nlat, nlon)
+end
+```
+"""
+function get_cached_buffer!(config, key::Symbol, create_func::Function)
+    lock(_BUFFER_CACHE_LOCK) do
+        if !haskey(config._buffer_cache, key)
+            config._buffer_cache[key] = create_func()
+        end
+        return config._buffer_cache[key]
+    end
+end
+
+"""
+    clear_buffer_cache!(config)
+
+Thread-safe clearing of all cached buffers. Useful when changing configurations
+or to free memory.
+"""
+function clear_buffer_cache!(config)
+    lock(_BUFFER_CACHE_LOCK) do
+        empty!(config._buffer_cache)
+    end
+end
+
+# ================================================================================
 # Utility Functions
 # ================================================================================
 
@@ -333,6 +389,24 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
 
     if get_rank() == 0
         print_shtnskit_config_summary(nlat, nlon, lmax, mmax, nlm, nprocs, memory_estimate)
+    end
+
+    # Step 8: Initialize buffer cache with SHTnsKit v1.1.15 scratch buffers
+    buffer_cache = Dict{Symbol, Any}()
+    if SHTNSKIT_USE_SCRATCH_BUFFERS
+        try
+            # Use SHTnsKit's native scratch buffer allocation for better memory management
+            buffer_cache[:spatial_scratch] = SHTnsKit.scratch_spatial(sht_config, Float64)
+            buffer_cache[:fft_scratch] = SHTnsKit.scratch_fft(sht_config, ComplexF64)
+            if get_rank() == 0
+                @info "SHTnsKit v1.1.15 scratch buffers allocated"
+            end
+        catch e
+            # Fallback for older SHTnsKit versions
+            if get_rank() == 0
+                @debug "Could not allocate SHTnsKit scratch buffers: $e"
+            end
+        end
     end
 
     return SHTnsKitConfig(
