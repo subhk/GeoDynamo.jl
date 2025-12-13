@@ -822,7 +822,7 @@ load_velocity_boundary_conditions!() instead.
 
 # Boundary Condition Mapping (for solenoidal/incompressible flows):
 - No-slip: v_r = v_θ = v_φ = 0 → Q = T = 0 at boundaries (Dirichlet)
-- Stress-free: v_r = 0 (Dirichlet), tangential stress = 0 → Q = 0 (Dirichlet), ∂T/∂r = 0 (Neumann)
+- Stress-free: v_r = 0 (Dirichlet), tangential stress = 0 → Q = 0 (Dirichlet), ∂T/∂r = T/r (Neumann)
 - Impermeable: v_r = 0 → Q = 0 at boundaries (Dirichlet), T unconstrained
 
 # Field naming convention:
@@ -850,7 +850,7 @@ function enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=
 
     elseif bc_type == :stress_free
         # Stress-free: v_r = 0 (Dirichlet), zero tangential stress (Neumann)
-        # Q = 0 (Dirichlet), ∂T/∂r = 0 (Neumann)
+        # Q = 0 (Dirichlet), ∂T/∂r = T/r (Neumann, enforced by apply_velocity_flux_bc_spectral!)
 
         if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
             fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0 (radial)
