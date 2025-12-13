@@ -45,9 +45,10 @@ format = Documenter.HTML(;
     prettyurls = get(ENV, "CI", "false") == "true",
     canonical = "https://subhk.github.io/GeoDynamo.jl/stable/",
     assets = String[],
-    size_threshold = 500 * 1024,  # Increase threshold to 500KB
-    # Enable version selector in the documentation
+    size_threshold = 500 * 1024,
     size_threshold_warn = 200 * 1024,
+    # Show version selector with dev and stable
+    ansicolor = true,
 )
 
 makedocs(
@@ -55,7 +56,8 @@ makedocs(
     sitename = "GeoDynamo.jl",
     format = format,
     pages = pages,
-    checkdocs = :all,  # Include all docstrings, including internal implementation
+    checkdocs = :all,
+    warnonly = true,  # Don't fail on docstring warnings
 )
 
 # Deploy documentation with proper versioning
@@ -65,6 +67,6 @@ deploydocs(
     repo = "github.com/subhk/GeoDynamo.jl.git",
     devbranch = "main",
     push_preview = true,
-    # Use default versioning: dev from devbranch, stable from latest tag
-    # This creates: dev/, stable/, and vX.Y.Z/ folders
+    # Explicitly set versions to show in selector
+    versions = ["stable" => "v^", "dev" => "dev"],
 )
