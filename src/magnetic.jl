@@ -1,6 +1,37 @@
 # ================================================================================
-#  Magnetic field components with SHTns
+# Magnetic Field Module with SHTns
 # ================================================================================
+#
+# This module implements the magnetic field representation and induction equation
+# for geodynamo simulations using spherical harmonic transforms (SHTnsKit).
+#
+# ================================================================================
+# TOROIDAL-POLOIDAL DECOMPOSITION
+# ================================================================================
+#
+# For solenoidal fields (∇·B = 0), the magnetic field is decomposed as:
+#
+#   B = ∇×(T r̂) + ∇×∇×(P r̂)
+#
+# where:
+#   T(r,θ,φ) = Toroidal scalar potential (purely tangential field)
+#   P(r,θ,φ) = Poloidal scalar potential (has radial component)
+#
+# Physical interpretation:
+#   - Toroidal: azimuthal magnetic field (like ring currents)
+#   - Poloidal: meridional magnetic field (like dipole field)
+#
+# ================================================================================
+# INDUCTION EQUATION
+# ================================================================================
+#
+# The magnetic field evolves according to:
+#
+#   ∂B/∂t = ∇×(u×B) + η∇²B
+#
+# where:
+#   - ∇×(u×B) = Induction term (field generation by flow)
+#   - η∇²B = Magnetic diffusion (Ohmic decay)
 #
 # Transform Flow:
 # ===============
@@ -16,7 +47,55 @@
 #                             ↓
 #                   Add to nonlinear terms
 #
+# ================================================================================
+# BOUNDARY CONDITIONS
+# ================================================================================
 #
+# Three main magnetic BC types:
+#
+# 1. INSULATING (σ = 0 outside):
+#    - Physical: No current can cross boundary (J_n = 0)
+#    - Mathematical: (∇×B)_r = 0 at boundary
+#    - Implementation: Match potential field (Dirichlet on both T and P)
+#
+# 2. PERFECT CONDUCTOR (σ → ∞ outside):
+#    - Physical: Tangential B excluded from conductor
+#    - Mathematical: B_tangential = 0 at boundary
+#    - Implementation: T = 0 (Dirichlet), P from ∇·B = 0
+#
+# 3. POTENTIAL FIELD:
+#    - Physical: Field matches external potential field
+#    - Mathematical: B = -∇V where ∇²V = 0
+#    - Implementation: Dirichlet matching external field
+#
+# NOTE: Unlike velocity, magnetic BCs use Dirichlet for all types.
+# The distinction is in WHAT values are specified, not the BC type.
+#
+# ================================================================================
+# CURRENT DENSITY COMPUTATION
+# ================================================================================
+#
+# Current density j = ∇×B in spectral space:
+#
+# From toroidal-poloidal decomposition:
+#   j_toroidal = [l(l+1)/r² - d²/dr² - 2/r d/dr] P^{lm}
+#   j_poloidal = -[l(l+1)/r²] T^{lm}
+#
+# This is computed mode-by-mode in spectral space for efficiency.
+#
+# ================================================================================
+# MPI PARALLELIZATION
+# ================================================================================
+#
+# Data distribution follows the same pattern as velocity:
+#   - Spectral data: distributed over (l,m) modes via lm_range
+#   - Radial data: distributed over radial points via r_range
+#
+# MPI collectives (Allreduce) in diagnostic functions are called AFTER loops,
+# not inside them, so no special owns_mode pattern is needed here.
+#
+# ================================================================================
+
 import .BoundaryConditions
 import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
 
