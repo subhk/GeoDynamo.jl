@@ -404,6 +404,10 @@ end
     eab2_update_krylov!(u, nl, nl_prev, domain, diffusivity, config, dt; m=20, tol=1e-8)
 
 EAB2 update using Krylov exp/φ1 actions and banded LU for φ1.
+
+# MPI Safety
+Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
+the same number of times, preventing deadlock with uneven lm distribution.
 """
 function eab2_update_krylov!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
                              nl_prev::SHTnsSpectralField{T}, domain::RadialDomain,
@@ -417,15 +421,24 @@ function eab2_update_krylov!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T}
     nr = domain.N
     comm = get_comm()
     multi = MPI.Comm_size(comm) > 1
-    for lm_idx in lm_range
-        if lm_idx <= u.nlm
-            l = config.l_values[lm_idx]
+    nlm_total = u.nlm
+
+    # Use GLOBAL loop bounds to ensure all processes call Allreduce same number of times
+    for lm_idx in 1:nlm_total
+        # Check if this process owns this lm mode
+        owns_mode = lm_idx in lm_range
+
+        l = config.l_values[lm_idx]
+        A_banded = build_banded_A(T, domain, diffusivity, l)
+        A_lu = factorize_banded(A_banded)
+
+        # Assembled full vectors - all processes allocate
+        ur = zeros(T, nr); ui = zeros(T, nr)
+        nrn = zeros(T, nr); nin = zeros(T, nr)
+
+        # Only fill if this process owns the mode
+        if owns_mode
             ll = lm_idx - first(lm_range) + 1
-            A_banded = build_banded_A(T, domain, diffusivity, l)
-            A_lu = factorize_banded(A_banded)
-            # Assembled full vectors
-            ur = zeros(T, nr); ui = zeros(T, nr)
-            nrn = zeros(T, nr); nin = zeros(T, nr)
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_real, 3)
@@ -434,27 +447,35 @@ function eab2_update_krylov!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T}
                     nin[r] = (3/2)*n_imag[ll,1,lr] - (1/2)*p_imag[ll,1,lr]
                 end
             end
-            if multi
-                Allreduce!(ur, MPI.SUM, comm)
-                Allreduce!(ui, MPI.SUM, comm)
-                Allreduce!(nrn, MPI.SUM, comm)
-                Allreduce!(nin, MPI.SUM, comm)
-            end
-            # Define Aop! using banded apply
-            tmp = zeros(T, nr)
-            function Aop!(out, v)
-                apply_banded_full!(out, A_banded, v)
-                return nothing
-            end
-            # Real
-            ur_new = exp_action_krylov(Aop!, ur, dt; m, tol)
-            add_r = phi1_action_krylov(Aop!, A_lu, nrn, dt; m, tol)
-            @. ur_new = ur_new + dt * add_r
-            # Imag
-            ui_new = exp_action_krylov(Aop!, ui, dt; m, tol)
-            add_i = phi1_action_krylov(Aop!, A_lu, nin, dt; m, tol)
-            @. ui_new = ui_new + dt * add_i
-            # Scatter back
+        end
+
+        # ALL processes call Allreduce together (collective operation)
+        if multi
+            Allreduce!(ur, MPI.SUM, comm)
+            Allreduce!(ui, MPI.SUM, comm)
+            Allreduce!(nrn, MPI.SUM, comm)
+            Allreduce!(nin, MPI.SUM, comm)
+        end
+
+        # Define Aop! using banded apply
+        function Aop!(out, v)
+            apply_banded_full!(out, A_banded, v)
+            return nothing
+        end
+
+        # Real
+        ur_new = exp_action_krylov(Aop!, ur, dt; m, tol)
+        add_r = phi1_action_krylov(Aop!, A_lu, nrn, dt; m, tol)
+        @. ur_new = ur_new + dt * add_r
+
+        # Imag
+        ui_new = exp_action_krylov(Aop!, ui, dt; m, tol)
+        add_i = phi1_action_krylov(Aop!, A_lu, nin, dt; m, tol)
+        @. ui_new = ui_new + dt * add_i
+
+        # Scatter back only if this process owns the mode
+        if owns_mode
+            ll = lm_idx - first(lm_range) + 1
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_real, 3)
