@@ -57,6 +57,8 @@ module GeoDynamo
     export create_pencil_array, synchronize_halos!
     export print_pencil_info, print_pencil_axes, optimize_communication_order
     export ENABLE_TIMING
+    # MPI validation for parallel transforms
+    export validate_radial_distribution, check_transform_synchronization
 
 
     # exports field.jl

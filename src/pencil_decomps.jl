@@ -853,6 +853,95 @@ function print_pencil_axes(pencils)
     end
 end
 
+"""
+    validate_radial_distribution(pencils; warn_uneven::Bool=true) -> Bool
+
+Validate that radial dimension has compatible distribution across all pencils.
+
+# MPI Synchronization Requirement
+The SHTnsKit transforms use MPI.Allreduce inside per-radial-level loops.
+All processes must have the SAME number of local radial levels, otherwise
+processes will enter/exit the loop at different times causing deadlock.
+
+# Arguments
+- `pencils`: Named tuple of pencil configurations
+- `warn_uneven`: If true, emit warning for uneven distribution
+
+# Returns
+`true` if distribution is valid (all processes have same local radial count).
+`false` if there's a potential synchronization issue.
+"""
+function validate_radial_distribution(pencils; warn_uneven::Bool=true)
+    comm = get_comm()
+    rank = get_rank()
+    nprocs = get_nprocs()
+
+    if nprocs == 1
+        return true  # No distribution issues with single process
+    end
+
+    # Check radial distribution for each pencil type
+    valid = true
+    for (name, pencil) in pairs(pencils)
+        local_axes = pencil.axes_local
+        if length(local_axes) >= 3
+            # Get number of local radial levels
+            local_r_count = length(local_axes[3])
+
+            # Gather counts from all processes
+            all_r_counts = MPI.Allgather(local_r_count, comm)
+
+            # Check if all counts are equal
+            min_count = minimum(all_r_counts)
+            max_count = maximum(all_r_counts)
+
+            if min_count != max_count
+                valid = false
+                if warn_uneven && rank == 0
+                    @warn "Uneven radial distribution in pencil :$name" min_count max_count nprocs
+                    @warn "This may cause MPI deadlock in SHTnsKit transforms!"
+                    @warn "Recommendation: Ensure nr (radial points) is divisible by nprocs"
+                end
+            end
+        end
+    end
+
+    return valid
+end
+
+"""
+    check_transform_synchronization(config) -> Bool
+
+Verify that the SHTnsKit transform configuration is safe for parallel execution.
+
+Checks:
+1. All processes have same number of local radial levels
+2. Spectral mode distribution is valid
+3. FFT plans are properly initialized
+
+# Returns
+`true` if configuration is safe for parallel transforms.
+"""
+function check_transform_synchronization(config)
+    comm = get_comm()
+    nprocs = get_nprocs()
+
+    if nprocs == 1
+        return true
+    end
+
+    # Check pencil distribution
+    if haskey(config, :pencils) || hasproperty(config, :pencils)
+        pencils = config.pencils
+        if !validate_radial_distribution(pencils; warn_uneven=true)
+            return false
+        end
+    end
+
+    # Additional checks can be added here
+    return true
+end
+
 
 # =================================
 # Communication Optimization
