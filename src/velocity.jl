@@ -258,6 +258,10 @@ All methods now correctly enforce ∂T/∂r = T/r for stress-free boundaries.
 # Performance
 Uses pre-allocated workspace buffers if available (set via set_velocity_workspace!).
 Otherwise allocates temporary arrays (slower).
+
+# MPI Safety
+Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
+the same number of times, preventing deadlock with uneven lm distribution.
 """
 function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
                                            domain::RadialDomain,
@@ -269,55 +273,64 @@ function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
 
     lm_range = get_local_range(field.pencil, 1)
     r_range  = get_local_range(field.pencil, 3)
+    nlm_total = field.nlm
 
     # Try to get workspace for better performance
     ws = get_velocity_workspace(T)
     tid = Threads.threadid()
 
-    for lm_idx in lm_range
-        if lm_idx <= field.nlm
-            local_lm = lm_idx - first(lm_range) + 1
+    # Use GLOBAL loop bounds to ensure all processes call Allreduce same number of times
+    for lm_idx in 1:nlm_total
+        # Check if this process owns this lm mode
+        owns_mode = lm_idx in lm_range
+        local_lm = owns_mode ? (lm_idx - first(lm_range) + 1) : 0
 
-            # Check if this mode needs flux BC
-            apply_inner = (field.bc_type_inner[lm_idx] == Int(NEUMANN)) && (1 in r_range)
-            apply_outer = (field.bc_type_outer[lm_idx] == Int(NEUMANN)) && (domain.N in r_range)
+        # Check if this mode needs flux BC (based on BC type, consistent across processes)
+        # The boundary ownership check is done inside the BC functions
+        needs_inner_bc = field.bc_type_inner[lm_idx] == Int(NEUMANN)
+        needs_outer_bc = field.bc_type_outer[lm_idx] == Int(NEUMANN)
 
-            if apply_inner || apply_outer
-                # Apply flux BC using specified method (use workspace if available)
-                if method == :tau
-                    if ws !== nothing
-                        apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                                       apply_inner, apply_outer, dr_matrix,
-                                                       domain, r_range, ws, tid)
-                    else
-                        apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
-                                                   apply_inner, apply_outer, dr_matrix, domain, r_range)
-                    end
-                elseif method == :direct
-                    if ws !== nothing
-                        apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                                          apply_inner, apply_outer, domain, r_range, ws, tid)
-                    else
-                        apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
-                                                       apply_inner, apply_outer, domain, r_range)
-                    end
-                elseif method == :physical_stress
-                    if ws !== nothing
-                        apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                                                   apply_inner, apply_outer, domain, r_range, ws, tid)
-                    else
-                        apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
-                                                               apply_inner, apply_outer, domain, r_range)
-                    end
+        # If any boundary needs BC, all processes must call the BC function together
+        if needs_inner_bc || needs_outer_bc
+            # Determine which boundaries this process can apply (owns boundary points)
+            apply_inner = needs_inner_bc && (1 in r_range)
+            apply_outer = needs_outer_bc && (domain.N in r_range)
+
+            # Apply flux BC using specified method
+            # ALL processes call these functions for MPI synchronization (Allreduce inside)
+            if method == :tau
+                if ws !== nothing
+                    apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
+                                                   apply_inner, apply_outer, dr_matrix,
+                                                   domain, r_range, ws, tid, owns_mode)
                 else
-                    @warn "Flux BC method $method not implemented for velocity, using :physical_stress"
-                    if ws !== nothing
-                        apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                                                   apply_inner, apply_outer, domain, r_range, ws, tid)
-                    else
-                        apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
-                                                               apply_inner, apply_outer, domain, r_range)
-                    end
+                    apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
+                                               apply_inner, apply_outer, dr_matrix, domain, r_range, owns_mode)
+                end
+            elseif method == :direct
+                if ws !== nothing
+                    apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_idx,
+                                                      apply_inner, apply_outer, domain, r_range, ws, tid, owns_mode)
+                else
+                    apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
+                                                   apply_inner, apply_outer, domain, r_range, owns_mode)
+                end
+            elseif method == :physical_stress
+                if ws !== nothing
+                    apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
+                                                               apply_inner, apply_outer, domain, r_range, ws, tid, owns_mode)
+                else
+                    apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
+                                                           apply_inner, apply_outer, domain, r_range, owns_mode)
+                end
+            else
+                @warn "Flux BC method $method not implemented for velocity, using :physical_stress"
+                if ws !== nothing
+                    apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
+                                                               apply_inner, apply_outer, domain, r_range, ws, tid, owns_mode)
+                else
+                    apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
+                                                           apply_inner, apply_outer, domain, r_range, owns_mode)
                 end
             end
         end
@@ -326,7 +339,7 @@ end
 
 """
     apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
-                                apply_inner, apply_outer, dr_matrix, domain, r_range)
+                                apply_inner, apply_outer, dr_matrix, domain, r_range, owns_mode)
 
 Apply stress-free boundary conditions using the tau method for velocity components.
 
@@ -341,27 +354,34 @@ This means the target flux at each boundary is NOT zero, but T/r:
 - Outer boundary: target_flux = T[nr]/r[nr]
 
 The tau method adds a correction polynomial to enforce this condition exactly.
+
+# MPI Safety
+The `owns_mode` parameter indicates whether this process owns the lm mode.
+All processes must call this function for each mode to ensure Allreduce is called
+the same number of times by all processes (prevents deadlock).
 """
 function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
                                      apply_inner, apply_outer,
-                                     dr_matrix::BandedMatrix, domain, r_range)
+                                     dr_matrix::BandedMatrix, domain, r_range, owns_mode::Bool)
     T = eltype(spec_real)
     nr = domain.N
     r = domain.r[:, 4]  # Radial coordinates
 
-    # Extract radial profile for this mode
+    # Extract radial profile for this mode (only if this process owns the mode)
     profile_real = zeros(T, nr)
     profile_imag = zeros(T, nr)
 
-    for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
-            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+    if owns_mode
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+            end
         end
     end
 
-    # MPI gather to get complete profile (needed for BC application)
+    # MPI gather to get complete profile (ALL processes call this for synchronization)
     comm = BoundaryConditions.get_comm()
     if comm !== nothing && MPI.Comm_size(comm) > 1
         Allreduce!(profile_real, MPI.SUM, comm)
@@ -452,12 +472,14 @@ function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
         end
     end
 
-    # Store corrected profile back
-    for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
-            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+    # Store corrected profile back (only if this process owns the mode)
+    if owns_mode
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+            end
         end
     end
 end
