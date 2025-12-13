@@ -767,8 +767,7 @@ The linear index follows the convention where m varies fastest within each l:
 
 # Performance Note
 This function uses a linear search. For performance-critical code with many
-lookups, consider precomputing the l_values and m_values arrays (stored in
-SHTnsKitConfig).
+lookups, use `index_to_lm_fast` with precomputed lookup tables from SHTnsKitConfig.
 """
 function index_to_lm_shtnskit(idx::Int, lmax::Int, mmax::Int)
     current_idx = 0
@@ -781,6 +780,60 @@ function index_to_lm_shtnskit(idx::Int, lmax::Int, mmax::Int)
         end
     end
     return 0, 0  # Fallback for invalid index
+end
+
+"""
+    index_to_lm_fast(idx, config) -> (l, m)
+
+Fast O(1) conversion from linear spectral index to (l, m) using precomputed tables.
+
+Uses the l_values and m_values arrays stored in SHTnsKitConfig during initialization.
+This is significantly faster than `index_to_lm_shtnskit` for repeated lookups.
+
+# Arguments
+- `idx`: Linear spectral index (1-based)
+- `config`: SHTnsKitConfig containing precomputed l_values and m_values
+
+# Returns
+Tuple (l, m) for the spherical harmonic degree and order.
+"""
+@inline function index_to_lm_fast(idx::Int, config)
+    if idx >= 1 && idx <= length(config.l_values)
+        return config.l_values[idx], config.m_values[idx]
+    else
+        return 0, 0  # Fallback for invalid index
+    end
+end
+
+"""
+    build_lm_lookup_tables(lmax, mmax) -> (l_values, m_values)
+
+Build precomputed lookup tables for converting linear indices to (l, m).
+
+# Returns
+- `l_values`: Vector where l_values[idx] gives the degree l for linear index idx
+- `m_values`: Vector where m_values[idx] gives the order m for linear index idx
+"""
+function build_lm_lookup_tables(lmax::Int, mmax::Int)
+    # Calculate total number of modes
+    nlm = 0
+    for l in 0:lmax
+        nlm += min(l, mmax) + 1
+    end
+
+    l_values = zeros(Int, nlm)
+    m_values = zeros(Int, nlm)
+
+    idx = 0
+    for l in 0:lmax
+        for m in 0:min(l, mmax)
+            idx += 1
+            l_values[idx] = l
+            m_values[idx] = m
+        end
+    end
+
+    return l_values, m_values
 end
 
 """

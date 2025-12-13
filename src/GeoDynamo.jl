@@ -46,6 +46,8 @@ module GeoDynamo
     export apply_spectral_filter!, apply_exponential_filter!, truncate_spectral_modes!
     # Threading and version info
     export set_shtnskit_threads, get_shtnskit_version_info
+    # Fast index conversion
+    export index_to_lm_fast, build_lm_lookup_tables
 
     # exports pencil_decomps.jl
     export get_comm, get_rank, get_nprocs
