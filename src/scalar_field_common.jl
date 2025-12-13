@@ -858,41 +858,49 @@ function get_flux_value(lm_idx::Int, boundary::Int, field::AbstractScalarField)
 end
 
 """
-    apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx, 
-                       apply_inner, apply_outer, field::AbstractScalarField, 
-                       domain, r_range)
+    apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
+                       apply_inner, apply_outer, field::AbstractScalarField,
+                       domain, r_range, owns_mode::Bool)
 
 Apply flux boundary conditions using the tau method.
 This is the generalized version that works with any scalar field.
+
+# MPI Safety
+The `owns_mode` parameter indicates whether this process owns the lm mode.
+All processes must call this function for each mode to ensure Allreduce is called
+the same number of times by all processes (prevents deadlock).
 """
 function apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
                            apply_inner, apply_outer,
-                           field::AbstractScalarField, domain, r_range)
+                           field::AbstractScalarField, domain, r_range, owns_mode::Bool)
     T = eltype(spec_real)
     nr = domain.N
-    
-    # Extract radial profile for this mode
+
+    # Extract radial profile for this mode (only if this process owns the mode)
     profile_real = zeros(T, nr)
     profile_imag = zeros(T, nr)
-    
-    for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
-            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+
+    if owns_mode
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+            end
         end
     end
-    
-    # MPI gather to get complete profile (needed for BC application)
-    if MPI.Comm_size(get_comm()) > 1
-        Allreduce!(profile_real, MPI.SUM, get_comm())
-        Allreduce!(profile_imag, MPI.SUM, get_comm())
+
+    # MPI gather (ALL processes call this for synchronization)
+    comm = get_comm()
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        Allreduce!(profile_real, MPI.SUM, comm)
+        Allreduce!(profile_imag, MPI.SUM, comm)
     end
-    
+
     # Get prescribed flux values
     flux_inner = apply_inner ? get_flux_value(lm_idx, 1, field) : T(0)
     flux_outer = apply_outer ? get_flux_value(lm_idx, 2, field) : T(0)
-    
+
     # Compute current fluxes at boundaries
     current_flux_inner, current_flux_outer = compute_boundary_fluxes(
         profile_real, field.dr_matrix, domain)
@@ -919,13 +927,15 @@ function apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
     if any(x -> abs(x) > 1e-12, profile_imag)
         apply_tau_correction!(profile_imag, tau_coeffs, domain)
     end
-    
-    # Store corrected profile back
-    for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
-            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+
+    # Store corrected profile back (only if this process owns the mode)
+    if owns_mode
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+            end
         end
     end
 end
@@ -1019,59 +1029,70 @@ end
 """
     apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
                                    apply_inner, apply_outer, field::AbstractScalarField,
-                                   domain, r_range)
+                                   domain, r_range, owns_mode::Bool)
 
 Apply flux boundary conditions using the influence matrix method.
+
+# MPI Safety
+The `owns_mode` parameter indicates whether this process owns the lm mode.
+All processes must call this function for each mode to ensure Allreduce is called
+the same number of times by all processes (prevents deadlock).
 """
 function apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
                                        apply_inner, apply_outer,
-                                       field::AbstractScalarField, domain, r_range)
+                                       field::AbstractScalarField, domain, r_range, owns_mode::Bool)
     T = eltype(spec_real)
     infl = _get_influence_cache(domain, field.dr_matrix)
-    
+
     # Get prescribed and current flux values
     flux_prescribed = [get_flux_value(lm_idx, 1, field),
                       get_flux_value(lm_idx, 2, field)]
-    
-    # Extract and gather radial profile
+
+    # Extract and gather radial profile (only if this process owns the mode)
     nr = domain.N
     profile_real = zeros(T, nr)
     profile_imag = zeros(T, nr)
-    
-    for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
-            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+
+    if owns_mode
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+            end
         end
     end
-    
-    if MPI.Comm_size(get_comm()) > 1
-        Allreduce!(profile_real, MPI.SUM, get_comm())
-        Allreduce!(profile_imag, MPI.SUM, get_comm())
+
+    # MPI gather (ALL processes call this for synchronization)
+    comm = get_comm()
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        Allreduce!(profile_real, MPI.SUM, comm)
+        Allreduce!(profile_imag, MPI.SUM, comm)
     end
-    
+
     # Compute current flux at boundaries
     current_flux_inner, current_flux_outer = compute_boundary_fluxes(
         profile_real, field.dr_matrix, domain)
     flux_current = [current_flux_inner, current_flux_outer]
-    
+
     # Solve for influence amplitudes
     flux_error = flux_prescribed - flux_current
     amplitudes = infl.influence_matrix \ flux_error
-    
+
     # Apply influence correction
     @. profile_real += amplitudes[1] * infl.G_inner + amplitudes[2] * infl.G_outer
     if any(x -> abs(x) > 1e-12, profile_imag)
         @. profile_imag += amplitudes[1] * infl.G_inner + amplitudes[2] * infl.G_outer
     end
-    
-    # Store corrected profile back
-    for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
-            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+
+    # Store corrected profile back (only if this process owns the mode)
+    if owns_mode
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+            end
         end
     end
 end
@@ -1164,37 +1185,52 @@ end
 
 Apply flux boundary conditions to a scalar field in spectral space.
 Methods available: :tau (most robust), :influence_matrix, :direct (simplest).
+
+# MPI Safety
+Uses global loop bounds (1:nlm) to ensure all processes call MPI collectives
+the same number of times, preventing deadlock with uneven lm distribution.
 """
 function apply_scalar_flux_bc_spectral!(field::AbstractScalarField{T}, domain::RadialDomain;
                                        method::Symbol=:tau) where T
     spec_real = parent(field.spectral.data_real)
     spec_imag = parent(field.spectral.data_imag)
-    
+
     lm_range = range_local(field.config.pencils.spec, 1)
     r_range  = range_local(field.config.pencils.spec, 3)
-    
-    for lm_idx in lm_range
-        if lm_idx <= field.config.nlm
-            local_lm = lm_idx - first(lm_range) + 1
-            
-            # Check if this mode needs flux BC
-            apply_inner = (field.bc_type_inner[lm_idx] == Int(NEUMANN)) && (1 in r_range)
-            apply_outer = (field.bc_type_outer[lm_idx] == Int(NEUMANN)) && (domain.N in r_range)
-            
-            if apply_inner || apply_outer
-                # Apply flux BC using specified method
-                if method == :tau
-                    apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
-                                      apply_inner, apply_outer, field, domain, r_range)
-                elseif method == :influence_matrix
-                    apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
-                                                   apply_inner, apply_outer, field, domain, r_range)
-                elseif method == :direct
+    nlm_total = field.config.nlm
+
+    # Use GLOBAL loop bounds to ensure all processes call MPI collectives same number of times
+    for lm_idx in 1:nlm_total
+        # Check if this process owns this lm mode
+        owns_mode = lm_idx in lm_range
+        local_lm = owns_mode ? (lm_idx - first(lm_range) + 1) : 0
+
+        # Check if this mode needs flux BC (BC type arrays are consistent across processes)
+        needs_inner_bc = field.bc_type_inner[lm_idx] == Int(NEUMANN)
+        needs_outer_bc = field.bc_type_outer[lm_idx] == Int(NEUMANN)
+
+        # If any boundary needs BC, all processes must participate for MPI synchronization
+        if needs_inner_bc || needs_outer_bc
+            # Determine which boundaries this process can apply (owns boundary points)
+            apply_inner = needs_inner_bc && (1 in r_range)
+            apply_outer = needs_outer_bc && (domain.N in r_range)
+
+            # Apply flux BC using specified method
+            # ALL processes call these functions for MPI synchronization (Allreduce inside)
+            if method == :tau
+                apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
+                                  apply_inner, apply_outer, field, domain, r_range, owns_mode)
+            elseif method == :influence_matrix
+                apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
+                                               apply_inner, apply_outer, field, domain, r_range, owns_mode)
+            elseif method == :direct
+                # Direct method doesn't use MPI collectives, only apply if owns_mode
+                if owns_mode
                     apply_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
                                          field, domain, r_range)
-                else
-                    error("Unknown flux BC method: $method. Use :tau, :influence_matrix, or :direct")
                 end
+            else
+                error("Unknown flux BC method: $method. Use :tau, :influence_matrix, or :direct")
             end
         end
     end

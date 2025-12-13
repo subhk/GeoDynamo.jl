@@ -1,8 +1,87 @@
+# ================================================================================
+# Velocity Field Module with SHTns
+# ================================================================================
+#
+# This module implements the velocity field representation and boundary conditions
+# for geodynamo simulations using spherical harmonic transforms (SHTnsKit).
+#
+# ================================================================================
+# TOROIDAL-POLOIDAL DECOMPOSITION
+# ================================================================================
+#
+# For incompressible flow (∇·u = 0), velocity is decomposed as:
+#
+#   u = ∇×(T r̂) + ∇×∇×(P r̂)
+#
+# where:
+#   T(r,θ,φ) = Toroidal scalar potential (purely tangential flow)
+#   P(r,θ,φ) = Poloidal scalar potential (has radial component)
+#
+# In spectral space, each (l,m) mode has independent T_lm(r) and P_lm(r).
+#
+# Physical interpretation:
+#   - Toroidal: horizontal circulation (like trade winds)
+#   - Poloidal: overturning circulation (like convection cells)
+#
+# ================================================================================
+# BOUNDARY CONDITIONS
+# ================================================================================
+#
+# Two main velocity BC types for geodynamo:
+#
+# 1. NO-SLIP (rigid boundary): u = 0 at boundary
+#    - Poloidal: P = 0, ∂P/∂r = 0 (Dirichlet)
+#    - Toroidal: T = 0 (Dirichlet)
+#
+# 2. STRESS-FREE (free-slip): No tangential stress at boundary
+#    - Poloidal: P = 0 (v_r = 0, impermeable)
+#    - Toroidal: ∂T/∂r = T/r (NOT simple Neumann!)
+#
+#    The stress-free condition on toroidal component comes from:
+#      σ_rθ = μ * r * ∂/∂r(v_θ/r) = μ * (∂v_θ/∂r - v_θ/r) = 0
+#
+#    For toroidal flow where v_θ ∝ T:
+#      ∂T/∂r = T/r
+#
+#    This is implemented using finite differences:
+#      Inner: T[1] = T[2] / (1 + Δr/r[1])
+#      Outer: T[nr] = T[nr-1] / (1 - Δr/r[nr])
+#
+# ================================================================================
+# MPI PARALLELIZATION
+# ================================================================================
+#
+# Data distribution (PencilArrays):
+#   - Spectral data: distributed over (l,m) modes via `lm_range`
+#   - Radial data: distributed over radial points via `r_range`
+#
+# CRITICAL: BC functions with MPI collectives use global loop bounds.
+# See timestep.jl header for detailed explanation of the MPI safety pattern.
+#
+# The `owns_mode` parameter in BC functions indicates whether this MPI process
+# owns the current (l,m) mode. All processes must call BC functions for each
+# mode to ensure MPI collectives are balanced.
+#
+# ================================================================================
+# WORKSPACE OPTIMIZATION
+# ================================================================================
+#
+# VelocityWorkspace provides pre-allocated buffers to avoid allocation in
+# hot loops. Create once and reuse:
+#
+#   ws = create_velocity_workspace(Float64, nr)
+#   set_velocity_workspace!(ws)  # Register globally
+#
+# BC functions automatically use the workspace if available, providing
+# ~10-100x speedup for BC application.
+#
+# ================================================================================
+
 import .BoundaryConditions
 import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
 
 # ================================================================================
-# Physics Modules with SHTns
+# Velocity Field Data Structures
 # ================================================================================
 
 # ---------------------------------
