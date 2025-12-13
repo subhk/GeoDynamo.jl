@@ -1641,6 +1641,15 @@ function ERK2FieldBuffers(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T}, c
     )
 end
 
+"""
+    erk2_prepare_field!(buffers, u, nl, cache, config, dt)
+
+Prepare ERK2 first stage by computing linear evolution and k1 terms.
+
+# MPI Safety
+Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
+the same number of times, preventing deadlock with uneven lm distribution.
+"""
 function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField{T},
                              nl::SHTnsSpectralField{T}, cache::ERK2Cache{T},
                              config::SHTnsKitConfig, dt::Float64) where T
@@ -1670,6 +1679,7 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField
 
     comm = get_comm()
     multi = MPI.Comm_size(comm) > 1
+    nlm_total = u.nlm
 
     linear_real = buffers.linear_real
     linear_imag = buffers.linear_imag
@@ -1678,80 +1688,106 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField
     stage_real = buffers.stage_real
     stage_imag = buffers.stage_imag
 
-    for lm_idx in lm_range
-        if lm_idx <= u.nlm
-            l = config.l_values[lm_idx]
-            cache_idx = get(buffers.cache_lookup, l, nothing)
-            cache_idx === nothing && error("Missing ERK2 cache entry for l=$l")
+    # Use GLOBAL loop bounds to ensure all processes call Allreduce same number of times
+    for lm_idx in 1:nlm_total
+        # Check if this process owns this lm mode
+        owns_mode = lm_idx in lm_range
 
-            E_full = cache.E_full[cache_idx]
-            E_half = cache.E_half[cache_idx]
-            phi1_full = cache.phi1_full[cache_idx]
-            phi1_half = cache.phi1_half[cache_idx]
+        l = config.l_values[lm_idx]
+        cache_idx = get(buffers.cache_lookup, l, nothing)
+        cache_idx === nothing && error("Missing ERK2 cache entry for l=$l")
 
-            fill!(ur, zero(T)); fill!(ui, zero(T))
-            fill!(nr_vec, zero(T)); fill!(ni_vec, zero(T))
+        E_full = cache.E_full[cache_idx]
+        E_half = cache.E_half[cache_idx]
+        phi1_full = cache.phi1_full[cache_idx]
+        phi1_half = cache.phi1_half[cache_idx]
 
+        fill!(ur, zero(T)); fill!(ui, zero(T))
+        fill!(nr_vec, zero(T)); fill!(ni_vec, zero(T))
+
+        # Only fill if this process owns the mode
+        if owns_mode
             ll = lm_idx - first(lm_range) + 1
 
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_real, 3)
-                    ur[lr] = u_real[ll, 1, lr]
-                    ui[lr] = u_imag[ll, 1, lr]
-                    nr_vec[lr] = buffers.n_current_real[ll, 1, lr]
-                    ni_vec[lr] = buffers.n_current_imag[ll, 1, lr]
+                    ur[r] = u_real[ll, 1, lr]
+                    ui[r] = u_imag[ll, 1, lr]
+                    nr_vec[r] = buffers.n_current_real[ll, 1, lr]
+                    ni_vec[r] = buffers.n_current_imag[ll, 1, lr]
                 end
             end
+        end
 
-            if multi
-                Allreduce!(ur, MPI.SUM, comm)
-                Allreduce!(ui, MPI.SUM, comm)
-                Allreduce!(nr_vec, MPI.SUM, comm)
-                Allreduce!(ni_vec, MPI.SUM, comm)
-            end
+        # ALL processes call Allreduce together (collective operation)
+        if multi
+            Allreduce!(ur, MPI.SUM, comm)
+            Allreduce!(ui, MPI.SUM, comm)
+            Allreduce!(nr_vec, MPI.SUM, comm)
+            Allreduce!(ni_vec, MPI.SUM, comm)
+        end
 
-            mul!(linear_tmp, E_full, ur)
-            mul!(k1_tmp, phi1_full, nr_vec)
+        mul!(linear_tmp, E_full, ur)
+        mul!(k1_tmp, phi1_full, nr_vec)
+
+        # Scatter back only if this process owns the mode
+        if owns_mode
+            ll = lm_idx - first(lm_range) + 1
 
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_real, 3)
-                    linear_real[ll, 1, lr] = linear_tmp[lr]
-                    k1_real[ll, 1, lr] = k1_tmp[lr]
+                    linear_real[ll, 1, lr] = linear_tmp[r]
+                    k1_real[ll, 1, lr] = k1_tmp[r]
                 end
             end
+        end
 
-            mul!(stage_tmp, E_half, ur)
-            mul!(stage_phi_tmp, phi1_half, nr_vec)
-            @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
+        mul!(stage_tmp, E_half, ur)
+        mul!(stage_phi_tmp, phi1_half, nr_vec)
+        @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
+
+        # Scatter stage results only if this process owns the mode
+        if owns_mode
+            ll = lm_idx - first(lm_range) + 1
 
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_real, 3)
-                    stage_real[ll, 1, lr] = stage_tmp[lr]
+                    stage_real[ll, 1, lr] = stage_tmp[r]
                 end
             end
+        end
 
-            mul!(linear_tmp, E_full, ui)
-            mul!(k1_tmp, phi1_full, ni_vec)
+        mul!(linear_tmp, E_full, ui)
+        mul!(k1_tmp, phi1_full, ni_vec)
+
+        # Scatter imaginary linear/k1 results only if this process owns the mode
+        if owns_mode
+            ll = lm_idx - first(lm_range) + 1
 
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_imag, 3)
-                    linear_imag[ll, 1, lr] = linear_tmp[lr]
-                    k1_imag[ll, 1, lr] = k1_tmp[lr]
+                    linear_imag[ll, 1, lr] = linear_tmp[r]
+                    k1_imag[ll, 1, lr] = k1_tmp[r]
                 end
             end
+        end
 
-            mul!(stage_tmp, E_half, ui)
-            mul!(stage_phi_tmp, phi1_half, ni_vec)
-            @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
+        mul!(stage_tmp, E_half, ui)
+        mul!(stage_phi_tmp, phi1_half, ni_vec)
+        @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
+
+        # Scatter imaginary stage results only if this process owns the mode
+        if owns_mode
+            ll = lm_idx - first(lm_range) + 1
 
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_imag, 3)
-                    stage_imag[ll, 1, lr] = stage_tmp[lr]
+                    stage_imag[ll, 1, lr] = stage_tmp[r]
                 end
             end
         end
@@ -1774,6 +1810,15 @@ erk2_store_stage_nonlinear!(buffers::ERK2FieldBuffers{T}, nl::SHTnsSpectralField
     return buffers
 end
 
+"""
+    erk2_finalize_field!(buffers, u, cache, config, dt)
+
+Finalize ERK2 second stage by applying phi2 correction.
+
+# MPI Safety
+Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
+the same number of times, preventing deadlock with uneven lm distribution.
+"""
 function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField{T},
                               cache::ERK2Cache{T}, config::SHTnsKitConfig, dt::Float64) where T
     cache.use_krylov && error("Krylov-based ERK2 caches are not supported in staged integration")
@@ -1795,80 +1840,106 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralFiel
 
     comm = get_comm()
     multi = MPI.Comm_size(comm) > 1
+    nlm_total = u.nlm
 
-    for lm_idx in lm_range
-        if lm_idx <= u.nlm
-            l = config.l_values[lm_idx]
-            cache_idx = get(buffers.cache_lookup, l, nothing)
-            cache_idx === nothing && error("Missing ERK2 cache entry for l=$l")
-            phi2 = cache.phi2_full[cache_idx]
+    # Use GLOBAL loop bounds to ensure all processes call Allreduce same number of times
+    for lm_idx in 1:nlm_total
+        # Check if this process owns this lm mode
+        owns_mode = lm_idx in lm_range
+
+        l = config.l_values[lm_idx]
+        cache_idx = get(buffers.cache_lookup, l, nothing)
+        cache_idx === nothing && error("Missing ERK2 cache entry for l=$l")
+        phi2 = cache.phi2_full[cache_idx]
+
+        # Initialize buffers - all processes
+        fill!(tmp_linear, zero(T))
+        fill!(tmp_k1, zero(T))
+        fill!(tmp_Nn, zero(T))
+        fill!(tmp_stage, zero(T))
+
+        # Only fill if this process owns the mode (REAL part)
+        if owns_mode
             ll = lm_idx - first(lm_range) + 1
 
-            fill!(tmp_linear, zero(T))
-            fill!(tmp_k1, zero(T))
-            fill!(tmp_Nn, zero(T))
-            fill!(tmp_stage, zero(T))
+            @inbounds for r in r_range
+                lr = r - first(r_range) + 1
+                if lr <= size(u_real, 3)
+                    tmp_linear[r] = buffers.linear_real[ll, 1, lr]
+                    tmp_k1[r] = buffers.k1_real[ll, 1, lr]
+                    tmp_Nn[r] = buffers.n_current_real[ll, 1, lr]
+                    tmp_stage[r] = buffers.stage_nl_real[ll, 1, lr]
+                end
+            end
+        end
+
+        # ALL processes call Allreduce together (collective operation)
+        if multi
+            Allreduce!(tmp_linear, MPI.SUM, comm)
+            Allreduce!(tmp_k1, MPI.SUM, comm)
+            Allreduce!(tmp_Nn, MPI.SUM, comm)
+            Allreduce!(tmp_stage, MPI.SUM, comm)
+        end
+
+        delta .= tmp_stage
+        @. delta = delta - tmp_Nn
+        mul!(correction, phi2, delta)
+        @. result = tmp_linear + dt * (tmp_k1 + correction)
+
+        # Scatter back only if this process owns the mode (REAL part)
+        if owns_mode
+            ll = lm_idx - first(lm_range) + 1
 
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_real, 3)
-                    tmp_linear[lr] = buffers.linear_real[ll, 1, lr]
-                    tmp_k1[lr] = buffers.k1_real[ll, 1, lr]
-                    tmp_Nn[lr] = buffers.n_current_real[ll, 1, lr]
-                    tmp_stage[lr] = buffers.stage_nl_real[ll, 1, lr]
+                    u_real[ll, 1, lr] = result[r]
                 end
             end
+        end
 
-            if multi
-                Allreduce!(tmp_linear, MPI.SUM, comm)
-                Allreduce!(tmp_k1, MPI.SUM, comm)
-                Allreduce!(tmp_Nn, MPI.SUM, comm)
-                Allreduce!(tmp_stage, MPI.SUM, comm)
-            end
+        # Reset buffers for imaginary part - all processes
+        fill!(tmp_linear, zero(T))
+        fill!(tmp_k1, zero(T))
+        fill!(tmp_Nn, zero(T))
+        fill!(tmp_stage, zero(T))
 
-            delta .= tmp_stage
-            @. delta = delta - tmp_Nn
-            mul!(correction, phi2, delta)
-            @. result = tmp_linear + dt * (tmp_k1 + correction)
-
-            @inbounds for r in r_range
-                lr = r - first(r_range) + 1
-                if lr <= size(u_real, 3)
-                    u_real[ll, 1, lr] = result[lr]
-                end
-            end
-
-            fill!(tmp_linear, zero(T))
-            fill!(tmp_k1, zero(T))
-            fill!(tmp_Nn, zero(T))
-            fill!(tmp_stage, zero(T))
+        # Only fill if this process owns the mode (IMAG part)
+        if owns_mode
+            ll = lm_idx - first(lm_range) + 1
 
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_imag, 3)
-                    tmp_linear[lr] = buffers.linear_imag[ll, 1, lr]
-                    tmp_k1[lr] = buffers.k1_imag[ll, 1, lr]
-                    tmp_Nn[lr] = buffers.n_current_imag[ll, 1, lr]
-                    tmp_stage[lr] = buffers.stage_nl_imag[ll, 1, lr]
+                    tmp_linear[r] = buffers.linear_imag[ll, 1, lr]
+                    tmp_k1[r] = buffers.k1_imag[ll, 1, lr]
+                    tmp_Nn[r] = buffers.n_current_imag[ll, 1, lr]
+                    tmp_stage[r] = buffers.stage_nl_imag[ll, 1, lr]
                 end
             end
+        end
 
-            if multi
-                Allreduce!(tmp_linear, MPI.SUM, comm)
-                Allreduce!(tmp_k1, MPI.SUM, comm)
-                Allreduce!(tmp_Nn, MPI.SUM, comm)
-                Allreduce!(tmp_stage, MPI.SUM, comm)
-            end
+        # ALL processes call Allreduce together (collective operation)
+        if multi
+            Allreduce!(tmp_linear, MPI.SUM, comm)
+            Allreduce!(tmp_k1, MPI.SUM, comm)
+            Allreduce!(tmp_Nn, MPI.SUM, comm)
+            Allreduce!(tmp_stage, MPI.SUM, comm)
+        end
 
-            delta .= tmp_stage
-            @. delta = delta - tmp_Nn
-            mul!(correction, phi2, delta)
-            @. result = tmp_linear + dt * (tmp_k1 + correction)
+        delta .= tmp_stage
+        @. delta = delta - tmp_Nn
+        mul!(correction, phi2, delta)
+        @. result = tmp_linear + dt * (tmp_k1 + correction)
+
+        # Scatter back only if this process owns the mode (IMAG part)
+        if owns_mode
+            ll = lm_idx - first(lm_range) + 1
 
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_imag, 3)
-                    u_imag[ll, 1, lr] = result[lr]
+                    u_imag[ll, 1, lr] = result[r]
                 end
             end
         end
