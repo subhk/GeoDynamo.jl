@@ -48,6 +48,8 @@ module GeoDynamo
     export set_shtnskit_threads, get_shtnskit_version_info
     # Fast index conversion
     export index_to_lm_fast, build_lm_lookup_tables
+    # Thread-safe buffer cache utilities
+    export get_cached_buffer!, clear_buffer_cache!
 
     # exports pencil_decomps.jl
     export get_comm, get_rank, get_nprocs

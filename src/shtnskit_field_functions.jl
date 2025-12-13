@@ -681,23 +681,19 @@ the complete coefficient matrix, so we sum partial contributions from all proces
 A complete (lmax+1) × (mmax+1) coefficient matrix ready for SHTnsKit.synthesis()
 """
 function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config)
-    # Use cached buffer to avoid repeated allocations
-    buffer_key = :coeffs_buffer
-    if !haskey(config._buffer_cache, buffer_key)
-        lmax, mmax = config.lmax, config.mmax
-        config._buffer_cache[buffer_key] = zeros(ComplexF64, lmax+1, mmax+1)
+    lmax, mmax = config.lmax, config.mmax
+
+    # Use thread-safe cached buffer access
+    coeffs_buffer = get_cached_buffer!(config, :coeffs_buffer) do
+        zeros(ComplexF64, lmax+1, mmax+1)
     end
 
-    coeffs_buffer = config._buffer_cache[buffer_key]
     extract_coefficients_for_shtnskit!(coeffs_buffer, spec_real, spec_imag, r_local, config)
 
-    # Second buffer for MPI reduction result
-    buffer_gathered_key = :coeffs_buffer_gathered
-    if !haskey(config._buffer_cache, buffer_gathered_key)
-        lmax, mmax = config.lmax, config.mmax
-        config._buffer_cache[buffer_gathered_key] = zeros(ComplexF64, lmax+1, mmax+1)
+    # Second buffer for MPI reduction result (thread-safe)
+    coeffs_gathered = get_cached_buffer!(config, :coeffs_buffer_gathered) do
+        zeros(ComplexF64, lmax+1, mmax+1)
     end
-    coeffs_gathered = config._buffer_cache[buffer_gathered_key]
 
     # Sum partial coefficient matrices from all MPI processes
     # Each process contributes its local portion; summing gives complete matrix
