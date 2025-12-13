@@ -492,37 +492,102 @@ end
 function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
     # Compute ∇ × (u × B) in spectral space
     # This becomes the nonlinear term for the induction equation
-    
+    #
+    # For toroidal-poloidal decomposition, curl satisfies:
+    #   (∇×V)_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] V_pol
+    #   (∇×V)_pol = -l(l+1)/r² V_tor
+    #
+    # This matches the vorticity and current density computations.
+
     # Get local data views
     uxB_tor_real = parent(mag_fields.work_tor.data_real)
     uxB_tor_imag = parent(mag_fields.work_tor.data_imag)
     uxB_pol_real = parent(mag_fields.work_pol.data_real)
     uxB_pol_imag = parent(mag_fields.work_pol.data_imag)
-    
+
     nl_tor_real = parent(mag_fields.nl_toroidal.data_real)
     nl_tor_imag = parent(mag_fields.nl_toroidal.data_imag)
     nl_pol_real = parent(mag_fields.nl_poloidal.data_real)
     nl_pol_imag = parent(mag_fields.nl_poloidal.data_imag)
-    
+
     # Get local ranges using config-aware pencil topology
     config = mag_fields.toroidal.config
+    domain = mag_fields.outer_domain
     lm_range = range_local(config.pencils.spec, 1)
     r_range  = range_local(config.pencils.r, 3)
-    
-    # Apply curl in spectral space
+
+    nr = domain.N
+
+    # Create radial derivative matrices
+    d1_matrix = create_derivative_matrix(1, domain)  # First derivative d/dr
+    d2_matrix = create_derivative_matrix(2, domain)  # Second derivative d²/dr²
+
+    # Pre-allocate work arrays for radial profiles
+    pol_profile_real = zeros(T, nr)
+    pol_profile_imag = zeros(T, nr)
+    dpol_dr_real     = zeros(T, nr)
+    dpol_dr_imag     = zeros(T, nr)
+    d2pol_dr2_real   = zeros(T, nr)
+    d2pol_dr2_imag   = zeros(T, nr)
+
+    # Apply curl in spectral space with full radial derivatives
     @inbounds for lm_idx in lm_range
         if lm_idx <= length(mag_fields.l_factors)
             local_lm = lm_idx - first(lm_range) + 1
-            l_factor = mag_fields.l_factors[lm_idx]
-            
-            @simd for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
-                if local_r <= size(uxB_tor_real, 3)
-                    # Curl of (u × B)
-                    nl_tor_real[local_lm, 1, local_r] = l_factor * uxB_pol_real[local_lm, 1, local_r]
-                    nl_tor_imag[local_lm, 1, local_r] = l_factor * uxB_pol_imag[local_lm, 1, local_r]
-                    nl_pol_real[local_lm, 1, local_r] = -l_factor * uxB_tor_real[local_lm, 1, local_r]
-                    nl_pol_imag[local_lm, 1, local_r] = -l_factor * uxB_tor_imag[local_lm, 1, local_r]
+            l_factor = mag_fields.l_factors[lm_idx]  # l(l+1)
+
+            # Extract radial profiles for poloidal component of (u×B)
+            for r_idx in 1:nr
+                if r_idx in r_range
+                    local_r = r_idx - first(r_range) + 1
+                    if local_r <= size(uxB_pol_real, 3)
+                        pol_profile_real[r_idx] = uxB_pol_real[local_lm, 1, local_r]
+                        pol_profile_imag[r_idx] = uxB_pol_imag[local_lm, 1, local_r]
+                    end
+                else
+                    pol_profile_real[r_idx] = zero(T)
+                    pol_profile_imag[r_idx] = zero(T)
+                end
+            end
+
+            # Compute radial derivatives for poloidal component
+            apply_derivative_matrix!(dpol_dr_real, d1_matrix, pol_profile_real)
+            apply_derivative_matrix!(dpol_dr_imag, d1_matrix, pol_profile_imag)
+            apply_derivative_matrix!(d2pol_dr2_real, d2_matrix, pol_profile_real)
+            apply_derivative_matrix!(d2pol_dr2_imag, d2_matrix, pol_profile_imag)
+
+            # Compute curl components
+            r_first = first(r_range)
+            r_last = min(last(r_range), nr)
+            if r_last < r_first
+                continue
+            end
+            @simd for r_idx in r_first:r_last
+                local_r = r_idx - r_first + 1
+                if local_r <= size(nl_tor_real, 3)
+                    r_val = domain.r[r_idx, 4]
+                    if r_val == 0.0
+                        # At r=0 (ball geometry), enforce finite values
+                        nl_tor_real[local_lm, 1, local_r] = zero(T)
+                        nl_tor_imag[local_lm, 1, local_r] = zero(T)
+                        nl_pol_real[local_lm, 1, local_r] = zero(T)
+                        nl_pol_imag[local_lm, 1, local_r] = zero(T)
+                    else
+                        r_inv = domain.r[r_idx, 3]   # 1/r
+                        r_inv2 = domain.r[r_idx, 2]  # 1/r²
+
+                        # Toroidal curl from poloidal (u×B): [l(l+1)/r² - d²/dr² - 2/r d/dr] P
+                        nl_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx]
+                                                             - d2pol_dr2_real[r_idx]
+                                                             - 2.0 * r_inv * dpol_dr_real[r_idx])
+                        nl_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx]
+                                                             - d2pol_dr2_imag[r_idx]
+                                                             - 2.0 * r_inv * dpol_dr_imag[r_idx])
+
+                        # Poloidal curl from toroidal (u×B): -l(l+1)/r² T
+                        nl_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * uxB_tor_real[local_lm, 1, local_r]
+                        nl_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * uxB_tor_imag[local_lm, 1, local_r]
+                    end
                 end
             end
         end
