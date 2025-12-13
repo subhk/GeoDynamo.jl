@@ -929,16 +929,13 @@ function extract_physical_slice_phi_local!(slice_buffer::Matrix{T}, phys_data, r
     return slice_buffer
 end
 
-# Backward compatibility wrapper
+# Backward compatibility wrapper with thread-safe buffer access
 function extract_physical_slice_phi_local(phys_data, r_local, config)
     nlat, nlon = config.nlat, config.nlon
-    # Get or create cached buffer for phi slice
-    buffer_key = :phi_slice_buffer
-    if !haskey(config._buffer_cache, buffer_key)
-        config._buffer_cache[buffer_key] = zeros(eltype(phys_data), nlat, nlon)
+    # Get or create cached buffer for phi slice (thread-safe)
+    slice_buffer = get_cached_buffer!(config, :phi_slice_buffer) do
+        zeros(eltype(phys_data), nlat, nlon)
     end
-    
-    slice_buffer = config._buffer_cache[buffer_key]
     return extract_physical_slice_phi_local!(slice_buffer, phys_data, r_local, config)
 end
 
@@ -984,16 +981,13 @@ function extract_physical_slice_generic!(slice_buffer::Matrix{T}, phys_data, r_l
     return slice_buffer
 end
 
-# Backward compatibility wrapper
+# Backward compatibility wrapper with thread-safe buffer access
 function extract_physical_slice_generic(phys_data, r_local, config)
     nlat, nlon = config.nlat, config.nlon
-    # Get or create cached buffer for generic slice  
-    buffer_key = :generic_slice_buffer
-    if !haskey(config._buffer_cache, buffer_key)
-        config._buffer_cache[buffer_key] = zeros(eltype(phys_data), nlat, nlon)
+    # Get or create cached buffer for generic slice (thread-safe)
+    slice_buffer = get_cached_buffer!(config, :generic_slice_buffer) do
+        zeros(eltype(phys_data), nlat, nlon)
     end
-    
-    slice_buffer = config._buffer_cache[buffer_key]
     return extract_physical_slice_generic!(slice_buffer, phys_data, r_local, config)
 end
 
