@@ -1,8 +1,89 @@
 # ================================================================================
-# Common scalar field implementation for thermal and compositional fields
+# Common Scalar Field Implementation for Thermal and Compositional Fields
 # ================================================================================
+#
 # This file contains shared functionality between thermal and compositional
 # fields to reduce code duplication and improve maintainability.
+#
+# ================================================================================
+# SCALAR FIELD BOUNDARY CONDITIONS
+# ================================================================================
+#
+# Scalar fields (temperature, composition) support two BC types:
+#
+# 1. DIRICHLET (fixed value): f = f₀ at boundary
+#    - Common for prescribed temperature/composition
+#    - Implemented by directly setting spectral coefficients
+#
+# 2. NEUMANN (fixed flux): ∂f/∂r = q at boundary
+#    - For prescribed heat/mass flux
+#    - More complex: requires flux enforcement methods
+#
+# Unlike velocity (which has ∂T/∂r = T/r for stress-free), scalar fields use
+# SIMPLE Neumann: ∂f/∂r = q where q is the prescribed flux value.
+#
+# ================================================================================
+# FLUX BC ENFORCEMENT METHODS
+# ================================================================================
+#
+# Three methods are provided for enforcing Neumann (flux) BCs:
+#
+# 1. TAU METHOD (recommended)
+#    - Uses Chebyshev polynomial tau correction
+#    - Computes: flux_error = prescribed_flux - current_flux
+#    - Adds correction polynomial that exactly fixes flux at boundaries
+#    - Highest accuracy, preserves spectral convergence
+#    - Function: apply_flux_bc_tau!()
+#
+# 2. INFLUENCE MATRIX METHOD
+#    - Precomputes influence functions G_inner, G_outer
+#    - Solves 2x2 system for correction amplitudes
+#    - Good accuracy, slightly faster after initialization
+#    - Function: apply_flux_bc_influence_matrix!()
+#
+# 3. DIRECT METHOD
+#    - Simple first-order finite difference
+#    - Fast but lower accuracy
+#    - Use only for testing/debugging
+#    - Function: apply_flux_bc_direct!()
+#
+# ================================================================================
+# MPI SAFETY - CRITICAL PATTERN
+# ================================================================================
+#
+# The main entry point apply_scalar_flux_bc_spectral!() uses GLOBAL loop bounds
+# to ensure MPI safety:
+#
+#   for lm_idx in 1:nlm_total  # ALL processes iterate ALL modes
+#       owns_mode = lm_idx in lm_range
+#
+#       if needs_bc  # Check BC type (consistent across processes)
+#           apply_flux_bc_tau!(..., owns_mode)  # Contains Allreduce
+#       end
+#   end
+#
+# The owns_mode parameter propagates to inner functions, which:
+#   - Fill data only if owns_mode == true
+#   - Call Allreduce unconditionally (all processes participate)
+#   - Store results only if owns_mode == true
+#
+# See timestep.jl header for detailed explanation of this pattern.
+#
+# ================================================================================
+# USAGE EXAMPLE
+# ================================================================================
+#
+#   # Set BC types for a temperature field
+#   fill!(temp_field.bc_type_inner, Int(DIRICHLET))  # Fixed T at inner
+#   fill!(temp_field.bc_type_outer, Int(NEUMANN))    # Fixed flux at outer
+#
+#   # Set boundary values
+#   temp_field.boundary_values[1, :] .= T_inner      # Dirichlet value
+#   temp_field.boundary_values[2, :] .= q_outer      # Neumann flux value
+#
+#   # Apply BCs (automatically uses appropriate method per mode)
+#   apply_scalar_flux_bc_spectral!(temp_field, domain; method=:tau)
+#
 # ================================================================================
 
 using PencilArrays

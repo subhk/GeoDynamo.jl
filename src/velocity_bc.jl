@@ -14,6 +14,64 @@
 # The BC functions will automatically use the workspace if available.
 #
 # Included by: src/velocity.jl
+#
+# ================================================================================
+# ALGORITHM OVERVIEW
+# ================================================================================
+#
+# Three methods are provided for applying stress-free boundary conditions:
+#
+# 1. DIRECT METHOD (apply_velocity_flux_bc_direct_ws!)
+#    - Simple first-order finite difference
+#    - Fast but less accurate
+#    - Good for initial testing
+#
+# 2. PHYSICAL STRESS METHOD (apply_velocity_flux_bc_physical_stress_ws!)
+#    - Same as direct but with clearer physics naming
+#    - Implements ∂T/∂r = T/r exactly at boundary points
+#
+# 3. TAU METHOD (apply_velocity_flux_bc_tau_ws!)
+#    - Higher-order accurate using Chebyshev tau correction
+#    - Adds polynomial correction to enforce BC exactly
+#    - Recommended for production simulations
+#
+# ================================================================================
+# DATA FLOW (for each l,m mode)
+# ================================================================================
+#
+#   1. GATHER: Extract radial profile from distributed spectral data
+#      - Only owning process fills the profile array
+#      - Other processes have zeros
+#
+#   2. ALLREDUCE: Combine profiles across all processes
+#      - MPI.Allreduce!(profile, MPI.SUM, comm)
+#      - After this, ALL processes have the complete profile
+#
+#   3. APPLY BC: Modify boundary values
+#      - All processes compute the same BC modification
+#      - This ensures consistency across processes
+#
+#   4. SCATTER: Store modified profile back to distributed data
+#      - Only owning process stores the result
+#      - Other processes discard (their copy was just for computation)
+#
+# ================================================================================
+# DEBUGGING TIPS
+# ================================================================================
+#
+# 1. MPI Deadlock: If simulation hangs, check that all processes call these
+#    functions the same number of times. Use global loop bounds in caller.
+#
+# 2. Wrong BC values: Check that owns_mode is correctly computed as
+#    `owns_mode = lm_idx in lm_range` where lm_range is the local range.
+#
+# 3. NaN at boundaries: Check for division by zero when r[1] ≈ 0 (ball geometry).
+#    The code handles this but may need adjustment for extreme grids.
+#
+# 4. Performance issues: Ensure workspace is registered before time loop.
+#    Check with: `@time apply_velocity_flux_bc_spectral!(...)` in single-process.
+#
+# ================================================================================
 
 """
     apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_idx,

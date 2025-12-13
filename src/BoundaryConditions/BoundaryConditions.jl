@@ -5,7 +5,7 @@
 # This module provides a unified interface for handling boundary conditions
 # for all field types in geodynamo simulations:
 # - Temperature boundary conditions
-# - Composition boundary conditions  
+# - Composition boundary conditions
 # - Velocity boundary conditions
 # - Magnetic field boundary conditions
 #
@@ -17,6 +17,70 @@
 # - PencilArrays and PencilFFTs integration
 # - Automatic grid interpolation
 # - Comprehensive error handling
+#
+# ================================================================================
+# BOUNDARY CONDITION TYPES SUMMARY
+# ================================================================================
+#
+# +-------------+------------------+----------------------------------+
+# | Field       | BC Type          | Physical Meaning                 |
+# +-------------+------------------+----------------------------------+
+# | Temperature | DIRICHLET        | Fixed temperature (T = T₀)       |
+# |             | NEUMANN          | Fixed heat flux (∂T/∂r = q)      |
+# +-------------+------------------+----------------------------------+
+# | Composition | DIRICHLET        | Fixed composition (C = C₀)       |
+# |             | NEUMANN          | Fixed mass flux (∂C/∂r = q)      |
+# |             |                  | Default: no-flux (q = 0)         |
+# +-------------+------------------+----------------------------------+
+# | Velocity    | DIRICHLET        | No-slip (u = 0)                  |
+# | (Poloidal)  |                  | or impermeable (v_r = 0)         |
+# +-------------+------------------+----------------------------------+
+# | Velocity    | DIRICHLET        | No-slip (T = 0)                  |
+# | (Toroidal)  | NEUMANN          | Stress-free (∂T/∂r = T/r)        |
+# |             |                  | NOTE: Not simple Neumann!        |
+# +-------------+------------------+----------------------------------+
+# | Magnetic    | DIRICHLET        | All types (insulating,           |
+# |             |                  | perfect conductor, potential)    |
+# +-------------+------------------+----------------------------------+
+#
+# ================================================================================
+# FILE ORGANIZATION
+# ================================================================================
+#
+# BoundaryConditions/
+# ├── BoundaryConditions.jl   # Main module (this file)
+# ├── common.jl               # Shared types and utilities
+# ├── netcdf_io.jl            # NetCDF file reading/writing
+# ├── interpolation.jl        # Grid interpolation
+# ├── programmatic.jl         # Programmatic BC generation
+# ├── thermal.jl              # Temperature BCs
+# ├── composition.jl          # Composition BCs
+# ├── velocity.jl             # Velocity BCs
+# └── magnetic.jl             # Magnetic field BCs
+#
+# ================================================================================
+# USAGE PATTERN
+# ================================================================================
+#
+#   # 1. Load boundary conditions from file or programmatically
+#   boundary_specs = Dict(
+#       :inner => "cmb_temperature.nc",
+#       :outer => (:uniform, 300.0)
+#   )
+#   load_temperature_boundary_conditions!(temp_field, boundary_specs)
+#
+#   # 2. BCs are automatically applied during field initialization
+#   # 3. Update time-dependent BCs during simulation loop
+#   update_time_dependent_temperature_boundaries!(temp_field, current_time)
+#
+# ================================================================================
+# DEBUGGING TIPS
+# ================================================================================
+#
+# 1. Check BC type assignment: `println(field.bc_type_inner)`
+# 2. Verify boundary values: `println(field.boundary_values[1, 1:5])`
+# 3. For MPI issues, ensure all processes load same boundary files
+# 4. For interpolation issues, check grid compatibility with source data
 #
 # ================================================================================
 
