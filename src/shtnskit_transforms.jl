@@ -44,6 +44,15 @@ using LinearAlgebra
 using Base.Threads
 
 # ================================================================================
+# SHTnsKit v1.1.15+ Feature Flags
+# ================================================================================
+# These flags indicate which v1.1.15 features are available and should be used
+
+const SHTNSKIT_USE_DISTRIBUTED = true      # Use dist_analysis/dist_synthesis
+const SHTNSKIT_USE_QST = true              # Use SHqst_to_spat/spat_to_SHqst for 3D vectors
+const SHTNSKIT_USE_SCRATCH_BUFFERS = true  # Use scratch_spatial/scratch_fft helpers
+
+# ================================================================================
 # Utility Functions
 # ================================================================================
 
@@ -330,7 +339,7 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
         sht_config, nlat, nlon, lmax, mmax, nlm,
         pencils, fft_plans, transpose_plans, memory_estimate,
         l_vals, m_vals, theta_grid, phi_grid, gauss_weights,
-        Dict{Symbol, Any}()  # Initialize empty buffer cache
+        buffer_cache
     )
 end
 
@@ -684,6 +693,13 @@ end
 Print configuration summary for SHTnsKit setup.
 """
 function print_shtnskit_config_summary(nlat, nlon, lmax, mmax, nlm, nprocs, memory_estimate)
+    # Get version info for feature flags
+    version = try
+        string(pkgversion(SHTnsKit))
+    catch
+        "≥1.1.15"
+    end
+
     println("\n╔═══════════════════════════════════════════════════════╗")
     println("║         SHTnsKit Configuration Summary                ║")
     println("╠═══════════════════════════════════════════════════════╣")
@@ -695,7 +711,12 @@ function print_shtnskit_config_summary(nlat, nlon, lmax, mmax, nlm, nprocs, memo
     println("║ Parallel Configuration:                               ║")
     println("║   MPI Processes:    $(lpad(nprocs,4))                              ║")
     println("║   Theta-Phi Parallel: PencilArrays + PencilFFTs      ║")
-    println("║   SHTnsKit.jl:      Registered package               ║")
+    println("║   SHTnsKit.jl:      v$(lpad(version,7))                      ║")
     println("║   Memory/process:   $(lpad(memory_estimate,10))                    ║")
+    println("║                                                       ║")
+    println("║ v1.1.15+ Features:                                    ║")
+    println("║   Distributed transforms: $(SHTNSKIT_USE_DISTRIBUTED ? "enabled " : "disabled")                ║")
+    println("║   QST vector transforms:  $(SHTNSKIT_USE_QST ? "enabled " : "disabled")                ║")
+    println("║   Scratch buffers:        $(SHTNSKIT_USE_SCRATCH_BUFFERS ? "enabled " : "disabled")                ║")
     println("╚═══════════════════════════════════════════════════════╝")
 end

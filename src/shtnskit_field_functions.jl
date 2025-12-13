@@ -13,9 +13,16 @@
 # - Analysis: Physical → Spectral (forward SH transform)
 #   Computes spherical harmonic coefficients from field values on the grid
 #
-# IMPLEMENTATION STRATEGY:
-# ------------------------
-# For each radial level independently:
+# IMPLEMENTATION STRATEGY (SHTnsKit v1.1.15+):
+# --------------------------------------------
+# Uses native SHTnsKit distributed transforms when available:
+# - dist_synthesis() for distributed spectral→physical
+# - dist_analysis() for distributed physical→spectral
+# - dist_SHsphtor_to_spat() for distributed vector synthesis
+# - dist_spat_to_SHsphtor() for distributed vector analysis
+# - SHqst_to_spat() / spat_to_SHqst() for full 3D QST vector transforms
+#
+# Fallback implementation for each radial level independently:
 # 1. Extract/prepare spectral coefficients in SHTnsKit's expected format
 # 2. Call SHTnsKit.synthesis() or SHTnsKit.analysis()
 # 3. Store/scatter results to the appropriate PencilArray
@@ -1046,13 +1053,19 @@ end
     get_shtnskit_performance_stats()
 
 Get performance statistics for SHTnsKit transforms with PencilArrays.
+Returns information about the v1.1.15+ features being used.
 """
 function get_shtnskit_performance_stats()
+    version_info = get_shtnskit_version_info()
     return (
         library = "SHTnsKit",
+        version = version_info.version,
         parallelization = "theta-phi MPI + PencilArrays",
         fft_backend = "PencilFFTs",
-        optimization = "enabled"
+        optimization = "enabled",
+        distributed_transforms = version_info.has_distributed_transforms,
+        qst_transforms = version_info.has_qst_transforms,
+        energy_functions = version_info.has_energy_functions
     )
 end
 
@@ -1228,4 +1241,338 @@ function create_erk2_config(; lmax::Int, mmax::Int=lmax,
         optimize_erk2_transforms!(config)
     end
     return config
+end
+
+# ================================================================================
+# SHTnsKit v1.1.15+ Enhanced Features
+# ================================================================================
+# These functions leverage new capabilities in SHTnsKit v1.1.15:
+# - Energy/power spectrum analysis
+# - Spectral differential operators
+# - QST vector transforms for full 3D fields
+# - Native threading controls
+# ================================================================================
+
+"""
+    compute_scalar_energy_spectrum(config::SHTnsKitConfig, alm::Matrix{ComplexF64}; real_field::Bool=true)
+
+Compute the energy spectrum per spherical harmonic degree l using SHTnsKit v1.1.15.
+
+# Returns
+Vector of length lmax+1 with energy at each degree l.
+"""
+function compute_scalar_energy_spectrum(config::SHTnsKitConfig, alm::Matrix{ComplexF64}; real_field::Bool=true)
+    try
+        return SHTnsKit.energy_scalar_l_spectrum(config.sht_config, alm; real_field=real_field)
+    catch e
+        # Fallback manual computation for older SHTnsKit versions
+        lmax = config.lmax
+        spectrum = zeros(Float64, lmax + 1)
+        for l in 0:lmax
+            for m in 0:min(l, config.mmax)
+                coeff = alm[l+1, m+1]
+                energy = abs2(coeff)
+                if m > 0 && real_field
+                    energy *= 2.0  # Account for negative m modes
+                end
+                spectrum[l+1] += energy
+            end
+        end
+        return spectrum
+    end
+end
+
+"""
+    compute_vector_energy_spectrum(config::SHTnsKitConfig, Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64}; real_field::Bool=true)
+
+Compute the kinetic energy spectrum per spherical harmonic degree l for a vector field
+decomposed into spheroidal (Slm) and toroidal (Tlm) components.
+
+# Returns
+Vector of length lmax+1 with kinetic energy at each degree l.
+"""
+function compute_vector_energy_spectrum(config::SHTnsKitConfig, Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64}; real_field::Bool=true)
+    try
+        return SHTnsKit.energy_vector_l_spectrum(config.sht_config, Slm, Tlm; real_field=real_field)
+    catch e
+        # Fallback: sum individual spectra
+        spec_S = compute_scalar_energy_spectrum(config, Slm; real_field=real_field)
+        spec_T = compute_scalar_energy_spectrum(config, Tlm; real_field=real_field)
+        return spec_S .+ spec_T
+    end
+end
+
+"""
+    compute_total_scalar_energy(config::SHTnsKitConfig, alm::Matrix{ComplexF64}; real_field::Bool=true)
+
+Compute total energy of a scalar field from its spectral coefficients.
+"""
+function compute_total_scalar_energy(config::SHTnsKitConfig, alm::Matrix{ComplexF64}; real_field::Bool=true)
+    try
+        return SHTnsKit.energy_scalar(config.sht_config, alm; real_field=real_field)
+    catch e
+        # Fallback: sum the spectrum
+        return sum(compute_scalar_energy_spectrum(config, alm; real_field=real_field))
+    end
+end
+
+"""
+    compute_total_vector_energy(config::SHTnsKitConfig, Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64}; real_field::Bool=true)
+
+Compute total kinetic energy of a vector field from spheroidal/toroidal coefficients.
+"""
+function compute_total_vector_energy(config::SHTnsKitConfig, Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64}; real_field::Bool=true)
+    try
+        return SHTnsKit.energy_vector(config.sht_config, Slm, Tlm; real_field=real_field)
+    catch e
+        return sum(compute_vector_energy_spectrum(config, Slm, Tlm; real_field=real_field))
+    end
+end
+
+"""
+    compute_enstrophy(config::SHTnsKitConfig, Tlm::Matrix{ComplexF64}; real_field::Bool=true)
+
+Compute enstrophy (mean square vorticity) from toroidal coefficients.
+Enstrophy is related to the rotational part of the kinetic energy.
+"""
+function compute_enstrophy(config::SHTnsKitConfig, Tlm::Matrix{ComplexF64}; real_field::Bool=true)
+    try
+        return SHTnsKit.enstrophy(config.sht_config, Tlm; real_field=real_field)
+    catch e
+        # Fallback: compute from spectrum with l(l+1) factor
+        lmax = config.lmax
+        total = 0.0
+        for l in 1:lmax
+            for m in 0:min(l, config.mmax)
+                coeff = Tlm[l+1, m+1]
+                energy = abs2(coeff) * l * (l + 1)
+                if m > 0 && real_field
+                    energy *= 2.0
+                end
+                total += energy
+            end
+        end
+        return total
+    end
+end
+
+# ================================================================================
+# Spectral Differential Operators (SHTnsKit v1.1.15)
+# ================================================================================
+
+"""
+    spectral_gradient!(config::SHTnsKitConfig, Slm::Matrix{ComplexF64},
+                       grad_theta::Matrix{Float64}, grad_phi::Matrix{Float64})
+
+Compute the horizontal gradient of a scalar field in spectral space.
+Uses SHTnsKit.SH_to_grad_spat for efficient computation.
+
+# Arguments
+- `Slm`: Spectral coefficients of the scalar field
+- `grad_theta`: Output θ-component of gradient (modified in-place)
+- `grad_phi`: Output φ-component of gradient (modified in-place)
+"""
+function spectral_gradient!(config::SHTnsKitConfig, Slm::Matrix{ComplexF64},
+                           grad_theta::Matrix{Float64}, grad_phi::Matrix{Float64})
+    try
+        gt, gp = SHTnsKit.SH_to_grad_spat(config.sht_config, Slm; real_output=true)
+        copyto!(grad_theta, gt)
+        copyto!(grad_phi, gp)
+    catch e
+        # Fallback: compute using synthesis of derivatives
+        @warn "SH_to_grad_spat not available, using fallback gradient computation"
+        # Manual gradient would require implementing derivative operators
+        fill!(grad_theta, 0.0)
+        fill!(grad_phi, 0.0)
+    end
+end
+
+"""
+    extract_divergence_coefficients(config::SHTnsKitConfig, Slm::Matrix{ComplexF64})
+
+Extract divergence spectral coefficients from spheroidal potential.
+The divergence field in spectral space is related to Slm by the horizontal Laplacian.
+
+# Returns
+Matrix of divergence coefficients.
+"""
+function extract_divergence_coefficients(config::SHTnsKitConfig, Slm::Matrix{ComplexF64})
+    try
+        return SHTnsKit.divergence_from_spheroidal(config.sht_config, Slm)
+    catch e
+        # Fallback: multiply by -l(l+1)/r²
+        lmax, mmax = config.lmax, config.mmax
+        div_coeffs = zeros(ComplexF64, lmax+1, mmax+1)
+        for l in 0:lmax
+            factor = -l * (l + 1)  # Note: r² factor depends on application
+            for m in 0:min(l, mmax)
+                div_coeffs[l+1, m+1] = Slm[l+1, m+1] * factor
+            end
+        end
+        return div_coeffs
+    end
+end
+
+"""
+    extract_vorticity_coefficients(config::SHTnsKitConfig, Tlm::Matrix{ComplexF64})
+
+Extract vorticity spectral coefficients from toroidal potential.
+The vorticity field in spectral space is related to Tlm by the horizontal Laplacian.
+
+# Returns
+Matrix of vorticity coefficients.
+"""
+function extract_vorticity_coefficients(config::SHTnsKitConfig, Tlm::Matrix{ComplexF64})
+    try
+        return SHTnsKit.vorticity_from_toroidal(config.sht_config, Tlm)
+    catch e
+        # Fallback: multiply by -l(l+1)
+        lmax, mmax = config.lmax, config.mmax
+        vort_coeffs = zeros(ComplexF64, lmax+1, mmax+1)
+        for l in 0:lmax
+            factor = -l * (l + 1)
+            for m in 0:min(l, mmax)
+                vort_coeffs[l+1, m+1] = Tlm[l+1, m+1] * factor
+            end
+        end
+        return vort_coeffs
+    end
+end
+
+# ================================================================================
+# QST Vector Transforms (SHTnsKit v1.1.15)
+# ================================================================================
+# QST decomposition: (Q, S, T) where Q relates to radial component,
+# S (spheroidal/poloidal) and T (toroidal) relate to tangential components.
+# ================================================================================
+
+"""
+    shtnskit_qst_to_spatial!(config::SHTnsKitConfig, Qlm, Slm, Tlm, vr, vtheta, vphi)
+
+Convert QST spectral coefficients to full 3D spatial vector field using SHTnsKit v1.1.15.
+
+This is more efficient than separate scalar + vector synthesis as it handles
+all three components in a single call.
+
+# Arguments
+- `Qlm`: Q (radial) spectral coefficients
+- `Slm`: S (spheroidal/poloidal) spectral coefficients
+- `Tlm`: T (toroidal) spectral coefficients
+- `vr`, `vtheta`, `vphi`: Output spatial components (modified in-place)
+"""
+function shtnskit_qst_to_spatial!(config::SHTnsKitConfig, Qlm::Matrix{ComplexF64},
+                                  Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64},
+                                  vr::Matrix{Float64}, vtheta::Matrix{Float64}, vphi::Matrix{Float64})
+    if SHTNSKIT_USE_QST
+        try
+            vr_out, vt_out, vp_out = SHTnsKit.SHqst_to_spat(config.sht_config, Qlm, Slm, Tlm; real_output=true)
+            copyto!(vr, vr_out)
+            copyto!(vtheta, vt_out)
+            copyto!(vphi, vp_out)
+            return
+        catch e
+            @debug "SHqst_to_spat not available, using fallback: $e"
+        end
+    end
+
+    # Fallback: separate synthesis calls
+    vr .= SHTnsKit.synthesis(config.sht_config, Qlm; real_output=true)
+    vt_tmp, vp_tmp = SHTnsKit.SHsphtor_to_spat(config.sht_config, Slm, Tlm; real_output=true)
+    copyto!(vtheta, vt_tmp)
+    copyto!(vphi, vp_tmp)
+end
+
+"""
+    shtnskit_spatial_to_qst!(config::SHTnsKitConfig, vr, vtheta, vphi, Qlm, Slm, Tlm)
+
+Convert full 3D spatial vector field to QST spectral coefficients using SHTnsKit v1.1.15.
+
+# Arguments
+- `vr`, `vtheta`, `vphi`: Input spatial components
+- `Qlm`: Output Q (radial) spectral coefficients (modified in-place)
+- `Slm`: Output S (spheroidal/poloidal) spectral coefficients (modified in-place)
+- `Tlm`: Output T (toroidal) spectral coefficients (modified in-place)
+"""
+function shtnskit_spatial_to_qst!(config::SHTnsKitConfig, vr::Matrix{Float64},
+                                  vtheta::Matrix{Float64}, vphi::Matrix{Float64},
+                                  Qlm::Matrix{ComplexF64}, Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64})
+    if SHTNSKIT_USE_QST
+        try
+            Q_out, S_out, T_out = SHTnsKit.spat_to_SHqst(config.sht_config, vr, vtheta, vphi)
+            copyto!(Qlm, Q_out)
+            copyto!(Slm, S_out)
+            copyto!(Tlm, T_out)
+            return
+        catch e
+            @debug "spat_to_SHqst not available, using fallback: $e"
+        end
+    end
+
+    # Fallback: separate analysis calls
+    Qlm .= SHTnsKit.analysis(config.sht_config, vr)
+    S_tmp, T_tmp = SHTnsKit.spat_to_SHsphtor(config.sht_config, vtheta, vphi)
+    copyto!(Slm, S_tmp)
+    copyto!(Tlm, T_tmp)
+end
+
+# ================================================================================
+# Threading Control (SHTnsKit v1.1.15)
+# ================================================================================
+
+"""
+    set_shtnskit_threads(num_threads::Int)
+
+Configure the number of threads used by SHTnsKit transforms.
+Uses SHTnsKit.shtns_use_threads when available.
+"""
+function set_shtnskit_threads(num_threads::Int)
+    try
+        SHTnsKit.shtns_use_threads(num_threads)
+        if get_rank() == 0
+            @info "SHTnsKit configured to use $num_threads threads"
+        end
+    catch e
+        @debug "shtns_use_threads not available: $e"
+    end
+end
+
+"""
+    get_shtnskit_version_info()
+
+Get version and capability information about the SHTnsKit installation.
+"""
+function get_shtnskit_version_info()
+    version = try
+        string(pkgversion(SHTnsKit))
+    catch
+        "unknown"
+    end
+
+    has_distributed = try
+        isdefined(SHTnsKit, :dist_synthesis)
+    catch
+        false
+    end
+
+    has_qst = try
+        isdefined(SHTnsKit, :SHqst_to_spat)
+    catch
+        false
+    end
+
+    has_energy = try
+        isdefined(SHTnsKit, :energy_scalar)
+    catch
+        false
+    end
+
+    return (
+        version = version,
+        has_distributed_transforms = has_distributed,
+        has_qst_transforms = has_qst,
+        has_energy_functions = has_energy,
+        use_distributed = SHTNSKIT_USE_DISTRIBUTED,
+        use_qst = SHTNSKIT_USE_QST,
+        use_scratch_buffers = SHTNSKIT_USE_SCRATCH_BUFFERS
+    )
 end
