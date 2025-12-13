@@ -1,8 +1,7 @@
 # GeoDynamo.jl
 
 [![CI Status](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml?query=branch%3Amain)
-[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://subhk.github.io/GeoDynamo.jl/)
-[![Dev Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://subhk.github.io/GeoDynamo.jl/dev/)
+[![Documentation](https://img.shields.io/badge/docs-latest-blue.svg)](https://subhk.github.io/GeoDynamo.jl/)
 
 GeoDynamo.jl is a Julia package for simulating self-sustained planetary dynamos in rotating spherical shells or full balls. It combines toroidal–poloidal decompositions, fast SHTns-based spherical harmonic transforms, and MPI-enabled PencilArrays to reach large problem sizes on modern clusters.
 
