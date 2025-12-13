@@ -486,7 +486,7 @@ end
 
 """
     apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
-                                   apply_inner, apply_outer, domain, r_range)
+                                   apply_inner, apply_outer, domain, r_range, owns_mode)
 
 Apply stress-free boundary conditions using direct substitution.
 
@@ -517,27 +517,34 @@ Solving for T[1]:
 Similarly for outer boundary:
     (T[nr] - T[nr-1])/Δr = T[nr]/r[nr]
     T[nr] = T[nr-1] / (1 - Δr/r[nr])
+
+# MPI Safety
+The `owns_mode` parameter indicates whether this process owns the lm mode.
+All processes must call this function for each mode to ensure Allreduce is called
+the same number of times by all processes (prevents deadlock).
 """
 function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
                                         apply_inner, apply_outer,
-                                        domain, r_range)
+                                        domain, r_range, owns_mode::Bool)
     T = eltype(spec_real)
     nr = domain.N
     r = domain.r[:, 4]  # Radial coordinates
 
-    # Extract radial profile
+    # Extract radial profile (only if this process owns the mode)
     profile_real = zeros(T, nr)
     profile_imag = zeros(T, nr)
 
-    for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
-            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+    if owns_mode
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+            end
         end
     end
 
-    # MPI gather
+    # MPI gather (ALL processes call this for synchronization)
     comm = BoundaryConditions.get_comm()
     if comm !== nothing && MPI.Comm_size(comm) > 1
         Allreduce!(profile_real, MPI.SUM, comm)
@@ -574,19 +581,21 @@ function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
         end
     end
 
-    # Store back
-    for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
-            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+    # Store back (only if this process owns the mode)
+    if owns_mode
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+            end
         end
     end
 end
 
 """
     apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
-                                            apply_inner, apply_outer, domain, r_range)
+                                            apply_inner, apply_outer, domain, r_range, owns_mode)
 
 Apply flux boundary conditions for proper stress-free boundaries.
 Enforces ∂T/∂r = T/r at boundaries, which corresponds to zero tangential stress.
@@ -599,27 +608,34 @@ In spectral form with v_tan = T(r) × f(θ,φ):
   => ∂T/∂r = T/r
 
 This is the CORRECT condition for stress-free boundaries in spherical coordinates.
+
+# MPI Safety
+The `owns_mode` parameter indicates whether this process owns the lm mode.
+All processes must call this function for each mode to ensure Allreduce is called
+the same number of times by all processes (prevents deadlock).
 """
 function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
                                                  apply_inner, apply_outer,
-                                                 domain, r_range)
+                                                 domain, r_range, owns_mode::Bool)
     T = eltype(spec_real)
     nr = domain.N
     r = domain.r[:, 4]
 
-    # Extract radial profile
+    # Extract radial profile (only if this process owns the mode)
     profile_real = zeros(T, nr)
     profile_imag = zeros(T, nr)
 
-    for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
-            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+    if owns_mode
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+            end
         end
     end
 
-    # MPI gather
+    # MPI gather (ALL processes call this for synchronization)
     comm = BoundaryConditions.get_comm()
     if comm !== nothing && MPI.Comm_size(comm) > 1
         Allreduce!(profile_real, MPI.SUM, comm)
@@ -661,12 +677,14 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
         end
     end
 
-    # Store back
-    for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
-            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+    # Store back (only if this process owns the mode)
+    if owns_mode
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+            end
         end
     end
 end
