@@ -30,9 +30,9 @@ NCDatasets = "0.14"
 NetCDF = "0.12"
 PencilArrays = "0.19"
 PencilFFTs = "0.15"
-SHTnsKit = "1.1"
+SHTnsKit = "1.1.15"
 StaticArrays = "1.9.15"
-julia = "1.10, 1.11, 1.12"
+julia = "1.10"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
