@@ -5,17 +5,25 @@
 ```
 GeoDynamo.jl/
 ├── src/
-│   ├── GeoDynamo.jl          # module entry point & exports
-│   ├── fields.jl             # PencilArray-backed field types
-│   ├── shtnskit_transforms.jl# SHTnsKit configuration + FFT/transposes
-│   ├── timestep.jl           # CNAB2/EAB2/ERK2 integrators and Krylov tools
-│   ├── velocity.jl, ...      # Physics kernels and nonlinear terms
-│   ├── outputs_writer.jl     # NetCDF writer
-│   └── simulation.jl         # high-level driver/state orchestration
-├── docs/                     # Documenter configuration and Markdown pages
-├── extras/                   # CLI utilities (spectral ↔ physical conversion)
-├── test/                     # regression and unit tests
-└── config/                   # sample parameter files
+│   ├── GeoDynamo.jl              # module entry point & exports
+│   ├── fields.jl                 # PencilArray-backed field types
+│   ├── shtnskit_transforms.jl    # SHTnsKit configuration + FFT/transposes
+│   ├── shtnskit_field_functions.jl # v1.1.15 transforms, energy, rotations
+│   ├── scalar_field_common.jl    # Shared scalar field operations
+│   ├── timestep.jl               # CNAB2/EAB2/ERK2 integrators and Krylov tools
+│   ├── velocity.jl, magnetic.jl  # Physics kernels and nonlinear terms
+│   ├── thermal.jl, compositional.jl
+│   ├── outputs_writer.jl         # NetCDF writer
+│   ├── simulation.jl             # high-level driver/state orchestration
+│   ├── BoundaryConditions/       # Boundary condition modules
+│   │   ├── BoundaryConditions.jl # Main BC module with config caching
+│   │   ├── thermal.jl, velocity.jl, ...
+│   └── Ball/                     # Solid ball geometry support
+├── docs/                         # Documenter configuration and Markdown pages
+├── extras/                       # CLI utilities (spectral ↔ physical conversion)
+├── scripts/                      # Analysis and utility scripts
+├── test/                         # regression and unit tests
+└── config/                       # sample parameter files
 ```
 
 ## Setting Up a Dev Environment
