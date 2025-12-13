@@ -76,6 +76,51 @@ Boundary definitions live under `src/BoundaryConditions/`. To add a new boundary
 - Use `@inbounds` only after profiling, and add high-level docstrings so Documenter can surface them.
 - When exposing new functionality, add it to the exports in `GeoDynamo.jl` and the [API reference](api.md).
 
+## SHTnsKit Integration
+
+The spherical harmonic transform layer is split across two files:
+
+- `shtnskit_transforms.jl` – Configuration, pencil decomposition, FFT plans
+- `shtnskit_field_functions.jl` – Transform operations, energy spectra, rotations, operators
+
+### Adding New Transform Functions
+
+1. Implement the function in `shtnskit_field_functions.jl`
+2. Use `try/catch` with fallback for version compatibility:
+   ```julia
+   function my_new_function(config, alm)
+       try
+           return SHTnsKit.new_feature(config.sht_config, alm)
+       catch e
+           # Fallback implementation
+           @debug "new_feature not available: $e"
+           return manual_implementation(config, alm)
+       end
+   end
+   ```
+3. Add export to `GeoDynamo.jl`
+4. Add documentation to `docs/src/shtnskit.md`
+
+### Feature Detection
+
+Use `get_shtnskit_version_info()` to check capabilities:
+
+```julia
+info = get_shtnskit_version_info()
+if info.has_qst_transforms
+    # Use native QST
+else
+    # Use fallback
+end
+```
+
+### Performance Considerations
+
+- Use `shtnskit_synthesis_inplace!` / `shtnskit_analysis_inplace!` for hot paths
+- Cache SHTnsKit configurations via `_get_cached_bc_shtns_config()` for boundary transforms
+- Enable scratch buffers with `SHTNSKIT_USE_SCRATCH_BUFFERS = true`
+- Profile with `get_shtnskit_performance_stats()` to verify optimizations are active
+
 ## Contributing
 
 1. Fork the repository and create a feature branch.

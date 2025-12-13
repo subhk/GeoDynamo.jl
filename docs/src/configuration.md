@@ -18,6 +18,27 @@ GeoDynamo.GeoDynamoParameters
 
 In practice, choose `i_L ≈ i_N` for balanced spectral/radial workload, and scale `i_Th`, `i_Ph` so SHTnsKit can allocate Gauss–Legendre grid points (`nlat ≥ i_L + 2`, `nlon ≥ 2*i_L + 1`).
 
+### SHTnsKit v1.1.15 Transform Options
+
+The following feature flags control SHTnsKit v1.1.15 optimizations (set in `shtnskit_transforms.jl`):
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `SHTNSKIT_USE_DISTRIBUTED` | `true` | Use native MPI-distributed transforms |
+| `SHTNSKIT_USE_QST` | `true` | Use full QST decomposition for 3D vectors |
+| `SHTNSKIT_USE_SCRATCH_BUFFERS` | `true` | Pre-allocate transform buffers |
+
+Check feature availability at runtime:
+
+```julia
+info = get_shtnskit_version_info()
+println("Version: ", info.version)
+println("QST transforms: ", info.has_qst_transforms)
+println("Energy functions: ", info.has_energy_functions)
+```
+
+See [Spherical Harmonics](shtnskit.md) for the complete transform API.
+
 ## Physical Parameters
 
 | Field | Description |

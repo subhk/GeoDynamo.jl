@@ -48,6 +48,25 @@ Or launch the package test-suite (requires MPI to be initialised correctly):
 $ julia --project -e 'using Pkg; Pkg.test("GeoDynamo")'
 ```
 
+### Verify SHTnsKit v1.1.15 Features
+
+GeoDynamo.jl requires SHTnsKit.jl v1.1.15 or later for optimal performance. Verify the installation:
+
+```julia
+julia> using GeoDynamo
+julia> info = get_shtnskit_version_info()
+julia> println("SHTnsKit version: ", info.version)
+julia> println("QST transforms: ", info.has_qst_transforms)
+julia> println("Energy functions: ", info.has_energy_functions)
+julia> println("Rotation functions: ", info.has_rotation_functions)
+```
+
+If features are missing, update SHTnsKit:
+
+```julia
+julia> using Pkg; Pkg.update("SHTnsKit")
+```
+
 ## 5. Minimal Example
 
 ```julia
