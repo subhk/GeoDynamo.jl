@@ -1305,15 +1305,15 @@ where tilde denotes dimensionless quantities.
 # Implementation Notes
 
 After dividing Eq. (1) by E/Pm, the explicit RHS entering the time integrator is:
-RHS = ũ×ω̃ - (Pm/E)(ẑ×ũ)
+RHS = -(Pm/E)(∇×ũ)×ũ - (Pm/E)(ẑ×ũ)
       + (Pm/E)(Pm/Pr)Ra·T̃·r̂ + (Pm/E)(Pm/Sc)Ra_C·C̃·r̂
       + (Pm/E)(∇×B̃)×B̃
 
-- The advection term ũ×ω̃ already matches −(∇×ũ)×ũ without extra scaling.
-- Coriolis, buoyancy, and Lorentz forces carry the (Pm/E) prefactor (=`rossby_factor`).
-- Viscous diffusion is treated implicitly with coefficient Pm (passed via `diffusivity`).
+All explicit terms (advection, Coriolis, buoyancy, Lorentz) carry the (Pm/E) prefactor
+(=`rossby_factor`), consistent with Sreenivasan & Kar (2024).
+Viscous diffusion is treated implicitly with coefficient Pm (passed via `diffusivity`).
 
-The time derivative retains the (E/Pm) mass term and is handled by the integrator.
+The time derivative has unit coefficient after the division and is handled by the integrator.
 """
 function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
                                                temp_field, comp_field, mag_field,
@@ -1348,7 +1348,8 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     r_range = range_local(config.pencils.r, 3)
     
     # Main fused computation loop with enhanced indexing (parallel over r-slices)
-    adv_coeff = one(T)  # u×ω coefficient (matches -(∇×u)×u term in Eq. (1))
+    # After dividing Eq. (1) by E/Pm, advection has coefficient Pm/E (same as Coriolis)
+    adv_coeff = rossby_factor  # (Pm/E) scaling per Sreenivasan & Kar (2024)
     @inbounds Threads.@threads for k in 1:local_size[3]
         # Get radius for this level using pencil range
         r_idx = k + first(r_range) - 1
@@ -1379,7 +1380,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
                     ω_θ = vort_θ[linear_idx]
                     ω_φ = vort_φ[linear_idx]
                     
-                    # Advection: u × ω (equivalent to - (∇×u) × u)
+                    # Advection: (Pm/E) u × ω = -(Pm/E)(∇×u) × u
                     adv_r_val = adv_coeff * (u_θ * ω_φ - u_φ * ω_θ)
                     adv_θ_val = adv_coeff * (u_φ * ω_r - u_r * ω_φ)
                     adv_φ_val = adv_coeff * (u_r * ω_θ - u_θ * ω_r)
