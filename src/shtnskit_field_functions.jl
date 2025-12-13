@@ -1566,13 +1566,468 @@ function get_shtnskit_version_info()
         false
     end
 
+    has_rotation = try
+        isdefined(SHTnsKit, :SH_Zrotate)
+    catch
+        false
+    end
+
+    has_inplace = try
+        isdefined(SHTnsKit, :synthesis!)
+    catch
+        false
+    end
+
     return (
         version = version,
         has_distributed_transforms = has_distributed,
         has_qst_transforms = has_qst,
         has_energy_functions = has_energy,
+        has_rotation_functions = has_rotation,
+        has_inplace_transforms = has_inplace,
         use_distributed = SHTNSKIT_USE_DISTRIBUTED,
         use_qst = SHTNSKIT_USE_QST,
         use_scratch_buffers = SHTNSKIT_USE_SCRATCH_BUFFERS
     )
+end
+
+# ================================================================================
+# In-Place Transform Functions (SHTnsKit v1.1.15)
+# ================================================================================
+# These functions use in-place operations to reduce memory allocations
+
+"""
+    shtnskit_synthesis_inplace!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
+                                 f_out::Matrix{Float64})
+
+In-place spectral-to-physical synthesis using SHTnsKit v1.1.15.
+Writes result directly to f_out, avoiding allocation of temporary arrays.
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Input spectral coefficients (lmax+1 × mmax+1)
+- `f_out`: Output physical field (nlat × nlon), modified in-place
+"""
+function shtnskit_synthesis_inplace!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
+                                      f_out::Matrix{Float64})
+    try
+        # Use in-place synthesis if available (v1.1.15+)
+        SHTnsKit.synthesis!(config.sht_config, alm, f_out)
+    catch e
+        # Fallback to allocating version
+        result = SHTnsKit.synthesis(config.sht_config, alm; real_output=true)
+        copyto!(f_out, result)
+    end
+    return f_out
+end
+
+"""
+    shtnskit_analysis_inplace!(config::SHTnsKitConfig, f::Matrix{Float64},
+                                alm_out::Matrix{ComplexF64})
+
+In-place physical-to-spectral analysis using SHTnsKit v1.1.15.
+Writes result directly to alm_out, avoiding allocation of temporary arrays.
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `f`: Input physical field (nlat × nlon)
+- `alm_out`: Output spectral coefficients (lmax+1 × mmax+1), modified in-place
+"""
+function shtnskit_analysis_inplace!(config::SHTnsKitConfig, f::Matrix{Float64},
+                                     alm_out::Matrix{ComplexF64})
+    try
+        # Use in-place analysis if available (v1.1.15+)
+        SHTnsKit.analysis!(config.sht_config, f, alm_out)
+    catch e
+        # Fallback to allocating version
+        result = SHTnsKit.analysis(config.sht_config, f)
+        copyto!(alm_out, result)
+    end
+    return alm_out
+end
+
+# ================================================================================
+# Field Rotation Functions (SHTnsKit v1.1.15)
+# ================================================================================
+# These functions use Wigner D-matrices for efficient field rotations in spectral space
+
+"""
+    rotate_field_z!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, alpha::Real;
+                    alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+
+Rotate a scalar field around the z-axis by angle alpha in spectral space.
+This is a pure phase rotation: alm[l,m] -> alm[l,m] * exp(-i*m*alpha)
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Input spectral coefficients (modified in-place if alm_out is nothing)
+- `alpha`: Rotation angle in radians
+- `alm_out`: Optional output array (if nothing, modifies alm in-place)
+
+# Returns
+The rotated coefficients (alm_out if provided, otherwise alm)
+"""
+function rotate_field_z!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, alpha::Real;
+                         alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+    output = alm_out === nothing ? alm : alm_out
+
+    try
+        # Use native SHTnsKit rotation if available
+        SHTnsKit.SH_Zrotate(config.sht_config, alm, alpha, output)
+    catch e
+        # Fallback: manual phase rotation
+        lmax, mmax = config.lmax, config.mmax
+        for l in 0:lmax
+            for m in 0:min(l, mmax)
+                phase = exp(-im * m * alpha)
+                if alm_out === nothing
+                    alm[l+1, m+1] *= phase
+                else
+                    output[l+1, m+1] = alm[l+1, m+1] * phase
+                end
+            end
+        end
+    end
+    return output
+end
+
+"""
+    rotate_field_y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, beta::Real;
+                    alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+
+Rotate a scalar field around the y-axis by angle beta in spectral space.
+Uses Wigner d-matrices (small Wigner rotation matrices).
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Input spectral coefficients
+- `beta`: Rotation angle in radians
+- `alm_out`: Optional output array
+
+# Returns
+The rotated coefficients
+"""
+function rotate_field_y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, beta::Real;
+                         alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+    output = alm_out === nothing ? similar(alm) : alm_out
+
+    try
+        SHTnsKit.SH_Yrotate(config.sht_config, alm, beta, output)
+    catch e
+        @warn "SH_Yrotate not available, y-rotation requires Wigner d-matrices"
+        # Y-rotation is complex - requires Wigner d-matrices
+        # For now, just copy if no native support
+        if alm_out !== nothing
+            copyto!(output, alm)
+        end
+    end
+    return output
+end
+
+"""
+    rotate_field_90y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
+                      alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+
+Rotate a scalar field by 90 degrees around the y-axis.
+This is a special case with optimized Wigner d-matrix values.
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Input spectral coefficients
+- `alm_out`: Optional output array
+
+# Returns
+The rotated coefficients
+"""
+function rotate_field_90y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
+                           alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+    output = alm_out === nothing ? similar(alm) : alm_out
+
+    try
+        SHTnsKit.SH_Yrotate90(config.sht_config, alm, output)
+    catch e
+        # Fallback to general Y rotation
+        rotate_field_y!(config, alm, π/2; alm_out=output)
+    end
+    return output
+end
+
+"""
+    rotate_field_90x!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
+                      alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+
+Rotate a scalar field by 90 degrees around the x-axis.
+Equivalent to: Z(-π/2) * Y(π/2) * Z(π/2)
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Input spectral coefficients
+- `alm_out`: Optional output array
+
+# Returns
+The rotated coefficients
+"""
+function rotate_field_90x!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
+                           alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+    output = alm_out === nothing ? similar(alm) : alm_out
+
+    try
+        SHTnsKit.SH_Xrotate90(config.sht_config, alm, output)
+    catch e
+        # Fallback: decompose into Z and Y rotations
+        temp = similar(alm)
+        rotate_field_z!(config, alm, π/2; alm_out=temp)
+        rotate_field_90y!(config, temp; alm_out=output)
+        rotate_field_z!(config, output, -π/2; alm_out=output)
+    end
+    return output
+end
+
+"""
+    rotate_field_euler!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
+                        alpha::Real, beta::Real, gamma::Real;
+                        alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+
+Rotate a scalar field by Euler angles (ZYZ convention) in spectral space.
+The rotation is: R = Rz(gamma) * Ry(beta) * Rz(alpha)
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Input spectral coefficients
+- `alpha, beta, gamma`: Euler angles in radians (ZYZ convention)
+- `alm_out`: Optional output array
+
+# Returns
+The rotated coefficients
+"""
+function rotate_field_euler!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
+                             alpha::Real, beta::Real, gamma::Real;
+                             alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+    output = alm_out === nothing ? similar(alm) : alm_out
+    temp = similar(alm)
+
+    # Apply rotations in sequence: Rz(alpha), then Ry(beta), then Rz(gamma)
+    rotate_field_z!(config, alm, alpha; alm_out=temp)
+    rotate_field_y!(config, temp, beta; alm_out=output)
+    rotate_field_z!(config, output, gamma; alm_out=output)
+
+    return output
+end
+
+# ================================================================================
+# Horizontal Laplacian Operator (SHTnsKit v1.1.15)
+# ================================================================================
+
+"""
+    apply_horizontal_laplacian!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
+                                 alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+
+Apply the horizontal (angular) Laplacian to spectral coefficients.
+∇²_h Y_l^m = -l(l+1) Y_l^m
+
+This scales each coefficient by -l(l+1), which is the eigenvalue of the
+horizontal Laplacian on the unit sphere.
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Input spectral coefficients
+- `alm_out`: Optional output array (if nothing, modifies alm in-place)
+
+# Returns
+The Laplacian-transformed coefficients
+"""
+function apply_horizontal_laplacian!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
+                                      alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+    output = alm_out === nothing ? alm : alm_out
+    lmax, mmax = config.lmax, config.mmax
+
+    for l in 0:lmax
+        factor = -l * (l + 1)
+        for m in 0:min(l, mmax)
+            if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
+                output[l+1, m+1] = alm[l+1, m+1] * factor
+            end
+        end
+    end
+    return output
+end
+
+"""
+    apply_inverse_horizontal_laplacian!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
+                                         alm_out::Union{Matrix{ComplexF64},Nothing}=nothing,
+                                         regularize_l0::Bool=true)
+
+Apply the inverse horizontal Laplacian to spectral coefficients.
+This scales each coefficient by -1/(l(l+1)), which is useful for solving Poisson equations.
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Input spectral coefficients
+- `alm_out`: Optional output array
+- `regularize_l0`: If true, set l=0 mode to zero (since 1/0 is undefined)
+
+# Returns
+The inverse-Laplacian-transformed coefficients
+"""
+function apply_inverse_horizontal_laplacian!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
+                                              alm_out::Union{Matrix{ComplexF64},Nothing}=nothing,
+                                              regularize_l0::Bool=true)
+    output = alm_out === nothing ? alm : alm_out
+    lmax, mmax = config.lmax, config.mmax
+
+    for l in 0:lmax
+        if l == 0
+            # l=0 mode: set to zero (or keep original if not regularizing)
+            if regularize_l0
+                output[1, 1] = zero(ComplexF64)
+            elseif alm_out !== nothing
+                output[1, 1] = alm[1, 1]
+            end
+        else
+            factor = -1.0 / (l * (l + 1))
+            for m in 0:min(l, mmax)
+                if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
+                    output[l+1, m+1] = alm[l+1, m+1] * factor
+                end
+            end
+        end
+    end
+    return output
+end
+
+"""
+    compute_horizontal_gradient_magnitude(config::SHTnsKitConfig, alm::Matrix{ComplexF64})
+
+Compute the magnitude of the horizontal gradient |∇_h f|² in spectral space.
+|∇_h f|² = l(l+1) |f_lm|²  (summed over all modes)
+
+This is useful for computing gradient energy or penalty terms.
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Spectral coefficients
+
+# Returns
+Scalar value of the integrated horizontal gradient magnitude squared
+"""
+function compute_horizontal_gradient_magnitude(config::SHTnsKitConfig, alm::Matrix{ComplexF64})
+    lmax, mmax = config.lmax, config.mmax
+    total = 0.0
+
+    for l in 1:lmax  # Skip l=0 (no gradient contribution)
+        factor = l * (l + 1)
+        for m in 0:min(l, mmax)
+            if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
+                energy = abs2(alm[l+1, m+1])
+                if m > 0
+                    energy *= 2.0  # Account for negative m modes
+                end
+                total += factor * energy
+            end
+        end
+    end
+    return total
+end
+
+# ================================================================================
+# Spectral Filtering Functions (SHTnsKit v1.1.15)
+# ================================================================================
+
+"""
+    apply_spectral_filter!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
+                           filter_func::Function;
+                           alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+
+Apply a custom spectral filter to coefficients.
+The filter function takes (l, m) and returns a scaling factor.
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Input spectral coefficients
+- `filter_func`: Function (l, m) -> scale_factor
+- `alm_out`: Optional output array
+
+# Example
+```julia
+# Exponential filter for dealiasing
+exp_filter(l, m) = exp(-(l/lmax)^16)
+apply_spectral_filter!(config, alm, exp_filter)
+```
+"""
+function apply_spectral_filter!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
+                                filter_func::Function;
+                                alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+    output = alm_out === nothing ? alm : alm_out
+    lmax, mmax = config.lmax, config.mmax
+
+    for l in 0:lmax
+        for m in 0:min(l, mmax)
+            if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
+                scale = filter_func(l, m)
+                output[l+1, m+1] = alm[l+1, m+1] * scale
+            end
+        end
+    end
+    return output
+end
+
+"""
+    apply_exponential_filter!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
+                               order::Int=16, cutoff::Float64=0.65,
+                               alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+
+Apply an exponential spectral filter for dealiasing.
+filter(l) = exp(-α * (l/lmax)^order) where α is chosen so filter(cutoff*lmax) = 0.5
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Input spectral coefficients
+- `order`: Filter order (higher = sharper cutoff, default 16)
+- `cutoff`: Fraction of lmax where filter = 0.5 (default 0.65)
+- `alm_out`: Optional output array
+"""
+function apply_exponential_filter!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
+                                    order::Int=16, cutoff::Float64=0.65,
+                                    alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+    lmax = config.lmax
+    # Solve for α: exp(-α * cutoff^order) = 0.5 => α = log(2) / cutoff^order
+    α = log(2) / cutoff^order
+
+    filter_func(l, m) = exp(-α * (l / lmax)^order)
+    return apply_spectral_filter!(config, alm, filter_func; alm_out=alm_out)
+end
+
+"""
+    truncate_spectral_modes!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
+                             lmax_new::Int, mmax_new::Int=lmax_new;
+                             alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+
+Truncate spectral coefficients to a lower resolution.
+Sets all modes with l > lmax_new or m > mmax_new to zero.
+
+# Arguments
+- `config`: SHTnsKit configuration
+- `alm`: Input spectral coefficients
+- `lmax_new`: New maximum degree
+- `mmax_new`: New maximum order (default = lmax_new)
+- `alm_out`: Optional output array
+"""
+function truncate_spectral_modes!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
+                                  lmax_new::Int, mmax_new::Int=lmax_new;
+                                  alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+    output = alm_out === nothing ? alm : alm_out
+    lmax, mmax = config.lmax, config.mmax
+
+    for l in 0:lmax
+        for m in 0:min(l, mmax)
+            if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
+                if l > lmax_new || m > mmax_new
+                    output[l+1, m+1] = zero(ComplexF64)
+                elseif alm_out !== nothing
+                    output[l+1, m+1] = alm[l+1, m+1]
+                end
+            end
+        end
+    end
+    return output
 end

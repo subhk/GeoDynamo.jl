@@ -281,40 +281,95 @@ Get information about the boundary conditions module.
 # Common Utility Functions
 # ================================================================================
 
+# ================================================================================
+# Cached SHTnsKit Configuration for Boundary Transforms (v1.1.15 optimization)
+# ================================================================================
+# This avoids recreating configs for each boundary transform call
+
+const _BC_SHTNS_CONFIG_CACHE = Dict{Tuple{Int,Int,Int,Int}, Any}()
+
 """
-    shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
+    _get_cached_bc_shtns_config(lmax, mmax, nlat, nlon)
+
+Get or create a cached SHTnsKit configuration for boundary transforms.
+Reuses configurations to avoid repeated setup/teardown overhead.
+"""
+function _get_cached_bc_shtns_config(lmax::Int, mmax::Int, nlat::Int, nlon::Int)
+    key = (lmax, mmax, nlat, nlon)
+    if !haskey(_BC_SHTNS_CONFIG_CACHE, key)
+        _BC_SHTNS_CONFIG_CACHE[key] = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon)
+    end
+    return _BC_SHTNS_CONFIG_CACHE[key]
+end
+
+"""
+    clear_bc_shtns_config_cache!()
+
+Clear the cached SHTnsKit configurations for boundary transforms.
+Call this when grid parameters change or to free memory.
+"""
+function clear_bc_shtns_config_cache!()
+    for (key, cfg) in _BC_SHTNS_CONFIG_CACHE
+        try
+            SHTnsKit.destroy_config(cfg)
+        catch
+            # Ignore errors during cleanup
+        end
+    end
+    empty!(_BC_SHTNS_CONFIG_CACHE)
+end
+
+"""
+    shtns_physical_to_spectral(physical_data::Matrix{T}, config; return_complex::Bool=false) where T
 
 Transform physical boundary data to spectral coefficients using SHTnsKit.
 This is a common utility function used by both thermal and composition modules.
+
+# Arguments
+- `physical_data`: 2D array of physical values on (nlat, nlon) grid
+- `config`: SHTnsKit configuration with lmax, mmax, nlm fields
+- `return_complex`: If true, returns complex coefficients; otherwise real part only
+
+# Returns
+Vector of spectral coefficients of length nlm.
+
+# Performance (v1.1.15)
+Uses cached SHTnsKit configurations to avoid repeated setup overhead.
 """
-function shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
+function shtns_physical_to_spectral(physical_data::Matrix{T}, config; return_complex::Bool=false) where T
 
     try
-        # Create temporary SHTnsKit configuration
+        # Use cached configuration for efficiency (v1.1.15 optimization)
         nlat, nlon = size(physical_data)
-        shtconfig = SHTnsKit.create_gauss_config(config.lmax, nlat; mmax=config.mmax, nlon=nlon)
+        shtconfig = _get_cached_bc_shtns_config(config.lmax, config.mmax, nlat, nlon)
 
         # Perform forward transform - returns (lmax+1)×(mmax+1) matrix
         coeffs_matrix = SHTnsKit.analysis(shtconfig, physical_data)
 
-        # Clean up configuration
-        SHTnsKit.destroy_config(shtconfig)
-
         # Convert matrix format to 1D spectral coefficient array
         # The boundary code expects a 1D array of length nlm
-        lmax, mmax = config.lmax, config.mmax
+        lmax, mmax_val = config.lmax, config.mmax
         nlm = config.nlm
-        coeffs = zeros(T, nlm)
+
+        if return_complex
+            coeffs = zeros(Complex{T}, nlm)
+        else
+            coeffs = zeros(T, nlm)
+        end
 
         # Map from (l,m) matrix to linear index
         # This follows the same indexing as used in the main transform code
         idx = 0
         for l in 0:lmax
-            for m in 0:min(l, mmax)
+            for m in 0:min(l, mmax_val)
                 idx += 1
                 if idx <= nlm && l < size(coeffs_matrix, 1) && m < size(coeffs_matrix, 2)
-                    # Extract real part (boundary conditions typically use real values)
-                    coeffs[idx] = real(coeffs_matrix[l+1, m+1])
+                    if return_complex
+                        coeffs[idx] = coeffs_matrix[l+1, m+1]
+                    else
+                        # Extract real part (boundary conditions typically use real values)
+                        coeffs[idx] = real(coeffs_matrix[l+1, m+1])
+                    end
                 end
             end
         end
@@ -325,7 +380,11 @@ function shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
 
         # Fallback: simple mean value in l=0 mode
         nlm = config.nlm
-        coeffs = zeros(T, nlm)
+        if return_complex
+            coeffs = zeros(Complex{T}, nlm)
+        else
+            coeffs = zeros(T, nlm)
+        end
 
         # Set l=0, m=0 mode to mean value
         if length(coeffs) > 0
@@ -333,6 +392,53 @@ function shtns_physical_to_spectral(physical_data::Matrix{T}, config) where T
         end
 
         return coeffs
+    end
+end
+
+"""
+    shtns_spectral_to_physical(coeffs::Vector, config, nlat::Int, nlon::Int)
+
+Transform spectral coefficients to physical boundary data using SHTnsKit.
+Inverse of shtns_physical_to_spectral.
+
+# Arguments
+- `coeffs`: Vector of spectral coefficients of length nlm
+- `config`: SHTnsKit configuration with lmax, mmax fields
+- `nlat, nlon`: Output grid dimensions
+
+# Returns
+Matrix of physical values on (nlat, nlon) grid.
+"""
+function shtns_spectral_to_physical(coeffs::Vector{T}, config, nlat::Int, nlon::Int) where T
+    try
+        # Use cached configuration
+        shtconfig = _get_cached_bc_shtns_config(config.lmax, config.mmax, nlat, nlon)
+
+        # Convert 1D coefficients to (lmax+1)×(mmax+1) matrix
+        lmax, mmax_val = config.lmax, config.mmax
+        coeffs_matrix = zeros(ComplexF64, lmax+1, mmax_val+1)
+
+        idx = 0
+        for l in 0:lmax
+            for m in 0:min(l, mmax_val)
+                idx += 1
+                if idx <= length(coeffs)
+                    coeffs_matrix[l+1, m+1] = complex(coeffs[idx])
+                end
+            end
+        end
+
+        # Perform inverse transform
+        physical_data = SHTnsKit.synthesis(shtconfig, coeffs_matrix; real_output=true)
+        return physical_data
+    catch e
+        @warn "SHTnsKit synthesis failed, using fallback: $e"
+        # Fallback: uniform field with l=0 value
+        physical_data = zeros(Float64, nlat, nlon)
+        if length(coeffs) > 0
+            fill!(physical_data, real(coeffs[1]))
+        end
+        return physical_data
     end
 end
 
