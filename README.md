@@ -39,22 +39,4 @@ After installation load the package to trigger precompilation and parameter init
 julia> using GeoDynamo
 ```
 
-## Running the bundled demos
-
-The `examples/` folder contains runnable scripts covering common workflows:
-
-```bash
-# Solid ball MHD demo
-julia --project examples/ball_mhd_demo.jl
-
-# Spherical shell dynamo run
-julia --project examples/shell_dynamo_demo.jl
-
-# Generate sample NetCDF boundary files
-julia --project examples/create_sample_netcdf_boundaries.jl
-
-# Try different output precision
-GEODYNAMO_OUTPUT_PRECISION=Float32 julia --project examples/ball_mhd_demo.jl
-```
-
 
