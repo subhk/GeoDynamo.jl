@@ -600,6 +600,10 @@ end
     eab2_update!(u, nl, nl_prev, etd, config)
 
 Apply EAB2 update per (l,m): u^{n+1} = E u^n + dt*phi1*(3/2 nl^n − 1/2 nl^{n−1}).
+
+# MPI Safety
+Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
+the same number of times, preventing deadlock with uneven lm distribution.
 """
 function eab2_update!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
                       nl_prev::SHTnsSpectralField{T}, etd::ETDCache{T}, config::SHTnsKitConfig,
@@ -612,20 +616,28 @@ function eab2_update!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
     nr_full = size(etd.E[1], 1)
     comm = get_comm()
     multi = MPI.Comm_size(comm) > 1
+    nlm_total = u.nlm
     linear_r_work = zeros(T, nr_full)
     linear_i_work = similar(linear_r_work)
     phi_tmp = similar(linear_r_work)
-    # Build map from lm_idx to l index in etd
-    for lm_idx in lm_range
-        if lm_idx <= u.nlm
-            l = config.l_values[lm_idx]
-            lpos = findfirst(==(l), etd.l_values)
-            E = etd.E[lpos]
-            P1 = etd.phi1[lpos]
+
+    # Use GLOBAL loop bounds to ensure all processes call Allreduce same number of times
+    for lm_idx in 1:nlm_total
+        # Check if this process owns this lm mode
+        owns_mode = lm_idx in lm_range
+
+        l = config.l_values[lm_idx]
+        lpos = findfirst(==(l), etd.l_values)
+        E = etd.E[lpos]
+        P1 = etd.phi1[lpos]
+
+        # Assemble full radial vectors - all processes allocate
+        ur = zeros(T, nr_full); ui = zeros(T, nr_full)
+        nrn = zeros(T, nr_full); nin = zeros(T, nr_full)
+
+        # Only fill if this process owns the mode
+        if owns_mode
             ll = lm_idx - first(lm_range) + 1
-            # Assemble full radial vectors
-            ur = zeros(T, nr_full); ui = zeros(T, nr_full)
-            nrn = zeros(T, nr_full); nin = zeros(T, nr_full)
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_real, 3)
@@ -635,20 +647,27 @@ function eab2_update!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
                     nin[r] = (3/2)*n_imag[ll,1,lr] - (1/2)*p_imag[ll,1,lr]
                 end
             end
-            if multi
-                Allreduce!(ur, MPI.SUM, comm)
-                Allreduce!(ui, MPI.SUM, comm)
-                Allreduce!(nrn, MPI.SUM, comm)
-                Allreduce!(nin, MPI.SUM, comm)
-            end
-            mul!(linear_r_work, E, ur)
-            mul!(phi_tmp, P1, nrn)
-            @. linear_r_work = linear_r_work + dt * phi_tmp
+        end
 
-            mul!(linear_i_work, E, ui)
-            mul!(phi_tmp, P1, nin)
-            @. linear_i_work = linear_i_work + dt * phi_tmp
-            # Scatter back to local slab
+        # ALL processes call Allreduce together (collective operation)
+        if multi
+            Allreduce!(ur, MPI.SUM, comm)
+            Allreduce!(ui, MPI.SUM, comm)
+            Allreduce!(nrn, MPI.SUM, comm)
+            Allreduce!(nin, MPI.SUM, comm)
+        end
+
+        mul!(linear_r_work, E, ur)
+        mul!(phi_tmp, P1, nrn)
+        @. linear_r_work = linear_r_work + dt * phi_tmp
+
+        mul!(linear_i_work, E, ui)
+        mul!(phi_tmp, P1, nin)
+        @. linear_i_work = linear_i_work + dt * phi_tmp
+
+        # Scatter back only if this process owns the mode
+        if owns_mode
+            ll = lm_idx - first(lm_range) + 1
             @inbounds for r in r_range
                 lr = r - first(r_range) + 1
                 if lr <= size(u_real, 3)
@@ -781,6 +800,10 @@ end
 
 Build RHS for CNAB2 IMEX: rhs = un/dt + (1-θ)·L·un + (3/2)·nl − (1/2)·nl_prev,
 where θ = matrices.theta and L is the diffusivity-scaled linear operator.
+
+# MPI Safety
+Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
+the same number of times, preventing deadlock with uneven lm distribution.
 """
 function build_rhs_cnab2!(rhs::SHTnsSpectralField{T}, un::SHTnsSpectralField{T},
                           nl::SHTnsSpectralField{T}, nl_prev::SHTnsSpectralField{T},
@@ -809,54 +832,68 @@ function build_rhs_cnab2!(rhs::SHTnsSpectralField{T}, un::SHTnsSpectralField{T},
 
     comm = get_comm()
     multi = MPI.Comm_size(comm) > 1
+    nlm_total = un.nlm
 
-    @inbounds for lm_idx in lm_range
-        if lm_idx <= un.nlm
-            l = un.config.l_values[lm_idx]
-            ll = lm_idx - first(lm_range) + 1
-            ll > size(r_real, 1) && continue
-            idx = add_linear ? get(matrices.lookup, l, nothing) : nothing
+    # Use GLOBAL loop bounds to ensure all processes call Allreduce same number of times
+    @inbounds for lm_idx in 1:nlm_total
+        # Check if this process owns this lm mode
+        owns_mode = lm_idx in lm_range
 
-            if add_linear
-                idx === nothing && error("Missing implicit matrix for l=$l")
-                fill!(ur, zero(T)); fill!(ui, zero(T))
+        l = un.config.l_values[lm_idx]
+        idx = add_linear ? get(matrices.lookup, l, nothing) : nothing
 
-                for r in r_range
-                    lr = r - first(r_range) + 1
-                    if lr <= size(u_real, 3)
-                        ur[r] = u_real[ll, 1, lr]
-                        ui[r] = u_imag[ll, 1, lr]
+        if add_linear
+            idx === nothing && error("Missing implicit matrix for l=$l")
+            fill!(ur, zero(T)); fill!(ui, zero(T))
+
+            # Only fill if this process owns the mode
+            if owns_mode
+                ll = lm_idx - first(lm_range) + 1
+                if ll <= size(r_real, 1)
+                    for r in r_range
+                        lr = r - first(r_range) + 1
+                        if lr <= size(u_real, 3)
+                            ur[r] = u_real[ll, 1, lr]
+                            ui[r] = u_imag[ll, 1, lr]
+                        end
                     end
                 end
-
-                if multi
-                    Allreduce!(ur, MPI.SUM, comm)
-                    Allreduce!(ui, MPI.SUM, comm)
-                end
-
-                fill!(lin_r, zero(T)); fill!(lin_i, zero(T))
-                apply_banded_full!(lin_r, matrices.linear_matrices[idx], ur)
-                apply_banded_full!(lin_i, matrices.linear_matrices[idx], ui)
             end
 
-            for r in r_range
-                lr = r - first(r_range) + 1
-                lr > size(r_real, 3) && continue
+            # ALL processes call Allreduce together (collective operation)
+            if multi
+                Allreduce!(ur, MPI.SUM, comm)
+                Allreduce!(ui, MPI.SUM, comm)
+            end
 
-                value_real = inv_dt * u_real[ll, 1, lr] +
-                             three_halves * n_real[ll, 1, lr] -
-                             half * p_real[ll, 1, lr]
-                value_imag = inv_dt * u_imag[ll, 1, lr] +
-                             three_halves * n_imag[ll, 1, lr] -
-                             half * p_imag[ll, 1, lr]
+            fill!(lin_r, zero(T)); fill!(lin_i, zero(T))
+            apply_banded_full!(lin_r, matrices.linear_matrices[idx], ur)
+            apply_banded_full!(lin_i, matrices.linear_matrices[idx], ui)
+        end
 
-                if add_linear
-                    value_real += linear_weight * lin_r[r]
-                    value_imag += linear_weight * lin_i[r]
+        # Only update output if this process owns the mode
+        if owns_mode
+            ll = lm_idx - first(lm_range) + 1
+            if ll <= size(r_real, 1)
+                for r in r_range
+                    lr = r - first(r_range) + 1
+                    lr > size(r_real, 3) && continue
+
+                    value_real = inv_dt * u_real[ll, 1, lr] +
+                                 three_halves * n_real[ll, 1, lr] -
+                                 half * p_real[ll, 1, lr]
+                    value_imag = inv_dt * u_imag[ll, 1, lr] +
+                                 three_halves * n_imag[ll, 1, lr] -
+                                 half * p_imag[ll, 1, lr]
+
+                    if add_linear
+                        value_real += linear_weight * lin_r[r]
+                        value_imag += linear_weight * lin_i[r]
+                    end
+
+                    r_real[ll, 1, lr] = value_real
+                    r_imag[ll, 1, lr] = value_imag
                 end
-
-                r_real[ll, 1, lr] = value_real
-                r_imag[ll, 1, lr] = value_imag
             end
         end
     end
