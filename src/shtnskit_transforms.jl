@@ -67,15 +67,19 @@ All access to config._buffer_cache should be protected by this lock.
 const _BUFFER_CACHE_LOCK = ReentrantLock()
 
 """
-    get_cached_buffer!(config, key::Symbol, create_func::Function)
+    get_cached_buffer!(create_func::Function, config, key::Symbol)
+    get_cached_buffer!(config, key::Symbol) do ... end
 
 Thread-safe accessor for buffer cache. Returns existing buffer if present,
 otherwise creates a new one using `create_func()` and caches it.
 
+Note: The function parameter comes FIRST to support Julia's `do` block syntax.
+When using `do` block, Julia desugars it to pass the closure as the first argument.
+
 # Arguments
+- `create_func::Function`: Zero-argument function to create buffer if not cached
 - `config`: SHTnsKitConfig object containing the buffer cache
 - `key::Symbol`: Key to look up in the buffer cache
-- `create_func::Function`: Zero-argument function to create buffer if not cached
 
 # Returns
 The cached or newly created buffer.
@@ -87,7 +91,7 @@ buffer = get_cached_buffer!(config, :my_buffer) do
 end
 ```
 """
-function get_cached_buffer!(config, key::Symbol, create_func::Function)
+function get_cached_buffer!(create_func::Function, config, key::Symbol)
     lock(_BUFFER_CACHE_LOCK) do
         if !haskey(config._buffer_cache, key)
             config._buffer_cache[key] = create_func()
