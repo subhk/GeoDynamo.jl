@@ -892,6 +892,12 @@ end
     extract_physical_slice_phi_local!(slice_buffer, phys_data, r_local, config)
 
 Extract physical slice when in phi-local pencil using pre-allocated buffer.
+
+# WARNING: MPI Synchronization
+This function contains MPI.Allreduce! which is a collective operation.
+When called inside a per-radial loop, ALL MPI processes must call this
+function the same number of times, otherwise deadlock will occur.
+Ensure even radial distribution or use global loop bounds.
 """
 function extract_physical_slice_phi_local!(slice_buffer::Matrix{T}, phys_data, r_local, config) where T
     nlat, nlon = config.nlat, config.nlon
@@ -902,15 +908,22 @@ function extract_physical_slice_phi_local!(slice_buffer::Matrix{T}, phys_data, r
     common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
     common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
 
+    # Check if this process has data at this radial level
+    has_local_data = r_local <= size(phys_data, 3)
+
     Threads.@threads for i in common_i_range
         for j in common_j_range
-            if r_local <= size(phys_data, 3)
+            if has_local_data
                 slice_buffer[i, j] = phys_data[i, j, r_local]
             end
         end
     end
 
+    # Explicit synchronization point: ensure all threads complete before MPI call
+    # Note: @threads has implicit barrier, but being explicit for safety
+
     # Gather complete grid across all MPI processes
+    # This is a collective operation - all processes must participate
     Allreduce!(slice_buffer, MPI.SUM, get_comm())
 
     return slice_buffer
@@ -933,6 +946,12 @@ end
     extract_physical_slice_generic!(slice_buffer, phys_data, r_local, config)
 
 Generic extraction for any pencil orientation using pre-allocated buffer.
+
+# WARNING: MPI Synchronization
+This function contains MPI.Allreduce! which is a collective operation.
+When called inside a per-radial loop, ALL MPI processes must call this
+function the same number of times, otherwise deadlock will occur.
+Ensure even radial distribution or use global loop bounds.
 """
 function extract_physical_slice_generic!(slice_buffer::Matrix{T}, phys_data, r_local, config) where T
     nlat, nlon = config.nlat, config.nlon
@@ -944,15 +963,22 @@ function extract_physical_slice_generic!(slice_buffer::Matrix{T}, phys_data, r_l
     common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
     common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
 
+    # Check if this process has data at this radial level
+    has_local_data = r_local <= size(phys_data, 3)
+
     Threads.@threads for i in common_i_range
         for j in common_j_range
-            if r_local <= size(phys_data, 3)
+            if has_local_data
                 slice_buffer[i, j] = phys_data[i, j, r_local]
             end
         end
     end
 
+    # Explicit synchronization point: ensure all threads complete before MPI call
+    # Note: @threads has implicit barrier, but being explicit for safety
+
     # Gather complete grid across all MPI processes
+    # This is a collective operation - all processes must participate
     Allreduce!(slice_buffer, MPI.SUM, get_comm())
 
     return slice_buffer
@@ -975,6 +1001,12 @@ end
     extract_vector_component_generic!(component_buffer, v_data, r_local, config)
 
 Generic extraction for vector components using pre-allocated buffer.
+
+# WARNING: MPI Synchronization
+This function contains MPI.Allreduce! which is a collective operation.
+When called inside a per-radial loop, ALL MPI processes must call this
+function the same number of times, otherwise deadlock will occur.
+Ensure even radial distribution or use global loop bounds.
 """
 function extract_vector_component_generic!(component_buffer::Matrix{T}, v_data, r_local, config) where T
     nlat, nlon = config.nlat, config.nlon
@@ -985,15 +1017,19 @@ function extract_vector_component_generic!(component_buffer::Matrix{T}, v_data, 
     common_i_range = 1:min(size(v_data, 1), nlat, size(component_buffer, 1))
     common_j_range = 1:min(size(v_data, 2), nlon, size(component_buffer, 2))
 
+    # Check if this process has data at this radial level
+    has_local_data = r_local <= size(v_data, 3)
+
     for i in common_i_range
         for j in common_j_range
-            if r_local <= size(v_data, 3)
+            if has_local_data
                 component_buffer[i, j] = v_data[i, j, r_local]
             end
         end
     end
 
     # Gather complete grid across all MPI processes
+    # This is a collective operation - all processes must participate
     Allreduce!(component_buffer, MPI.SUM, get_comm())
 
     return component_buffer

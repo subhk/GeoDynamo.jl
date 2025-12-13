@@ -854,24 +854,31 @@ function print_pencil_axes(pencils)
 end
 
 """
-    validate_radial_distribution(pencils; warn_uneven::Bool=true) -> Bool
+    validate_radial_distribution(pencils; warn_uneven::Bool=true, strict::Bool=false) -> Bool
 
 Validate that radial dimension has compatible distribution across all pencils.
 
 # MPI Synchronization Requirement
 The SHTnsKit transforms use MPI.Allreduce inside per-radial-level loops.
 All processes must have the SAME number of local radial levels, otherwise
-processes will enter/exit the loop at different times causing deadlock.
+processes will enter/exit the loop at different times causing **MPI DEADLOCK**.
 
 # Arguments
 - `pencils`: Named tuple of pencil configurations
 - `warn_uneven`: If true, emit warning for uneven distribution
+- `strict`: If true, throw an error instead of just warning (recommended for production)
 
 # Returns
 `true` if distribution is valid (all processes have same local radial count).
 `false` if there's a potential synchronization issue.
+
+# Example
+```julia
+# For production code, use strict mode to prevent deadlock
+validate_radial_distribution(pencils; strict=true)
+```
 """
-function validate_radial_distribution(pencils; warn_uneven::Bool=true)
+function validate_radial_distribution(pencils; warn_uneven::Bool=true, strict::Bool=false)
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
@@ -882,6 +889,9 @@ function validate_radial_distribution(pencils; warn_uneven::Bool=true)
 
     # Check radial distribution for each pencil type
     valid = true
+    problematic_pencils = Symbol[]
+    distribution_info = Dict{Symbol, Tuple{Int,Int}}()
+
     for (name, pencil) in pairs(pencils)
         local_axes = pencil.axes_local
         if length(local_axes) >= 3
@@ -897,12 +907,31 @@ function validate_radial_distribution(pencils; warn_uneven::Bool=true)
 
             if min_count != max_count
                 valid = false
-                if warn_uneven && rank == 0
-                    @warn "Uneven radial distribution in pencil :$name" min_count max_count nprocs
-                    @warn "This may cause MPI deadlock in SHTnsKit transforms!"
-                    @warn "Recommendation: Ensure nr (radial points) is divisible by nprocs"
-                end
+                push!(problematic_pencils, name)
+                distribution_info[name] = (min_count, max_count)
             end
+        end
+    end
+
+    if !valid
+        msg = """
+        CRITICAL: Uneven radial distribution detected!
+
+        Affected pencils: $(join(problematic_pencils, ", "))
+        Distribution: $(join(["$k: min=$(v[1]), max=$(v[2])" for (k,v) in distribution_info], "; "))
+        MPI processes: $nprocs
+
+        This WILL cause MPI deadlock in SHTnsKit transforms because
+        MPI.Allreduce is called inside per-radial-level loops.
+
+        SOLUTION: Ensure nr (radial grid points) is evenly divisible by nprocs.
+        For example: if nprocs=4, use nr=64, 128, 256, etc.
+        """
+
+        if strict
+            error(msg)
+        elseif warn_uneven && rank == 0
+            @warn msg
         end
     end
 
@@ -910,7 +939,7 @@ function validate_radial_distribution(pencils; warn_uneven::Bool=true)
 end
 
 """
-    check_transform_synchronization(config) -> Bool
+    check_transform_synchronization(config; strict::Bool=false) -> Bool
 
 Verify that the SHTnsKit transform configuration is safe for parallel execution.
 
@@ -919,10 +948,20 @@ Checks:
 2. Spectral mode distribution is valid
 3. FFT plans are properly initialized
 
+# Arguments
+- `config`: SHTnsKit configuration object with pencil information
+- `strict`: If true, throw an error on invalid configuration (recommended for production)
+
 # Returns
 `true` if configuration is safe for parallel transforms.
+
+# Example
+```julia
+# Validate before running transforms
+check_transform_synchronization(config; strict=true)
+```
 """
-function check_transform_synchronization(config)
+function check_transform_synchronization(config; strict::Bool=false)
     comm = get_comm()
     nprocs = get_nprocs()
 
@@ -933,7 +972,7 @@ function check_transform_synchronization(config)
     # Check pencil distribution
     if haskey(config, :pencils) || hasproperty(config, :pencils)
         pencils = config.pencils
-        if !validate_radial_distribution(pencils; warn_uneven=true)
+        if !validate_radial_distribution(pencils; warn_uneven=true, strict=strict)
             return false
         end
     end
