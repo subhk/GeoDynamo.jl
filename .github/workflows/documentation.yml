@@ -14,8 +14,10 @@ concurrency:
 jobs:
   build:
     permissions:
+      actions: write
       contents: write
       statuses: write
+      pull-requests: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -34,7 +36,7 @@ jobs:
           version: '1.11'
 
       - name: Cache Julia artifacts
-        uses: julia-actions/cache@v1
+        uses: julia-actions/cache@v2
 
       - name: Install package dependencies
         run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
@@ -45,7 +47,11 @@ jobs:
       - name: Build and deploy documentation
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
-        run: julia --project=docs docs/make.jl
-        # Documenter.jl's deploydocs() handles deployment to gh-pages branch
-        # with proper versioning (dev/, stable/, vX.Y.Z/)
+          # DOCUMENTER_KEY is optional for public repos, GITHUB_TOKEN is sufficient
+        run: |
+          julia --project=docs -e '
+            using Documenter: doctest
+            using GeoDynamo
+            # doctest(GeoDynamo)  # Skip doctests for now
+          '
+          julia --project=docs docs/make.jl
