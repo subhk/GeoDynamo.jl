@@ -133,14 +133,19 @@ end
 """
     apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
                                                apply_inner, apply_outer,
-                                               domain, r_range, ws, tid)
+                                               domain, r_range, ws, tid, owns_mode)
 
 Workspace-based version of physical stress BC (zero allocation).
 Enforces ∂T/∂r = T/r for proper stress-free boundaries.
+
+# MPI Safety
+The `owns_mode` parameter indicates whether this process owns the lm mode.
+All processes must call this function for each mode to ensure Allreduce is called
+the same number of times by all processes (prevents deadlock).
 """
 function apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
                                                     apply_inner, apply_outer,
-                                                    domain, r_range, ws::VelocityWorkspace{T}, tid::Int) where T
+                                                    domain, r_range, ws::VelocityWorkspace{T}, tid::Int, owns_mode::Bool) where T
     nr = domain.N
     r = domain.r[:, 4]
 
@@ -152,16 +157,18 @@ function apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_
     fill!(profile_real, zero(T))
     fill!(profile_imag, zero(T))
 
-    # Extract radial profile
-    @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
-            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+    # Extract radial profile (only if this process owns the mode)
+    if owns_mode
+        @inbounds for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+            end
         end
     end
 
-    # MPI gather
+    # MPI gather (ALL processes call this for synchronization)
     comm = BoundaryConditions.get_comm()
     if comm !== nothing && MPI.Comm_size(comm) > 1
         Allreduce!(profile_real, MPI.SUM, comm)
@@ -198,12 +205,14 @@ function apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_
         end
     end
 
-    # Store back
-    @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
-            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+    # Store back (only if this process owns the mode)
+    if owns_mode
+        @inbounds for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+            end
         end
     end
 end
@@ -211,7 +220,7 @@ end
 """
     apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
                                    apply_inner, apply_outer, dr_matrix,
-                                   domain, r_range, ws, tid)
+                                   domain, r_range, ws, tid, owns_mode)
 
 Workspace-based version of tau method stress-free BC (zero allocation).
 Uses pre-allocated buffers for profiles, derivatives, and corrections.
@@ -227,11 +236,16 @@ This means the target flux at each boundary is NOT zero, but T/r:
 - Outer boundary: target_flux = T[nr]/r[nr]
 
 The tau method adds a correction polynomial to enforce this condition exactly.
+
+# MPI Safety
+The `owns_mode` parameter indicates whether this process owns the lm mode.
+All processes must call this function for each mode to ensure Allreduce is called
+the same number of times by all processes (prevents deadlock).
 """
 function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
                                        apply_inner, apply_outer,
                                        dr_matrix::BandedMatrix, domain, r_range,
-                                       ws::VelocityWorkspace{T}, tid::Int) where T
+                                       ws::VelocityWorkspace{T}, tid::Int, owns_mode::Bool) where T
     nr = domain.N
     r = domain.r[:, 4]  # Radial coordinates
 
@@ -246,16 +260,18 @@ function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
     fill!(profile_real, zero(T))
     fill!(profile_imag, zero(T))
 
-    # Extract radial profile
-    @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            profile_real[r_idx] = spec_real[local_lm, 1, local_r]
-            profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+    # Extract radial profile (only if this process owns the mode)
+    if owns_mode
+        @inbounds for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+            end
         end
     end
 
-    # MPI gather
+    # MPI gather (ALL processes call this for synchronization)
     comm = BoundaryConditions.get_comm()
     if comm !== nothing && MPI.Comm_size(comm) > 1
         Allreduce!(profile_real, MPI.SUM, comm)
@@ -358,12 +374,14 @@ function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
         end
     end
 
-    # Store corrected profile back
-    @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3)
-            spec_real[local_lm, 1, local_r] = profile_real[r_idx]
-            spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+    # Store corrected profile back (only if this process owns the mode)
+    if owns_mode
+        @inbounds for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+            end
         end
     end
 end

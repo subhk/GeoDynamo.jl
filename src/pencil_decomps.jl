@@ -854,7 +854,7 @@ function print_pencil_axes(pencils)
 end
 
 """
-    validate_radial_distribution(pencils; warn_uneven::Bool=true, strict::Bool=false) -> Bool
+    validate_radial_distribution(pencils; warn_uneven::Bool=true, strict::Bool=true) -> Bool
 
 Validate that radial dimension has compatible distribution across all pencils.
 
@@ -866,19 +866,26 @@ processes will enter/exit the loop at different times causing **MPI DEADLOCK**.
 # Arguments
 - `pencils`: Named tuple of pencil configurations
 - `warn_uneven`: If true, emit warning for uneven distribution
-- `strict`: If true, throw an error instead of just warning (recommended for production)
+- `strict`: If true (default), throw an error instead of just warning
 
 # Returns
 `true` if distribution is valid (all processes have same local radial count).
 `false` if there's a potential synchronization issue.
 
+# Default Behavior
+Strict mode is enabled by default to prevent MPI deadlock in production runs.
+Set `strict=false` only for debugging purposes.
+
 # Example
 ```julia
-# For production code, use strict mode to prevent deadlock
-validate_radial_distribution(pencils; strict=true)
+# Recommended: use default strict mode
+validate_radial_distribution(pencils)
+
+# For debugging only: disable strict mode
+validate_radial_distribution(pencils; strict=false)
 ```
 """
-function validate_radial_distribution(pencils; warn_uneven::Bool=true, strict::Bool=false)
+function validate_radial_distribution(pencils; warn_uneven::Bool=true, strict::Bool=true)
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()

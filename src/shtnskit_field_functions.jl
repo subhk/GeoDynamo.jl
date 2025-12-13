@@ -1095,17 +1095,27 @@ end
                               physs::Vector{SHTnsPhysicalField{T}}) where T
 
 Batch process multiple transforms using SHTnsKit with PencilArrays.
+
+# MPI Safety
+This function processes transforms sequentially to avoid calling MPI collectives
+(Barrier) from multiple threads simultaneously. MPI collective operations must
+be called from the same thread on all processes to avoid deadlock.
+
+Note: The individual transforms themselves are still efficient as SHTnsKit
+performs optimized Legendre transforms and FFTs internally.
 """
 function batch_shtnskit_transforms!(specs::Vector{SHTnsSpectralField{T}},
                                    physs::Vector{SHTnsPhysicalField{T}}) where T
     @assert length(specs) == length(physs)
-    
+
     if isempty(specs)
         return
     end
-    
-    # Process in parallel using threading
-    @threads for batch_idx in eachindex(specs)
+
+    # Process sequentially to avoid MPI collectives from multiple threads
+    # Each shtnskit_spectral_to_physical! call has MPI.Barrier at the end,
+    # which must not be called from multiple threads simultaneously
+    for batch_idx in eachindex(specs)
         shtnskit_spectral_to_physical!(specs[batch_idx], physs[batch_idx])
     end
 end
