@@ -17,6 +17,7 @@ pages = [
     "Getting Started" => "getting-started.md",
     "Configuration" => "configuration.md",
     "Time Integration" => "timestepping.md",
+    "Spherical Harmonics" => "shtnskit.md",
     "Data Output" => "io.md",
     "Developer Guide" => "developer.md",
     "API Reference" => "api.md",

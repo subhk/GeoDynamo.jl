@@ -26,6 +26,27 @@ module GeoDynamo
     export install_erk2_cache_bundle!, load_erk2_cache_bundle!
     export validate_pencil_decomposition, create_erk2_config
 
+    # exports SHTnsKit v1.1.15+ enhanced features
+    export SHTNSKIT_USE_DISTRIBUTED, SHTNSKIT_USE_QST, SHTNSKIT_USE_SCRATCH_BUFFERS
+    # Energy/spectrum analysis
+    export compute_scalar_energy_spectrum, compute_vector_energy_spectrum
+    export compute_total_scalar_energy, compute_total_vector_energy, compute_enstrophy
+    # Differential operators
+    export spectral_gradient!, extract_divergence_coefficients, extract_vorticity_coefficients
+    # QST transforms
+    export shtnskit_qst_to_spatial!, shtnskit_spatial_to_qst!
+    # In-place transforms
+    export shtnskit_synthesis_inplace!, shtnskit_analysis_inplace!
+    # Field rotation
+    export rotate_field_z!, rotate_field_y!, rotate_field_90y!, rotate_field_90x!, rotate_field_euler!
+    # Horizontal Laplacian
+    export apply_horizontal_laplacian!, apply_inverse_horizontal_laplacian!
+    export compute_horizontal_gradient_magnitude
+    # Spectral filtering
+    export apply_spectral_filter!, apply_exponential_filter!, truncate_spectral_modes!
+    # Threading and version info
+    export set_shtnskit_threads, get_shtnskit_version_info
+
     # exports pencil_decomps.jl
     export get_comm, get_rank, get_nprocs
     export create_pencil_topology, create_transpose_plans
@@ -91,6 +112,8 @@ module GeoDynamo
     export load_boundary_conditions!, update_time_dependent_boundaries!
     export validate_boundary_files, get_current_boundaries, print_boundary_summary
     export get_boundary_module_info
+    # BoundaryConditions SHTnsKit v1.1.15 caching utilities
+    export clear_bc_shtns_config_cache!, shtns_physical_to_spectral, shtns_spectral_to_physical
 
     # exports simulation.jl (single unified state)
     export SimulationState, initialize_simulation, run_simulation!

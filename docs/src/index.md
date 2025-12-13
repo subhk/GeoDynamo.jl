@@ -29,10 +29,25 @@ The main pieces of the package are:
 | --- | --- | --- |
 | Message passing | [MPI.jl](https://github.com/JuliaParallel/MPI.jl) | Communicator management, collective reductions. |
 | Pencil decomposition | [PencilArrays.jl](https://github.com/chriselrod/PencilArrays.jl) & [PencilFFTs.jl](https://github.com/chriselrod/PencilFFTs.jl) | Domain decomposition, transpose plans, distributed FFTs. |
-| Spherical harmonics | [SHTnsKit.jl](https://github.com/subhk/SHTnsKit.jl) | Gauss grids, spectral transforms, cached Legendre tables. |
+| Spherical harmonics | [SHTnsKit.jl](https://github.com/subhk/SHTnsKit.jl) **v1.1.15+** | Gauss grids, spectral transforms, energy spectra, field rotations, QST decomposition. |
 | I/O | [NetCDF.jl](https://github.com/JuliaGeo/NetCDF.jl) & [HDF5.jl](https://github.com/JuliaIO/HDF5.jl) | Structured output, restart files, metadata. |
 
 These dependencies are pulled in automatically via the package manifest. You only need a working MPI implementation and NetCDF C libraries at runtime.
+
+### SHTnsKit v1.1.15 Features
+
+GeoDynamo.jl leverages advanced features from SHTnsKit.jl v1.1.15:
+
+| Feature | Description |
+| --- | --- |
+| **Energy Spectra** | Native `energy_scalar`, `energy_vector`, `enstrophy` functions for spectral analysis. |
+| **QST Transforms** | Full 3D vector field decomposition with `SHqst_to_spat` / `spat_to_SHqst`. |
+| **Field Rotations** | Wigner D-matrix rotations via `SH_Zrotate`, `SH_Yrotate`, Euler angle compositions. |
+| **Spectral Operators** | Horizontal gradient, divergence, vorticity via `SH_to_grad_spat`. |
+| **In-Place Transforms** | Memory-efficient `synthesis!` / `analysis!` operations. |
+| **Scratch Buffers** | Pre-allocated `scratch_spatial` / `scratch_fft` for reduced allocations. |
+
+Use `get_shtnskit_version_info()` to check available features at runtime.
 
 ## Governing Equations
 
@@ -66,6 +81,7 @@ The remainder of the docs walk you through the typical workflow:
 - [Getting Started](getting-started.md) – installation, verifying the build, running the quick example.
 - [Configuration & Parameters](configuration.md) – how `GeoDynamoParameters` map to grids, physics, and timestepping.
 - [Time Integration](timestepping.md) – CNAB2, EAB2, and ERK2 schemes, caches, and recommended settings.
+- [Spherical Harmonics](shtnskit.md) – SHTnsKit v1.1.15 transforms, energy spectra, rotations, and spectral operators.
 - [Data Output & Restart Files](io.md) – per-rank NetCDF layout, precision control, diagnostics, and boundary datasets.
 - [API Reference](api.md) – automatically generated index of exported types and functions.
 - [Developer Guide](developer.md) – project layout, testing, documentation build, and contribution guidelines.
