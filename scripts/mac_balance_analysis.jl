@@ -622,16 +622,29 @@ function compute_mac_forces(coords, fields, params::SimulationParams, analysis_t
     temperature = fields["temperature"]
     
     # 1. CORIOLIS FORCE: -2Ω×u
+    # For Ω = Ω ẑ (rotation about z-axis), express Ω in spherical coordinates:
+    #   Ω_r = Ω cos(θ), Ω_θ = -Ω sin(θ), Ω_φ = 0
+    # The Coriolis force (-2Ω×u) components are:
+    #   (-2Ω×u)_r = -2(Ω_θ u_φ - Ω_φ u_θ) = 2Ω sin(θ) u_φ
+    #   (-2Ω×u)_θ = -2(Ω_φ u_r - Ω_r u_φ) = 2Ω cos(θ) u_φ
+    #   (-2Ω×u)_φ = -2(Ω_r u_θ - Ω_θ u_r) = -2Ω (cos(θ) u_θ + sin(θ) u_r)
     println("  Computing Coriolis force...")
     Ω = params.rotation_rate
-    
-    coriolis_r = -2 * Ω * u_phi  # -2Ω × u in spherical coords
-    coriolis_theta = zeros(size(u_theta))  # Ω is in z-direction
-    coriolis_phi = 2 * Ω * u_r
-    
+    theta = coords["theta"]
+
+    # Create θ-dependent arrays with proper broadcasting for the grid shape
+    # For both analysis types, theta is the second dimension of the field arrays
+    nθ = length(theta)
+    sinθ = reshape(sin.(theta), 1, nθ)  # [1, nθ] for broadcasting
+    cosθ = reshape(cos.(theta), 1, nθ)  # [1, nθ] for broadcasting
+
+    coriolis_r = 2 * Ω * (sinθ .* u_phi)
+    coriolis_theta = 2 * Ω * (cosθ .* u_phi)
+    coriolis_phi = -2 * Ω * (cosθ .* u_theta .+ sinθ .* u_r)
+
     coriolis_force = Dict(
         "r" => coriolis_r,
-        "theta" => coriolis_theta, 
+        "theta" => coriolis_theta,
         "phi" => coriolis_phi
     )
     
