@@ -1715,7 +1715,11 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         end)
     end
     
-    # Composition task (if enabled)
+    # -----------------------------------------------------------------
+    # Composition field time integration (if enabled)
+    # Diffusivity = Pm/Sc, analogous to temperature but with Schmidt number:
+    #   ∂C/∂t + u·∇C = (Pm/Sc) ∇²C
+    # -----------------------------------------------------------------
     if state.composition !== nothing
         add_task!(task_graph, () -> begin
             if ts_scheme === :cnab2
@@ -1725,6 +1729,7 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 solve_implicit_step!(state.composition.spectral, state.composition.work_spectral,
                                      state.implicit_matrices[:composition])
             elseif ts_scheme === :eab2
+                # Composition diffusivity = Pm/Sc (chemical diffusion coefficient)
                 alu_map = get_eab2_alu_cache!(state.etd_caches, :composition, d_Pm/d_Sc, T, state.oc_domain)
                 eab2_update_krylov_cached!(state.composition.spectral, state.composition.nonlinear,
                                            state.composition.prev_nonlinear, alu_map, state.oc_domain, d_Pm/d_Sc,
