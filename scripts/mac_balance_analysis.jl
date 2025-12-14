@@ -61,6 +61,15 @@ using ArgParse
 using Dates
 using Printf
 
+# SHTnsKit for spectral transforms (preferred method)
+try
+    using SHTnsKit
+    global HAS_SHTNSKIT = true
+catch
+    global HAS_SHTNSKIT = false
+    @warn "SHTnsKit.jl not available. Spectral synthesis disabled - will use physical space data only."
+end
+
 # Optional plotting packages
 try
     using Plots
@@ -120,6 +129,228 @@ struct MACBalanceResult
     metadata::Dict{String, Any}
 end
 
+# =============================================================================
+# Spectral Synthesis Functions (using SHTnsKit)
+# =============================================================================
+
+"""
+    synthesize_vector_field_spectral(tor_r, tor_i, pol_r, pol_i, l_values, m_values, r_grid)
+
+Synthesize a vector field from toroidal/poloidal spectral coefficients to physical space.
+Uses SHTnsKit for accurate spectral transforms on Gauss grid.
+
+Returns: (v_r, v_theta, v_phi) arrays of shape [nr, nθ, nφ]
+"""
+function synthesize_vector_field_spectral(tor_r::AbstractMatrix, tor_i::AbstractMatrix,
+                                          pol_r::AbstractMatrix, pol_i::AbstractMatrix,
+                                          l_values::Vector{Int}, m_values::Vector{Int},
+                                          r_grid::Vector{Float64})
+    HAS_SHTNSKIT || error("SHTnsKit required for spectral synthesis")
+
+    lmax = maximum(l_values)
+    mmax = maximum(m_values)
+    nlm, nr = size(tor_r)
+
+    # Create SHTnsKit configuration with appropriate grid
+    nlat = lmax + 2  # Gauss grid points
+    nlon = max(2 * mmax + 1, 4)
+    cfg = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon, norm=:orthonormal)
+
+    # Get theta grid from SHTnsKit (Gauss nodes)
+    theta_grid = acos.(cfg.x)
+    phi_grid = range(0, 2π, length=nlon+1)[1:end-1] |> collect
+
+    # Allocate output arrays [nr, nθ, nφ]
+    v_r = zeros(Float64, nr, nlat, nlon)
+    v_theta = zeros(Float64, nr, nlat, nlon)
+    v_phi = zeros(Float64, nr, nlat, nlon)
+
+    # Temporary spectral coefficient matrices
+    Tor = zeros(ComplexF64, lmax+1, mmax+1)
+    Pol = zeros(ComplexF64, lmax+1, mmax+1)
+
+    for k in 1:nr
+        r = r_grid[k]
+        fill!(Tor, 0)
+        fill!(Pol, 0)
+
+        # Pack coefficients into matrix form
+        for i in 1:nlm
+            l = l_values[i]
+            m = m_values[i]
+            if l <= lmax && m <= mmax
+                Tor[l+1, m+1] = complex(tor_r[i, k], tor_i[i, k])
+                Pol[l+1, m+1] = complex(pol_r[i, k], pol_i[i, k])
+            end
+        end
+
+        # Synthesize tangential components (θ, φ) using SHTnsKit
+        # SHsphtor_to_spat computes the solenoidal vector field from T,S scalars
+        vθ_slice, vφ_slice = SHTnsKit.SHsphtor_to_spat(cfg, Pol, Tor; real_output=true)
+        v_theta[k, :, :] = vθ_slice
+        v_phi[k, :, :] = vφ_slice
+
+        # Synthesize radial component: v_r = l(l+1)/r * P_lm * Y_lm
+        if r > eps()
+            Pol_radial = zeros(ComplexF64, lmax+1, mmax+1)
+            for i in 1:nlm
+                l = l_values[i]
+                m = m_values[i]
+                if l <= lmax && m <= mmax
+                    Pol_radial[l+1, m+1] = Pol[l+1, m+1] * (l * (l + 1) / r)
+                end
+            end
+            vr_slice = SHTnsKit.synthesis(cfg, Pol_radial; real_output=true)
+            v_r[k, :, :] = vr_slice
+        end
+    end
+
+    return v_r, v_theta, v_phi, theta_grid, phi_grid, cfg
+end
+
+"""
+    try_load_spectral_data(nc_or_h5, prefix)
+
+Attempt to load spectral (toroidal/poloidal) coefficients from a data file.
+Returns nothing if spectral data is not available.
+"""
+function try_load_spectral_data(filename::String, time_idx::Int)
+    println("  Attempting to load spectral coefficients...")
+
+    try
+        if endswith(filename, ".nc")
+            # Try NetCDF
+            nc = NetCDF.open(filename)
+
+            # Check for spectral variables
+            vars_exist = all(v -> NetCDF.varid(nc, v) != -1,
+                ["velocity_toroidal_real", "velocity_toroidal_imag",
+                 "velocity_poloidal_real", "velocity_poloidal_imag",
+                 "l_values", "m_values"])
+
+            if !vars_exist
+                NetCDF.close(nc)
+                return nothing
+            end
+
+            # Load spectral data
+            l_values = Int.(NetCDF.readvar(nc, "l_values"))
+            m_values = Int.(NetCDF.readvar(nc, "m_values"))
+            r_grid = Float64.(NetCDF.readvar(nc, "r"))
+            theta_grid = haskey(nc.vars, "theta") ? Float64.(NetCDF.readvar(nc, "theta")) : nothing
+            phi_grid = haskey(nc.vars, "phi") ? Float64.(NetCDF.readvar(nc, "phi")) : nothing
+
+            # Velocity spectral coefficients
+            vel_tor_r = Float64.(NetCDF.readvar(nc, "velocity_toroidal_real"))
+            vel_tor_i = Float64.(NetCDF.readvar(nc, "velocity_toroidal_imag"))
+            vel_pol_r = Float64.(NetCDF.readvar(nc, "velocity_poloidal_real"))
+            vel_pol_i = Float64.(NetCDF.readvar(nc, "velocity_poloidal_imag"))
+
+            # Magnetic spectral coefficients (if available)
+            mag_tor_r = mag_tor_i = mag_pol_r = mag_pol_i = nothing
+            if NetCDF.varid(nc, "magnetic_toroidal_real") != -1
+                mag_tor_r = Float64.(NetCDF.readvar(nc, "magnetic_toroidal_real"))
+                mag_tor_i = Float64.(NetCDF.readvar(nc, "magnetic_toroidal_imag"))
+                mag_pol_r = Float64.(NetCDF.readvar(nc, "magnetic_poloidal_real"))
+                mag_pol_i = Float64.(NetCDF.readvar(nc, "magnetic_poloidal_imag"))
+            end
+
+            # Temperature (usually in physical space)
+            temperature = nothing
+            if NetCDF.varid(nc, "temperature") != -1
+                temperature = Float64.(NetCDF.readvar(nc, "temperature"))
+            end
+
+            # Time
+            time_val = NaN
+            if NetCDF.varid(nc, "time") != -1
+                times = NetCDF.readvar(nc, "time")
+                time_val = length(times) > 0 ? times[1] : NaN
+            end
+
+            NetCDF.close(nc)
+
+            return Dict(
+                "l_values" => l_values,
+                "m_values" => m_values,
+                "r" => r_grid,
+                "theta" => theta_grid,
+                "phi" => phi_grid,
+                "time" => time_val,
+                "vel_tor_r" => vel_tor_r, "vel_tor_i" => vel_tor_i,
+                "vel_pol_r" => vel_pol_r, "vel_pol_i" => vel_pol_i,
+                "mag_tor_r" => mag_tor_r, "mag_tor_i" => mag_tor_i,
+                "mag_pol_r" => mag_pol_r, "mag_pol_i" => mag_pol_i,
+                "temperature" => temperature,
+                "is_spectral" => true
+            )
+        end
+    catch e
+        @warn "Failed to load spectral data: $e"
+    end
+
+    return nothing
+end
+
+"""
+    synthesize_fields_from_spectral(spectral_data)
+
+Convert spectral data to physical space fields using SHTnsKit.
+"""
+function synthesize_fields_from_spectral(spectral_data::Dict)
+    HAS_SHTNSKIT || error("SHTnsKit required for spectral synthesis")
+
+    println("  Synthesizing velocity field from spectral coefficients...")
+
+    l_values = spectral_data["l_values"]
+    m_values = spectral_data["m_values"]
+    r_grid = spectral_data["r"]
+
+    # Synthesize velocity
+    u_r, u_theta, u_phi, theta_grid, phi_grid, cfg = synthesize_vector_field_spectral(
+        spectral_data["vel_tor_r"], spectral_data["vel_tor_i"],
+        spectral_data["vel_pol_r"], spectral_data["vel_pol_i"],
+        l_values, m_values, r_grid
+    )
+
+    # Synthesize magnetic field if available
+    B_r = B_theta = B_phi = nothing
+    if spectral_data["mag_tor_r"] !== nothing
+        println("  Synthesizing magnetic field from spectral coefficients...")
+        B_r, B_theta, B_phi, _, _, _ = synthesize_vector_field_spectral(
+            spectral_data["mag_tor_r"], spectral_data["mag_tor_i"],
+            spectral_data["mag_pol_r"], spectral_data["mag_pol_i"],
+            l_values, m_values, r_grid
+        )
+    end
+
+    # Handle temperature (may already be in physical space or need synthesis)
+    temperature = spectral_data["temperature"]
+
+    println("  Spectral synthesis complete:")
+    println("    Grid size: [$(length(r_grid)), $(length(theta_grid)), $(length(phi_grid))]")
+    println("    Max velocity: $(round(maximum(sqrt.(u_r.^2 .+ u_theta.^2 .+ u_phi.^2)), digits=4))")
+    if B_r !== nothing
+        println("    Max magnetic field: $(round(maximum(sqrt.(B_r.^2 .+ B_theta.^2 .+ B_phi.^2)), digits=4))")
+    end
+
+    return Dict(
+        "r" => r_grid,
+        "theta" => theta_grid,
+        "phi" => phi_grid,
+        "time" => spectral_data["time"],
+        "u_r" => u_r,
+        "u_theta" => u_theta,
+        "u_phi" => u_phi,
+        "B_r" => B_r,
+        "B_theta" => B_theta,
+        "B_phi" => B_phi,
+        "temperature" => temperature,
+        "pressure" => nothing,
+        "sht_config" => cfg
+    )
+end
+
 function parse_commandline()
     s = ArgParseSettings(
         description = "MAC balance analysis for geodynamo simulations",
@@ -176,10 +407,25 @@ function parse_commandline()
 end
 
 function load_geodynamo_fields(filename::String, time_idx::Int)
-    """Load velocity, magnetic field, and temperature from geodynamo data"""
-    
+    """Load velocity, magnetic field, and temperature from geodynamo data.
+
+    Prefers spectral data (toroidal/poloidal coefficients) if available and SHTnsKit is installed,
+    as this provides more accurate synthesis on Gauss grids. Falls back to physical space data.
+    """
+
     println("Loading geodynamo fields from: $filename")
-    
+
+    # Try spectral data first if SHTnsKit is available (more accurate)
+    if HAS_SHTNSKIT && endswith(filename, ".nc")
+        spectral_data = try_load_spectral_data(filename, time_idx)
+        if spectral_data !== nothing
+            println("  Found spectral coefficients - using SHTnsKit synthesis (recommended)")
+            return synthesize_fields_from_spectral(spectral_data)
+        else
+            println("  Spectral coefficients not found - falling back to physical space data")
+        end
+    end
+
     if endswith(filename, ".h5") || endswith(filename, ".hdf5")
         data = h5open(filename, "r") do file
             # Load coordinate grids
