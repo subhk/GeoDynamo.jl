@@ -5,6 +5,32 @@
 # This module implements the magnetic field representation and induction equation
 # for geodynamo simulations using spherical harmonic transforms (SHTnsKit).
 #
+# REFERENCE: Sreenivasan & Kar (2018), Phys. Rev. Fluids 3, 093801
+#            Equation (3): Induction equation
+#
+# ================================================================================
+# GOVERNING EQUATION
+# ================================================================================
+#
+# The non-dimensional induction equation in magnetic diffusion time scaling:
+#
+#   ∂B/∂t = ∇×(u×B) + ∇²B                    (Equation 3 in paper)
+#
+# where:
+#   B            : Magnetic field
+#   u            : Velocity field
+#   ∇×(u×B)      : Induction term (field generation/stretching by flow)
+#   ∇²B          : Magnetic diffusion (Ohmic decay)
+#
+# PHYSICAL INTERPRETATION:
+# ========================
+# - ∇×(u×B): The "dynamo" term - fluid motion stretches and twists field lines,
+#            converting kinetic energy to magnetic energy
+# - ∇²B: Ohmic dissipation - resistive decay of magnetic field
+#
+# In magnetic diffusion time scaling (τ = L²/η), the diffusion coefficient is 1.0.
+# This is why the time-stepper uses diffusivity = 1.0 for magnetic fields.
+#
 # ================================================================================
 # TOROIDAL-POLOIDAL DECOMPOSITION
 # ================================================================================
@@ -18,20 +44,28 @@
 #   P(r,θ,φ) = Poloidal scalar potential (has radial component)
 #
 # Physical interpretation:
-#   - Toroidal: azimuthal magnetic field (like ring currents)
-#   - Poloidal: meridional magnetic field (like dipole field)
+#   - Toroidal: azimuthal magnetic field (like field from ring currents)
+#   - Poloidal: meridional magnetic field (like Earth's dipole field)
+#
+# This decomposition AUTOMATICALLY satisfies ∇·B = 0 (Eq. 4 in paper).
 #
 # ================================================================================
-# INDUCTION EQUATION
+# INDUCTION EQUATION IMPLEMENTATION
 # ================================================================================
 #
-# The magnetic field evolves according to:
+# The induction term ∇×(u×B) is computed in three steps:
 #
-#   ∂B/∂t = ∇×(u×B) + η∇²B
+# Step 1: Compute u×B in PHYSICAL space (point-wise cross product)
+#         This is done in compute_velocity_cross_magnetic!()
 #
-# where:
-#   - ∇×(u×B) = Induction term (field generation by flow)
-#   - η∇²B = Magnetic diffusion (Ohmic decay)
+# Step 2: Transform u×B to SPECTRAL space (SHTns vector analysis)
+#         This gives (u×B)_toroidal and (u×B)_poloidal coefficients
+#
+# Step 3: Compute ∇×(u×B) in SPECTRAL space using curl operator:
+#         [∇×(u×B)]_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] (u×B)_pol
+#         [∇×(u×B)]_pol = -l(l+1)/r² (u×B)_tor
+#
+# The diffusion term ∇²B is handled IMPLICITLY by the time-stepper.
 #
 # Transform Flow:
 # ===============
