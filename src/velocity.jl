@@ -2,8 +2,33 @@
 # Velocity Field Module with SHTns
 # ================================================================================
 #
-# This module implements the velocity field representation and boundary conditions
+# This module implements the velocity field representation and momentum equation
 # for geodynamo simulations using spherical harmonic transforms (SHTnsKit).
+#
+# REFERENCE: Sreenivasan & Kar (2018), Phys. Rev. Fluids 3, 093801
+#            "Scale dependence of kinetic helicity and selection of the axial
+#             dipole in rapidly rotating dynamos"
+#
+# ================================================================================
+# GOVERNING EQUATION
+# ================================================================================
+#
+# The non-dimensional momentum equation in magnetic diffusion time scaling:
+#
+#   (E/Pm) ∂u/∂t + (∇×u)×u + ẑ×u = -∇p* + (Pm/Pr)Ra·T·r̂ + (∇×B)×B + E∇²u
+#
+# where:
+#   E  = ν/(2Ωd²)  : Ekman number (ratio of viscous to Coriolis forces)
+#   Pm = ν/η       : Magnetic Prandtl number (viscous/magnetic diffusivity)
+#   Pr = ν/κ       : Prandtl number (viscous/thermal diffusivity)
+#   Ra             : Modified Rayleigh number (buoyancy driving)
+#
+# After dividing by (E/Pm) to get unit coefficient on ∂u/∂t:
+#
+#   ∂u/∂t = -(Pm/E)(∇×u)×u - (Pm/E)(ẑ×u) - (Pm/E)∇p*
+#           + (Pm/E)(Pm/Pr)Ra·T·r̂ + (Pm/E)(∇×B)×B + Pm∇²u
+#
+# The factor (Pm/E) is called `rossby_factor` in the code.
 #
 # ================================================================================
 # TOROIDAL-POLOIDAL DECOMPOSITION
@@ -20,8 +45,10 @@
 # In spectral space, each (l,m) mode has independent T_lm(r) and P_lm(r).
 #
 # Physical interpretation:
-#   - Toroidal: horizontal circulation (like trade winds)
-#   - Poloidal: overturning circulation (like convection cells)
+#   - Toroidal: horizontal circulation (like trade winds, zonal jets)
+#   - Poloidal: overturning circulation (like convection cells, meridional flow)
+#
+# This decomposition AUTOMATICALLY satisfies ∇·u = 0 (Eq. 4 in paper).
 #
 # ================================================================================
 # BOUNDARY CONDITIONS
@@ -1137,20 +1164,47 @@ end
 
 
 # =================================================
-# Enhanced vorticity computation with enhanced derivatives
+# Vorticity Computation in Spectral Space
+# =================================================
+#
+# MATHEMATICAL BACKGROUND:
+# ========================
+# Vorticity ω = ∇×u is computed in spectral space using the curl operator
+# for toroidal-poloidal decomposition.
+#
+# For a vector field V = ∇×(T r̂) + ∇×∇×(P r̂), the curl satisfies:
+#
+#   (∇×V)_toroidal = [l(l+1)/r² - d²/dr² - (2/r)d/dr] V_poloidal
+#   (∇×V)_poloidal = -l(l+1)/r² V_toroidal
+#
+# This is the SAME formula used for:
+#   - Vorticity: ω = ∇×u (this function)
+#   - Current density: j = ∇×B (in magnetic.jl)
+#   - Induction curl: ∇×(u×B) (in magnetic.jl)
+#
+# The formula arises from the identity ∇×∇×A = ∇(∇·A) - ∇²A combined with
+# the spherical harmonic eigenvalue -l(l+1)/r² for the angular Laplacian.
+#
 # =================================================
 using Base.Threads
-function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T}, 
+function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
                                          domain::RadialDomain) where T
     # If a compatible workspace is registered, use it
     ws_any = VELOCITY_WS[]
     if ws_any !== nothing && ws_any isa VelocityWorkspace{T}
         return compute_vorticity_spectral_full!(fields, domain, ws_any)
     end
-    # Compute vorticity ω = ∇ × u in spectral space with full radial derivatives
-    # For toroidal-poloidal decomposition:
-    # ω_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] u_pol
-    # ω_pol = -l(l+1)/r² u_tor
+
+    # =========================================================================
+    # Compute vorticity ω = ∇×u in spectral space
+    # =========================================================================
+    # For toroidal-poloidal decomposition, the curl operator gives:
+    #
+    #   ω_toroidal = [l(l+1)/r² - d²/dr² - (2/r)d/dr] u_poloidal
+    #   ω_poloidal = -l(l+1)/r² u_toroidal
+    #
+    # where l is the spherical harmonic degree.
+    # =========================================================================
     
     # Get local data views with enhanced memory access
     u_tor_real = parent(fields.toroidal.data_real)

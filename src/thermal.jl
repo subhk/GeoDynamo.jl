@@ -1,17 +1,53 @@
 # ================================================================================
-# Temperature field components with enhanced SHTns transforms
+# Temperature Field Module with SHTns
 # ================================================================================
-# For uniform heating from below (l=0, m=0 mode has flux BC)
-# Other modes have fixed temperature
-# bc_type_inner = ones(Int, nlm)
-# bc_type_outer = ones(Int, nlm)
-# bc_type_inner[1] = 2  # Flux BC for l=0, m=0 at inner boundary
-# bc_type_outer[1] = 2  # Flux BC for l=0, m=0 at outer boundary
-# apply_mixed_boundary_conditions!(temp_field, domain, bc_type_inner, bc_type_outer)
+#
+# This module implements the temperature field evolution for geodynamo simulations
+# using spherical harmonic transforms (SHTnsKit).
+#
+# REFERENCE: Sreenivasan & Kar (2018), Phys. Rev. Fluids 3, 093801
+#            Equation (2): Temperature evolution
+#
 # ================================================================================
-
+# GOVERNING EQUATION
 # ================================================================================
-# Temperature/Thermal field components with full spectral optimization
+#
+# The non-dimensional temperature equation in magnetic diffusion time scaling:
+#
+#   ∂T/∂t + u·∇T = (Pm/Pr) ∇²T
+#
+# where:
+#   T            : Temperature perturbation from conductive profile
+#   u            : Velocity field
+#   Pm = ν/η     : Magnetic Prandtl number
+#   Pr = ν/κ     : Prandtl number
+#   Pm/Pr = κ/η  : Ratio of thermal to magnetic diffusivity
+#
+# PHYSICAL INTERPRETATION:
+# ========================
+# - Left side: Time rate of change + advection by flow
+# - Right side: Thermal diffusion
+#
+# The advection term -u·∇T represents heat transport by the convecting fluid.
+# This is the EXPLICIT part computed in physical space.
+#
+# The diffusion term (Pm/Pr)∇²T is treated IMPLICITLY for numerical stability.
+# The diffusivity coefficient passed to the time-stepper is (Pm/Pr) = d_Pm/d_Pr.
+#
+# ================================================================================
+# BOUNDARY CONDITIONS
+# ================================================================================
+#
+# Common configurations:
+#   - Fixed temperature (Dirichlet): T = T_boundary at r = r_i, r_o
+#   - Fixed flux (Neumann): ∂T/∂r = prescribed_flux at boundaries
+#   - Mixed: Different types at inner/outer boundaries
+#
+# For uniform heating from below:
+#   bc_type_inner[1] = NEUMANN   # Flux BC for l=0, m=0 at inner boundary
+#   bc_type_outer[1] = NEUMANN   # Flux BC for l=0, m=0 at outer boundary
+#   (Other modes typically use Dirichlet with zero boundary values)
+#
 # ================================================================================
 
 using PencilArrays
@@ -270,13 +306,31 @@ end
 # ================================================================================
 
 # ================================================================================
-# Local physical space operations (no communication)
+# Local Physical Space Operations (no MPI communication)
 # ================================================================================
-function compute_temperature_advection_local!(temp_field::SHTnsTemperatureField{T}, 
+#
+# These functions compute the advection term in physical space where
+# point-wise products are straightforward.
+#
+# ================================================================================
+
+function compute_temperature_advection_local!(temp_field::SHTnsTemperatureField{T},
                                              vel_fields) where T
-    """
-    Compute -u·∇T in physical space (completely local operation)
-    """
+    # =========================================================================
+    # Compute the advection term: -u·∇T
+    # =========================================================================
+    #
+    # This is the EXPLICIT part of the temperature equation (Eq. 2):
+    #   ∂T/∂t + u·∇T = (Pm/Pr) ∇²T
+    #
+    # In spherical coordinates:
+    #   u·∇T = u_r ∂T/∂r + (u_θ/r) ∂T/∂θ + (u_φ/(r sin θ)) ∂T/∂φ
+    #
+    # The gradients (∂T/∂r, ∂T/∂θ, ∂T/∂φ) are pre-computed in spectral space
+    # and transformed to physical space before this function is called.
+    #
+    # This operation is COMPLETELY LOCAL - no MPI communication needed.
+    # =========================================================================
     u_r = parent(vel_fields.velocity.r_component.data)
     u_θ = parent(vel_fields.velocity.θ_component.data)
     u_φ = parent(vel_fields.velocity.φ_component.data)
