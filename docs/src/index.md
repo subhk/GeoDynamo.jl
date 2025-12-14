@@ -51,7 +51,7 @@ Use `get_shtnskit_version_info()` to check available features at runtime.
 
 ## Governing Equations
 
-The solver advances the nondimensional Boussinesq MHD system presented in Sreenivasan & Kar, *Phys. Rev. Fluids* **9**, 093801 (2024), Eqs. (1)–(4). In magnetic-diffusion units the equations read
+The solver advances the nondimensional Boussinesq MHD system presented in Sreenivasan & Kar, *Phys. Rev. Fluids* **3**, 093801 (2018), Eqs. (1)–(4). In magnetic-diffusion units the equations read
 
 ```math
 \begin{aligned}

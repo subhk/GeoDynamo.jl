@@ -1364,7 +1364,7 @@ RHS = -(Pm/E)(∇×ũ)×ũ - (Pm/E)(ẑ×ũ)
       + (Pm/E)(∇×B̃)×B̃
 
 All explicit terms (advection, Coriolis, buoyancy, Lorentz) carry the (Pm/E) prefactor
-(=`rossby_factor`), consistent with Sreenivasan & Kar (2024).
+(=`rossby_factor`), consistent with Sreenivasan & Kar (2018).
 Viscous diffusion is treated implicitly with coefficient Pm (passed via `diffusivity`).
 
 The time derivative has unit coefficient after the division and is handled by the integrator.
@@ -1403,7 +1403,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     
     # Main fused computation loop with enhanced indexing (parallel over r-slices)
     # After dividing Eq. (1) by E/Pm, advection has coefficient Pm/E (same as Coriolis)
-    adv_coeff = rossby_factor  # (Pm/E) scaling per Sreenivasan & Kar (2024)
+    adv_coeff = rossby_factor  # (Pm/E) scaling per Sreenivasan & Kar (2018)
     @inbounds Threads.@threads for k in 1:local_size[3]
         # Get radius for this level using pencil range
         r_idx = k + first(r_range) - 1

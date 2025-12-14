@@ -108,7 +108,7 @@ The driver will write NetCDF files into `./output/` (see the [Output guide](io.m
 
 ## 6. What the Solver Advances
 
-GeoDynamo.jl integrates the nondimensional Boussinesq MHD system from Sreenivasan & Kar (2024), Eqs. (1)–(4). In magnetic-diffusion units the fields satisfy
+GeoDynamo.jl integrates the nondimensional Boussinesq MHD system from Sreenivasan & Kar (2018), Eqs. (1)–(4). In magnetic-diffusion units the fields satisfy
 
 ```math
 \frac{E}{\mathrm{Pm}}\frac{\partial \boldsymbol{u}}{\partial t}
