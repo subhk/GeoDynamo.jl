@@ -1545,6 +1545,33 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
     compute_all_nonlinear_terms!(state)
 end
 
+# ================================================================================
+# Master Time Integration Function
+# ================================================================================
+#
+# This function advances all fields by one timestep using IMEX (implicit-explicit)
+# time integration. Reference: Sreenivasan & Kar (2018), Phys. Rev. Fluids 3, 093801
+#
+# IMEX SCHEME OVERVIEW:
+# =====================
+# - EXPLICIT: Advection, Coriolis, Lorentz force, buoyancy (computed above)
+# - IMPLICIT: Diffusion terms (treated here for numerical stability)
+#
+# DIFFUSION COEFFICIENTS (from paper's magnetic diffusion time scaling):
+# =======================================================================
+# After non-dimensionalizing with time scale τ = L²/η:
+#
+#   Field        | Equation                    | Implicit Diffusivity
+#   -------------|-----------------------------|-----------------------
+#   Velocity     | Pm ∂u/∂t = ... + Pm∇²u     | d_Pm (= Pm)
+#   Temperature  | ∂T/∂t + u·∇T = (Pm/Pr)∇²T  | d_Pm/d_Pr (= Pm/Pr)
+#   Magnetic     | ∂B/∂t = ∇×(u×B) + ∇²B      | 1.0 (magnetic time scale)
+#   Composition  | ∂C/∂t + u·∇C = (Pm/Sc)∇²C  | d_Pm/d_Sc (= Pm/Sc)
+#
+# The velocity diffusivity is Pm because we divided Eq. (1) by E/Pm.
+# The magnetic diffusivity is 1.0 because time is scaled by τ = L²/η.
+#
+# ================================================================================
 function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) where T
     # For CNAB2 and ERK2: bootstrap prev_nonlinear on first step so AB2 reduces to AB1
     if (ts_scheme === :cnab2 || ts_scheme === :erk2) && state.timestep_state.step == 0
@@ -1575,6 +1602,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         # Task-based time integration for other schemes
         task_graph = create_task_graph()
 
+        # -----------------------------------------------------------------
+        # Temperature time integration
+        # Diffusivity = Pm/Pr from Eq. (2): ∂T/∂t + u·∇T = (Pm/Pr)∇²T
+        # -----------------------------------------------------------------
         temp_task = add_task!(task_graph, () -> begin
         if ts_scheme === :cnab2
             build_rhs_cnab2!(state.temperature.work_spectral, state.temperature.spectral,
@@ -1585,6 +1616,7 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         elseif ts_scheme === :eab2
             etd = haskey(state.etd_caches, :temperature) ? state.etd_caches[:temperature] : nothing
             if etd === nothing || etd.dt != dt
+                # Temperature diffusivity = Pm/Pr (thermal diffusion coefficient)
                 etd = create_etd_cache(Float64, state.shtns_config, state.oc_domain, d_Pm/d_Pr, dt)
                 state.etd_caches[:temperature] = etd
             end
@@ -1596,6 +1628,11 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         end
     end)
     
+    # -----------------------------------------------------------------
+    # Velocity time integration (toroidal and poloidal components)
+    # Diffusivity = Pm from Eq. (1) after dividing by E/Pm:
+    #   ∂u/∂t = ... + Pm∇²u
+    # -----------------------------------------------------------------
     vel_tor_task = add_task!(task_graph, () -> begin
         if ts_scheme === :cnab2
             build_rhs_cnab2!(state.velocity.work_tor, state.velocity.toroidal,
@@ -1604,7 +1641,7 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             solve_implicit_step!(state.velocity.toroidal, state.velocity.work_tor,
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
-            # Use Krylov-based action with cached banded LU per l
+            # Velocity diffusivity = Pm (viscous diffusion coefficient)
             alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_toroidal, d_Pm, T, state.oc_domain)
             eab2_update_krylov_cached!(state.velocity.toroidal, state.velocity.nl_toroidal,
                                        state.velocity.prev_nl_toroidal, alu_map, state.oc_domain, d_Pm,
@@ -1614,7 +1651,7 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                  state.implicit_matrices[:velocity])
         end
     end)
-    
+
     vel_pol_task = add_task!(task_graph, () -> begin
         if ts_scheme === :cnab2
             build_rhs_cnab2!(state.velocity.work_pol, state.velocity.poloidal,
@@ -1623,6 +1660,7 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             solve_implicit_step!(state.velocity.poloidal, state.velocity.work_pol,
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
+            # Velocity diffusivity = Pm (viscous diffusion coefficient)
             alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_poloidal, d_Pm, T, state.oc_domain)
             eab2_update_krylov_cached!(state.velocity.poloidal, state.velocity.nl_poloidal,
                                        state.velocity.prev_nl_poloidal, alu_map, state.oc_domain, d_Pm,
@@ -1633,7 +1671,11 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         end
     end)
     
-    # Magnetic field tasks (if enabled)
+    # -----------------------------------------------------------------
+    # Magnetic field time integration (if enabled)
+    # Diffusivity = 1.0 from Eq. (3): ∂B/∂t = ∇×(u×B) + ∇²B
+    # In magnetic diffusion time scaling (τ = L²/η), the coefficient is unity.
+    # -----------------------------------------------------------------
     if i_B == 1
         add_task!(task_graph, () -> begin
             if ts_scheme === :cnab2
@@ -1643,6 +1685,7 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 solve_implicit_step!(state.magnetic.toroidal, state.magnetic.work_tor,
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
+                # Magnetic diffusivity = 1.0 (magnetic diffusion time scaling)
                 alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_toroidal, 1.0, T, state.oc_domain)
                 eab2_update_krylov_cached!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
                                            state.magnetic.prev_nl_toroidal, alu_map, state.oc_domain, 1.0,
@@ -1660,6 +1703,7 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 solve_implicit_step!(state.magnetic.poloidal, state.magnetic.work_pol,
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
+                # Magnetic diffusivity = 1.0 (magnetic diffusion time scaling)
                 alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_poloidal, 1.0, T, state.oc_domain)
                 eab2_update_krylov_cached!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
                                            state.magnetic.prev_nl_poloidal, alu_map, state.oc_domain, 1.0,

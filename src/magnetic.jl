@@ -468,16 +468,34 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
 end
 
 
-# ==============================
-# Induction term computation
-# ==============================
+# ================================================================================
+# Induction Term Computation: ∇×(u×B)
+# ================================================================================
+#
+# This implements the EXPLICIT part of the induction equation (Eq. 3):
+#   ∂B/∂t = ∇×(u×B) + ∇²B
+#
+# The induction term ∇×(u×B) represents how fluid motion generates and
+# modifies the magnetic field. This is the essence of the dynamo mechanism.
+#
+# ================================================================================
+
 function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields; geometry::Symbol = get_parameters().geometry) where T
-    # Compute ∇ × (u × B) for the induction equation
-    
-    # Step 1: Compute u × B in physical space
+    # =========================================================================
+    # Compute ∇×(u×B) for the induction equation in three steps
+    # =========================================================================
+
+    # Step 1: Compute u×B in PHYSICAL space
+    # -------------------------------------
+    # Cross product is simple point-wise operation in physical space:
+    #   (u×B)_r = u_θ B_φ - u_φ B_θ
+    #   (u×B)_θ = u_φ B_r - u_r B_φ
+    #   (u×B)_φ = u_r B_θ - u_θ B_r
     compute_velocity_cross_magnetic!(mag_fields, vel_fields)
-    
-    # Step 2: Transform u × B to spectral space
+
+    # Step 2: Transform u×B to SPECTRAL space
+    # ----------------------------------------
+    # SHTns vector analysis decomposes (u×B) into toroidal and poloidal parts
     if geometry === :ball
         ball_vector_analysis!(mag_fields.induction_physical,
                              mag_fields.work_tor, mag_fields.work_pol)
@@ -485,8 +503,10 @@ function compute_induction_term!(mag_fields::SHTnsMagneticFields{T}, vel_fields;
         shtnskit_vector_analysis!(mag_fields.induction_physical,
                                   mag_fields.work_tor, mag_fields.work_pol)
     end
-    
-    # Step 3: Compute curl of (u × B) in spectral space
+
+    # Step 3: Compute ∇×(u×B) in SPECTRAL space
+    # ------------------------------------------
+    # Uses the spectral curl operator for toroidal-poloidal decomposition
     compute_curl_of_induction!(mag_fields)
 end
 
