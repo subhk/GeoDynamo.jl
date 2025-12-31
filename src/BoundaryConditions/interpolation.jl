@@ -24,7 +24,7 @@ function interpolate_boundary_to_grid(boundary_data::BoundaryData, target_theta:
     end
     
     if time_index < 1 || (boundary_data.is_time_dependent && time_index > boundary_data.ntime)
-        throw(BoundsError("Time index $time_index is out of bounds for boundary data with $(boundary_data.ntime) time steps"))
+        throw(ArgumentError("Time index $time_index is out of bounds for boundary data with $(boundary_data.ntime) time steps"))
     end
     
     # Check interpolation bounds and warn if needed
