@@ -352,19 +352,31 @@ Get information about the boundary conditions module.
 # This avoids recreating configs for each boundary transform call
 
 const _BC_SHTNS_CONFIG_CACHE = Dict{Tuple{Int,Int,Int,Int}, Any}()
+const _BC_SHTNS_CONFIG_LOCK = ReentrantLock()
 
 """
     _get_cached_bc_shtns_config(lmax, mmax, nlat, nlon)
 
 Get or create a cached SHTnsKit configuration for boundary transforms.
 Reuses configurations to avoid repeated setup/teardown overhead.
+Thread-safe implementation using a lock for the check-then-set pattern.
 """
 function _get_cached_bc_shtns_config(lmax::Int, mmax::Int, nlat::Int, nlon::Int)
     key = (lmax, mmax, nlat, nlon)
-    if !haskey(_BC_SHTNS_CONFIG_CACHE, key)
-        _BC_SHTNS_CONFIG_CACHE[key] = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon)
+
+    # Fast path: check if already cached (no lock needed for read)
+    if haskey(_BC_SHTNS_CONFIG_CACHE, key)
+        return _BC_SHTNS_CONFIG_CACHE[key]
     end
-    return _BC_SHTNS_CONFIG_CACHE[key]
+
+    # Slow path: need to create config (use lock to prevent race conditions)
+    lock(_BC_SHTNS_CONFIG_LOCK) do
+        # Double-check after acquiring lock (another thread might have created it)
+        if !haskey(_BC_SHTNS_CONFIG_CACHE, key)
+            _BC_SHTNS_CONFIG_CACHE[key] = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon)
+        end
+        return _BC_SHTNS_CONFIG_CACHE[key]
+    end
 end
 
 """
@@ -372,16 +384,19 @@ end
 
 Clear the cached SHTnsKit configurations for boundary transforms.
 Call this when grid parameters change or to free memory.
+Thread-safe implementation.
 """
 function clear_bc_shtns_config_cache!()
-    for (key, cfg) in _BC_SHTNS_CONFIG_CACHE
-        try
-            SHTnsKit.destroy_config(cfg)
-        catch
-            # Ignore errors during cleanup
+    lock(_BC_SHTNS_CONFIG_LOCK) do
+        for (key, cfg) in _BC_SHTNS_CONFIG_CACHE
+            try
+                SHTnsKit.destroy_config(cfg)
+            catch
+                # Ignore errors during cleanup
+            end
         end
+        empty!(_BC_SHTNS_CONFIG_CACHE)
     end
-    empty!(_BC_SHTNS_CONFIG_CACHE)
 end
 
 """
