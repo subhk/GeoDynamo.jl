@@ -12,15 +12,16 @@ using LinearAlgebra
     u0 = 0.3
     c = 0.2
     # Initialize first radial point (test uses diagonal operator so points are independent)
+    # Array dimensions are (nlm, 1, nr) = (1, 1, 2) for lmax=0, mmax=0, nr=2
     parent(u_field.data_real)[1, 1, 1] = u0
     parent(u_field.data_imag)[1, 1, 1] = 0.0
     parent(nl_field.data_real)[1, 1, 1] = c
     parent(nl_field.data_imag)[1, 1, 1] = 0.0
-    # Initialize second radial point to zero
-    parent(u_field.data_real)[2, 1, 1] = 0.0
-    parent(u_field.data_imag)[2, 1, 1] = 0.0
-    parent(nl_field.data_real)[2, 1, 1] = 0.0
-    parent(nl_field.data_imag)[2, 1, 1] = 0.0
+    # Initialize second radial point to zero (radial is 3rd dimension)
+    parent(u_field.data_real)[1, 1, 2] = 0.0
+    parent(u_field.data_imag)[1, 1, 2] = 0.0
+    parent(nl_field.data_real)[1, 1, 2] = 0.0
+    parent(nl_field.data_imag)[1, 1, 2] = 0.0
 
     dt = 0.1
     lambda = 0.5
@@ -73,11 +74,11 @@ using LinearAlgebra
     parent(u_field.data_imag)[1, 1, 1] = 0.0
     parent(nl_field.data_real)[1, 1, 1] = beta * u0_linear
     parent(nl_field.data_imag)[1, 1, 1] = 0.0
-    # Initialize second radial point to zero
-    parent(u_field.data_real)[2, 1, 1] = 0.0
-    parent(u_field.data_imag)[2, 1, 1] = 0.0
-    parent(nl_field.data_real)[2, 1, 1] = 0.0
-    parent(nl_field.data_imag)[2, 1, 1] = 0.0
+    # Initialize second radial point to zero (radial is 3rd dimension)
+    parent(u_field.data_real)[1, 1, 2] = 0.0
+    parent(u_field.data_imag)[1, 1, 2] = 0.0
+    parent(nl_field.data_real)[1, 1, 2] = 0.0
+    parent(nl_field.data_imag)[1, 1, 2] = 0.0
 
     buffers_linear = GeoDynamo.ERK2FieldBuffers(u_field, nl_field, cache)
 
@@ -87,8 +88,8 @@ using LinearAlgebra
     # Emulate stage nonlinear evaluation: N(u_stage) = beta * u_stage
     u_stage = parent(u_field.data_real)[1, 1, 1]
     parent(nl_field.data_real)[1, 1, 1] = beta * u_stage
-    # Second radial point remains zero (beta * 0 = 0)
-    parent(nl_field.data_real)[2, 1, 1] = 0.0
+    # Second radial point remains zero (beta * 0 = 0, radial is 3rd dimension)
+    parent(nl_field.data_real)[1, 1, 2] = 0.0
     GeoDynamo.erk2_store_stage_nonlinear!(buffers_linear, nl_field)
 
     GeoDynamo.erk2_finalize_field!(buffers_linear, u_field, cache, cfg, dt)
