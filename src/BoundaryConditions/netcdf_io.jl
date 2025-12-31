@@ -99,7 +99,7 @@ function write_netcdf_boundary_data(filename::String, boundary_data::BoundaryDat
             ds["phi"].attrib["long_name"] = "longitude"
         end
         
-        if boundary_data.time !== nothing
+        if boundary_data.is_time_dependent && boundary_data.time !== nothing
             defVar(ds, "time", eltype(boundary_data.time), ("time",))
             ds["time"][:] = boundary_data.time
             ds["time"].attrib["units"] = "dimensionless"
