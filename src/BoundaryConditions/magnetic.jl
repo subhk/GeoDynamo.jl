@@ -229,7 +229,7 @@ end
 Create programmatically generated magnetic boundary conditions.
 
 # Available patterns:
-- `:insulating` - Insulating boundary (B_r = 0, ∂B_tan/∂r = 0)
+- `:insulating` - Insulating boundary (potential field matching, (∇×B)_r = 0)
 - `:perfect_conductor` - Perfect conductor (B_tan = 0)
 - `:dipole` - Dipolar magnetic field pattern
 - `:quadrupole` - Quadrupolar magnetic field pattern
