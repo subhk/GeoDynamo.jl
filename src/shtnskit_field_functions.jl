@@ -559,7 +559,10 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
                     for l in 1:lmax  # Skip l=0 which has no radial component
                         l_factor = r_val / (l * (l + 1))
                         for m in 0:min(l, mmax)
-                            pol_from_vr[l+1, m+1] = vr_coeffs[l+1, m+1] * l_factor
+                            # Bounds check on vr_coeffs for defensive programming
+                            if l+1 <= size(vr_coeffs, 1) && m+1 <= size(vr_coeffs, 2)
+                                pol_from_vr[l+1, m+1] = vr_coeffs[l+1, m+1] * l_factor
+                            end
                         end
                     end
 
