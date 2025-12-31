@@ -199,11 +199,20 @@ function create_time_dependent_programmatic_boundary(pattern::Symbol, config,
             for (i, θ) in enumerate(theta)
                 for (j, φ) in enumerate(phi)
                     # Simple precession: cos(θ)cos(ωt) + sin(θ)sin(φ)sin(ωt)
-                    values[i, j, t] = amplitude * (cos(θ) * cos(time_phase) + 
+                    values[i, j, t] = amplitude * (cos(θ) * cos(time_phase) +
                                                  sin(θ) * sin(φ) * sin(time_phase))
                 end
             end
-            
+
+        elseif pattern == :quadrupole
+            # Time-varying quadrupole: P₂(cos θ) with time modulation
+            for (i, θ) in enumerate(theta)
+                for (j, φ) in enumerate(phi)
+                    # Quadrupole with oscillating amplitude
+                    values[i, j, t] = amplitude * 0.5 * (3 * cos(θ)^2 - 1) * cos(time_phase)
+                end
+            end
+
         elseif pattern == :custom
             # User-defined time-dependent function
             if !haskey(parameters, "function")
