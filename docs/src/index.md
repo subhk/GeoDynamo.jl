@@ -16,12 +16,35 @@ GeoDynamo.jl couples spectral spherical-harmonic transforms with domain-decompos
 
 The main pieces of the package are:
 
-- **SHTnsKit transforms** (`shtnskit_transforms.jl`) – wraps the SHTnsKit grid, FFT plans, and transpose operators.
+### Core Infrastructure
 - **Field abstractions** (`fields.jl`) – PencilArray-backed spectral and physical fields with boundary metadata.
-- **Time integration** (`timestep.jl`) – shared Krylov utilities, ETD caches, implicit solvers, and step orchestration helpers.
-- **Physics kernels** (`velocity.jl`, `magnetic.jl`, `thermal.jl`, `compositional.jl`) – compute nonlinear terms, boundary corrections, and diagnostics.
-- **Simulation driver** (`simulation.jl`) – assembles components into `SimulationState`, manages timestepping, and coordinates output.
-- **I/O layer** (`outputs_writer.jl`) – NetCDF writer with rank-scoped filenames, precision controls, and restart handling.
+- **Parameters** (`parameters.jl`) – `GeoDynamoParameters` configuration and runtime management.
+- **Pencil decomposition** (`pencil_decomps.jl`) – MPI domain decomposition setup via PencilArrays.
+- **Linear algebra** (`linear_algebra.jl`) – Banded matrix operations for radial finite differences.
+
+### SHTnsKit Integration
+- **Transform configuration** (`shtnskit_transforms.jl`) – SHTnsKit grid setup, FFT plans, and transpose operators.
+- **Field operations** (`shtnskit_field_functions.jl`) – Transforms, energy spectra, rotations, spectral operators.
+
+### Physics Kernels
+- **Velocity** (`velocity.jl`, `velocity_bc.jl`) – Toroidal-poloidal velocity evolution and boundary conditions.
+- **Magnetic** (`magnetic.jl`) – Magnetic field induction, diffusion, and inner core coupling.
+- **Thermal** (`thermal.jl`) – Temperature advection-diffusion with scalar field operations.
+- **Compositional** (`compositional.jl`) – Composition advection-diffusion matching thermal structure.
+- **Shared operations** (`scalar_field_common.jl`) – Common scalar field gradients, transforms, and utilities.
+
+### Time Integration & Simulation
+- **Timestep** (`timestep.jl`) – CNAB2/EAB2/ERK2 integrators, Krylov utilities, implicit solvers.
+- **Simulation driver** (`simulation.jl`) – Assembles `SimulationState`, manages timestepping, coordinates output.
+- **Initial conditions** (`InitialConditions.jl`) – Setup routines for all field types.
+
+### I/O & Utilities
+- **Output writer** (`outputs_writer.jl`) – NetCDF writer with MPI support and precision controls.
+- **Optimizations** (`optimizations.jl`) – Performance utilities and profiling support.
+
+### Boundary Conditions (`BoundaryConditions/`)
+- Modular BC system with thermal, velocity, magnetic, and composition handlers.
+- Supports NetCDF-based, programmatic, and interpolated boundary data.
 
 ### Required Dependencies
 
