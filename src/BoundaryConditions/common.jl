@@ -278,15 +278,13 @@ function get_default_boundary_type(field_type::FieldType, location::BoundaryLoca
     if field_type == TEMPERATURE
         return DIRICHLET  # Fixed temperature
     elseif field_type == COMPOSITION
-        return DIRICHLET  # Fixed composition
+        return NEUMANN  # No-flux (typical for compositional convection)
     elseif field_type == VELOCITY
         return DIRICHLET  # No-slip (zero velocity)
     elseif field_type == MAGNETIC
-        if location == INNER_BOUNDARY
-            return NEUMANN    # Insulating inner boundary
-        else
-            return DIRICHLET  # Potential field at outer boundary
-        end
+        # Magnetic BCs use Dirichlet for all types (insulating, perfect conductor, potential field)
+        # The distinction is in WHAT values are specified, not the BC type
+        return DIRICHLET
     else
         return DIRICHLET
     end
