@@ -416,7 +416,8 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
             # Get global radial index
             r_idx_global = r_local + first(r_range) - 1
 
-            if r_idx_global <= domain.N
+            # Bounds check for domain.r access
+            if r_idx_global >= 1 && r_idx_global <= domain.N
                 r_val = domain.r[r_idx_global, 4]  # Actual radius value
 
                 if r_val > 1e-15  # Avoid division by zero at r=0
@@ -535,7 +536,8 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
         # ========================================================================
         if verify_solenoidal && domain !== nothing
             r_idx_global = r_local + first(r_range) - 1
-            if r_idx_global <= domain.N
+            # Bounds check for domain.r access
+            if r_idx_global >= 1 && r_idx_global <= domain.N
                 r_val = domain.r[r_idx_global, 4]
                 if r_val > 1e-15
                     # Extract radial component
