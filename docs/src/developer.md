@@ -5,25 +5,62 @@
 ```
 GeoDynamo.jl/
 ├── src/
-│   ├── GeoDynamo.jl              # module entry point & exports
-│   ├── fields.jl                 # PencilArray-backed field types
-│   ├── shtnskit_transforms.jl    # SHTnsKit configuration + FFT/transposes
-│   ├── shtnskit_field_functions.jl # v1.1.15 transforms, energy, rotations
-│   ├── scalar_field_common.jl    # Shared scalar field operations
+│   ├── GeoDynamo.jl              # Module entry point & exports
+│   │
+│   │   # Core Infrastructure
+│   ├── fields.jl                 # PencilArray-backed field types (SHTnsSpectralField, etc.)
+│   ├── parameters.jl             # GeoDynamoParameters definition and management
+│   ├── pencil_decomps.jl         # PencilArrays decomposition setup and configuration
+│   ├── linear_algebra.jl         # Banded matrix operations for radial derivatives
+│   │
+│   │   # SHTnsKit Integration
+│   ├── shtnskit_transforms.jl    # SHTnsKit configuration, FFT plans, transposes
+│   ├── shtnskit_field_functions.jl # Transforms, energy spectra, rotations, operators
+│   │
+│   │   # Physics Kernels
+│   ├── velocity.jl               # Velocity field evolution and nonlinear terms
+│   ├── velocity_bc.jl            # Velocity boundary condition functions
+│   ├── magnetic.jl               # Magnetic field induction and diffusion
+│   ├── thermal.jl                # Temperature advection-diffusion
+│   ├── compositional.jl          # Composition advection-diffusion
+│   ├── scalar_field_common.jl    # Shared scalar field operations (gradients, etc.)
+│   │
+│   │   # Time Integration & Simulation
 │   ├── timestep.jl               # CNAB2/EAB2/ERK2 integrators and Krylov tools
-│   ├── velocity.jl, magnetic.jl  # Physics kernels and nonlinear terms
-│   ├── thermal.jl, compositional.jl
-│   ├── outputs_writer.jl         # NetCDF writer
-│   ├── simulation.jl             # high-level driver/state orchestration
-│   ├── BoundaryConditions/       # Boundary condition modules
+│   ├── simulation.jl             # High-level driver and state orchestration
+│   ├── InitialConditions.jl      # Initial condition setup for all field types
+│   │
+│   │   # I/O & Utilities
+│   ├── outputs_writer.jl         # NetCDF writer with MPI support
+│   ├── combiner.jl               # Utility for combining distributed outputs
+│   ├── optimizations.jl          # Performance optimization utilities
+│   ├── gpu_backend.jl            # GPU acceleration support (experimental)
+│   │
+│   │   # Boundary Conditions
+│   ├── BoundaryConditions/
 │   │   ├── BoundaryConditions.jl # Main BC module with config caching
-│   │   ├── thermal.jl, velocity.jl, ...
-│   └── Ball/                     # Solid ball geometry support
+│   │   ├── common.jl             # Shared BC utilities and types
+│   │   ├── thermal.jl            # Thermal boundary conditions
+│   │   ├── velocity.jl           # Velocity boundary conditions
+│   │   ├── magnetic.jl           # Magnetic boundary conditions
+│   │   ├── composition.jl        # Composition boundary conditions
+│   │   ├── interpolation.jl      # BC interpolation functions
+│   │   ├── integration.jl        # BC time integration
+│   │   ├── timestepping.jl       # BC timestepping support
+│   │   ├── netcdf_io.jl          # BC NetCDF I/O
+│   │   └── programmatic.jl       # Programmatic BC definitions
+│   │
+│   │   # Geometry Modules
+│   ├── Shell/                    # Spherical shell geometry
+│   │   └── Shell.jl
+│   └── Ball/                     # Solid ball geometry
+│       └── Ball.jl
+│
 ├── docs/                         # Documenter configuration and Markdown pages
 ├── extras/                       # CLI utilities (spectral ↔ physical conversion)
 ├── scripts/                      # Analysis and utility scripts
-├── test/                         # regression and unit tests
-└── config/                       # sample parameter files
+├── test/                         # Regression and unit tests
+└── config/                       # Sample parameter files
 ```
 
 ## Setting Up a Dev Environment
