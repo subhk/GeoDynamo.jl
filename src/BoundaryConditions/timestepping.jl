@@ -2,8 +2,8 @@
 # Integration with Timestepping Methods
 # ================================================================================
 
-# Import BoundaryType enum constants
-using ..BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
+# Note: BoundaryType, DIRICHLET, NEUMANN are already in scope
+# (this file is included within the BoundaryConditions module)
 
 """
     update_boundary_conditions_for_timestep!(state, current_time::Float64)
@@ -511,9 +511,8 @@ function enforce_composition_bc_in_solution!(solution, comp_field)
         
         # Similar implementation to temperature
         # Additionally ensure composition values remain in [0, 1] range
-        # Clamp boundary values to physical range
-        clamp!(real(inner_bc), 0.0, 1.0)
-        clamp!(real(outer_bc), 0.0, 1.0)
+        # Note: Boundary values are stored in comp_field.boundary_values
+        # The solver should clamp values to [0, 1] during enforcement
     end
     
     return solution
@@ -710,8 +709,8 @@ function log_boundary_condition_status(state, rank::Int=0)
                 println("    Time index: $(time_index)")
                 
                 # Display file information if available
-                inner_file = get(boundary_set.inner_boundary, :file_path, "programmatic")
-                outer_file = get(boundary_set.outer_boundary, :file_path, "programmatic")
+                inner_file = boundary_set.inner_boundary.file_path
+                outer_file = boundary_set.outer_boundary.file_path
                 println("    Inner: $(basename(inner_file))")
                 println("    Outer: $(basename(outer_file))")
                 
