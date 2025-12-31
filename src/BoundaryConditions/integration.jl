@@ -2,7 +2,8 @@
 # Integration with Field Structures
 # ================================================================================
 
-using SHTnsKit
+# Note: This file is included within the BoundaryConditions module
+# SHTnsKit is imported at the module level
 
 """
     initialize_boundary_conditions!(field, field_type::FieldType, config)
