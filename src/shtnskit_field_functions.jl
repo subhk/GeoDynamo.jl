@@ -1057,8 +1057,9 @@ end
 Store vector components for any pencil orientation.
 """
 function store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config)
-    common_i_range = 1:min(size(v_theta, 1), size(vt_field, 1))
-    common_j_range = 1:min(size(v_theta, 2), size(vt_field, 2))
+    # Include all four arrays in bounds calculation for safety
+    common_i_range = 1:min(size(v_theta, 1), size(v_phi, 1), size(vt_field, 1), size(vp_field, 1))
+    common_j_range = 1:min(size(v_theta, 2), size(v_phi, 2), size(vt_field, 2), size(vp_field, 2))
 
     # Check radial bounds once outside the loop
     if r_local > size(v_theta, 3) || r_local > size(v_phi, 3)
