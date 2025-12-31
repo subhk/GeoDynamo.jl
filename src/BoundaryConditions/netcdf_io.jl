@@ -203,7 +203,7 @@ function get_netcdf_file_info(filename::String)
     NCDataset(filename, "r") do ds
         info["filename"] = filename
         info["variables"] = collect(keys(ds))
-        info["dimensions"] = Dict(name => size(ds.dim[name]) for name in keys(ds.dim))
+        info["dimensions"] = Dict(name => ds.dim[name] for name in keys(ds.dim))
         
         # Get coordinate info
         if haskey(ds, "theta")
