@@ -142,12 +142,19 @@ function create_derivative_matrix(order::Int, domain::RadialDomain)
 
         # Solve for derivative coefficients with error handling
         rhs = zeros(stencil_size)
-        if order <= stencil_size
-            rhs[order + 1] = factorial(order)
+        if order + 1 > stencil_size
+            error("Insufficient stencil size ($stencil_size) for derivative order $order at grid point $n. " *
+                  "Need at least $(order + 1) points. Consider increasing bandwidth (i_KL) or " *
+                  "using a coarser grid near boundaries.")
         end
+        rhs[order + 1] = factorial(order)
 
+        # Solve for derivative coefficients
+        # We need the (order+1)-th ROW of V^(-1), not the column.
+        # Row k of V^(-1) = (V^(-T) * e_k)^T, so we solve V^T * w = rhs
+        # which gives w = V^(-T) * rhs = transpose of row (order+1) of V^(-1)
         coeffs = try
-            V \ rhs
+            transpose(V) \ rhs
         catch e
             error("Failed to solve Vandermonde system at grid point $n. " *
                   "This indicates severe ill-conditioning. " *
@@ -188,29 +195,32 @@ function create_radial_laplacian(domain::RadialDomain)
 end
 
 # Apply banded matrix to PencilArray data
-function apply_banded_matrix!(output::SHTnsSpectralField{T}, 
-                             matrix::BandedMatrix{T}, 
+function apply_banded_matrix!(output::SHTnsSpectralField{T},
+                             matrix::BandedMatrix{T},
                              input::SHTnsSpectralField{T}) where T
     # Get local data portions
     out_real = parent(output.data_real)
     out_imag = parent(output.data_imag)
     in_real  = parent(input.data_real)
     in_imag  = parent(input.data_imag)
-    
-    # Get local indices
+
+    # Get local indices - only iterate over (lm, dummy) dimensions
+    # The radial dimension is handled by apply_banded_vector_local!
     local_indices = get_local_indices(input.pencil)
-    
-    # Apply matrix only to local data
-    for idx in CartesianIndices(local_indices)
-        if idx[3] <= matrix.size  # Check radial dimension
+    lm_range = local_indices[1]      # Spectral mode indices
+    dummy_range = local_indices[2]   # Dummy dimension (size 1)
+
+    # Apply matrix to each (lm, dummy) slice along the radial dimension
+    for lm_idx in 1:length(lm_range)
+        for d_idx in 1:length(dummy_range)
             # Apply to real part
-            apply_banded_vector_local!(view(out_real, idx[1], idx[2], :), 
-                                      matrix, 
-                                      view(in_real, idx[1], idx[2], :))
+            apply_banded_vector_local!(view(out_real, lm_idx, d_idx, :),
+                                      matrix,
+                                      view(in_real, lm_idx, d_idx, :))
             # Apply to imaginary part
-            apply_banded_vector_local!(view(out_imag, idx[1], idx[2], :), 
-                                      matrix, 
-                                      view(in_imag, idx[1], idx[2], :))
+            apply_banded_vector_local!(view(out_imag, lm_idx, d_idx, :),
+                                      matrix,
+                                      view(in_imag, lm_idx, d_idx, :))
         end
     end
 
@@ -237,14 +247,14 @@ function apply_banded_vector_local!(output::AbstractVector{T},
     return nothing
 end
 
-function apply_derivative_matrix!(output::Vector{T}, 
-                                matrix::BandedMatrix{T}, 
+function apply_derivative_matrix!(output::Vector{T},
+                                matrix::BandedMatrix{T},
                                 input::Vector{T}) where T
     N = matrix.size
     bandwidth = matrix.bandwidth
-    
+
     fill!(output, zero(T))
-    
+
     @inbounds for j in 1:N
         for i in max(1, j - bandwidth):min(N, j + bandwidth)
             band_row = bandwidth + 1 + i - j
@@ -255,6 +265,24 @@ function apply_derivative_matrix!(output::Vector{T},
     end
 end
 
+# Matrix-vector multiplication for BandedMatrix
+function Base.:*(matrix::BandedMatrix{T}, v::AbstractVector{S}) where {T, S}
+    N = matrix.size
+    bandwidth = matrix.bandwidth
+    R = promote_type(T, S)
+    output = zeros(R, N)
+
+    @inbounds for j in 1:min(N, length(v))
+        for i in max(1, j - bandwidth):min(N, j + bandwidth)
+            band_row = bandwidth + 1 + i - j
+            if 1 <= band_row <= 2*bandwidth + 1
+                output[i] += matrix.data[band_row, j] * v[j]
+            end
+        end
+    end
+
+    return output
+end
 
 #export BandedMatrix, BandedLU, create_derivative_matrix, create_radial_laplacian,
 #       apply_banded_matrix!, factorize_banded, solve_banded!
