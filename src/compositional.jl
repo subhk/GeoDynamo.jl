@@ -25,50 +25,56 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     # Physical space composition
     composition::SHTnsPhysicalField{T}
     gradient::SHTnsVectorField{T}
-    
+
     # Spectral representation
     spectral::SHTnsSpectralField{T}
-    
+
     # Nonlinear terms (advection)
     nonlinear::SHTnsSpectralField{T}
     prev_nonlinear::SHTnsSpectralField{T}
-    
+
     # Work arrays for efficient computation
     work_spectral::SHTnsSpectralField{T}
     work_physical::SHTnsPhysicalField{T}
     advection_physical::SHTnsPhysicalField{T}
-    
+
     # Gradient spectral components for efficiency
     grad_theta_spec::SHTnsSpectralField{T}
     grad_phi_spec::SHTnsSpectralField{T}
     grad_r_spec::SHTnsSpectralField{T}
-    
+
     # Sources and boundary conditions
     internal_sources::Vector{T}        # Radial profile of compositional sources
     boundary_values::Matrix{T}         # [2, nlm] for ICB and CMB
     bc_type_inner::Vector{Int}         # BC type for each mode at inner
     bc_type_outer::Vector{Int}         # BC type for each mode at outer
-    
+
+    # File-based boundary condition support (matching thermal.jl field order)
+    boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
+    boundary_interpolation_cache::Dict{String, Any}
+    boundary_time_index::Ref{Int}
+
     # Pre-computed coefficients
     l_factors::Vector{Float64}         # l(l+1) values for diffusion
-    config::SHTnsKitConfig             # SHTnsKit configuration
-    
+
+    # Configuration (SHTnsKit)
+    config::SHTnsKitConfig
+
     # Radial derivative matrices
-    dr_matrix::BandedMatrix{T}        # First derivative d/dr
-    d2r_matrix::BandedMatrix{T}       # Second derivative d²/dr²
-    
-    # Spectral derivative operators (pre-computed)
-    theta_derivative_matrix::Matrix{T}     # θ derivative coupling
-    theta_recurrence_coeffs::Matrix{T}     # Recurrence relations
-    
+    dr_matrix::BandedMatrix{T}         # First derivative d/dr
+    d2r_matrix::BandedMatrix{T}        # Second derivative d²/dr²
+
+    # Spectral derivative operators (matching thermal.jl types)
+    theta_derivative_matrix::SparseMatrixCSC{T,Int}  # Pre-computed θ-derivative
+    theta_recurrence_coeffs::Matrix{T}               # Recurrence coefficients
+
     # Performance tracking
     computation_time::Ref{Float64}
     transform_time::Ref{Float64}
     comm_time::Ref{Float64}
     spectral_time::Ref{Float64}
-    boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
-    boundary_interpolation_cache::Dict{String, Any}
-    boundary_time_index::Ref{Int}
+
+    # Geometry
     domain::RadialDomain
 end
 
@@ -80,62 +86,55 @@ get_main_physical_field(field::SHTnsCompositionField{T}) where T = field.composi
 # ================================================================================
 # NOTE: Pre-computation functions moved to scalar_field_common.jl
 
-function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig, 
+function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
                                         oc_domain::RadialDomain) where T
     # Use config's pencils directly
     pencils = config.pencils
-    
+
     # Composition field in r-pencil for efficient radial operations
     composition = create_shtns_physical_field(T, config, oc_domain, pencils.r)
-    
+
     # Gradient components
-    gradient = create_shtns_vector_field(T, config, oc_domain, 
+    gradient = create_shtns_vector_field(T, config, oc_domain,
                                         (pencils.θ, pencils.φ, pencils.r))
-    
-    # Spectral representation in spectral pencil for efficient transforms
-    spectral = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    nonlinear = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+
+    # Spectral representation using spectral pencil
+    spectral       = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+    nonlinear      = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
     prev_nonlinear = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    
+
     # Work arrays
     work_spectral      = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
     work_physical      = create_shtns_physical_field(T, config, oc_domain, pencils.r)
     advection_physical = create_shtns_physical_field(T, config, oc_domain, pencils.r)
-    
+
     # Gradient spectral components
     grad_theta_spec = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
     grad_phi_spec   = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
     grad_r_spec     = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    
+
     # Sources and boundary conditions
     internal_sources = zeros(T, oc_domain.N)
     boundary_values  = zeros(T, 2, config.nlm)
-    
-    # Default boundary conditions (DIRICHLET = fixed value, NEUMANN = flux)
+
+    # Default BC types (DIRICHLET = fixed value, NEUMANN = fixed flux)
     # For composition: typically no-flux at both boundaries
     bc_type_inner = fill(Int(NEUMANN), config.nlm)  # No-flux at inner boundary
     bc_type_outer = fill(Int(NEUMANN), config.nlm)  # No-flux at outer boundary
-    
-    # Pre-compute l(l+1) factors for diffusion operator
-    l_factors = zeros(Float64, config.nlm)
-    for lm_idx in 1:config.nlm
-        l = config.l_values[lm_idx]
-        l_factors[lm_idx] = Float64(l * (l + 1))
-    end
-    
-    # Transform manager removed in SHTnsKit migration
-    
+
+    # Storage for file-based boundary conditions
+    boundary_data_cache = Dict{String, Any}()
+
+    # Pre-compute l(l+1) factors (matching thermal.jl pattern)
+    l_factors = Float64[l * (l + 1) for l in config.l_values]
+
     # Create radial derivative matrices
     dr_matrix  = create_derivative_matrix(1, oc_domain)
     d2r_matrix = create_derivative_matrix(2, oc_domain)
-    
+
     # Pre-compute spectral derivative operators
     theta_derivative_matrix = build_theta_derivative_matrix(T, config)
     theta_recurrence_coeffs = compute_theta_recurrence_coefficients(T, config)
-    
-    boundary_condition_set = nothing
-    boundary_cache = Dict{String, Any}()
-    boundary_time_index = Ref{Int}(1)
 
     return SHTnsCompositionField{T}(
         composition, gradient, spectral, nonlinear, prev_nonlinear,
@@ -143,11 +142,11 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
         grad_theta_spec, grad_phi_spec, grad_r_spec,
         internal_sources, boundary_values,
         bc_type_inner, bc_type_outer,
+        nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
         l_factors, config,
         dr_matrix, d2r_matrix,
         theta_derivative_matrix, theta_recurrence_coeffs,
-        Ref{Float64}(0.0), Ref{Float64}(0.0), Ref{Float64}(0.0), Ref{Float64}(0.0),
-        boundary_condition_set, boundary_cache, boundary_time_index,
+        Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),
         oc_domain
     )
 end
@@ -218,30 +217,41 @@ function apply_composition_boundary_conditions!(field::SHTnsCompositionField{T};
     return field
 end
 
-function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T}, 
-                                        vel_fields, oc_domain::RadialDomain; 
+# ================================================================================
+# Main nonlinear computation with full spectral optimization
+# ================================================================================
+# This follows the same efficient pattern as thermal.jl:
+# 1. Compute gradients in spectral space (no communication)
+# 2. Single batched transform of field + gradients to physical
+# 3. Compute advection locally
+# 4. Transform result back to spectral
+# ================================================================================
+function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
+                                        vel_fields, oc_domain::RadialDomain;
                                         geometry::Symbol = get_parameters().geometry) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
-    
+
     # Zero work arrays
     zero_scalar_work_arrays!(comp_field)
-    
-    # Step 1: Transform composition to physical space for advection
+
+    # Step 1: Compute ALL gradients in spectral space (NO COMMUNICATION!)
+    t_spectral = MPI.Wtime()
+    compute_all_gradients_spectral!(comp_field, oc_domain)
+    comp_field.spectral_time[] += MPI.Wtime() - t_spectral
+
+    # Step 2: Single batched transform of composition and gradients to physical
     t_transform = MPI.Wtime()
-    shtnskit_spectral_to_physical!(comp_field.spectral, comp_field.composition)
+    transform_field_and_gradients_to_physical!(comp_field)
     comp_field.transform_time[] += MPI.Wtime() - t_transform
-    
-    # Step 2: Compute gradient in physical space if needed for diffusion
-    compute_composition_gradient_local!(comp_field, oc_domain)
-    
+
     # Step 3: Compute advection term -u·∇C in physical space (local operation)
     if vel_fields !== nothing
         compute_scalar_advection_local!(comp_field, vel_fields)
     end
-    
+
     # Step 4: Add internal compositional sources (local operation)
     add_internal_sources_local!(comp_field, oc_domain)
-    
+
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
     if geometry === :ball
@@ -250,35 +260,14 @@ function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
         shtnskit_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
     end
     comp_field.transform_time[] += MPI.Wtime() - t_transform
-    
+
     # Step 6: Apply boundary conditions in spectral space
     apply_composition_boundary_conditions!(comp_field)
     apply_composition_boundary_conditions_spectral!(comp_field, oc_domain)
-    
+
     if ENABLE_TIMING[]
         comp_field.computation_time[] += MPI.Wtime() - t_start
     end
-end
-
-function zero_composition_work_arrays!(comp_field::SHTnsCompositionField{T}) where T
-    fill!(parent(comp_field.work_spectral.data_real), zero(T))
-    fill!(parent(comp_field.work_spectral.data_imag), zero(T))
-    fill!(parent(comp_field.work_physical.data), zero(T))
-    fill!(parent(comp_field.advection_physical.data), zero(T))
-    fill!(parent(comp_field.nonlinear.data_real), zero(T))
-    fill!(parent(comp_field.nonlinear.data_imag), zero(T))
-end
-
-function compute_composition_gradient_local!(comp_field::SHTnsCompositionField{T}, oc_domain::RadialDomain) where T
-    """
-    Complete composition gradient computation (θ, φ, r) in spectral space
-    This is completely local - no MPI communication required
-    """
-    # 1. Compute spectral gradients (local operation)
-    compute_all_gradients_spectral!(comp_field, oc_domain)
-    
-    # 2. Transform all components to physical space (batched operation)
-    transform_field_and_gradients_to_physical!(comp_field)
 end
 
 # ================================================================================
