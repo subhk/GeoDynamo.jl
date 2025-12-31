@@ -64,6 +64,8 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     # Performance tracking
     computation_time::Ref{Float64}
     transform_time::Ref{Float64}
+    comm_time::Ref{Float64}
+    spectral_time::Ref{Float64}
     boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
     boundary_interpolation_cache::Dict{String, Any}
     boundary_time_index::Ref{Int}
@@ -144,7 +146,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
         l_factors, config,
         dr_matrix, d2r_matrix,
         theta_derivative_matrix, theta_recurrence_coeffs,
-        Ref{Float64}(0.0), Ref{Float64}(0.0),
+        Ref{Float64}(0.0), Ref{Float64}(0.0), Ref{Float64}(0.0), Ref{Float64}(0.0),
         boundary_condition_set, boundary_cache, boundary_time_index,
         oc_domain
     )
@@ -281,35 +283,9 @@ end
 
 # ================================================================================
 # NOTE: Gradient computation functions moved to scalar_field_common.jl
-# ================================================================================
 # NOTE: Batched transform operations moved to scalar_field_common.jl
+# NOTE: Internal source functions use add_internal_sources_local! from scalar_field_common.jl
 # ================================================================================
-# Local physical space operations (no communication)
-# ================================================================================
-
-
-function add_compositional_sources_local!(comp_field::SHTnsCompositionField{T}, 
-                                          oc_domain::RadialDomain) where T
-    # Add volumetric compositional sources (completely local operation)
-    
-    adv_data = parent(comp_field.advection_physical.data)
-    
-    if !all(iszero, comp_field.internal_sources)
-        # Get local physical dimensions
-        nlat, nlon, nr_local = size(adv_data)
-        
-        # Add sources (assumes sources are radially symmetric)
-        for r_local in 1:nr_local
-            for φ_idx in 1:nlon
-                for θ_idx in 1:nlat
-                    if r_local <= length(comp_field.internal_sources)
-                        adv_data[θ_idx, φ_idx, r_local] += comp_field.internal_sources[r_local]
-                    end
-                end
-            end
-        end
-    end
-end
 
 # ================================================================================
 # Boundary conditions in spectral space
