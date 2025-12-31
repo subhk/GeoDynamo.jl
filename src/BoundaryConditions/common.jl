@@ -74,32 +74,46 @@ end
 
 Create a BoundaryData structure from raw data.
 """
-function create_boundary_data(values::Array{T}, field_type::String; 
+function create_boundary_data(values::Array{T}, field_type::String;
                             theta=nothing, phi=nothing, time=nothing,
                             units="", description="", file_path="programmatic") where T
-    
+
     dims = size(values)
-    is_time_dependent = length(dims) >= 3
-    ncomponents = length(dims) >= 4 ? dims[4] : (length(dims) >= 3 && !is_time_dependent ? dims[3] : 1)
-    
+
+    # Determine array layout based on dimensions and time parameter
+    # - 2D: (nlat, nlon) - scalar, time-independent
+    # - 3D: disambiguate using `time` parameter:
+    #       - if time !== nothing: (nlat, nlon, ntime) - scalar, time-dependent
+    #       - if time === nothing: (nlat, nlon, ncomponents) - vector, time-independent
+    # - 4D: (nlat, nlon, ntime, ncomponents) - vector, time-dependent
+
     if length(dims) == 2
         nlat, nlon = dims
         ntime = 1
+        ncomponents = 1
+        is_time_dependent = false
     elseif length(dims) == 3
-        if is_time_dependent
-            nlat, nlon, ntime = dims
+        nlat, nlon = dims[1], dims[2]
+        if time !== nothing
+            # Time vector provided - 3rd dimension is time
+            ntime = dims[3]
+            ncomponents = 1
+            is_time_dependent = true
         else
-            nlat, nlon = dims[1:2]
+            # No time vector - 3rd dimension is components (vector field)
             ntime = 1
             ncomponents = dims[3]
+            is_time_dependent = false
         end
     elseif length(dims) == 4
         nlat, nlon, ntime, ncomponents = dims
         is_time_dependent = ntime > 1
     else
-        throw(ArgumentError("Unsupported array dimensions: $dims"))
+        throw(ArgumentError("Unsupported array dimensions: $dims. " *
+            "Expected 2D (nlat×nlon), 3D (nlat×nlon×ntime or nlat×nlon×ncomponents), " *
+            "or 4D (nlat×nlon×ntime×ncomponents)."))
     end
-    
+
     return BoundaryData{T}(
         theta, phi, time, values, units, description, file_path, field_type,
         is_time_dependent, nlat, nlon, ntime, ncomponents
@@ -154,10 +168,12 @@ function validate_boundary_compatibility(inner::BoundaryData, outer::BoundaryDat
         error_msg = "$field_name boundary compatibility validation failed:\n" * join(errors, "\n")
         throw(ArgumentError(error_msg))
     end
-    
+
     if get_rank() == 0
         @info "$field_name boundary files are compatible ($(inner.nlat)×$(inner.nlon)×$(inner.ncomponents), time_dep=$(inner.is_time_dependent))"
     end
+
+    return true
 end
 
 """
