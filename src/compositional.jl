@@ -270,6 +270,9 @@ function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
     end
 end
 
+# Backwards compatibility wrapper - uses shared implementation from scalar_field_common.jl
+zero_composition_work_arrays!(comp_field::SHTnsCompositionField{T}) where T = zero_scalar_work_arrays!(comp_field)
+
 # ================================================================================
 # NOTE: Gradient computation functions moved to scalar_field_common.jl
 # NOTE: Batched transform operations moved to scalar_field_common.jl
