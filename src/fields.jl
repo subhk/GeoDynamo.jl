@@ -286,28 +286,61 @@ function create_shtns_vector_field(::Type{T}, config::AbstractSHTnsConfig,
 end
 
 
-function create_radial_domain(nr::Int=i_N)
-    N = nr
-    
+"""
+    create_radial_domain(nr=nothing; rratio=nothing, kl=nothing) -> RadialDomain
+
+Create a radial domain for a spherical shell geometry.
+
+# Arguments
+- `nr`: Number of radial points (defaults to `get_parameters().i_N`)
+- `rratio`: Inner/outer radius ratio (defaults to `get_parameters().d_rratio`)
+- `kl`: Bandwidth for finite differences (defaults to `get_parameters().i_KL`)
+
+# Returns
+A RadialDomain with Chebyshev-like radial spacing optimized for spectral accuracy.
+"""
+function create_radial_domain(nr::Union{Int,Nothing}=nothing;
+                              rratio::Union{Float64,Nothing}=nothing,
+                              kl::Union{Int,Nothing}=nothing)
+    # Get parameters with safe fallbacks
+    params = get_parameters()
+    N = nr !== nothing ? nr : params.i_N
+    ratio = rratio !== nothing ? rratio : params.d_rratio
+    bandwidth = kl !== nothing ? kl : params.i_KL
+
+    # Validate inputs
+    if N < 2
+        throw(ArgumentError("Number of radial points must be at least 2, got N=$N"))
+    end
+    if ratio <= 0.0 || ratio >= 1.0
+        throw(ArgumentError("Radius ratio must be in (0, 1), got rratio=$ratio"))
+    end
+
+    # Create radial coordinate array with powers r^p for p = -3...+3
+    # Column 4 stores r itself, other columns store r^(p-4)
     r = zeros(N, 7)
     for n in 1:N
+        # Chebyshev-like spacing: clustered near boundaries
         r[n, 4] = 0.5 * (1.0 + cos(π * (N - n) / (N - 1)))
     end
-    
-    ri = d_rratio / (1.0 - d_rratio)
+
+    # Shift to shell geometry: r ∈ [ri, ro] where ri = rratio/(1-rratio)
+    ri = ratio / (1.0 - ratio)
     r[:, 4] .+= ri
-    
+
+    # Compute powers of r for efficient evaluation of r-dependent terms
     for p in 1:7
         if p != 4
             power = p - 4
             r[:, p] = r[:, 4] .^ power
         end
     end
-    
-    dr_matrices         = [zeros(2*i_KL+1, N) for _ in 1:3]
-    radial_laplacian    = zeros(2*i_KL+1, N)
+
+    # Allocate derivative matrices and integration weights
+    dr_matrices         = [zeros(2*bandwidth+1, N) for _ in 1:3]
+    radial_laplacian    = zeros(2*bandwidth+1, N)
     integration_weights = zeros(N)
-    
+
     return RadialDomain(N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)
 end
 
@@ -388,6 +421,12 @@ function Base.similar(field::SHTnsPhysicalField{T}, ::Type{S}) where {T,S<:Numbe
     data = PencilArray{S}(undef, field.pencil)
     fill!(parent(data), zero(S))
     return SHTnsPhysicalField{S}(field.config, field.nlat, field.nlon, data, field.pencil)
+end
+
+function Base.copy(field::SHTnsPhysicalField{T}) where T
+    duplicate = similar(field)
+    parent(duplicate.data) .= parent(field.data)
+    return duplicate
 end
 
 # export SHTnsSpectralField, SHTnsPhysicalField, SHTnsVectorField, SHTnsTorPolField
