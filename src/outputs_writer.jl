@@ -1368,7 +1368,7 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
     restart_data = Dict{String, Any}()
     metadata = Dict{String, Any}()
     
-    nc_file = NetCDF.open(filename, NC_NOWRITE)
+    nc_file = NetCDF.open(filename, NetCDF.NC_NOWRITE)
 
     try
         # Read field data for this rank
@@ -1482,8 +1482,8 @@ end
 
 function validate_output(filename::String)
     try
-        nc_file = NetCDF.open(filename, NC_NOWRITE)
-        
+        nc_file = NetCDF.open(filename, NetCDF.NC_NOWRITE)
+
         required_vars = ["time", "step", "r"]
         for var in required_vars
             if NetCDF.varid(nc_file, var) == -1
@@ -1607,11 +1607,11 @@ function find_files_in_time_range(output_dir::String, start_time::Float64, end_t
 end
 
 function get_file_info(filename::String)
-    nc_file = NetCDF.open(filename, NC_NOWRITE)
+    nc_file = NetCDF.open(filename, NetCDF.NC_NOWRITE)
 
     try
         info = Dict{String, Any}()
-        info["rank"] = NetCDF.getatt(nc_file, NC_GLOBAL, "mpi_rank")
+        info["rank"] = NetCDF.getatt(nc_file, NetCDF.NC_GLOBAL, "mpi_rank")
         info["time"] = NetCDF.readvar(nc_file, "time")[1]
         info["step"] = NetCDF.readvar(nc_file, "step")[1]
 
