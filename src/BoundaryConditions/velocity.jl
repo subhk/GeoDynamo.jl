@@ -412,7 +412,7 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
     # - Poloidal component: related to ∇ × ∇ × (P r̂), where P is the poloidal scalar
 
     # For no-slip boundaries: all velocity components (v_r, v_θ, v_φ) = 0
-    # For stress-free boundaries: v_r = 0, ∂v_θ/∂r = 0, ∂v_φ/∂r = 0
+    # For stress-free boundaries: v_r = 0, ∂v_θ/∂r - v_θ/r = 0, ∂v_φ/∂r - v_φ/r = 0
 
     # Compute toroidal scalar from velocity components
     # In spherical coordinates: v_r is related to poloidal scalar, not toroidal
