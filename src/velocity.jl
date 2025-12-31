@@ -1257,34 +1257,34 @@ end
 # for the SAME lm mode at the SAME time. Different processes may own different
 # lm_range, so we must loop over ALL lm modes to ensure synchronization.
 # Processes that don't own a mode contribute zeros.
+#
+# OPTIMIZATION: Only poloidal data is gathered (requires radial derivatives).
+# Toroidal uses direct local access since ω_pol = -l(l+1)/r² × u_tor is point-wise.
+# This reduces MPI communication by 50% (2 Allreduce vs 4).
 function _compute_vorticity_spectral_mpi!(fields::SHTnsVelocityFields{T}, domain::RadialDomain,
                                           u_tor_real, u_tor_imag, u_pol_real, u_pol_imag,
                                           ω_tor_real, ω_tor_imag, ω_pol_real, ω_pol_imag,
                                           lm_range, r_range, nr, total_nlm, comm) where T
-    # Pre-allocate work arrays
-    pol_profile_real = zeros(T, nr)
-    pol_profile_imag = zeros(T, nr)
-    tor_profile_real = zeros(T, nr)
-    tor_profile_imag = zeros(T, nr)
+    # Pre-allocate work arrays for poloidal (needs gathering for derivatives)
+    # Toroidal does NOT need gathering - point-wise operation uses local data
+    pol_profile_real  = zeros(T, nr)
+    pol_profile_imag  = zeros(T, nr)
     pol_gathered_real = zeros(T, nr)
     pol_gathered_imag = zeros(T, nr)
-    tor_gathered_real = zeros(T, nr)
-    tor_gathered_imag = zeros(T, nr)
-    dpol_dr_real     = zeros(T, nr)
-    dpol_dr_imag     = zeros(T, nr)
-    d2pol_dr2_real   = zeros(T, nr)
-    d2pol_dr2_imag   = zeros(T, nr)
+    dpol_dr_real      = zeros(T, nr)
+    dpol_dr_imag      = zeros(T, nr)
+    d2pol_dr2_real    = zeros(T, nr)
+    d2pol_dr2_imag    = zeros(T, nr)
 
     # ALL processes loop over ALL lm modes for proper MPI synchronization
     @inbounds for lm_idx in 1:total_nlm
         i_own_this_mode = lm_idx in lm_range
         l_factor = fields.l_factors[lm_idx]
 
-        # Extract local radial profiles (owners contribute data, non-owners contribute zeros)
+        # Extract poloidal radial profile (owners contribute data, non-owners contribute zeros)
+        # Toroidal is NOT extracted here - we use direct local access later
         fill!(pol_profile_real, zero(T))
         fill!(pol_profile_imag, zero(T))
-        fill!(tor_profile_real, zero(T))
-        fill!(tor_profile_imag, zero(T))
         if i_own_this_mode
             local_lm = lm_idx - first(lm_range) + 1
             for r_idx in r_range
@@ -1292,23 +1292,20 @@ function _compute_vorticity_spectral_mpi!(fields::SHTnsVelocityFields{T}, domain
                 if local_r <= size(u_pol_real, 3)
                     pol_profile_real[r_idx] = u_pol_real[local_lm, 1, local_r]
                     pol_profile_imag[r_idx] = u_pol_imag[local_lm, 1, local_r]
-                    tor_profile_real[r_idx] = u_tor_real[local_lm, 1, local_r]
-                    tor_profile_imag[r_idx] = u_tor_imag[local_lm, 1, local_r]
                 end
             end
         end
 
-        # ALL processes call Allreduce together for this lm mode
+        # ALL processes call Allreduce together for this lm mode (poloidal only)
+        # Toroidal gathering removed - not needed for point-wise ω_pol computation
         MPI.Allreduce!(pol_profile_real, pol_gathered_real, MPI.SUM, comm)
         MPI.Allreduce!(pol_profile_imag, pol_gathered_imag, MPI.SUM, comm)
-        MPI.Allreduce!(tor_profile_real, tor_gathered_real, MPI.SUM, comm)
-        MPI.Allreduce!(tor_profile_imag, tor_gathered_imag, MPI.SUM, comm)
 
         # Only mode owners compute derivatives and store results
         if i_own_this_mode
             local_lm = lm_idx - first(lm_range) + 1
 
-            # Compute radial derivatives using complete profile
+            # Compute radial derivatives using complete poloidal profile
             apply_derivative_matrix!(dpol_dr_real,   fields.dr_matrix,  pol_gathered_real)
             apply_derivative_matrix!(dpol_dr_imag,   fields.dr_matrix,  pol_gathered_imag)
             apply_derivative_matrix!(d2pol_dr2_real, fields.d2r_matrix, pol_gathered_real)
@@ -1329,14 +1326,16 @@ function _compute_vorticity_spectral_mpi!(fields::SHTnsVelocityFields{T}, domain
                     else
                         r_inv = domain.r[r_idx, 3]
                         r_inv2 = domain.r[r_idx, 2]
+                        # ω_tor uses gathered poloidal (needs derivatives)
                         ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_real[r_idx]
                                                             - d2pol_dr2_real[r_idx]
                                                             - 2.0 * r_inv * dpol_dr_real[r_idx])
                         ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_imag[r_idx]
                                                             - d2pol_dr2_imag[r_idx]
                                                             - 2.0 * r_inv * dpol_dr_imag[r_idx])
-                        ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_gathered_real[r_idx]
-                        ω_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_gathered_imag[r_idx]
+                        # ω_pol uses LOCAL toroidal (point-wise, no derivatives needed)
+                        ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * u_tor_real[local_lm, 1, local_r]
+                        ω_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * u_tor_imag[local_lm, 1, local_r]
                     end
                 end
             end
