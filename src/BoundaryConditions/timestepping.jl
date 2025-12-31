@@ -302,14 +302,14 @@ function apply_velocity_bc_to_rhs!(rhs, velocity_field)
                 # For prescribed tangential velocity: T = prescribed value
                 # The RHS modification depends on the specific discretization
                 # This is typically handled by the solver using boundary_values
-            elseif bc_type_inner == Int(NEUMANN)  # Neumann (stress-free): ∂T/∂r = 0
+            elseif bc_type_inner == Int(NEUMANN)  # Stress-free: ∂T/∂r = T/r
                 # For stress-free: tangential stress = 0
-                # This requires Neumann boundary condition on T
+                # Note: This is NOT simple Neumann; actual BC is ∂T/∂r - T/r = 0
             end
 
             if bc_type_outer == Int(DIRICHLET)  # Dirichlet
                 # Similar to inner boundary
-            elseif bc_type_outer == Int(NEUMANN)  # Neumann
+            elseif bc_type_outer == Int(NEUMANN)  # Stress-free: ∂T/∂r = T/r
                 # Similar to inner boundary
             end
         end
