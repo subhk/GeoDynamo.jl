@@ -1847,7 +1847,8 @@ The rotated coefficients
 """
 function rotate_field_y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, beta::Real;
                          alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
-    output = alm_out === nothing ? similar(alm) : alm_out
+    # Use zeros instead of similar to avoid uninitialized data if SHTnsKit function doesn't fill output
+    output = alm_out === nothing ? zeros(ComplexF64, size(alm)) : alm_out
 
     try
         SHTnsKit.SH_Yrotate(config.sht_config, alm, beta, output)
@@ -1878,7 +1879,8 @@ The rotated coefficients
 """
 function rotate_field_90y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
                            alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
-    output = alm_out === nothing ? similar(alm) : alm_out
+    # Use zeros instead of similar to avoid uninitialized data if SHTnsKit function doesn't fill output
+    output = alm_out === nothing ? zeros(ComplexF64, size(alm)) : alm_out
 
     try
         SHTnsKit.SH_Yrotate90(config.sht_config, alm, output)
@@ -1906,7 +1908,8 @@ The rotated coefficients
 """
 function rotate_field_90x!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
                            alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
-    output = alm_out === nothing ? similar(alm) : alm_out
+    # Use zeros instead of similar to avoid uninitialized data if SHTnsKit function doesn't fill output
+    output = alm_out === nothing ? zeros(ComplexF64, size(alm)) : alm_out
 
     try
         SHTnsKit.SH_Xrotate90(config.sht_config, alm, output)
@@ -1941,7 +1944,8 @@ The rotated coefficients
 function rotate_field_euler!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
                              alpha::Real, beta::Real, gamma::Real;
                              alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
-    output = alm_out === nothing ? similar(alm) : alm_out
+    # Use zeros instead of similar to avoid uninitialized data if SHTnsKit function doesn't fill output
+    output = alm_out === nothing ? zeros(ComplexF64, size(alm)) : alm_out
     # Use zeros instead of similar to avoid uninitialized values at invalid (l,m) positions
     temp = zeros(ComplexF64, size(alm))
 
