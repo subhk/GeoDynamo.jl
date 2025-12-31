@@ -661,8 +661,9 @@ function extract_coefficients_for_shtnskit!(coeffs_buffer::Matrix{ComplexF64},
     # Threaded for performance with large spectral arrays
     Threads.@threads for lm_idx in eachindex(IndexLinear(), view(spec_real, :, 1, 1))
         l, m = index_to_lm_shtnskit(lm_idx, lmax, mmax)
-        if r_local <= size(spec_real, 3) && l >= 0 && m >= 0 &&
-           l <= buffer_lmax && m <= buffer_mmax
+        # Check bounds on both spec_real and spec_imag for safety
+        if r_local <= size(spec_real, 3) && r_local <= size(spec_imag, 3) &&
+           l >= 0 && m >= 0 && l <= buffer_lmax && m <= buffer_mmax
             real_part = spec_real[lm_idx, 1, r_local]
             imag_part = spec_imag[lm_idx, 1, r_local]
             coeffs_buffer[l+1, m+1] = complex(real_part, imag_part)
@@ -736,7 +737,8 @@ function store_coefficients_from_shtnskit!(spec_real, spec_imag, coeffs_matrix, 
     # Convert from (l,m) matrix to linear index format
     Threads.@threads for lm_idx in eachindex(IndexLinear(), view(spec_real, :, 1, 1))
         l, m = index_to_lm_shtnskit(lm_idx, lmax, mmax)
-        if r_local <= size(spec_real, 3) && l >= 0 && m >= 0
+        # Check bounds on both spec_real and spec_imag for safety
+        if r_local <= size(spec_real, 3) && r_local <= size(spec_imag, 3) && l >= 0 && m >= 0
             if l <= matrix_lmax && m <= matrix_mmax
                 # Extract coefficient from SHTnsKit matrix
                 coeff = coeffs_matrix[l+1, m+1]
