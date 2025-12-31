@@ -326,33 +326,37 @@ function analyze_load_balance(pencil::Pencil)::Float64
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
-    
+
     # Get local size with explicit types
     local_size::Tuple{Int,Int,Int} = size_local(pencil)
     local_elements::Int = prod(local_size)
-    
+
     # Gather all sizes
     all_sizes = MPI.Gather(local_elements, comm; root=0)
-    
+
+    imbalance = 0.0
+
     if rank == 0
         min_size = minimum(all_sizes)
         max_size = maximum(all_sizes)
         avg_size = mean(all_sizes)
         std_size = std(all_sizes)
-        
+
         imbalance = (max_size - min_size) / avg_size * 100
-        
+
         println("\nLoad Balance Analysis:")
         println("  Min elements: $min_size")
         println("  Max elements: $max_size")
         println("  Average:      $avg_size")
         println("  Std dev:      $(round(std_size, digits=2))")
         println("  Imbalance:    $(round(imbalance, digits=1))%")
-        
+
         if imbalance > 10
             println("  Warning: Load imbalance exceeds 10%")
         end
     end
+
+    return imbalance
 end
 
 # ===================================
