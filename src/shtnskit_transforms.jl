@@ -266,7 +266,7 @@ struct SHTnsKitConfig <: AbstractSHTnsConfig
     m_values::Vector{Int}
 
     # Physical grid coordinates
-    theta_grid::Vector{Float64}    # Colatitude values [0, π]
+    theta_grid::Vector{Float64}    # Latitude values [-π/2, π/2] (Gauss-Legendre nodes)
     phi_grid::Vector{Float64}      # Longitude values [0, 2π)
     gauss_weights::Vector{Float64} # Quadrature weights for integration
 
@@ -353,7 +353,7 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
     # Step 6: Initialize grid coordinates and quadrature weights
     # These are used for physical space operations and integration
 
-    # Latitude grid (Gauss-Legendre nodes, colatitude in [0, π])
+    # Latitude grid (Gauss-Legendre nodes, latitude in [-π/2, π/2])
     theta_grid = try
         Vector{Float64}(SHTnsKit.grid_latitudes(sht_config))
     catch
