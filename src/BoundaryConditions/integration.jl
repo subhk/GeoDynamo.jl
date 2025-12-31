@@ -9,65 +9,90 @@ using SHTnsKit
 
 Initialize boundary condition support for a field structure.
 
-Adds the necessary boundary condition fields to existing field structures
-without breaking compatibility with existing code.
+IMPORTANT: The field structure must already have the following fields defined:
+- boundary_condition_set (can be nothing)
+- boundary_interpolation_cache (Dict{String, Any})
+- boundary_time_index (Ref{Int})
+
+For scalar fields (TEMPERATURE, COMPOSITION):
+- bc_type_inner, bc_type_outer (Vector{Int})
+- boundary_values (Matrix)
+
+For vector fields (VELOCITY, MAGNETIC):
+- toroidal and poloidal components, each with bc_type_inner, bc_type_outer, boundary_values
 """
 function initialize_boundary_conditions!(field, field_type::FieldType, config)
-    
-    # Add boundary condition fields if they don't exist
-    if !hasfield(typeof(field), :boundary_condition_set)
-        field.boundary_condition_set = nothing
+
+    # Validate required boundary condition fields exist
+    # Note: In Julia, struct fields cannot be added at runtime - they must be pre-defined
+    required_fields = [:boundary_condition_set, :boundary_interpolation_cache, :boundary_time_index]
+
+    for field_name in required_fields
+        if !hasfield(typeof(field), field_name)
+            throw(ArgumentError("Field structure missing required field: $field_name. " *
+                "Ensure your field struct includes boundary condition fields."))
+        end
     end
-    
-    if !hasfield(typeof(field), :boundary_interpolation_cache)
-        field.boundary_interpolation_cache = Dict{String, Any}()
+
+    # Initialize to default values (these fields must already exist)
+    if field.boundary_condition_set !== nothing
+        # Already initialized, skip
+    else
+        # field.boundary_condition_set is already nothing (default)
     end
-    
-    if !hasfield(typeof(field), :boundary_time_index)
-        field.boundary_time_index = Ref{Int}(1)
+
+    if isempty(field.boundary_interpolation_cache)
+        # Already empty, no action needed
     end
-    
-    # Initialize boundary condition type arrays if needed
+
+    field.boundary_time_index[] = 1
+
+    # Initialize boundary condition type arrays
     if field_type == TEMPERATURE || field_type == COMPOSITION
-        # Scalar fields - initialize boundary type arrays
-        if !hasfield(typeof(field), :bc_type_inner)
-            nlm = SHTnsKit.get_num_modes(config.lmax)
-            field.bc_type_inner = fill(Int(DIRICHLET), nlm)  # Default to Dirichlet
-            field.bc_type_outer = fill(Int(DIRICHLET), nlm)
+        # Scalar fields - validate and initialize boundary type arrays
+        if !hasfield(typeof(field), :bc_type_inner) || !hasfield(typeof(field), :bc_type_outer)
+            throw(ArgumentError("Scalar field must have bc_type_inner and bc_type_outer fields"))
         end
-        
+
         if !hasfield(typeof(field), :boundary_values)
-            nlm = SHTnsKit.get_num_modes(config.lmax)
-            field.boundary_values = zeros(config.T, 2, nlm)  # [inner/outer, modes]
+            throw(ArgumentError("Scalar field must have boundary_values field"))
         end
-        
+
+        # Initialize arrays to default values
+        nlm = SHTnsKit.get_num_modes(config.lmax)
+        fill!(field.bc_type_inner, Int(DIRICHLET))
+        fill!(field.bc_type_outer, Int(DIRICHLET))
+        fill!(field.boundary_values, zero(eltype(field.boundary_values)))
+
     elseif field_type == VELOCITY || field_type == MAGNETIC
-        # Vector fields - initialize for toroidal and poloidal components
+        # Vector fields - validate toroidal and poloidal components
         if !hasfield(typeof(field), :toroidal)
             throw(ArgumentError("Vector field must have toroidal component"))
         end
-        
+
         if !hasfield(typeof(field), :poloidal)
             throw(ArgumentError("Vector field must have poloidal component"))
         end
-        
-        # Initialize boundary arrays for toroidal component
+
+        # Validate and initialize toroidal component
         if !hasfield(typeof(field.toroidal), :bc_type_inner)
-            nlm = SHTnsKit.get_num_modes(config.lmax)
-            field.toroidal.bc_type_inner = fill(Int(DIRICHLET), nlm)
-            field.toroidal.bc_type_outer = fill(Int(DIRICHLET), nlm)
-            field.toroidal.boundary_values = zeros(config.T, 2, nlm)
+            throw(ArgumentError("Toroidal component must have bc_type_inner, bc_type_outer, boundary_values fields"))
         end
 
-        # Initialize boundary arrays for poloidal component
+        fill!(field.toroidal.bc_type_inner, Int(DIRICHLET))
+        fill!(field.toroidal.bc_type_outer, Int(DIRICHLET))
+        fill!(field.toroidal.boundary_values, zero(eltype(field.toroidal.boundary_values)))
+
+        # Validate and initialize poloidal component
         if !hasfield(typeof(field.poloidal), :bc_type_inner)
-            nlm = SHTnsKit.get_num_modes(config.lmax)
-            field.poloidal.bc_type_inner = fill(Int(DIRICHLET), nlm)
-            field.poloidal.bc_type_outer = fill(Int(DIRICHLET), nlm)
-            field.poloidal.boundary_values = zeros(config.T, 2, nlm)
+            throw(ArgumentError("Poloidal component must have bc_type_inner, bc_type_outer, boundary_values fields"))
         end
+
+        fill!(field.poloidal.bc_type_inner, Int(DIRICHLET))
+        fill!(field.poloidal.bc_type_outer, Int(DIRICHLET))
+        fill!(field.poloidal.boundary_values, zero(eltype(field.poloidal.boundary_values)))
     end
-    
+
     return field
 end
 
@@ -79,7 +104,12 @@ Apply boundary conditions during solver operations.
 This function integrates boundary conditions with the timestepping and solving process.
 """
 function apply_boundary_conditions!(field, field_type::FieldType, solver_state)
-    
+
+    # Check if field has boundary condition support
+    if !hasfield(typeof(field), :boundary_condition_set)
+        return field  # Field doesn't support boundary conditions
+    end
+
     if field.boundary_condition_set === nothing
         return field  # No boundary conditions to apply
     end
@@ -126,7 +156,7 @@ function get_current_simulation_time(solver_state)
             return ts_state.time
         elseif hasfield(typeof(ts_state), :step)
             # Estimate time from step number and dt
-            dt = get(ts_state, :dt, 1.0)
+            dt = hasfield(typeof(ts_state), :dt) ? ts_state.dt : 1.0
             return ts_state.step * dt
         end
     end
@@ -192,49 +222,75 @@ end
     copy_boundary_conditions!(dest_field, src_field, field_type::FieldType)
 
 Copy boundary conditions from one field to another.
+Both fields must have boundary condition fields already defined.
 """
 function copy_boundary_conditions!(dest_field, src_field, field_type::FieldType)
-    
+
+    # Validate required fields exist on both src and dest
+    if !hasfield(typeof(src_field), :boundary_condition_set)
+        throw(ArgumentError("Source field missing boundary_condition_set field"))
+    end
+
+    if !hasfield(typeof(dest_field), :boundary_condition_set)
+        throw(ArgumentError("Destination field missing boundary_condition_set field"))
+    end
+
     if src_field.boundary_condition_set === nothing
         return dest_field
     end
-    
+
     # Copy boundary condition set
     dest_field.boundary_condition_set = src_field.boundary_condition_set
-    
-    # Copy interpolation cache
-    dest_field.boundary_interpolation_cache = deepcopy(src_field.boundary_interpolation_cache)
-    
-    # Copy time index
-    dest_field.boundary_time_index[] = src_field.boundary_time_index[]
-    
+
+    # Copy interpolation cache (if both fields have it)
+    if hasfield(typeof(src_field), :boundary_interpolation_cache) &&
+       hasfield(typeof(dest_field), :boundary_interpolation_cache)
+        for (k, v) in src_field.boundary_interpolation_cache
+            dest_field.boundary_interpolation_cache[k] = deepcopy(v)
+        end
+    end
+
+    # Copy time index (if both fields have it)
+    if hasfield(typeof(src_field), :boundary_time_index) &&
+       hasfield(typeof(dest_field), :boundary_time_index)
+        dest_field.boundary_time_index[] = src_field.boundary_time_index[]
+    end
+
     # Copy boundary condition arrays
     if field_type == TEMPERATURE || field_type == COMPOSITION
-        if hasfield(typeof(src_field), :boundary_values)
+        if hasfield(typeof(src_field), :boundary_values) &&
+           hasfield(typeof(dest_field), :boundary_values)
             dest_field.boundary_values .= src_field.boundary_values
         end
-        
-        if hasfield(typeof(src_field), :bc_type_inner)
+
+        if hasfield(typeof(src_field), :bc_type_inner) &&
+           hasfield(typeof(dest_field), :bc_type_inner)
             dest_field.bc_type_inner .= src_field.bc_type_inner
             dest_field.bc_type_outer .= src_field.bc_type_outer
         end
-        
+
     elseif field_type == VELOCITY || field_type == MAGNETIC
         # Copy toroidal boundary conditions
-        if hasfield(typeof(src_field.toroidal), :boundary_values)
-            dest_field.toroidal.boundary_values .= src_field.toroidal.boundary_values
-            dest_field.toroidal.bc_type_inner .= src_field.toroidal.bc_type_inner
-            dest_field.toroidal.bc_type_outer .= src_field.toroidal.bc_type_outer
+        if hasfield(typeof(src_field), :toroidal) && hasfield(typeof(dest_field), :toroidal)
+            if hasfield(typeof(src_field.toroidal), :boundary_values) &&
+               hasfield(typeof(dest_field.toroidal), :boundary_values)
+                dest_field.toroidal.boundary_values .= src_field.toroidal.boundary_values
+                dest_field.toroidal.bc_type_inner .= src_field.toroidal.bc_type_inner
+                dest_field.toroidal.bc_type_outer .= src_field.toroidal.bc_type_outer
+            end
         end
-        
+
         # Copy poloidal boundary conditions
-        if hasfield(typeof(src_field.poloidal), :boundary_values)
-            dest_field.poloidal.boundary_values .= src_field.poloidal.boundary_values
-            dest_field.poloidal.bc_type_inner .= src_field.poloidal.bc_type_inner
-            dest_field.poloidal.bc_type_outer .= src_field.poloidal.bc_type_outer
+        if hasfield(typeof(src_field), :poloidal) && hasfield(typeof(dest_field), :poloidal)
+            if hasfield(typeof(src_field.poloidal), :boundary_values) &&
+               hasfield(typeof(dest_field.poloidal), :boundary_values)
+                dest_field.poloidal.boundary_values .= src_field.poloidal.boundary_values
+                dest_field.poloidal.bc_type_inner .= src_field.poloidal.bc_type_inner
+                dest_field.poloidal.bc_type_outer .= src_field.poloidal.bc_type_outer
+            end
         end
     end
-    
+
     return dest_field
 end
 
@@ -244,34 +300,40 @@ end
 Reset/clear boundary conditions for a field.
 """
 function reset_boundary_conditions!(field, field_type::FieldType)
-    
-    # Clear boundary condition set
-    field.boundary_condition_set = nothing
-    
+
+    # Validate and clear boundary condition set
+    if hasfield(typeof(field), :boundary_condition_set)
+        field.boundary_condition_set = nothing
+    end
+
     # Clear interpolation cache
-    empty!(field.boundary_interpolation_cache)
-    
+    if hasfield(typeof(field), :boundary_interpolation_cache)
+        empty!(field.boundary_interpolation_cache)
+    end
+
     # Reset time index
-    field.boundary_time_index[] = 1
-    
+    if hasfield(typeof(field), :boundary_time_index)
+        field.boundary_time_index[] = 1
+    end
+
     # Reset boundary arrays to zero
     if field_type == TEMPERATURE || field_type == COMPOSITION
         if hasfield(typeof(field), :boundary_values)
-            fill!(field.boundary_values, 0.0)
+            fill!(field.boundary_values, zero(eltype(field.boundary_values)))
         end
-        
+
     elseif field_type == VELOCITY || field_type == MAGNETIC
         # Reset toroidal boundary conditions
-        if hasfield(typeof(field.toroidal), :boundary_values)
-            fill!(field.toroidal.boundary_values, 0.0)
+        if hasfield(typeof(field), :toroidal) && hasfield(typeof(field.toroidal), :boundary_values)
+            fill!(field.toroidal.boundary_values, zero(eltype(field.toroidal.boundary_values)))
         end
-        
+
         # Reset poloidal boundary conditions
-        if hasfield(typeof(field.poloidal), :boundary_values)
-            fill!(field.poloidal.boundary_values, 0.0)
+        if hasfield(typeof(field), :poloidal) && hasfield(typeof(field.poloidal), :boundary_values)
+            fill!(field.poloidal.boundary_values, zero(eltype(field.poloidal.boundary_values)))
         end
     end
-    
+
     return field
 end
 
@@ -281,19 +343,34 @@ end
 Get a summary of the current boundary condition state.
 """
 function get_boundary_condition_summary(field, field_type::FieldType)
-    
+
     summary = Dict{String, Any}()
-    
+
     summary["field_type"] = string(field_type)
-    summary["has_boundary_conditions"] = field.boundary_condition_set !== nothing
-    
-    if field.boundary_condition_set !== nothing
+
+    # Check if field has boundary condition fields
+    has_bc_field = hasfield(typeof(field), :boundary_condition_set)
+    summary["has_boundary_fields"] = has_bc_field
+
+    if !has_bc_field
+        summary["reason"] = "Field structure does not have boundary condition fields"
+        return summary
+    end
+
+    has_boundary_conditions = field.boundary_condition_set !== nothing
+    summary["has_boundary_conditions"] = has_boundary_conditions
+
+    if has_boundary_conditions
         boundary_set = field.boundary_condition_set
-        
+
         summary["boundary_field_name"] = boundary_set.field_name
         summary["creation_time"] = boundary_set.creation_time
-        summary["current_time_index"] = field.boundary_time_index[]
-        
+
+        # Time index (if available)
+        if hasfield(typeof(field), :boundary_time_index)
+            summary["current_time_index"] = field.boundary_time_index[]
+        end
+
         # Inner boundary info
         summary["inner_boundary"] = Dict(
             "file_path" => boundary_set.inner_boundary.file_path,
@@ -303,7 +380,7 @@ function get_boundary_condition_summary(field, field_type::FieldType)
             "units" => boundary_set.inner_boundary.units,
             "description" => boundary_set.inner_boundary.description
         )
-        
+
         # Outer boundary info
         summary["outer_boundary"] = Dict(
             "file_path" => boundary_set.outer_boundary.file_path,
@@ -313,14 +390,16 @@ function get_boundary_condition_summary(field, field_type::FieldType)
             "units" => boundary_set.outer_boundary.units,
             "description" => boundary_set.outer_boundary.description
         )
-        
-        # Cache info
-        summary["interpolation_cache"] = Dict(
-            "inner_cached" => haskey(field.boundary_interpolation_cache, "inner"),
-            "outer_cached" => haskey(field.boundary_interpolation_cache, "outer"),
-            "cache_size" => length(field.boundary_interpolation_cache)
-        )
-        
+
+        # Cache info (if available)
+        if hasfield(typeof(field), :boundary_interpolation_cache)
+            summary["interpolation_cache"] = Dict(
+                "inner_cached" => haskey(field.boundary_interpolation_cache, "inner"),
+                "outer_cached" => haskey(field.boundary_interpolation_cache, "outer"),
+                "cache_size" => length(field.boundary_interpolation_cache)
+            )
+        end
+
         # Field-specific boundary condition info
         if field_type == TEMPERATURE || field_type == COMPOSITION
             if hasfield(typeof(field), :boundary_values)
@@ -330,19 +409,19 @@ function get_boundary_condition_summary(field, field_type::FieldType)
                     "total_modes" => size(field.boundary_values, 2)
                 )
             end
-            
+
         elseif field_type == VELOCITY || field_type == MAGNETIC
-            summary["boundary_spectral_coefficients"] = Dict()
-            
-            if hasfield(typeof(field.toroidal), :boundary_values)
+            summary["boundary_spectral_coefficients"] = Dict{String, Any}()
+
+            if hasfield(typeof(field), :toroidal) && hasfield(typeof(field.toroidal), :boundary_values)
                 summary["boundary_spectral_coefficients"]["toroidal"] = Dict(
                     "inner_nonzero" => count(!iszero, field.toroidal.boundary_values[1, :]),
                     "outer_nonzero" => count(!iszero, field.toroidal.boundary_values[2, :]),
                     "total_modes" => size(field.toroidal.boundary_values, 2)
                 )
             end
-            
-            if hasfield(typeof(field.poloidal), :boundary_values)
+
+            if hasfield(typeof(field), :poloidal) && hasfield(typeof(field.poloidal), :boundary_values)
                 summary["boundary_spectral_coefficients"]["poloidal"] = Dict(
                     "inner_nonzero" => count(!iszero, field.poloidal.boundary_values[1, :]),
                     "outer_nonzero" => count(!iszero, field.poloidal.boundary_values[2, :]),
@@ -353,7 +432,7 @@ function get_boundary_condition_summary(field, field_type::FieldType)
     else
         summary["reason"] = "No boundary conditions loaded"
     end
-    
+
     return summary
 end
 
