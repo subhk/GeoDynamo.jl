@@ -1219,13 +1219,136 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     
     # Use enhanced range functions from pencil decomposition
     config = fields.toroidal.config
-    
+
     # Get local ranges using pencil topology
+    # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
+    # since spectral field data is distributed using pencils.spec
     lm_range = range_local(config.pencils.spec, 1)
-    r_range  = range_local(config.pencils.r, 3)
-    
+    r_range  = range_local(config.pencils.spec, 3)
+
     nr = domain.N
-    
+
+    # Check if we need MPI communication (radial dimension distributed)
+    comm = get_comm()
+    nprocs = MPI.Comm_size(comm)
+    radial_distributed = length(r_range) < nr
+
+    # When radial dimension is distributed across MPI processes, we need to gather
+    # complete radial profiles before computing derivatives (stencil needs neighbors).
+    # Threading is disabled in this case to avoid MPI deadlocks.
+    if radial_distributed && nprocs > 1
+        # Sequential version with MPI communication for correctness
+        # CRITICAL: Pass total_nlm so all processes loop over ALL modes for synchronization
+        total_nlm = config.nlm
+        _compute_vorticity_spectral_mpi!(fields, domain, u_tor_real, u_tor_imag, u_pol_real, u_pol_imag,
+                                         ω_tor_real, ω_tor_imag, ω_pol_real, ω_pol_imag,
+                                         lm_range, r_range, nr, total_nlm, comm)
+    else
+        # Threaded version for local radial data (no MPI needed)
+        _compute_vorticity_spectral_threaded!(fields, domain, u_tor_real, u_tor_imag, u_pol_real, u_pol_imag,
+                                               ω_tor_real, ω_tor_imag, ω_pol_real, ω_pol_imag,
+                                               lm_range, r_range, nr)
+    end
+end
+
+# MPI version: Sequential loop with Allreduce for complete radial profiles
+# CRITICAL MPI SYNCHRONIZATION:
+# When radial dimension is distributed, ALL processes must call Allreduce
+# for the SAME lm mode at the SAME time. Different processes may own different
+# lm_range, so we must loop over ALL lm modes to ensure synchronization.
+# Processes that don't own a mode contribute zeros.
+function _compute_vorticity_spectral_mpi!(fields::SHTnsVelocityFields{T}, domain::RadialDomain,
+                                          u_tor_real, u_tor_imag, u_pol_real, u_pol_imag,
+                                          ω_tor_real, ω_tor_imag, ω_pol_real, ω_pol_imag,
+                                          lm_range, r_range, nr, total_nlm, comm) where T
+    # Pre-allocate work arrays
+    pol_profile_real = zeros(T, nr)
+    pol_profile_imag = zeros(T, nr)
+    tor_profile_real = zeros(T, nr)
+    tor_profile_imag = zeros(T, nr)
+    pol_gathered_real = zeros(T, nr)
+    pol_gathered_imag = zeros(T, nr)
+    tor_gathered_real = zeros(T, nr)
+    tor_gathered_imag = zeros(T, nr)
+    dpol_dr_real     = zeros(T, nr)
+    dpol_dr_imag     = zeros(T, nr)
+    d2pol_dr2_real   = zeros(T, nr)
+    d2pol_dr2_imag   = zeros(T, nr)
+
+    # ALL processes loop over ALL lm modes for proper MPI synchronization
+    @inbounds for lm_idx in 1:total_nlm
+        i_own_this_mode = lm_idx in lm_range
+        l_factor = fields.l_factors[lm_idx]
+
+        # Extract local radial profiles (owners contribute data, non-owners contribute zeros)
+        fill!(pol_profile_real, zero(T))
+        fill!(pol_profile_imag, zero(T))
+        fill!(tor_profile_real, zero(T))
+        fill!(tor_profile_imag, zero(T))
+        if i_own_this_mode
+            local_lm = lm_idx - first(lm_range) + 1
+            for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(u_pol_real, 3)
+                    pol_profile_real[r_idx] = u_pol_real[local_lm, 1, local_r]
+                    pol_profile_imag[r_idx] = u_pol_imag[local_lm, 1, local_r]
+                    tor_profile_real[r_idx] = u_tor_real[local_lm, 1, local_r]
+                    tor_profile_imag[r_idx] = u_tor_imag[local_lm, 1, local_r]
+                end
+            end
+        end
+
+        # ALL processes call Allreduce together for this lm mode
+        MPI.Allreduce!(pol_profile_real, pol_gathered_real, MPI.SUM, comm)
+        MPI.Allreduce!(pol_profile_imag, pol_gathered_imag, MPI.SUM, comm)
+        MPI.Allreduce!(tor_profile_real, tor_gathered_real, MPI.SUM, comm)
+        MPI.Allreduce!(tor_profile_imag, tor_gathered_imag, MPI.SUM, comm)
+
+        # Only mode owners compute derivatives and store results
+        if i_own_this_mode
+            local_lm = lm_idx - first(lm_range) + 1
+
+            # Compute radial derivatives using complete profile
+            apply_derivative_matrix!(dpol_dr_real,   fields.dr_matrix,  pol_gathered_real)
+            apply_derivative_matrix!(dpol_dr_imag,   fields.dr_matrix,  pol_gathered_imag)
+            apply_derivative_matrix!(d2pol_dr2_real, fields.d2r_matrix, pol_gathered_real)
+            apply_derivative_matrix!(d2pol_dr2_imag, fields.d2r_matrix, pol_gathered_imag)
+
+            # Compute vorticity components (only for local r indices)
+            r_first = first(r_range)
+            r_last = min(last(r_range), nr)
+            @simd for r_idx in r_first:r_last
+                local_r = r_idx - r_first + 1
+                if local_r <= size(ω_tor_real, 3)
+                    r_val = domain.r[r_idx, 4]
+                    if r_val == 0.0
+                        ω_tor_real[local_lm, 1, local_r] = zero(T)
+                        ω_tor_imag[local_lm, 1, local_r] = zero(T)
+                        ω_pol_real[local_lm, 1, local_r] = zero(T)
+                        ω_pol_imag[local_lm, 1, local_r] = zero(T)
+                    else
+                        r_inv = domain.r[r_idx, 3]
+                        r_inv2 = domain.r[r_idx, 2]
+                        ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_real[r_idx]
+                                                            - d2pol_dr2_real[r_idx]
+                                                            - 2.0 * r_inv * dpol_dr_real[r_idx])
+                        ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_imag[r_idx]
+                                                            - d2pol_dr2_imag[r_idx]
+                                                            - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                        ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_gathered_real[r_idx]
+                        ω_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_gathered_imag[r_idx]
+                    end
+                end
+            end
+        end
+    end
+end
+
+# Threaded version: For when radial data is local (no MPI communication needed)
+function _compute_vorticity_spectral_threaded!(fields::SHTnsVelocityFields{T}, domain::RadialDomain,
+                                                u_tor_real, u_tor_imag, u_pol_real, u_pol_imag,
+                                                ω_tor_real, ω_tor_imag, ω_pol_real, ω_pol_imag,
+                                                lm_range, r_range, nr) where T
     # Thread-local scratch buffers reused across modes to avoid allocations
     nT = max(1, Threads.nthreads())
     pol_profile_real_bufs = [zeros(T, nr) for _ in 1:nT]
@@ -1265,13 +1388,13 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             extract_local_radial_profile!(pol_profile_imag, u_pol_imag, local_lm, nr, r_range)
             extract_local_radial_profile!(tor_profile_real, u_tor_real, local_lm, nr, r_range)
             extract_local_radial_profile!(tor_profile_imag, u_tor_imag, local_lm, nr, r_range)
-            
+
             # Compute radial derivatives for poloidal component (in-place, reuse buffers)
             apply_derivative_matrix!(dpol_dr_real,   fields.dr_matrix,  pol_profile_real)
             apply_derivative_matrix!(dpol_dr_imag,   fields.dr_matrix,  pol_profile_imag)
             apply_derivative_matrix!(d2pol_dr2_real, fields.d2r_matrix, pol_profile_real)
             apply_derivative_matrix!(d2pol_dr2_imag, fields.d2r_matrix, pol_profile_imag)
-            
+
             # Compute vorticity components
             r_first = first(r_range)
             r_last = min(last(r_range), nr)
@@ -1292,11 +1415,11 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
                         r_inv = domain.r[r_idx, 3]   # 1/r
                         r_inv2 = domain.r[r_idx, 2]  # 1/r²
                         # Toroidal vorticity from poloidal velocity (with full derivatives)
-                        ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx] 
-                                                            - d2pol_dr2_real[r_idx] 
+                        ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx]
+                                                            - d2pol_dr2_real[r_idx]
                                                             - 2.0 * r_inv * dpol_dr_real[r_idx])
-                        ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx] 
-                                                            - d2pol_dr2_imag[r_idx] 
+                        ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx]
+                                                            - d2pol_dr2_imag[r_idx]
                                                             - 2.0 * r_inv * dpol_dr_imag[r_idx])
                         # Poloidal vorticity from toroidal velocity
                         ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_real[r_idx]
@@ -1708,12 +1831,14 @@ function compute_kinetic_energy(fields::SHTnsVelocityFields{T}, oc_domain::Radia
     pol_imag = parent(fields.poloidal.data_imag)
     
     local_energy = zero(Float64)
-    
+
     # Use configuration pencils for consistent range access
+    # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
+    # since spectral field data is distributed using pencils.spec
     config = fields.toroidal.config
     lm_range = range_local(config.pencils.spec, 1)
-    r_range = range_local(config.pencils.r, 3)
-    
+    r_range = range_local(config.pencils.spec, 3)
+
     @inbounds for lm_idx in lm_range
         if lm_idx <= fields.toroidal.nlm
             local_lm = lm_idx - first(lm_range) + 1
