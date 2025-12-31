@@ -6,7 +6,7 @@
 # SHTnsKit is imported at the module level
 
 """
-    initialize_boundary_conditions!(field, field_type::FieldType, config)
+    initialize_boundary_conditions!(field, field_type::FieldType)
 
 Initialize boundary condition support for a field structure.
 
@@ -21,8 +21,10 @@ For scalar fields (TEMPERATURE, COMPOSITION):
 
 For vector fields (VELOCITY, MAGNETIC):
 - toroidal and poloidal components, each with bc_type_inner, bc_type_outer, boundary_values
+
+Note: The field struct must be a mutable struct since this function modifies its fields.
 """
-function initialize_boundary_conditions!(field, field_type::FieldType, config)
+function initialize_boundary_conditions!(field, field_type::FieldType)
 
     # Validate required boundary condition fields exist
     # Note: In Julia, struct fields cannot be added at runtime - they must be pre-defined
