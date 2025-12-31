@@ -34,17 +34,7 @@ function initialize_boundary_conditions!(field, field_type::FieldType, config)
         end
     end
 
-    # Initialize to default values (these fields must already exist)
-    if field.boundary_condition_set !== nothing
-        # Already initialized, skip
-    else
-        # field.boundary_condition_set is already nothing (default)
-    end
-
-    if isempty(field.boundary_interpolation_cache)
-        # Already empty, no action needed
-    end
-
+    # Reset time index to initial value
     field.boundary_time_index[] = 1
 
     # Initialize boundary condition type arrays
@@ -59,7 +49,6 @@ function initialize_boundary_conditions!(field, field_type::FieldType, config)
         end
 
         # Initialize arrays to default values
-        nlm = SHTnsKit.get_num_modes(config.lmax)
         fill!(field.bc_type_inner, Int(DIRICHLET))
         fill!(field.bc_type_outer, Int(DIRICHLET))
         fill!(field.boundary_values, zero(eltype(field.boundary_values)))
