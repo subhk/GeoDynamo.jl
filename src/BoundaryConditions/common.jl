@@ -50,7 +50,7 @@ end
 
 Cache structure for storing processed boundary data.
 """
-struct BoundaryCache{T}
+mutable struct BoundaryCache{T}
     interpolated_data::Dict{String, Array{T}}     # Cached interpolated data by time index
     spectral_coefficients::Dict{String, Array{T}} # Cached spectral coefficients
     last_update_time::Float64                     # Last cache update time
