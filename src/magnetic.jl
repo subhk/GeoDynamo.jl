@@ -161,6 +161,10 @@ mutable struct SHTnsMagneticFields{T}
     # Pre-computed coefficients
     l_factors::Vector{Float64}  # l(l+1) values
 
+    # Radial derivative matrices (cached for performance)
+    dr_matrix::BandedMatrix{T}          # First derivative d/dr
+    d2r_matrix::BandedMatrix{T}         # Second derivative d²/dr²
+
     # Transform manager removed; SHTnsKit transforms are used directly
 
     # Imposed field (if any)
@@ -215,7 +219,11 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     
     # Pre-compute l(l+1) factors
     l_factors = Float64[l * (l + 1) for l in config.l_values]
-    
+
+    # Create radial derivative matrices (cached for performance)
+    dr_matrix  = create_derivative_matrix(1, domain_oc)
+    d2r_matrix = create_derivative_matrix(2, domain_oc)
+
     # Create transpose plans for efficient data movement
     transpose_plans = create_transpose_plans(pencils)
     
@@ -224,13 +232,14 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     boundary_cache = Dict{String, Any}()
     boundary_time_index = Ref{Int}(1)
     
-    return SHTnsMagneticFields{T}(magnetic, current, 
+    return SHTnsMagneticFields{T}(magnetic, current,
                                 toroidal, poloidal,
-                                ic_toroidal, ic_poloidal, 
+                                ic_toroidal, ic_poloidal,
                                 nl_toroidal, nl_poloidal, prev_nl_toroidal, prev_nl_poloidal,
                                 work_tor, work_pol, work_physical,
                                 induction_physical,
                                 l_factors,
+                                dr_matrix, d2r_matrix,
                                 imposed_field,
                                 config,
                                 domain_oc,
@@ -388,78 +397,155 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
     j_pol_imag = parent(mag_fields.work_pol.data_imag)
     
     # Get local ranges using config-aware pencil topology
+    # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
+    # since spectral field data is distributed using pencils.spec
     config = mag_fields.toroidal.config
     lm_range = range_local(config.pencils.spec, 1)
-    r_range  = range_local(config.pencils.r, 3)
-    
-    # Create radial derivative matrices
-    d1_matrix = create_derivative_matrix(1, oc_domain)  # First derivative d/dr
-    d2_matrix = create_derivative_matrix(2, oc_domain)  # Second derivative d²/dr²
-    
+    r_range  = range_local(config.pencils.spec, 3)
+    total_nlm = config.nlm  # Total number of (l,m) modes
+
+    # Use cached radial derivative matrices for performance
+    d1_matrix = mag_fields.dr_matrix   # First derivative d/dr
+    d2_matrix = mag_fields.d2r_matrix  # Second derivative d²/dr²
+
     # Pre-allocate work arrays for radial profiles
     nr = oc_domain.N
     pol_profile_real = zeros(T, nr)
     pol_profile_imag = zeros(T, nr)
+    pol_gathered_real = zeros(T, nr)
+    pol_gathered_imag = zeros(T, nr)
     dpol_dr_real    = zeros(T, nr)
     dpol_dr_imag    = zeros(T, nr)
     d2pol_dr2_real  = zeros(T, nr)
     d2pol_dr2_imag  = zeros(T, nr)
-    
-    # Process each (l,m) mode
-    @inbounds for lm_idx in lm_range
-        if lm_idx <= length(mag_fields.l_factors)
-            local_lm = lm_idx - first(lm_range) + 1
-            l_factor = mag_fields.l_factors[lm_idx]  # l(l+1)
-            
-            # Extract radial profiles for poloidal field
-            for r_idx in 1:nr
-                if r_idx in r_range
+
+    # Check if we need MPI communication (radial dimension distributed)
+    comm = get_comm()
+    nprocs = MPI.Comm_size(comm)
+    radial_distributed = length(r_range) < nr
+
+    # CRITICAL MPI SYNCHRONIZATION:
+    # When radial dimension is distributed, ALL processes must call Allreduce
+    # for the SAME lm mode at the SAME time. Different processes may own different
+    # lm_range, so we must loop over ALL lm modes to ensure synchronization.
+    # Processes that don't own a mode contribute zeros.
+    if radial_distributed && nprocs > 1
+        # MPI path: All processes loop over ALL lm modes for proper synchronization
+        @inbounds for lm_idx in 1:total_nlm
+            i_own_this_mode = lm_idx in lm_range
+            l_factor = mag_fields.l_factors[lm_idx]
+
+            # Extract radial profile (owners contribute data, non-owners contribute zeros)
+            fill!(pol_profile_real, zero(T))
+            fill!(pol_profile_imag, zero(T))
+            if i_own_this_mode
+                local_lm = lm_idx - first(lm_range) + 1
+                for r_idx in r_range
                     local_r = r_idx - first(r_range) + 1
                     if local_r <= size(B_pol_real, 3)
                         pol_profile_real[r_idx] = B_pol_real[local_lm, 1, local_r]
                         pol_profile_imag[r_idx] = B_pol_imag[local_lm, 1, local_r]
                     end
-                else
-                    pol_profile_real[r_idx] = zero(T)
-                    pol_profile_imag[r_idx] = zero(T)
                 end
             end
-            
-            # Compute radial derivatives for poloidal field
-            apply_derivative_matrix!(dpol_dr_real, d1_matrix, pol_profile_real)
-            apply_derivative_matrix!(dpol_dr_imag, d1_matrix, pol_profile_imag)
-            apply_derivative_matrix!(d2pol_dr2_real, d2_matrix, pol_profile_real)
-            apply_derivative_matrix!(d2pol_dr2_imag, d2_matrix, pol_profile_imag)
-            
-            # Compute current density components
-            r_first = first(r_range)
-            r_last = min(last(r_range), nr)
-            if r_last < r_first
-                continue
+
+            # ALL processes call Allreduce together for this lm mode
+            MPI.Allreduce!(pol_profile_real, pol_gathered_real, MPI.SUM, comm)
+            MPI.Allreduce!(pol_profile_imag, pol_gathered_imag, MPI.SUM, comm)
+
+            # Only mode owners compute derivatives and store results
+            if i_own_this_mode
+                local_lm = lm_idx - first(lm_range) + 1
+
+                # Compute radial derivatives using complete profile
+                apply_derivative_matrix!(dpol_dr_real, d1_matrix, pol_gathered_real)
+                apply_derivative_matrix!(dpol_dr_imag, d1_matrix, pol_gathered_imag)
+                apply_derivative_matrix!(d2pol_dr2_real, d2_matrix, pol_gathered_real)
+                apply_derivative_matrix!(d2pol_dr2_imag, d2_matrix, pol_gathered_imag)
+
+                # Compute current density components
+                r_first = first(r_range)
+                r_last = min(last(r_range), nr)
+                @simd for r_idx in r_first:r_last
+                    local_r = r_idx - r_first + 1
+                    if local_r <= size(j_tor_real, 3)
+                        r_val = oc_domain.r[r_idx, 4]
+                        if r_val == 0.0
+                            j_tor_real[local_lm, 1, local_r] = zero(T)
+                            j_tor_imag[local_lm, 1, local_r] = zero(T)
+                            j_pol_real[local_lm, 1, local_r] = zero(T)
+                            j_pol_imag[local_lm, 1, local_r] = zero(T)
+                        else
+                            r_inv = oc_domain.r[r_idx, 3]
+                            r_inv2 = oc_domain.r[r_idx, 2]
+                            j_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_real[r_idx]
+                                                                - d2pol_dr2_real[r_idx]
+                                                                - 2.0 * r_inv * dpol_dr_real[r_idx])
+                            j_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_imag[r_idx]
+                                                                - d2pol_dr2_imag[r_idx]
+                                                                - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                            j_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_real[local_lm, 1, local_r]
+                            j_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_imag[local_lm, 1, local_r]
+                        end
+                    end
+                end
             end
-            @simd for r_idx in r_first:r_last
-                local_r = r_idx - r_first + 1
-                if local_r <= size(j_tor_real, 3)
-                    r_val = oc_domain.r[r_idx, 4]
-                    if r_val == 0.0
-                        # At r=0 (ball geometry), enforce finite current density
-                        j_tor_real[local_lm, 1, local_r] = 0
-                        j_tor_imag[local_lm, 1, local_r] = 0
-                        j_pol_real[local_lm, 1, local_r] = 0
-                        j_pol_imag[local_lm, 1, local_r] = 0
-                    else
-                        r_inv = oc_domain.r[r_idx, 3]   # 1/r
-                        r_inv2 = oc_domain.r[r_idx, 2]  # 1/r²
-                        # Toroidal current from poloidal field (with full derivatives)
-                        j_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx] 
-                                                            - d2pol_dr2_real[r_idx] 
-                                                            - 2.0 * r_inv * dpol_dr_real[r_idx])
-                        j_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx] 
-                                                            - d2pol_dr2_imag[r_idx] 
-                                                            - 2.0 * r_inv * dpol_dr_imag[r_idx])
-                        # Poloidal current from toroidal field (simpler - no radial derivatives)
-                        j_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_real[local_lm, 1, local_r]
-                        j_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_imag[local_lm, 1, local_r]
+        end
+    else
+        # Serial/local-radial path: Only process owned modes (no MPI communication needed)
+        @inbounds for lm_idx in lm_range
+            if lm_idx <= length(mag_fields.l_factors)
+                local_lm = lm_idx - first(lm_range) + 1
+                l_factor = mag_fields.l_factors[lm_idx]
+
+                # Extract radial profile (all radial data is local)
+                fill!(pol_profile_real, zero(T))
+                fill!(pol_profile_imag, zero(T))
+                for r_idx in r_range
+                    local_r = r_idx - first(r_range) + 1
+                    if local_r <= size(B_pol_real, 3)
+                        pol_profile_real[r_idx] = B_pol_real[local_lm, 1, local_r]
+                        pol_profile_imag[r_idx] = B_pol_imag[local_lm, 1, local_r]
+                    end
+                end
+
+                # No MPI needed - use profile directly
+                copyto!(pol_gathered_real, pol_profile_real)
+                copyto!(pol_gathered_imag, pol_profile_imag)
+
+                # Compute radial derivatives
+                apply_derivative_matrix!(dpol_dr_real, d1_matrix, pol_gathered_real)
+                apply_derivative_matrix!(dpol_dr_imag, d1_matrix, pol_gathered_imag)
+                apply_derivative_matrix!(d2pol_dr2_real, d2_matrix, pol_gathered_real)
+                apply_derivative_matrix!(d2pol_dr2_imag, d2_matrix, pol_gathered_imag)
+
+                # Compute current density components
+                r_first = first(r_range)
+                r_last = min(last(r_range), nr)
+                if r_last < r_first
+                    continue
+                end
+                @simd for r_idx in r_first:r_last
+                    local_r = r_idx - r_first + 1
+                    if local_r <= size(j_tor_real, 3)
+                        r_val = oc_domain.r[r_idx, 4]
+                        if r_val == 0.0
+                            j_tor_real[local_lm, 1, local_r] = zero(T)
+                            j_tor_imag[local_lm, 1, local_r] = zero(T)
+                            j_pol_real[local_lm, 1, local_r] = zero(T)
+                            j_pol_imag[local_lm, 1, local_r] = zero(T)
+                        else
+                            r_inv = oc_domain.r[r_idx, 3]
+                            r_inv2 = oc_domain.r[r_idx, 2]
+                            j_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_real[r_idx]
+                                                                - d2pol_dr2_real[r_idx]
+                                                                - 2.0 * r_inv * dpol_dr_real[r_idx])
+                            j_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_imag[r_idx]
+                                                                - d2pol_dr2_imag[r_idx]
+                                                                - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                            j_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_real[local_lm, 1, local_r]
+                            j_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * B_tor_imag[local_lm, 1, local_r]
+                        end
                     end
                 end
             end
@@ -565,82 +651,155 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
     nl_pol_imag = parent(mag_fields.nl_poloidal.data_imag)
 
     # Get local ranges using config-aware pencil topology
+    # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
+    # since spectral field data is distributed using pencils.spec
     config = mag_fields.toroidal.config
     domain = mag_fields.outer_domain
     lm_range = range_local(config.pencils.spec, 1)
-    r_range  = range_local(config.pencils.r, 3)
+    r_range  = range_local(config.pencils.spec, 3)
+    total_nlm = config.nlm  # Total number of (l,m) modes
 
     nr = domain.N
 
-    # Create radial derivative matrices
-    d1_matrix = create_derivative_matrix(1, domain)  # First derivative d/dr
-    d2_matrix = create_derivative_matrix(2, domain)  # Second derivative d²/dr²
+    # Use cached radial derivative matrices for performance
+    d1_matrix = mag_fields.dr_matrix   # First derivative d/dr
+    d2_matrix = mag_fields.d2r_matrix  # Second derivative d²/dr²
 
     # Pre-allocate work arrays for radial profiles
     pol_profile_real = zeros(T, nr)
     pol_profile_imag = zeros(T, nr)
+    pol_gathered_real = zeros(T, nr)
+    pol_gathered_imag = zeros(T, nr)
     dpol_dr_real     = zeros(T, nr)
     dpol_dr_imag     = zeros(T, nr)
     d2pol_dr2_real   = zeros(T, nr)
     d2pol_dr2_imag   = zeros(T, nr)
 
-    # Apply curl in spectral space with full radial derivatives
-    @inbounds for lm_idx in lm_range
-        if lm_idx <= length(mag_fields.l_factors)
-            local_lm = lm_idx - first(lm_range) + 1
-            l_factor = mag_fields.l_factors[lm_idx]  # l(l+1)
+    # Check if we need MPI communication (radial dimension distributed)
+    comm = get_comm()
+    nprocs = MPI.Comm_size(comm)
+    radial_distributed = length(r_range) < nr
 
-            # Extract radial profiles for poloidal component of (u×B)
-            for r_idx in 1:nr
-                if r_idx in r_range
+    # CRITICAL MPI SYNCHRONIZATION:
+    # When radial dimension is distributed, ALL processes must call Allreduce
+    # for the SAME lm mode at the SAME time. Different processes may own different
+    # lm_range, so we must loop over ALL lm modes to ensure synchronization.
+    if radial_distributed && nprocs > 1
+        # MPI path: All processes loop over ALL lm modes for proper synchronization
+        @inbounds for lm_idx in 1:total_nlm
+            i_own_this_mode = lm_idx in lm_range
+            l_factor = mag_fields.l_factors[lm_idx]
+
+            # Extract radial profile (owners contribute data, non-owners contribute zeros)
+            fill!(pol_profile_real, zero(T))
+            fill!(pol_profile_imag, zero(T))
+            if i_own_this_mode
+                local_lm = lm_idx - first(lm_range) + 1
+                for r_idx in r_range
                     local_r = r_idx - first(r_range) + 1
                     if local_r <= size(uxB_pol_real, 3)
                         pol_profile_real[r_idx] = uxB_pol_real[local_lm, 1, local_r]
                         pol_profile_imag[r_idx] = uxB_pol_imag[local_lm, 1, local_r]
                     end
-                else
-                    pol_profile_real[r_idx] = zero(T)
-                    pol_profile_imag[r_idx] = zero(T)
                 end
             end
 
-            # Compute radial derivatives for poloidal component
-            apply_derivative_matrix!(dpol_dr_real, d1_matrix, pol_profile_real)
-            apply_derivative_matrix!(dpol_dr_imag, d1_matrix, pol_profile_imag)
-            apply_derivative_matrix!(d2pol_dr2_real, d2_matrix, pol_profile_real)
-            apply_derivative_matrix!(d2pol_dr2_imag, d2_matrix, pol_profile_imag)
+            # ALL processes call Allreduce together for this lm mode
+            MPI.Allreduce!(pol_profile_real, pol_gathered_real, MPI.SUM, comm)
+            MPI.Allreduce!(pol_profile_imag, pol_gathered_imag, MPI.SUM, comm)
 
-            # Compute curl components
-            r_first = first(r_range)
-            r_last = min(last(r_range), nr)
-            if r_last < r_first
-                continue
+            # Only mode owners compute derivatives and store results
+            if i_own_this_mode
+                local_lm = lm_idx - first(lm_range) + 1
+
+                # Compute radial derivatives using complete profile
+                apply_derivative_matrix!(dpol_dr_real, d1_matrix, pol_gathered_real)
+                apply_derivative_matrix!(dpol_dr_imag, d1_matrix, pol_gathered_imag)
+                apply_derivative_matrix!(d2pol_dr2_real, d2_matrix, pol_gathered_real)
+                apply_derivative_matrix!(d2pol_dr2_imag, d2_matrix, pol_gathered_imag)
+
+                # Compute curl components
+                r_first = first(r_range)
+                r_last = min(last(r_range), nr)
+                @simd for r_idx in r_first:r_last
+                    local_r = r_idx - r_first + 1
+                    if local_r <= size(nl_tor_real, 3)
+                        r_val = domain.r[r_idx, 4]
+                        if r_val == 0.0
+                            nl_tor_real[local_lm, 1, local_r] = zero(T)
+                            nl_tor_imag[local_lm, 1, local_r] = zero(T)
+                            nl_pol_real[local_lm, 1, local_r] = zero(T)
+                            nl_pol_imag[local_lm, 1, local_r] = zero(T)
+                        else
+                            r_inv = domain.r[r_idx, 3]
+                            r_inv2 = domain.r[r_idx, 2]
+                            nl_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_real[r_idx]
+                                                                 - d2pol_dr2_real[r_idx]
+                                                                 - 2.0 * r_inv * dpol_dr_real[r_idx])
+                            nl_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_imag[r_idx]
+                                                                 - d2pol_dr2_imag[r_idx]
+                                                                 - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                            nl_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * uxB_tor_real[local_lm, 1, local_r]
+                            nl_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * uxB_tor_imag[local_lm, 1, local_r]
+                        end
+                    end
+                end
             end
-            @simd for r_idx in r_first:r_last
-                local_r = r_idx - r_first + 1
-                if local_r <= size(nl_tor_real, 3)
-                    r_val = domain.r[r_idx, 4]
-                    if r_val == 0.0
-                        # At r=0 (ball geometry), enforce finite values
-                        nl_tor_real[local_lm, 1, local_r] = zero(T)
-                        nl_tor_imag[local_lm, 1, local_r] = zero(T)
-                        nl_pol_real[local_lm, 1, local_r] = zero(T)
-                        nl_pol_imag[local_lm, 1, local_r] = zero(T)
-                    else
-                        r_inv = domain.r[r_idx, 3]   # 1/r
-                        r_inv2 = domain.r[r_idx, 2]  # 1/r²
+        end
+    else
+        # Serial/local-radial path: Only process owned modes
+        @inbounds for lm_idx in lm_range
+            if lm_idx <= length(mag_fields.l_factors)
+                local_lm = lm_idx - first(lm_range) + 1
+                l_factor = mag_fields.l_factors[lm_idx]
 
-                        # Toroidal curl from poloidal (u×B): [l(l+1)/r² - d²/dr² - 2/r d/dr] P
-                        nl_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx]
-                                                             - d2pol_dr2_real[r_idx]
-                                                             - 2.0 * r_inv * dpol_dr_real[r_idx])
-                        nl_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx]
-                                                             - d2pol_dr2_imag[r_idx]
-                                                             - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                # Extract radial profile (all radial data is local)
+                fill!(pol_profile_real, zero(T))
+                fill!(pol_profile_imag, zero(T))
+                for r_idx in r_range
+                    local_r = r_idx - first(r_range) + 1
+                    if local_r <= size(uxB_pol_real, 3)
+                        pol_profile_real[r_idx] = uxB_pol_real[local_lm, 1, local_r]
+                        pol_profile_imag[r_idx] = uxB_pol_imag[local_lm, 1, local_r]
+                    end
+                end
 
-                        # Poloidal curl from toroidal (u×B): -l(l+1)/r² T
-                        nl_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * uxB_tor_real[local_lm, 1, local_r]
-                        nl_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * uxB_tor_imag[local_lm, 1, local_r]
+                copyto!(pol_gathered_real, pol_profile_real)
+                copyto!(pol_gathered_imag, pol_profile_imag)
+
+                # Compute radial derivatives
+                apply_derivative_matrix!(dpol_dr_real, d1_matrix, pol_gathered_real)
+                apply_derivative_matrix!(dpol_dr_imag, d1_matrix, pol_gathered_imag)
+                apply_derivative_matrix!(d2pol_dr2_real, d2_matrix, pol_gathered_real)
+                apply_derivative_matrix!(d2pol_dr2_imag, d2_matrix, pol_gathered_imag)
+
+                # Compute curl components
+                r_first = first(r_range)
+                r_last = min(last(r_range), nr)
+                if r_last < r_first
+                    continue
+                end
+                @simd for r_idx in r_first:r_last
+                    local_r = r_idx - r_first + 1
+                    if local_r <= size(nl_tor_real, 3)
+                        r_val = domain.r[r_idx, 4]
+                        if r_val == 0.0
+                            nl_tor_real[local_lm, 1, local_r] = zero(T)
+                            nl_tor_imag[local_lm, 1, local_r] = zero(T)
+                            nl_pol_real[local_lm, 1, local_r] = zero(T)
+                            nl_pol_imag[local_lm, 1, local_r] = zero(T)
+                        else
+                            r_inv = domain.r[r_idx, 3]
+                            r_inv2 = domain.r[r_idx, 2]
+                            nl_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_real[r_idx]
+                                                                 - d2pol_dr2_real[r_idx]
+                                                                 - 2.0 * r_inv * dpol_dr_real[r_idx])
+                            nl_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_imag[r_idx]
+                                                                 - d2pol_dr2_imag[r_idx]
+                                                                 - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                            nl_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * uxB_tor_real[local_lm, 1, local_r]
+                            nl_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * uxB_tor_imag[local_lm, 1, local_r]
+                        end
                     end
                 end
             end
@@ -714,12 +873,14 @@ function compute_magnetic_energy(mag_fields::SHTnsMagneticFields{T}) where T
     pol_imag = parent(mag_fields.poloidal.data_imag)
     
     local_energy = zero(Float64)
-    
+
     # Get local ranges using config-aware pencil topology
+    # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
+    # since spectral field data is distributed using pencils.spec
     config = mag_fields.toroidal.config
     lm_range = range_local(config.pencils.spec, 1)
-    r_range  = range_local(config.pencils.r, 3)
-    
+    r_range  = range_local(config.pencils.spec, 3)
+
     @inbounds for lm_idx in lm_range
         if lm_idx <= mag_fields.toroidal.nlm
             local_lm = lm_idx - first(lm_range) + 1
@@ -905,12 +1066,14 @@ function compute_magnetic_helicity(mag_fields::SHTnsMagneticFields{T}) where T
     pol_imag = parent(mag_fields.poloidal.data_imag)
     
     local_helicity = zero(Float64)
-    
+
     # Use configuration pencils for consistent range access
+    # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
+    # since spectral field data is distributed using pencils.spec
     config = mag_fields.toroidal.config
     lm_range = range_local(config.pencils.spec, 1)
-    r_range = range_local(config.pencils.r, 3)
-    
+    r_range = range_local(config.pencils.spec, 3)
+
     @inbounds for lm_idx in lm_range
         if lm_idx <= mag_fields.toroidal.nlm
             local_lm = lm_idx - first(lm_range) + 1
