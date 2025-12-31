@@ -148,15 +148,15 @@ Calculate interpolation weights for linear interpolation.
 """
 function get_interpolation_weights(coords::Vector{T}, target::T, indices::Tuple{Int, Int}) where T
     i1, i2 = indices
-    
+
     if i1 == i2
-        return (1.0, 0.0)
+        return (one(T), zero(T))
     end
-    
+
     dx = coords[i2] - coords[i1]
     w2 = (target - coords[i1]) / dx
-    w1 = 1.0 - w2
-    
+    w1 = one(T) - w2
+
     return (w1, w2)
 end
 
@@ -334,9 +334,14 @@ function validate_interpolation_grids(src_theta::Vector, src_phi::Vector,
     if minimum(tgt_theta) < minimum(src_theta) || maximum(tgt_theta) > maximum(src_theta)
         push!(errors, "Target theta range exceeds source range")
     end
-    
-    if minimum(tgt_phi) < minimum(src_phi) || maximum(tgt_phi) > maximum(src_phi)
-        push!(errors, "Target phi range exceeds source range")
+
+    # Check phi range (accounting for periodicity)
+    # If source covers full 2π, any target range is valid due to periodic interpolation
+    src_phi_range = maximum(src_phi) - minimum(src_phi)
+    if src_phi_range < 2π - 0.1  # Not a full periodic range
+        if minimum(tgt_phi) < minimum(src_phi) || maximum(tgt_phi) > maximum(src_phi)
+            push!(errors, "Target phi range exceeds source range (source phi is not full 2π periodic)")
+        end
     end
     
     # Check for monotonicity
