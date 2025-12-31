@@ -94,6 +94,7 @@ using SHTnsKit
 using NCDatasets
 using LinearAlgebra
 using Base.Threads
+using Dates
 
 # For Julia 1.10 compatibility: Define simple statistics functions
 # to avoid module resolution issues with Statistics stdlib in submodules
