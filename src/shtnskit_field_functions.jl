@@ -58,7 +58,6 @@ Modifies `phys.data` with the synthesized field values
 function shtnskit_spectral_to_physical!(spec::SHTnsSpectralField{T},
                                        phys::SHTnsPhysicalField{T}) where T
     config = spec.config
-    sht_config = config.sht_config
 
     # Use direct synthesis method (processes each radial level)
     perform_synthesis_direct!(spec, phys, config)
@@ -233,7 +232,6 @@ Modifies `spec.data_real` and `spec.data_imag` with the computed coefficients
 function shtnskit_physical_to_spectral!(phys::SHTnsPhysicalField{T},
                                        spec::SHTnsSpectralField{T}) where T
     config = spec.config
-    sht_config = config.sht_config
 
     # Use direct analysis method (processes each radial level)
     perform_analysis_direct!(phys, spec, config)
@@ -424,7 +422,12 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
                 if r_val > 1e-15  # Avoid division by zero at r=0
                     # Scale poloidal coefficients by l(l+1)/r
                     lmax, mmax = config.lmax, config.mmax
-                    pol_rad_coeffs = zeros(ComplexF64, lmax+1, mmax+1)
+
+                    # Use cached buffer to avoid allocations in loop
+                    pol_rad_coeffs = get_cached_buffer!(config, :pol_rad_coeffs_buffer) do
+                        zeros(ComplexF64, lmax+1, mmax+1)
+                    end
+                    fill!(pol_rad_coeffs, zero(ComplexF64))  # Clear for reuse
 
                     for l in 0:lmax
                         l_factor = l * (l + 1) / r_val
@@ -540,7 +543,12 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
 
                     # Compute what P should be from v_r: P = r/(l(l+1)) * v_r
                     lmax, mmax = config.lmax, config.mmax
-                    pol_from_vr = zeros(ComplexF64, lmax+1, mmax+1)
+
+                    # Use cached buffer to avoid allocations in loop
+                    pol_from_vr = get_cached_buffer!(config, :pol_from_vr_buffer) do
+                        zeros(ComplexF64, lmax+1, mmax+1)
+                    end
+                    fill!(pol_from_vr, zero(ComplexF64))  # Clear for reuse
 
                     # Analysis of v_r
                     vr_coeffs = SHTnsKit.analysis(sht_config, vr_field)
@@ -766,6 +774,11 @@ This function uses a linear search. For performance-critical code with many
 lookups, use `index_to_lm_fast` with precomputed lookup tables from SHTnsKitConfig.
 """
 function index_to_lm_shtnskit(idx::Int, lmax::Int, mmax::Int)
+    # Validate index bounds
+    if idx < 1
+        return -1, -1  # Invalid index indicator
+    end
+
     current_idx = 0
     for l in 0:lmax
         for m in 0:min(l, mmax)
@@ -775,7 +788,7 @@ function index_to_lm_shtnskit(idx::Int, lmax::Int, mmax::Int)
             end
         end
     end
-    return 0, 0  # Fallback for invalid index
+    return -1, -1  # Index out of range - return invalid indicator
 end
 
 """
@@ -797,7 +810,7 @@ Tuple (l, m) for the spherical harmonic degree and order.
     if idx >= 1 && idx <= length(config.l_values)
         return config.l_values[idx], config.m_values[idx]
     else
-        return 0, 0  # Fallback for invalid index
+        return -1, -1  # Invalid index indicator (not a valid l,m pair)
     end
 end
 
@@ -1010,7 +1023,8 @@ function extract_vector_component_generic!(component_buffer::Matrix{T}, v_data, 
     # Check if this process has data at this radial level
     has_local_data = r_local <= size(v_data, 3)
 
-    for i in common_i_range
+    # Threaded extraction for performance (consistent with other extract functions)
+    Threads.@threads for i in common_i_range
         for j in common_j_range
             if has_local_data
                 component_buffer[i, j] = v_data[i, j, r_local]
@@ -1025,10 +1039,13 @@ function extract_vector_component_generic!(component_buffer::Matrix{T}, v_data, 
     return component_buffer
 end
 
-# Backward compatibility wrapper
+# Backward compatibility wrapper with thread-safe buffer access
 function extract_vector_component_generic(v_data, r_local, config)
     nlat, nlon = config.nlat, config.nlon
-    component_buffer = zeros(eltype(v_data), nlat, nlon)
+    # Get or create cached buffer for vector component (thread-safe)
+    component_buffer = get_cached_buffer!(config, :vector_component_buffer) do
+        zeros(eltype(v_data), nlat, nlon)
+    end
     return extract_vector_component_generic!(component_buffer, v_data, r_local, config)
 end
 
@@ -1041,12 +1058,16 @@ function store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_
     common_i_range = 1:min(size(v_theta, 1), size(vt_field, 1))
     common_j_range = 1:min(size(v_theta, 2), size(vt_field, 2))
 
-    for i in common_i_range
+    # Check radial bounds once outside the loop
+    if r_local > size(v_theta, 3) || r_local > size(v_phi, 3)
+        return
+    end
+
+    # Threaded storage for performance (consistent with other store functions)
+    Threads.@threads for i in common_i_range
         for j in common_j_range
-            if r_local <= size(v_theta, 3) && r_local <= size(v_phi, 3)
-                v_theta[i, j, r_local] = vt_field[i, j]
-                v_phi[i, j, r_local] = vp_field[i, j]
-            end
+            v_theta[i, j, r_local] = vt_field[i, j]
+            v_phi[i, j, r_local] = vp_field[i, j]
         end
     end
 end
@@ -1061,11 +1082,15 @@ function store_scalar_component_generic!(v_component, field, r_local, config)
     common_i_range = 1:min(size(v_component, 1), size(field, 1))
     common_j_range = 1:min(size(v_component, 2), size(field, 2))
 
-    for i in common_i_range
+    # Check radial bounds once outside the loop
+    if r_local > size(v_component, 3)
+        return
+    end
+
+    # Threaded storage for performance (consistent with other store functions)
+    Threads.@threads for i in common_i_range
         for j in common_j_range
-            if r_local <= size(v_component, 3)
-                v_component[i, j, r_local] = field[i, j]
-            end
+            v_component[i, j, r_local] = field[i, j]
         end
     end
 end
@@ -1077,11 +1102,14 @@ Set a component to zero at a given radial level.
 Used at r=0 (ball geometry) where v_r must be zero for regularity.
 """
 function store_zero_component_generic!(v_component, r_local, config)
-    if r_local <= size(v_component, 3)
-        for i in axes(v_component, 1)
-            for j in axes(v_component, 2)
-                v_component[i, j, r_local] = zero(eltype(v_component))
-            end
+    if r_local > size(v_component, 3)
+        return
+    end
+
+    # Threaded zeroing for consistency with other store functions
+    Threads.@threads for i in axes(v_component, 1)
+        for j in axes(v_component, 2)
+            v_component[i, j, r_local] = zero(eltype(v_component))
         end
     end
 end
@@ -1359,12 +1387,15 @@ function compute_scalar_energy_spectrum(config::SHTnsKitConfig, alm::Matrix{Comp
         spectrum = zeros(Float64, lmax + 1)
         for l in 0:lmax
             for m in 0:min(l, config.mmax)
-                coeff = alm[l+1, m+1]
-                energy = abs2(coeff)
-                if m > 0 && real_field
-                    energy *= 2.0  # Account for negative m modes
+                # Bounds check for safety
+                if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
+                    coeff = alm[l+1, m+1]
+                    energy = abs2(coeff)
+                    if m > 0 && real_field
+                        energy *= 2.0  # Account for negative m modes
+                    end
+                    spectrum[l+1] += energy
                 end
-                spectrum[l+1] += energy
             end
         end
         return spectrum
@@ -1433,12 +1464,15 @@ function compute_enstrophy(config::SHTnsKitConfig, Tlm::Matrix{ComplexF64}; real
         total = 0.0
         for l in 1:lmax
             for m in 0:min(l, config.mmax)
-                coeff = Tlm[l+1, m+1]
-                energy = abs2(coeff) * l * (l + 1)
-                if m > 0 && real_field
-                    energy *= 2.0
+                # Bounds check for safety
+                if l+1 <= size(Tlm, 1) && m+1 <= size(Tlm, 2)
+                    coeff = Tlm[l+1, m+1]
+                    energy = abs2(coeff) * l * (l + 1)
+                    if m > 0 && real_field
+                        energy *= 2.0
+                    end
+                    total += energy
                 end
-                total += energy
             end
         end
         return total
@@ -1495,7 +1529,10 @@ function extract_divergence_coefficients(config::SHTnsKitConfig, Slm::Matrix{Com
         for l in 0:lmax
             factor = -l * (l + 1)  # Note: r² factor depends on application
             for m in 0:min(l, mmax)
-                div_coeffs[l+1, m+1] = Slm[l+1, m+1] * factor
+                # Bounds check for safety
+                if l+1 <= size(Slm, 1) && m+1 <= size(Slm, 2)
+                    div_coeffs[l+1, m+1] = Slm[l+1, m+1] * factor
+                end
             end
         end
         return div_coeffs
@@ -1521,7 +1558,10 @@ function extract_vorticity_coefficients(config::SHTnsKitConfig, Tlm::Matrix{Comp
         for l in 0:lmax
             factor = -l * (l + 1)
             for m in 0:min(l, mmax)
-                vort_coeffs[l+1, m+1] = Tlm[l+1, m+1] * factor
+                # Bounds check for safety
+                if l+1 <= size(Tlm, 1) && m+1 <= size(Tlm, 2)
+                    vort_coeffs[l+1, m+1] = Tlm[l+1, m+1] * factor
+                end
             end
         end
         return vort_coeffs
@@ -1768,11 +1808,15 @@ function rotate_field_z!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, alpha:
         lmax, mmax = config.lmax, config.mmax
         for l in 0:lmax
             for m in 0:min(l, mmax)
-                phase = exp(-im * m * alpha)
-                if alm_out === nothing
-                    alm[l+1, m+1] *= phase
-                else
-                    output[l+1, m+1] = alm[l+1, m+1] * phase
+                # Bounds check for safety on both input and output
+                if l+1 <= size(alm, 1) && m+1 <= size(alm, 2) &&
+                   l+1 <= size(output, 1) && m+1 <= size(output, 2)
+                    phase = exp(-im * m * alpha)
+                    if alm_out === nothing
+                        alm[l+1, m+1] *= phase
+                    else
+                        output[l+1, m+1] = alm[l+1, m+1] * phase
+                    end
                 end
             end
         end
@@ -1803,12 +1847,11 @@ function rotate_field_y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, beta::
     try
         SHTnsKit.SH_Yrotate(config.sht_config, alm, beta, output)
     catch e
-        @warn "SH_Yrotate not available, y-rotation requires Wigner d-matrices"
+        @warn "SH_Yrotate not available, y-rotation requires Wigner d-matrices. Returning identity (unrotated copy)."
         # Y-rotation is complex - requires Wigner d-matrices
-        # For now, just copy if no native support
-        if alm_out !== nothing
-            copyto!(output, alm)
-        end
+        # Return identity (copy input) when native support is unavailable
+        # This prevents returning uninitialized data
+        copyto!(output, alm)
     end
     return output
 end
@@ -1864,7 +1907,8 @@ function rotate_field_90x!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
         SHTnsKit.SH_Xrotate90(config.sht_config, alm, output)
     catch e
         # Fallback: decompose into Z and Y rotations
-        temp = similar(alm)
+        # Use zeros instead of similar to avoid uninitialized values at invalid (l,m) positions
+        temp = zeros(ComplexF64, size(alm))
         rotate_field_z!(config, alm, π/2; alm_out=temp)
         rotate_field_90y!(config, temp; alm_out=output)
         rotate_field_z!(config, output, -π/2; alm_out=output)
@@ -1893,7 +1937,8 @@ function rotate_field_euler!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
                              alpha::Real, beta::Real, gamma::Real;
                              alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
     output = alm_out === nothing ? similar(alm) : alm_out
-    temp = similar(alm)
+    # Use zeros instead of similar to avoid uninitialized values at invalid (l,m) positions
+    temp = zeros(ComplexF64, size(alm))
 
     # Apply rotations in sequence: Rz(alpha), then Ry(beta), then Rz(gamma)
     rotate_field_z!(config, alm, alpha; alm_out=temp)
@@ -1933,7 +1978,9 @@ function apply_horizontal_laplacian!(config::SHTnsKitConfig, alm::Matrix{Complex
     for l in 0:lmax
         factor = -l * (l + 1)
         for m in 0:min(l, mmax)
-            if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
+            # Check bounds on both input and output
+            if l+1 <= size(alm, 1) && m+1 <= size(alm, 2) &&
+               l+1 <= size(output, 1) && m+1 <= size(output, 2)
                 output[l+1, m+1] = alm[l+1, m+1] * factor
             end
         end
@@ -1967,15 +2014,20 @@ function apply_inverse_horizontal_laplacian!(config::SHTnsKitConfig, alm::Matrix
     for l in 0:lmax
         if l == 0
             # l=0 mode: set to zero (or keep original if not regularizing)
-            if regularize_l0
-                output[1, 1] = zero(ComplexF64)
-            elseif alm_out !== nothing
-                output[1, 1] = alm[1, 1]
+            # Check bounds for l=0 mode
+            if size(output, 1) >= 1 && size(output, 2) >= 1
+                if regularize_l0
+                    output[1, 1] = zero(ComplexF64)
+                elseif alm_out !== nothing && size(alm, 1) >= 1 && size(alm, 2) >= 1
+                    output[1, 1] = alm[1, 1]
+                end
             end
         else
             factor = -1.0 / (l * (l + 1))
             for m in 0:min(l, mmax)
-                if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
+                # Check bounds on both input and output
+                if l+1 <= size(alm, 1) && m+1 <= size(alm, 2) &&
+                   l+1 <= size(output, 1) && m+1 <= size(output, 2)
                     output[l+1, m+1] = alm[l+1, m+1] * factor
                 end
             end
@@ -2051,7 +2103,9 @@ function apply_spectral_filter!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
 
     for l in 0:lmax
         for m in 0:min(l, mmax)
-            if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
+            # Check bounds on both input and output
+            if l+1 <= size(alm, 1) && m+1 <= size(alm, 2) &&
+               l+1 <= size(output, 1) && m+1 <= size(output, 2)
                 scale = filter_func(l, m)
                 output[l+1, m+1] = alm[l+1, m+1] * scale
             end
@@ -2079,6 +2133,25 @@ function apply_exponential_filter!(config::SHTnsKitConfig, alm::Matrix{ComplexF6
                                     order::Int=16, cutoff::Float64=0.65,
                                     alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
     lmax = config.lmax
+
+    # Validate cutoff to prevent division by zero
+    if cutoff <= 0.0 || cutoff > 1.0
+        throw(ArgumentError("cutoff must be in (0, 1], got $cutoff"))
+    end
+
+    # Handle degenerate case where lmax = 0 (only monopole mode)
+    if lmax == 0
+        # No filtering needed for single mode - just copy if output provided
+        if alm_out !== nothing
+            if size(alm_out, 1) >= 1 && size(alm_out, 2) >= 1 &&
+               size(alm, 1) >= 1 && size(alm, 2) >= 1
+                alm_out[1, 1] = alm[1, 1]
+            end
+            return alm_out
+        end
+        return alm
+    end
+
     # Solve for α: exp(-α * cutoff^order) = 0.5 => α = log(2) / cutoff^order
     α = log(2) / cutoff^order
 
@@ -2109,7 +2182,9 @@ function truncate_spectral_modes!(config::SHTnsKitConfig, alm::Matrix{ComplexF64
 
     for l in 0:lmax
         for m in 0:min(l, mmax)
-            if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
+            # Check bounds on both input and output arrays
+            if l+1 <= size(alm, 1) && m+1 <= size(alm, 2) &&
+               l+1 <= size(output, 1) && m+1 <= size(output, 2)
                 if l > lmax_new || m > mmax_new
                     output[l+1, m+1] = zero(ComplexF64)
                 elseif alm_out !== nothing
