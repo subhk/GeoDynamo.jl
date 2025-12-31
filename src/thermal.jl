@@ -518,22 +518,22 @@ end
 # ================================================================================
 # Diagnostic functions
 # ================================================================================
-function compute_nusselt_number(temp_field::SHTnsTemperatureField{T}, 
+function compute_nusselt_number(temp_field::SHTnsTemperatureField{T},
                                domain::RadialDomain) where T
     """
     Compute Nusselt number from heat flux at boundaries
     """
     # Compute heat flux from radial gradient
     grad_r = temp_field.gradient.r_component
-    
+
     # Get flux at boundaries (requires communication)
     flux_inner = compute_surface_flux(grad_r, 1, temp_field.config)
-    flux_outer = compute_surface_flux(grad_r, oc_domain.N, temp_field.config)
-    
+    flux_outer = compute_surface_flux(grad_r, domain.N, temp_field.config)
+
     # Nusselt number
-    conductive_flux = 4π * oc_domain.r[1, 4]^2
+    conductive_flux = 4π * domain.r[1, 4]^2
     Nu = abs(flux_outer) / conductive_flux
-    
+
     return Nu
 end
 
