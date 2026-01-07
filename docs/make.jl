@@ -36,6 +36,7 @@ pages = [
     "Configuration" => "configuration.md",
     "Time Integration" => "timestepping.md",
     "Spherical Harmonics" => "shtnskit.md",
+    "Boundary Topography" => "topography.md",
     "Data Output" => "io.md",
     "Developer Guide" => "developer.md",
     "API Reference" => "api.md",
@@ -52,7 +53,7 @@ format = Documenter.HTML(;
 )
 
 makedocs(
-    modules = [GeoDynamo, GeoDynamo.BoundaryConditions, GeoDynamo.InitialConditions, GeoDynamo.GeoDynamoShell, GeoDynamo.GeoDynamoBall],
+    modules = [GeoDynamo, GeoDynamo.BoundaryConditions, GeoDynamo.BoundaryConditions.Topography, GeoDynamo.InitialConditions, GeoDynamo.GeoDynamoShell, GeoDynamo.GeoDynamoBall],
     sitename = "GeoDynamo.jl",
     format = format,
     pages = pages,

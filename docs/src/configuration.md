@@ -81,6 +81,43 @@ Boundary options are set through the integer selectors in `GeoDynamoParameters` 
 
 When a boundary file is present under `config/boundaries/<field>_boundary.nc` (or a custom path passed to `BoundaryConditions.load_boundary_conditions!`), those data override the analytic defaults. Each file provides spherical-harmonic coefficients for the inner and outer surfaces together with a `type` flag per mode (`DIRICHLET`, `NEUMANN`, `ROBIN`). See the docstrings in `src/BoundaryConditions/` for field-specific formats.
 
+### Boundary Topography Parameters
+
+For non-spherical boundaries, the following parameters control topography coupling (see [Boundary Topography](topography.md) for full theory):
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `b_topography_enabled` | Bool | `false` | Master switch for topography coupling |
+| `d_topo_epsilon` | Float64 | `0.01` | Topography amplitude parameter ε |
+| `i_topo_lmax` | Int | `-1` | Max spherical harmonic degree for topography (-1 = auto) |
+| `b_topo_velocity` | Bool | `true` | Enable velocity BC corrections |
+| `b_topo_magnetic` | Bool | `true` | Enable magnetic BC corrections |
+| `b_topo_thermal` | Bool | `true` | Enable thermal BC corrections |
+| `b_topo_slope_terms` | Bool | `true` | Include ∇h slope coupling terms |
+| `b_topo_shift_terms` | Bool | `true` | Include h shift terms |
+| `b_stefan_enabled` | Bool | `false` | Enable Stefan condition for ICB evolution |
+| `d_stefan_number` | Float64 | `1.0` | Stefan number St = c_p ΔT / L |
+| `s_topo_icb_file` | String | `""` | Path to ICB topography NetCDF file |
+| `s_topo_cmb_file` | String | `""` | Path to CMB topography NetCDF file |
+
+Example configuration:
+
+```julia
+params = GeoDynamoParameters(
+    b_topography_enabled = true,
+    d_topo_epsilon = 0.01,
+    b_topo_velocity = true,
+    b_topo_magnetic = true,
+    s_topo_cmb_file = "config/cmb_topography.nc"
+)
+```
+
+Or enable at runtime:
+
+```julia
+enable_topography!(epsilon = 0.02, velocity = true, magnetic = true)
+```
+
 After loading parameters, call:
 
 ```julia

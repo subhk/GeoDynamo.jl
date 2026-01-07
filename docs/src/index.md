@@ -45,6 +45,8 @@ The main pieces of the package are:
 ### Boundary Conditions (`BoundaryConditions/`)
 - Modular BC system with thermal, velocity, magnetic, and composition handlers.
 - Supports NetCDF-based, programmatic, and interpolated boundary data.
+- **Topography coupling** for non-spherical CMB/ICB boundaries with Gaunt tensor mode coupling.
+- Stefan condition for ICB phase change evolution.
 
 ### Required Dependencies
 
@@ -105,6 +107,7 @@ The remainder of the docs walk you through the typical workflow:
 - [Configuration & Parameters](configuration.md) – how `GeoDynamoParameters` map to grids, physics, and timestepping.
 - [Time Integration](timestepping.md) – CNAB2, EAB2, and ERK2 schemes, caches, and recommended settings.
 - [Spherical Harmonics](shtnskit.md) – SHTnsKit v1.1.15 transforms, energy spectra, rotations, and spectral operators.
+- [Boundary Topography](topography.md) – linearized CMB/ICB topography, Gaunt tensors, and Stefan condition.
 - [Data Output & Restart Files](io.md) – per-rank NetCDF layout, precision control, diagnostics, and boundary datasets.
 - [API Reference](api.md) – automatically generated index of exported types and functions.
 - [Developer Guide](developer.md) – project layout, testing, documentation build, and contribution guidelines.
