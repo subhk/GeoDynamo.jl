@@ -174,6 +174,7 @@ end
 # ================================================================================
 
 include("gaunt_tensors.jl")
+include("derivatives.jl")
 include("topography_data.jl")
 include("velocity_coupling.jl")
 include("magnetic_coupling.jl")

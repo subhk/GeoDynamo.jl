@@ -63,19 +63,29 @@ function apply_velocity_topography_correction!(velocity_field, topography::Topog
         return nothing
     end
 
+    # Precompute boundary value/derivative caches once for this field
+    p_cache = compute_boundary_derivative_cache(poloidal,
+                                                velocity_field.dr_matrix,
+                                                velocity_field.d2r_matrix,
+                                                velocity_field.domain)
+    t_cache = compute_boundary_derivative_cache(toroidal,
+                                                velocity_field.dr_matrix,
+                                                velocity_field.d2r_matrix,
+                                                velocity_field.domain)
+
     # Apply corrections at ICB if topography defined
     if topography.icb !== nothing
         apply_velocity_correction_at_boundary!(
-            poloidal, toroidal, topography.icb, gaunt, ε, config,
-            INNER_BOUNDARY
+            poloidal, toroidal, p_cache, t_cache,
+            topography.icb, gaunt, ε, config, INNER_BOUNDARY
         )
     end
 
     # Apply corrections at CMB if topography defined
     if topography.cmb !== nothing
         apply_velocity_correction_at_boundary!(
-            poloidal, toroidal, topography.cmb, gaunt, ε, config,
-            OUTER_BOUNDARY
+            poloidal, toroidal, p_cache, t_cache,
+            topography.cmb, gaunt, ε, config, OUTER_BOUNDARY
         )
     end
 
@@ -94,6 +104,8 @@ Apply velocity topography corrections at a specific boundary.
 """
 function apply_velocity_correction_at_boundary!(poloidal,
                                                 toroidal,
+                                                p_cache::BoundaryDerivativeCache{T},
+                                                t_cache::BoundaryDerivativeCache{T},
                                                 topo_field::TopographyField{T},
                                                 gaunt::GauntTensorCache{T},
                                                 ε::T,
@@ -122,7 +134,7 @@ function apply_velocity_correction_at_boundary!(poloidal,
 
             # Compute impermeability correction
             imp_corr = compute_impermeability_correction(
-                l, m, poloidal, toroidal, topo_field, gaunt, rb, config
+                l, m, p_cache, t_cache, topo_field, gaunt, rb, location, config
             )
 
             # Apply correction to poloidal BC
@@ -136,10 +148,19 @@ function apply_velocity_correction_at_boundary!(poloidal,
             # Apply toroidal correction if stress-free
             if is_stress_free_boundary(toroidal, location)
                 sf_corr = compute_stressfree_correction(
-                    l, m, poloidal, toroidal, topo_field, gaunt, rb, config
+                    l, m, p_cache, topo_field, gaunt, rb, location, config
                 )
                 if lm_idx > 0 && lm_idx <= size(T_bv, 2)
                     T_bv[bc_row, lm_idx] -= ε * real(sf_corr)
+                end
+            end
+
+            if is_no_slip_boundary(toroidal, location)
+                _, ns_t = compute_noslip_correction(
+                    l, m, p_cache, t_cache, topo_field, gaunt, rb, location, config
+                )
+                if lm_idx > 0 && lm_idx <= size(T_bv, 2)
+                    T_bv[bc_row, lm_idx] -= ε * real(ns_t)
                 end
             end
         end
@@ -171,17 +192,17 @@ In spectral space (schematic):
 ] = 0
 """
 function compute_impermeability_correction(l::Int, m::Int,
-                                           poloidal, toroidal,
+                                           p_cache::BoundaryDerivativeCache{T},
+                                           t_cache::BoundaryDerivativeCache{T},
                                            topo::TopographyField{T},
                                            gaunt::GauntTensorCache{T},
                                            rb::T,
+                                           location::BoundaryLocation,
                                            config::TopographyCouplingConfig) where T
     correction = zero(Complex{T})
 
-    lmax = min(poloidal.config.lmax, gaunt.lmax)
+    lmax = min(p_cache.lmax, gaunt.lmax)
     lmax_t = topo.lmax
-
-    h_coeffs = get_topography_coefficients(topo)
 
     # Sum over topography modes (L, M)
     for L in 0:lmax_t
@@ -205,16 +226,16 @@ function compute_impermeability_correction(l::Int, m::Int,
                     G_cross = get_cross_gaunt(gaunt, l, m, lp, mp, L, M)
 
                     # Get field values at boundary
-                    P_lpm = get_spectral_boundary_value(poloidal, lp, mp)
-                    T_lpm = get_spectral_boundary_value(toroidal, lp, mp)
-                    dP_dr = get_spectral_radial_derivative(poloidal, lp, mp, rb)
+                    P_lpm = get_cache_value(p_cache, lp, mp, location)
+                    T_lpm = get_cache_value(t_cache, lp, mp, location)
+                    dP_dr = get_cache_d1(p_cache, lp, mp, location)
 
                     ll_factor = T(lp * (lp + 1))
 
                     # Shift term: h · ∂_r u_r
                     if config.include_shift_terms && abs(G) > 1e-15
                         # ∂_r(ℓ'(ℓ'+1)/r² P) evaluated at r = rb
-                        shift_contrib = G * ll_factor / rb^2 * dP_dr
+                        shift_contrib = G * ll_factor * (dP_dr / rb^2 - 2 * P_lpm / rb^3)
                         correction += h_LM * shift_contrib
                     end
 
@@ -258,10 +279,12 @@ u_t + εh ∂_r u_t = U_{b,t}
 Returns (poloidal_correction, toroidal_correction).
 """
 function compute_noslip_correction(l::Int, m::Int,
-                                   poloidal, toroidal,
+                                   p_cache::BoundaryDerivativeCache{T},
+                                   t_cache::BoundaryDerivativeCache{T},
                                    topo::TopographyField{T},
                                    gaunt::GauntTensorCache{T},
                                    rb::T,
+                                   location::BoundaryLocation,
                                    config::TopographyCouplingConfig) where T
     P_corr = zero(Complex{T})
     T_corr = zero(Complex{T})
@@ -270,11 +293,11 @@ function compute_noslip_correction(l::Int, m::Int,
         return (P_corr, T_corr)
     end
 
-    lmax = min(poloidal.config.lmax, gaunt.lmax)
+    lmax = min(p_cache.lmax, gaunt.lmax)
     lmax_t = topo.lmax
 
     # For no-slip: u_t + εh ∂_r u_t = 0
-    # The shift term adds h · ∂_r u_t contribution
+    # We only correct the toroidal Dirichlet condition via T + εh ∂_r T = 0.
 
     for L in 0:lmax_t
         for M in -L:L
@@ -294,16 +317,9 @@ function compute_noslip_correction(l::Int, m::Int,
                         continue
                     end
 
-                    # Get radial derivatives of tangential velocity components
-                    # u_t comes from ∂_r(∇_H P) + (1/r)∇_H P + r̂ × ∇_H T
-                    dP_dr = get_spectral_radial_derivative(poloidal, lp, mp, rb)
-                    dT_dr = get_spectral_radial_derivative(toroidal, lp, mp, rb)
-
-                    # Poloidal contribution to u_t shift
-                    P_corr += h_LM * G * dP_dr / rb
-
-                    # Toroidal contribution to u_t shift
-                    T_corr += h_LM * G * dT_dr / rb
+                    # Toroidal shift: T + ε h ∂_r T = 0
+                    dT_dr = get_cache_d1(t_cache, lp, mp, location)
+                    T_corr += h_LM * G * dT_dr
                 end
             end
         end
@@ -330,10 +346,11 @@ With topography:
 The RHS involves the slope of topography coupling with radial velocity gradient.
 """
 function compute_stressfree_correction(l::Int, m::Int,
-                                       poloidal, toroidal,
+                                       p_cache::BoundaryDerivativeCache{T},
                                        topo::TopographyField{T},
                                        gaunt::GauntTensorCache{T},
                                        rb::T,
+                                       location::BoundaryLocation,
                                        config::TopographyCouplingConfig) where T
     correction = zero(Complex{T})
 
@@ -341,7 +358,7 @@ function compute_stressfree_correction(l::Int, m::Int,
         return correction
     end
 
-    lmax = min(poloidal.config.lmax, gaunt.lmax)
+    lmax = min(p_cache.lmax, gaunt.lmax)
     lmax_t = topo.lmax
 
     for L in 0:lmax_t
@@ -365,15 +382,15 @@ function compute_stressfree_correction(l::Int, m::Int,
 
                     # Get ∂_r u_r at boundary
                     # u_r = ℓ'(ℓ'+1)/r² P, so ∂_r u_r involves ∂_r P and P
-                    dP_dr = get_spectral_radial_derivative(poloidal, lp, mp, rb)
-                    P_val = get_spectral_boundary_value(poloidal, lp, mp)
+                    dP_dr = get_cache_d1(p_cache, lp, mp, location)
+                    P_val = get_cache_value(p_cache, lp, mp, location)
 
                     ll_factor = T(lp * (lp + 1))
                     # ∂_r u_r = ∂_r[ℓ'(ℓ'+1)/r² P] = ℓ'(ℓ'+1)[∂_r P/r² - 2P/r³]
                     dur_dr = ll_factor * (dP_dr / rb^2 - 2 * P_val / rb^3)
 
-                    # Stress-free correction: (1/r_b) G^{(∇)} · (∂_r u_r)
-                    correction += h_LM * G_grad * dur_dr / (rb^3)
+                    # Stress-free correction: (1/r_b) ∇_H h · (∂_r u_r)
+                    correction += h_LM * G_grad * dur_dr / (rb^2)
                 end
             end
         end

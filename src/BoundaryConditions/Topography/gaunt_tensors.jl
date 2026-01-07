@@ -625,7 +625,21 @@ Get the cross Gaunt tensor G^{(×)}_{l1,m1,l2,m2,L,M} from cache.
 """
 function get_cross_gaunt(cache::GauntTensorCache{T}, l1::Int, m1::Int,
                          l2::Int, m2::Int, L::Int, M::Int) where T
-    return get(cache.G_cross, (l1, m1, l2, m2, L, M), zero(T))
+    key = (l1, m1, l2, m2, L, M)
+    if haskey(cache.G_cross, key)
+        return cache.G_cross[key]
+    end
+
+    # Lazy compute when missing (needed if precompute ran with use_wigner=true).
+    if l2 == 0 || L == 0 || m1 != m2 + M
+        return zero(T)
+    end
+
+    val = compute_cross_gaunt_tensor(l1, m1, l2, m2, L, M, cache)
+    if abs(val) > 1e-14
+        cache.G_cross[key] = val
+    end
+    return val
 end
 
 # ================================================================================
