@@ -146,7 +146,7 @@ function initialize_stefan_state!(state::StefanState{T}, temperature_ic, tempera
     ri = state.topography.radius
     lmax = state.topography.lmax
 
-    # Compute heat fluxes at ICB
+    # Compute normal derivatives at ICB (used in Stefan flux)
     state.heat_flux_ic = compute_boundary_heat_flux_spectral(temperature_ic, ri, :inner)
     state.heat_flux_oc = compute_boundary_heat_flux_spectral(temperature_oc, ri, :outer)
 
