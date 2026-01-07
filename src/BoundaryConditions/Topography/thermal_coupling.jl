@@ -223,6 +223,10 @@ function compute_dirichlet_thermal_correction(l::Int, m::Int,
         return correction
     end
 
+    if cache === nothing
+        @warn "Missing boundary derivative cache; skipping thermal shift term"
+    end
+
     # Sum over topography modes
     for L in 0:lmax_t
         for M in -L:L
@@ -244,11 +248,8 @@ function compute_dirichlet_thermal_correction(l::Int, m::Int,
                     end
 
                     # Get ∂_r Θ at boundary
-                    if cache === nothing
-                        dTheta_dr = get_spectral_radial_derivative(spectral, lp, mp, rb, location)
-                    else
-                        dTheta_dr = get_cache_d1(cache, lp, mp, location)
-                    end
+                    cache === nothing && continue
+                    dTheta_dr = get_cache_d1(cache, lp, mp, location)
                     correction += h_LM * G * dTheta_dr
                 end
             end
@@ -298,6 +299,7 @@ function compute_neumann_thermal_correction(l::Int, m::Int,
 
     lmax = min(spectral.config.lmax, gaunt.lmax)
     lmax_t = topo.lmax
+    warned_missing_d2 = false
 
     # Sum over topography modes
     for L in 0:lmax_t
@@ -330,7 +332,10 @@ function compute_neumann_thermal_correction(l::Int, m::Int,
                     # Shift term: G · ∂_rr Θ (requires second-derivative cache)
                     if config.include_shift_terms && abs(G) > 1e-15
                         if cache === nothing || cache.d2_inner === nothing
-                            @warn "Missing second-derivative cache; skipping thermal shift term"
+                            if !warned_missing_d2
+                                @warn "Missing second-derivative cache; skipping thermal shift term"
+                                warned_missing_d2 = true
+                            end
                         else
                             d2Theta_dr2 = get_cache_d2(cache, lp, mp, location)
                             correction += h_LM * G * d2Theta_dr2
