@@ -4,26 +4,26 @@ using MPI
 
 const Topo = GeoDynamo.BoundaryConditions.Topography
 
-struct DummyConfig
+struct ShiftDummyConfig
     lmax::Int
     mmax::Int
     nlm::Int
 end
 
-struct DummyPencil
+struct ShiftDummyPencil
     axes_local::NTuple{3, UnitRange{Int}}
 end
 
-struct DummySpectralField{T}
-    config::DummyConfig
+struct ShiftDummySpectralField{T}
+    config::ShiftDummyConfig
     nlm::Int
     data_real::Array{T, 3}
     data_imag::Array{T, 3}
-    pencil::DummyPencil
+    pencil::ShiftDummyPencil
 end
 
-struct DummyTemperatureField{T}
-    spectral::DummySpectralField{T}
+struct ShiftDummyTemperatureField{T}
+    spectral::ShiftDummySpectralField{T}
     dr_matrix::GeoDynamo.BandedMatrix{T}
     d2r_matrix::GeoDynamo.BandedMatrix{T}
     domain::GeoDynamo.RadialDomain
@@ -55,7 +55,7 @@ end
     state.heat_flux_oc .= 0.0
 
     nlm = topo.nlm
-    cfg = DummyConfig(lmax, mmax, nlm)
+    cfg = ShiftDummyConfig(lmax, mmax, nlm)
     nr = 2
 
     # Minimal radial domain (only N is used by the cache)
@@ -79,12 +79,12 @@ end
     data_real_oc[idx_h, 1, :] .= val_oc
     data_real_ic[idx_h, 1, :] .= val_ic
 
-    pencil = DummyPencil((1:nlm, 1:1, 1:nr))
-    spec_oc = DummySpectralField(cfg, nlm, data_real_oc, data_imag_oc, pencil)
-    spec_ic = DummySpectralField(cfg, nlm, data_real_ic, data_imag_ic, pencil)
+    pencil = ShiftDummyPencil((1:nlm, 1:1, 1:nr))
+    spec_oc = ShiftDummySpectralField(cfg, nlm, data_real_oc, data_imag_oc, pencil)
+    spec_ic = ShiftDummySpectralField(cfg, nlm, data_real_ic, data_imag_ic, pencil)
 
-    temp_oc = DummyTemperatureField(spec_oc, dr_matrix, d2r_matrix, domain)
-    temp_ic = DummyTemperatureField(spec_ic, dr_matrix, d2r_matrix, domain)
+    temp_oc = ShiftDummyTemperatureField(spec_oc, dr_matrix, d2r_matrix, domain)
+    temp_ic = ShiftDummyTemperatureField(spec_ic, dr_matrix, d2r_matrix, domain)
 
     # Gaunt cache with required entry
     gaunt = Topo.GauntTensorCache(lmax, lmax)
