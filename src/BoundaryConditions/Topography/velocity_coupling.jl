@@ -422,26 +422,28 @@ function lm_to_spectral_index(l::Int, m::Int, config)
 end
 
 """
-    get_spectral_boundary_value(field, l::Int, m::Int)
+    get_spectral_boundary_value(field, l::Int, m::Int, location::BoundaryLocation=OUTER_BOUNDARY)
 
 Get the boundary value of spectral coefficient (l, m).
 """
-function get_spectral_boundary_value(field, l::Int, m::Int)
+function get_spectral_boundary_value(field, l::Int, m::Int,
+                                     location::BoundaryLocation=OUTER_BOUNDARY)
     idx = lm_to_spectral_index(l, abs(m), field.config)
+    T = eltype(field.boundary_values)
     if idx <= 0 || idx > field.nlm
-        return zero(ComplexF64)
+        return zero(Complex{T})
     end
 
     # Get from boundary_values (row 1 = inner, row 2 = outer)
-    # For now, return the outer boundary value (most common case)
-    val_real = field.boundary_values[2, idx]
-    val_imag = 0.0  # Boundary values are typically real
+    bc_row = location == INNER_BOUNDARY ? 1 : 2
+    val_real = field.boundary_values[bc_row, idx]
+    val_imag = zero(T)  # Boundary values are typically real
 
     if m >= 0
         return complex(val_real, val_imag)
     else
         # Conjugate relation for negative m
-        phase = iseven(-m) ? 1.0 : -1.0
+        phase = iseven(-m) ? one(T) : -one(T)
         return phase * conj(complex(val_real, val_imag))
     end
 end
@@ -474,6 +476,16 @@ function is_stress_free_boundary(field, location::BoundaryLocation)
 
     # If any mode has NEUMANN BC, consider it stress-free
     return any(bc -> bc == Int(NEUMANN), bc_array)
+end
+
+"""
+    is_no_slip_boundary(field, location::BoundaryLocation) -> Bool
+
+Check if the field uses Dirichlet tangential conditions at the boundary.
+"""
+function is_no_slip_boundary(field, location::BoundaryLocation)
+    bc_array = location == INNER_BOUNDARY ? field.bc_type_inner : field.bc_type_outer
+    return any(bc -> bc == Int(DIRICHLET), bc_array)
 end
 
 # ================================================================================

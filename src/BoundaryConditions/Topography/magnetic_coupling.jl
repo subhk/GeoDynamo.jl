@@ -62,19 +62,29 @@ function apply_magnetic_topography_correction!(magnetic_field, topography::Topog
         return nothing
     end
 
+    # Precompute boundary value/derivative caches once for this field
+    p_cache = compute_boundary_derivative_cache(poloidal,
+                                                magnetic_field.dr_matrix,
+                                                magnetic_field.d2r_matrix,
+                                                magnetic_field.outer_domain)
+    t_cache = compute_boundary_derivative_cache(toroidal,
+                                                magnetic_field.dr_matrix,
+                                                magnetic_field.d2r_matrix,
+                                                magnetic_field.outer_domain)
+
     # Apply corrections at ICB if topography defined
     if topography.icb !== nothing
         apply_magnetic_correction_at_boundary!(
-            poloidal, toroidal, topography.icb, gaunt, ε, config,
-            INNER_BOUNDARY, :insulating_inner
+            poloidal, toroidal, p_cache, t_cache,
+            topography.icb, gaunt, ε, config, INNER_BOUNDARY, :insulating_inner
         )
     end
 
     # Apply corrections at CMB if topography defined
     if topography.cmb !== nothing
         apply_magnetic_correction_at_boundary!(
-            poloidal, toroidal, topography.cmb, gaunt, ε, config,
-            OUTER_BOUNDARY, :insulating_outer
+            poloidal, toroidal, p_cache, t_cache,
+            topography.cmb, gaunt, ε, config, OUTER_BOUNDARY, :insulating_outer
         )
     end
 
@@ -96,6 +106,8 @@ Apply magnetic topography corrections at a specific boundary.
 """
 function apply_magnetic_correction_at_boundary!(poloidal,
                                                 toroidal,
+                                                p_cache::BoundaryDerivativeCache{T},
+                                                t_cache::BoundaryDerivativeCache{T},
                                                 topo_field::TopographyField{T},
                                                 gaunt::GauntTensorCache{T},
                                                 ε::T,
@@ -128,7 +140,7 @@ function apply_magnetic_correction_at_boundary!(poloidal,
             if bc_type == :insulating_outer
                 # CMB insulating: ∂_r P + (ℓ+1)/r_o P = 0, T = 0
                 P_corr, T_corr = compute_cmb_insulating_correction(
-                    l, m, poloidal, toroidal, topo_field, gaunt, rb, config
+                    l, m, p_cache, t_cache, topo_field, gaunt, rb, location, config
                 )
                 P_bv[bc_row, lm_idx] -= ε * real(P_corr)
                 T_bv[bc_row, lm_idx] -= ε * real(T_corr)
@@ -136,7 +148,7 @@ function apply_magnetic_correction_at_boundary!(poloidal,
             elseif bc_type == :insulating_inner
                 # ICB insulating: ∂_r P - ℓ/r_i P = 0, T = 0
                 P_corr, T_corr = compute_icb_insulating_correction(
-                    l, m, poloidal, toroidal, topo_field, gaunt, rb, config
+                    l, m, p_cache, t_cache, topo_field, gaunt, rb, location, config
                 )
                 P_bv[bc_row, lm_idx] -= ε * real(P_corr)
                 T_bv[bc_row, lm_idx] -= ε * real(T_corr)
@@ -168,15 +180,17 @@ and toroidal:
 T + εh_o ∂_r T = 0
 """
 function compute_cmb_insulating_correction(l::Int, m::Int,
-                                           poloidal, toroidal,
+                                           p_cache::BoundaryDerivativeCache{T},
+                                           t_cache::BoundaryDerivativeCache{T},
                                            topo::TopographyField{T},
                                            gaunt::GauntTensorCache{T},
                                            ro::T,
+                                           location::BoundaryLocation,
                                            config::TopographyCouplingConfig) where T
     P_correction = zero(Complex{T})
     T_correction = zero(Complex{T})
 
-    lmax = min(poloidal.config.lmax, gaunt.lmax)
+    lmax = min(p_cache.lmax, gaunt.lmax)
     lmax_t = topo.lmax
 
     # Toroidal shift correction: T + εh ∂_r T = 0
@@ -201,7 +215,7 @@ function compute_cmb_insulating_correction(l::Int, m::Int,
                     end
 
                     # Get ∂_r T at CMB
-                    dT_dr = get_spectral_radial_derivative(toroidal, lp, mp, ro)
+                    dT_dr = get_cache_d1(t_cache, lp, mp, location)
                     T_correction += h_LM * G * dT_dr
                 end
             end
@@ -223,26 +237,23 @@ function compute_cmb_insulating_correction(l::Int, m::Int,
                 end
 
                 G = get_gaunt_tensor(gaunt, l, m, lp, mp, L, M)
-                G_grad = get_gradient_gaunt(gaunt, l, m, lp, mp, L, M)
                 G_cross = get_cross_gaunt(gaunt, l, m, lp, mp, L, M)
 
                 # Get field values
-                P_val = get_spectral_boundary_value(poloidal, lp, mp)
-                T_val = get_spectral_boundary_value(toroidal, lp, mp)
-                dP_dr = get_spectral_radial_derivative(poloidal, lp, mp, ro)
+                P_val = get_cache_value(p_cache, lp, mp, location)
+                T_val = get_cache_value(t_cache, lp, mp, location)
+                dP_dr = get_cache_d1(p_cache, lp, mp, location)
+                d2P_dr2 = get_cache_d2(p_cache, lp, mp, location)
 
-                # Poloidal correction coefficients (schematic from PDF eq. 36)
-                # α^o ∂_r P + β^o T + γ^o P
-                α_o = G  # Shift term coefficient
-                β_o = G_cross  # Toroidal coupling
-                γ_o = G * T(lp + 1) / ro  # P coefficient from potential matching
-
-                if config.include_shift_terms
-                    P_correction += h_LM * (α_o * dP_dr + γ_o * P_val)
+                if config.include_shift_terms && abs(G) > 1e-15
+                    # Shift term: h · ∂r(∂r P + (ℓ+1)P/r)
+                    shift_term = d2P_dr2 + (lp + 1) * dP_dr / ro - (lp + 1) * P_val / ro^2
+                    P_correction += h_LM * G * shift_term
                 end
 
-                if config.include_slope_terms && abs(β_o) > 1e-15
-                    P_correction += h_LM * β_o * T_val / ro^2
+                if config.include_slope_terms && abs(G_cross) > 1e-15
+                    # Toroidal coupling from tangential matching
+                    P_correction += h_LM * G_cross * T_val / ro^2
                 end
             end
         end
@@ -269,15 +280,17 @@ With topography, the poloidal condition becomes:
 [∂_r P - ℓ/r_i P]_{ℓm} + ε Σ h^i_{LM} (α^i ∂_r P + β^i T + γ^i P) = 0
 """
 function compute_icb_insulating_correction(l::Int, m::Int,
-                                           poloidal, toroidal,
+                                           p_cache::BoundaryDerivativeCache{T},
+                                           t_cache::BoundaryDerivativeCache{T},
                                            topo::TopographyField{T},
                                            gaunt::GauntTensorCache{T},
                                            ri::T,
+                                           location::BoundaryLocation,
                                            config::TopographyCouplingConfig) where T
     P_correction = zero(Complex{T})
     T_correction = zero(Complex{T})
 
-    lmax = min(poloidal.config.lmax, gaunt.lmax)
+    lmax = min(p_cache.lmax, gaunt.lmax)
     lmax_t = topo.lmax
 
     # Toroidal shift correction (same as CMB)
@@ -300,7 +313,7 @@ function compute_icb_insulating_correction(l::Int, m::Int,
                         continue
                     end
 
-                    dT_dr = get_spectral_radial_derivative(toroidal, lp, mp, ri)
+                    dT_dr = get_cache_d1(t_cache, lp, mp, location)
                     T_correction += h_LM * G * dT_dr
                 end
             end
@@ -322,24 +335,21 @@ function compute_icb_insulating_correction(l::Int, m::Int,
                 end
 
                 G = get_gaunt_tensor(gaunt, l, m, lp, mp, L, M)
-                G_grad = get_gradient_gaunt(gaunt, l, m, lp, mp, L, M)
                 G_cross = get_cross_gaunt(gaunt, l, m, lp, mp, L, M)
 
-                P_val = get_spectral_boundary_value(poloidal, lp, mp)
-                T_val = get_spectral_boundary_value(toroidal, lp, mp)
-                dP_dr = get_spectral_radial_derivative(poloidal, lp, mp, ri)
+                P_val = get_cache_value(p_cache, lp, mp, location)
+                T_val = get_cache_value(t_cache, lp, mp, location)
+                dP_dr = get_cache_d1(p_cache, lp, mp, location)
+                d2P_dr2 = get_cache_d2(p_cache, lp, mp, location)
 
-                # ICB coefficients (note: -ℓ/r_i vs +ℓ+1/r_o at CMB)
-                α_i = G
-                β_i = G_cross
-                γ_i = -G * T(lp) / ri  # Note negative sign for ICB
-
-                if config.include_shift_terms
-                    P_correction += h_LM * (α_i * dP_dr + γ_i * P_val)
+                if config.include_shift_terms && abs(G) > 1e-15
+                    # Shift term: h · ∂r(∂r P - ℓ P/r)
+                    shift_term = d2P_dr2 - lp * dP_dr / ri + lp * P_val / ri^2
+                    P_correction += h_LM * G * shift_term
                 end
 
-                if config.include_slope_terms && abs(β_i) > 1e-15
-                    P_correction += h_LM * β_i * T_val / ri^2
+                if config.include_slope_terms && abs(G_cross) > 1e-15
+                    P_correction += h_LM * G_cross * T_val / ri^2
                 end
             end
         end

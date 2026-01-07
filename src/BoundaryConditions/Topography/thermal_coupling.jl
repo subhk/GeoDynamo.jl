@@ -65,19 +65,42 @@ function apply_thermal_topography_correction!(temperature_field, topography::Top
         return nothing
     end
 
+    # Prefer BC metadata from the parent scalar field when available
+    bc_inner = hasfield(typeof(temperature_field), :bc_type_inner) ?
+        temperature_field.bc_type_inner : spectral.bc_type_inner
+    bc_outer = hasfield(typeof(temperature_field), :bc_type_outer) ?
+        temperature_field.bc_type_outer : spectral.bc_type_outer
+    bv = hasfield(typeof(temperature_field), :boundary_values) ?
+        temperature_field.boundary_values : spectral.boundary_values
+
+    # Radial derivative metadata for accurate coupling terms
+    dr_matrix = hasfield(typeof(temperature_field), :dr_matrix) ?
+        temperature_field.dr_matrix : nothing
+    d2r_matrix = hasfield(typeof(temperature_field), :d2r_matrix) ?
+        temperature_field.d2r_matrix : nothing
+    domain = hasfield(typeof(temperature_field), :domain) ?
+        temperature_field.domain : nothing
+
+    cache = nothing
+    if dr_matrix !== nothing && domain !== nothing
+        cache = compute_boundary_derivative_cache(spectral, dr_matrix, d2r_matrix, domain)
+    else
+        @warn "Missing radial derivative metadata; using approximate thermal topography coupling"
+    end
+
     # Apply corrections at ICB if topography defined
     if topography.icb !== nothing
         apply_thermal_correction_at_boundary!(
-            spectral, topography.icb, gaunt, ε, config,
-            INNER_BOUNDARY, T_cond
+            spectral, cache, bv, bc_inner, bc_outer,
+            topography.icb, gaunt, ε, config, INNER_BOUNDARY, T_cond
         )
     end
 
     # Apply corrections at CMB if topography defined
     if topography.cmb !== nothing
         apply_thermal_correction_at_boundary!(
-            spectral, topography.cmb, gaunt, ε, config,
-            OUTER_BOUNDARY, T_cond
+            spectral, cache, bv, bc_inner, bc_outer,
+            topography.cmb, gaunt, ε, config, OUTER_BOUNDARY, T_cond
         )
     end
 
@@ -89,11 +112,17 @@ end
 # ================================================================================
 
 """
-    apply_thermal_correction_at_boundary!(spectral, topo_field, gaunt, ε, config, location, T_cond)
+    apply_thermal_correction_at_boundary!(spectral, cache, boundary_values,
+                                          bc_inner, bc_outer, topo_field,
+                                          gaunt, ε, config, location, T_cond)
 
 Apply thermal topography corrections at a specific boundary.
 """
 function apply_thermal_correction_at_boundary!(spectral,
+                                               cache::Union{BoundaryDerivativeCache{T}, Nothing},
+                                               boundary_values::AbstractMatrix{T},
+                                               bc_inner::AbstractVector{Int},
+                                               bc_outer::AbstractVector{Int},
                                                topo_field::TopographyField{T},
                                                gaunt::GauntTensorCache{T},
                                                ε::T,
@@ -108,10 +137,10 @@ function apply_thermal_correction_at_boundary!(spectral,
     bc_row = location == INNER_BOUNDARY ? 1 : 2
 
     # Determine BC type from field
-    bc_type_array = location == INNER_BOUNDARY ? spectral.bc_type_inner : spectral.bc_type_outer
+    bc_type_array = location == INNER_BOUNDARY ? bc_inner : bc_outer
 
     # Boundary values storage
-    bv = spectral.boundary_values
+    bv = boundary_values
 
     # Conductive profile contributions (if provided)
     dTcond_dr = zero(T)
@@ -141,13 +170,13 @@ function apply_thermal_correction_at_boundary!(spectral,
 
             if is_dirichlet
                 correction = compute_dirichlet_thermal_correction(
-                    l, m, spectral, topo_field, gaunt, rb, config,
-                    dTcond_dr
+                    l, m, spectral, cache, topo_field, gaunt, rb, location,
+                    config, dTcond_dr
                 )
             else
                 correction = compute_neumann_thermal_correction(
-                    l, m, spectral, topo_field, gaunt, rb, config,
-                    dTcond_dr, d2Tcond_dr2
+                    l, m, spectral, cache, topo_field, gaunt, rb, location,
+                    config, dTcond_dr, d2Tcond_dr2
                 )
             end
 
@@ -176,9 +205,12 @@ The correction to the RHS involves:
 2. Conductive correction: h · ∂_r T_cond (modifies boundary value)
 """
 function compute_dirichlet_thermal_correction(l::Int, m::Int,
-                                              spectral, topo::TopographyField{T},
+                                              spectral,
+                                              cache::Union{BoundaryDerivativeCache{T}, Nothing},
+                                              topo::TopographyField{T},
                                               gaunt::GauntTensorCache{T},
                                               rb::T,
+                                              location::BoundaryLocation,
                                               config::TopographyCouplingConfig,
                                               dTcond_dr::T) where T
     correction = zero(Complex{T})
@@ -211,18 +243,19 @@ function compute_dirichlet_thermal_correction(l::Int, m::Int,
                     end
 
                     # Get ∂_r Θ at boundary
-                    dTheta_dr = get_spectral_radial_derivative(spectral, lp, mp, rb)
+                    if cache === nothing
+                        dTheta_dr = get_spectral_radial_derivative(spectral, lp, mp, rb)
+                    else
+                        dTheta_dr = get_cache_d1(cache, lp, mp, location)
+                    end
                     correction += h_LM * G * dTheta_dr
                 end
             end
 
-            # Conductive profile correction (only affects (ℓ=0, m=0))
-            if l == 0 && m == 0
-                G_00 = get_gaunt_tensor(gaunt, 0, 0, 0, 0, L, M)
-                if abs(G_00) > 1e-15
-                    # Add contribution from ∂_r T_cond
-                    correction -= h_LM * G_00 * dTcond_dr
-                end
+            # Conductive profile correction
+            G_00 = get_gaunt_tensor(gaunt, l, m, 0, 0, L, M)
+            if abs(G_00) > 1e-15
+                correction -= h_LM * G_00 * dTcond_dr
             end
         end
     end
