@@ -116,6 +116,7 @@ the same number of times by all processes (prevents deadlock).
 """
 function apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_idx,
                                           apply_inner, apply_outer,
+                                          boundary_values::AbstractMatrix,
                                           domain, r_range, ws::VelocityWorkspace{T}, tid::Int, owns_mode::Bool) where T
     nr = domain.N
     r = domain.r[:, 4]  # Radial coordinates
@@ -150,6 +151,7 @@ function apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_id
     # This ensures zero tangential stress at boundaries
     if apply_inner
         Δr = r[2] - r[1]
+        rhs_inner = boundary_values[1, lm_idx]
         # Handle r[1] = 0 case (ball geometry) - use L'Hôpital's rule limit
         if r[1] < 1e-14
             # At r=0, regularity requires T → 0 for smooth fields
@@ -160,7 +162,7 @@ function apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_id
             end
         else
             scaling_factor = 1.0 / (1.0 + Δr / r[1])
-            @inbounds profile_real[1] = profile_real[2] * scaling_factor
+            @inbounds profile_real[1] = (profile_real[2] - rhs_inner * Δr) * scaling_factor
             if any(x -> abs(x) > 1e-12, profile_imag)
                 @inbounds profile_imag[1] = profile_imag[2] * scaling_factor
             end
@@ -170,7 +172,8 @@ function apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_id
     if apply_outer
         Δr = r[nr] - r[nr-1]
         scaling_factor = 1.0 / (1.0 - Δr / r[nr])
-        @inbounds profile_real[nr] = profile_real[nr-1] * scaling_factor
+        rhs_outer = boundary_values[2, lm_idx]
+        @inbounds profile_real[nr] = (profile_real[nr-1] + rhs_outer * Δr) * scaling_factor
         if any(x -> abs(x) > 1e-12, profile_imag)
             @inbounds profile_imag[nr] = profile_imag[nr-1] * scaling_factor
         end
@@ -203,6 +206,7 @@ the same number of times by all processes (prevents deadlock).
 """
 function apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
                                                     apply_inner, apply_outer,
+                                                    boundary_values::AbstractMatrix,
                                                     domain, r_range, ws::VelocityWorkspace{T}, tid::Int, owns_mode::Bool) where T
     nr = domain.N
     r = domain.r[:, 4]
@@ -236,6 +240,7 @@ function apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_
     # Apply BC: ∂T/∂r = T/r (physically correct for stress-free)
     if apply_inner
         Δr = r[2] - r[1]
+        rhs_inner = boundary_values[1, lm_idx]
         # Handle r[1] = 0 case (ball geometry) - use L'Hôpital's rule limit
         if r[1] < 1e-14
             # At r=0, regularity requires T → 0 for smooth fields
@@ -246,7 +251,7 @@ function apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_
             end
         else
             scaling_factor = 1.0 / (1.0 + Δr / r[1])
-            @inbounds profile_real[1] = profile_real[2] * scaling_factor
+            @inbounds profile_real[1] = (profile_real[2] - rhs_inner * Δr) * scaling_factor
             if any(x -> abs(x) > 1e-12, profile_imag)
                 @inbounds profile_imag[1] = profile_imag[2] * scaling_factor
             end
@@ -255,8 +260,9 @@ function apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_
 
     if apply_outer
         Δr = r[nr] - r[nr-1]
+        rhs_outer = boundary_values[2, lm_idx]
         scaling_factor = 1.0 / (1.0 - Δr / r[nr])
-        @inbounds profile_real[nr] = profile_real[nr-1] * scaling_factor
+        @inbounds profile_real[nr] = (profile_real[nr-1] + rhs_outer * Δr) * scaling_factor
 
         if any(x -> abs(x) > 1e-12, profile_imag)
             @inbounds profile_imag[nr] = profile_imag[nr-1] * scaling_factor
@@ -302,6 +308,7 @@ the same number of times by all processes (prevents deadlock).
 """
 function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
                                        apply_inner, apply_outer,
+                                       boundary_values::AbstractMatrix,
                                        dr_matrix::BandedMatrix, domain, r_range,
                                        ws::VelocityWorkspace{T}, tid::Int, owns_mode::Bool) where T
     nr = domain.N
@@ -341,16 +348,19 @@ function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
     current_flux_inner_real = dprofile_real[1]
     current_flux_outer_real = dprofile_real[nr]
 
-    # Target flux for stress-free: ∂T/∂r = T/r
+    # Target flux for stress-free: ∂T/∂r = T/r + boundary_values (if provided)
     # Handle r=0 case (ball geometry) - at r=0, regularity enforces T=0 for l≥1
+    rhs_inner = boundary_values[1, lm_idx]
+    rhs_outer = boundary_values[2, lm_idx]
+
     if r[1] < 1e-14
         # At r=0, the condition ∂T/∂r = T/r is indeterminate (0/0)
         # By L'Hôpital's rule and regularity, we use ∂T/∂r = 0 at r=0
-        target_flux_inner_real = T(0)
+        target_flux_inner_real = T(0) + rhs_inner
     else
-        target_flux_inner_real = profile_real[1] / r[1]
+        target_flux_inner_real = profile_real[1] / r[1] + rhs_inner
     end
-    target_flux_outer_real = profile_real[nr] / r[nr]
+    target_flux_outer_real = profile_real[nr] / r[nr] + rhs_outer
 
     # Apply tau corrections (in-place, no allocation!)
     if apply_inner && apply_outer
