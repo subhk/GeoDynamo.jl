@@ -251,6 +251,8 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
         cache_oc = nothing
     end
 
+    warned_missing_d2 = false
+
     # Add topography corrections to normal derivative
     for l in 0:lmax
         for m in -l:l
@@ -291,7 +293,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                             else
                                 Theta_oc = get_cache_value(cache_oc, lp, mp, INNER_BOUNDARY)
                             end
-                            correction -= h_LM * state.k_oc * G_grad / ri^2 * Theta_oc
+                            correction += h_LM * state.k_oc * G_grad / ri^2 * Theta_oc
 
                             # For inner core
                             if cache_ic === nothing
@@ -299,28 +301,24 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                             else
                                 Theta_ic = get_cache_value(cache_ic, lp, mp, INNER_BOUNDARY)
                             end
-                            correction += h_LM * state.k_ic * G_grad / ri^2 * Theta_ic
+                            correction -= h_LM * state.k_ic * G_grad / ri^2 * Theta_ic
                         end
 
                         # Shift term: h · ∂_rr T
                         if config.include_shift_terms && abs(G) > 1e-15
-                            # Second derivatives (use cache when available)
-                            ll_factor = T(lp * (lp + 1))
-                            if cache_oc === nothing
-                                Theta_oc = get_spectral_coefficient(temperature_oc, lp, mp, INNER_BOUNDARY)
-                                d2T_oc = -ll_factor / ri^2 * Theta_oc
+                            if cache_oc === nothing || cache_oc.d2_inner === nothing ||
+                               cache_ic === nothing || cache_ic.d2_inner === nothing
+                                if !warned_missing_d2
+                                    @warn "Missing second-derivative cache; skipping Stefan shift term"
+                                    warned_missing_d2 = true
+                                end
                             else
                                 d2T_oc = get_cache_d2(cache_oc, lp, mp, INNER_BOUNDARY)
-                            end
-                            if cache_ic === nothing
-                                Theta_ic = get_spectral_coefficient(temperature_ic, lp, mp, INNER_BOUNDARY)
-                                d2T_ic = -ll_factor / ri^2 * Theta_ic
-                            else
                                 d2T_ic = get_cache_d2(cache_ic, lp, mp, INNER_BOUNDARY)
-                            end
 
-                            correction -= h_LM * state.k_oc * G * d2T_oc
-                            correction += h_LM * state.k_ic * G * d2T_ic
+                                correction -= h_LM * state.k_oc * G * d2T_oc
+                                correction += h_LM * state.k_ic * G * d2T_ic
+                            end
                         end
                     end
                 end
@@ -495,7 +493,7 @@ Compute spectral coefficients of heat flux at a boundary.
 - `r`: Boundary radius
 - `side`: :inner or :outer
 
-Returns vector of spectral coefficients for -k ∂_r T at the boundary.
+Returns vector of spectral coefficients for ∂_r T at the boundary.
 """
 function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symbol) where T
     # Get spectral field
@@ -520,7 +518,7 @@ function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symb
                                                   temperature_field.domain)
     end
 
-    # Heat flux = -k ∂_r T (k absorbed into coefficients)
+    # Store ∂_r T (k absorbed into coefficients elsewhere)
     for lm_idx in 1:nlm
         l, m = index_to_lm(lm_idx, spectral.config.lmax)
 
@@ -533,7 +531,7 @@ function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symb
         else
             dT_dr = get_cache_d1(cache, l, m, location)
         end
-        flux[lm_idx] = -dT_dr
+        flux[lm_idx] = dT_dr
     end
 
     return flux
