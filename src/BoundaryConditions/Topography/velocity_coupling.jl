@@ -242,7 +242,7 @@ function compute_impermeability_correction(l::Int, m::Int,
                     if config.include_slope_terms
                         # Poloidal contribution: -G^{(∇)} · ∂_r P
                         if abs(G_grad) > 1e-15
-                            slope_P = -G_grad * (dP_dr / rb^2 + P_lpm / rb^3)
+                            slope_P = -G_grad * (dP_dr / rb^2)
                             correction += h_LM * slope_P
                         end
 
