@@ -510,23 +510,22 @@ The number of non-zero Gaunt coefficients scales as ``O(\ell_{max}^3 L_{max})`` 
 
 ## API Reference
 
-```@docs
-GeoDynamo.BoundaryConditions.Topography.enable_topography!
-GeoDynamo.BoundaryConditions.Topography.disable_topography!
-GeoDynamo.BoundaryConditions.Topography.is_topography_enabled
-GeoDynamo.BoundaryConditions.Topography.get_topography_config
-GeoDynamo.BoundaryConditions.Topography.set_topography_config!
-GeoDynamo.BoundaryConditions.Topography.TopographyCouplingConfig
-GeoDynamo.BoundaryConditions.Topography.TopographyData
-GeoDynamo.BoundaryConditions.Topography.TopographyField
-GeoDynamo.BoundaryConditions.Topography.GauntTensorCache
-GeoDynamo.BoundaryConditions.Topography.precompute_gaunt_tensors!
-GeoDynamo.BoundaryConditions.Topography.apply_all_topography_corrections!
-GeoDynamo.BoundaryConditions.Topography.create_topography_data
-GeoDynamo.BoundaryConditions.Topography.load_topography_from_file
-GeoDynamo.BoundaryConditions.Topography.StefanState
-GeoDynamo.BoundaryConditions.Topography.update_icb_topography!
-```
+The topography module provides the following key functions and types:
+
+| Function/Type | Description |
+|---------------|-------------|
+| `enable_topography!` | Enable topography coupling with configuration options |
+| `disable_topography!` | Disable all topography coupling |
+| `is_topography_enabled` | Check if topography coupling is active |
+| `TopographyCouplingConfig` | Configuration structure for coupling options |
+| `TopographyField` | Spectral representation of boundary topography |
+| `TopographyData` | Container for ICB/CMB topography data |
+| `GauntTensorCache` | Pre-computed Gaunt tensor storage |
+| `precompute_gaunt_tensors!` | Compute and cache Gaunt tensors |
+| `StefanState` | State for Stefan condition ICB evolution |
+| `update_icb_topography!` | Advance ICB topography in time |
+
+For detailed API documentation, see the [API Reference](@ref) page.
 
 ---
 
