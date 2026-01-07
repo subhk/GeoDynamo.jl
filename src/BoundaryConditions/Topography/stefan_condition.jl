@@ -289,7 +289,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                             else
                                 Theta_oc = get_cache_value(cache_oc, lp, mp, INNER_BOUNDARY)
                             end
-                            correction -= state.k_oc * G_grad / ri^2 * Theta_oc
+                            correction -= h_LM * state.k_oc * G_grad / ri^2 * Theta_oc
 
                             # For inner core
                             if cache_ic === nothing
@@ -297,7 +297,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                             else
                                 Theta_ic = get_cache_value(cache_ic, lp, mp, INNER_BOUNDARY)
                             end
-                            correction += state.k_ic * G_grad / ri^2 * Theta_ic
+                            correction += h_LM * state.k_ic * G_grad / ri^2 * Theta_ic
                         end
 
                         # Shift term: h · ∂_rr T
@@ -317,8 +317,8 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                                 d2T_ic = get_cache_d2(cache_ic, lp, mp, INNER_BOUNDARY)
                             end
 
-                            correction -= state.k_oc * G * d2T_oc
-                            correction += state.k_ic * G * d2T_ic
+                            correction -= h_LM * state.k_oc * G * d2T_oc
+                            correction += h_LM * state.k_ic * G * d2T_ic
                         end
                     end
                 end
@@ -506,13 +506,27 @@ function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symb
 
     nlm = spectral.nlm
     flux = zeros(Complex{T}, nlm)
+    location = side == :inner ? INNER_BOUNDARY : OUTER_BOUNDARY
+
+    cache = nothing
+    if hasfield(typeof(temperature_field), :dr_matrix) &&
+       hasfield(typeof(temperature_field), :domain)
+        cache = compute_boundary_derivative_cache(spectral,
+                                                  temperature_field.dr_matrix,
+                                                  nothing,
+                                                  temperature_field.domain)
+    end
 
     # Heat flux = -k ∂_r T (k absorbed into coefficients)
     for lm_idx in 1:nlm
         l, m = index_to_lm(lm_idx, spectral.config.lmax)
 
         # Get radial derivative at boundary
-        dT_dr = get_spectral_radial_derivative(spectral, l, m, r)
+        if cache === nothing
+            dT_dr = get_spectral_radial_derivative(spectral, l, m, r)
+        else
+            dT_dr = get_cache_d1(cache, l, m, location)
+        end
         flux[lm_idx] = -dT_dr
     end
 

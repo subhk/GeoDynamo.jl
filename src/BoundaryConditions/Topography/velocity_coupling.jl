@@ -122,9 +122,6 @@ function apply_velocity_correction_at_boundary!(poloidal,
     P_bv = poloidal.boundary_values
     T_bv = toroidal.boundary_values
 
-    # Get topography coefficients
-    h_coeffs = get_topography_coefficients(topo_field)
-
     # Compute corrections for each (ℓ, m) mode
     for l in 1:lmax  # Start from l=1 (l=0 has no velocity)
         for m in -l:l
@@ -485,7 +482,9 @@ Check if the field uses Dirichlet tangential conditions at the boundary.
 """
 function is_no_slip_boundary(field, location::BoundaryLocation)
     bc_array = location == INNER_BOUNDARY ? field.bc_type_inner : field.bc_type_outer
-    return any(bc -> bc == Int(DIRICHLET), bc_array)
+    has_dirichlet = any(bc -> bc == Int(DIRICHLET), bc_array)
+    has_neumann = any(bc -> bc == Int(NEUMANN), bc_array)
+    return has_dirichlet && !has_neumann
 end
 
 # ================================================================================
