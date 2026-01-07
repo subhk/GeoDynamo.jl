@@ -243,19 +243,20 @@ module GeoDynamo
         try
             # Load MPI at runtime if not already loaded
             # This is needed for SHTnsKit parallel extensions to work properly
+            # Only import core MPI symbols that exist in all versions
             if !isdefined(Main, :MPI)
                 try
-                    @eval using MPI: Allgather, Allreduce, Allreduce!, Barrier, COMM_WORLD, Cart_shift, Cart_test, Comm, Comm_rank, Comm_size, Finalize, Gather, Init, Initialized, Irecv, Isend, MAX, MIN, MPI_PROC_NULL, Request, SUM, Waitall, Wtime, bcast
-                    @info "GeoDynamo.jl loaded MPI at runtime"
+                    @eval using MPI: Allgather, Allreduce, Allreduce!, Barrier, COMM_WORLD, Cart_shift, Comm, Comm_rank, Comm_size, Finalize, Gather, Init, Initialized, Isend, MAX, MIN, Request, SUM, Waitall, Wtime, bcast
+                    @debug "GeoDynamo.jl loaded MPI at runtime"
                 catch mpi_e
-                    @warn "Could not load MPI (continuing without MPI support): $mpi_e"
+                    @debug "Could not load MPI (continuing without MPI support): $mpi_e"
                 end
             else
                 try
-                    @eval using MPI: Allgather, Allreduce, Allreduce!, Barrier, COMM_WORLD, Cart_shift, Cart_test, Comm, Comm_rank, Comm_size, Finalize, Gather, Init, Initialized, Irecv, Isend, MAX, MIN, MPI_PROC_NULL, Request, SUM, Waitall, Wtime, bcast
-                    @info "GeoDynamo.jl detected MPI already available"
+                    @eval using MPI: Allgather, Allreduce, Allreduce!, Barrier, COMM_WORLD, Cart_shift, Comm, Comm_rank, Comm_size, Finalize, Gather, Init, Initialized, Isend, MAX, MIN, Request, SUM, Waitall, Wtime, bcast
+                    @debug "GeoDynamo.jl detected MPI already available"
                 catch mpi_e
-                    @warn "MPI appears loaded but importing symbols failed: $mpi_e"
+                    @debug "MPI appears loaded but importing symbols failed: $mpi_e"
                 end
             end
 
