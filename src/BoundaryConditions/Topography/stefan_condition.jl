@@ -151,7 +151,7 @@ function initialize_stefan_state!(state::StefanState{T}, temperature_ic, tempera
     state.heat_flux_oc = compute_boundary_heat_flux_spectral(temperature_oc, ri, :outer)
 
     # Compute normal velocity at ICB
-    state.normal_velocity = compute_normal_velocity_spectral(velocity_field, ri)
+    state.normal_velocity = compute_normal_velocity_spectral(velocity_field, ri, INNER_BOUNDARY)
 
     # Compute Stefan number if temperature scale is available
     # St = c_p ΔT / L  (typically from simulation parameters)
@@ -372,7 +372,7 @@ function update_icb_topography!(state::StefanState{T}, dt::T, velocity_field,
     nlm = state.topography.nlm
 
     # Update normal velocity
-    state.normal_velocity = compute_normal_velocity_spectral(velocity_field, ri)
+    state.normal_velocity = compute_normal_velocity_spectral(velocity_field, ri, INNER_BOUNDARY)
 
     # Update heat fluxes
     state.heat_flux_ic = compute_boundary_heat_flux_spectral(temperature_ic, ri, :inner)
@@ -443,7 +443,8 @@ function update_icb_topography_semiimplicit!(state::StefanState{T}, dt::T, veloc
 
     # Compute new fluxes and velocities
     state.normal_velocity = compute_normal_velocity_spectral(velocity_field,
-                                                             state.topography.radius)
+                                                             state.topography.radius,
+                                                             INNER_BOUNDARY)
     state.heat_flux_ic = compute_boundary_heat_flux_spectral(temperature_ic,
                                                               state.topography.radius, :inner)
     state.heat_flux_oc = compute_boundary_heat_flux_spectral(temperature_oc,
@@ -525,7 +526,7 @@ function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symb
 
         # Get radial derivative at boundary
         if cache === nothing
-            dT_dr = get_spectral_radial_derivative(spectral, l, m, r)
+            dT_dr = get_spectral_radial_derivative(spectral, l, m, r, location)
         else
             dT_dr = get_cache_d1(cache, l, m, location)
         end
@@ -536,7 +537,8 @@ function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symb
 end
 
 """
-    compute_normal_velocity_spectral(velocity_field, r::T) where T
+    compute_normal_velocity_spectral(velocity_field, r::T,
+                                     location::BoundaryLocation=OUTER_BOUNDARY) where T
 
 Compute spectral coefficients of normal (radial) velocity at a boundary.
 
@@ -544,7 +546,8 @@ u_n = u_r = ℓ(ℓ+1)/r² P at the boundary
 
 Returns vector of spectral coefficients for u_r.
 """
-function compute_normal_velocity_spectral(velocity_field, r::T) where T
+function compute_normal_velocity_spectral(velocity_field, r::T,
+                                          location::BoundaryLocation=OUTER_BOUNDARY) where T
     # Get poloidal component
     if hasfield(typeof(velocity_field), :poloidal)
         poloidal = velocity_field.poloidal
@@ -565,7 +568,7 @@ function compute_normal_velocity_spectral(velocity_field, r::T) where T
             continue  # l=0 has no radial velocity
         end
 
-        P_val = get_spectral_boundary_value(poloidal, l, m)
+        P_val = get_spectral_boundary_value(poloidal, l, m, location)
         ll_factor = T(l * (l + 1))
         un[lm_idx] = ll_factor / r^2 * P_val
     end

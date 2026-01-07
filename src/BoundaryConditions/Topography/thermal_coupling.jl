@@ -244,7 +244,7 @@ function compute_dirichlet_thermal_correction(l::Int, m::Int,
 
                     # Get ∂_r Θ at boundary
                     if cache === nothing
-                        dTheta_dr = get_spectral_radial_derivative(spectral, lp, mp, rb)
+                        dTheta_dr = get_spectral_radial_derivative(spectral, lp, mp, rb, location)
                     else
                         dTheta_dr = get_cache_d1(cache, lp, mp, location)
                     end
@@ -332,7 +332,7 @@ function compute_neumann_thermal_correction(l::Int, m::Int,
                         # This is an approximation - actual implementation would
                         # need access to the radial grid
                         if cache === nothing
-                            d2Theta_dr2 = estimate_second_radial_derivative(spectral, lp, mp, rb)
+                            d2Theta_dr2 = estimate_second_radial_derivative(spectral, lp, mp, rb, location)
                         else
                             d2Theta_dr2 = get_cache_d2(cache, lp, mp, location)
                         end
@@ -364,10 +364,11 @@ Estimate the second radial derivative of spectral coefficient (l, m) at radius r
 This is an approximation - for accurate implementation, access to the full
 radial grid is needed.
 """
-function estimate_second_radial_derivative(field, l::Int, m::Int, r)
+function estimate_second_radial_derivative(field, l::Int, m::Int, r,
+                                           location::BoundaryLocation=OUTER_BOUNDARY)
     # Simple estimate based on boundary value and shell geometry
     # ∂_rr Θ ≈ -ℓ(ℓ+1)/r² Θ for spherical harmonics (from Laplacian)
-    bv = get_spectral_boundary_value(field, l, m)
+    bv = get_spectral_boundary_value(field, l, m, location)
     ll_factor = Float64(l * (l + 1))
 
     # This is the radial part of the spherical Laplacian estimate

@@ -452,10 +452,11 @@ Estimate the radial derivative of spectral coefficient (l, m) at radius r.
 
 This is an approximation using finite differences from the field data.
 """
-function get_spectral_radial_derivative(field, l::Int, m::Int, r)
+function get_spectral_radial_derivative(field, l::Int, m::Int, r,
+                                        location::BoundaryLocation=OUTER_BOUNDARY)
     # This is a placeholder - actual implementation needs access to radial grid
     # For now, return a simple estimate based on boundary value
-    bv = get_spectral_boundary_value(field, l, m)
+    bv = get_spectral_boundary_value(field, l, m, location)
 
     # Simple estimate: derivative ~ value / shell_thickness
     # This should be replaced with proper finite difference from radial data
