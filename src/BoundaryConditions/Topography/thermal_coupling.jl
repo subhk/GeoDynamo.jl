@@ -23,8 +23,6 @@
 #
 # ================================================================================
 
-import ...apply_derivative_matrix!
-
 # ================================================================================
 # Main Interface
 # ================================================================================
@@ -361,64 +359,6 @@ end
 # Utility Functions
 # ================================================================================
 
-"""
-    estimate_second_radial_derivative(field, l::Int, m::Int, r;
-                                      location::BoundaryLocation=OUTER_BOUNDARY,
-                                      d2r_matrix, domain)
-
-Compute the second radial derivative of spectral coefficient (l, m) at a boundary.
-Requires access to the radial second-derivative matrix and domain.
-"""
-function estimate_second_radial_derivative(field::SHTnsSpectralField{T}, l::Int, m::Int, r::T;
-                                           location::BoundaryLocation=OUTER_BOUNDARY,
-                                           d2r_matrix=nothing, domain=nothing) where T
-    if d2r_matrix === nothing || domain === nothing
-        throw(ArgumentError("estimate_second_radial_derivative requires d2r_matrix and domain; use compute_boundary_derivative_cache and get_cache_d2"))
-    end
-
-    idx = lm_to_spectral_index(l, abs(m), field.config)
-    if idx <= 0 || idx > field.nlm
-        return zero(Complex{T})
-    end
-
-    nr = domain.N
-    profile_real = zeros(T, nr)
-    profile_imag = zeros(T, nr)
-    data_real = parent(field.data_real)
-    data_imag = parent(field.data_imag)
-    lm_range = field.pencil.axes_local[1]
-    r_range = field.pencil.axes_local[3]
-
-    if idx in lm_range
-        local_lm = idx - first(lm_range) + 1
-        @inbounds for r_idx in r_range
-            local_r = r_idx - first(r_range) + 1
-            if local_r <= size(data_real, 3) && r_idx <= nr
-                profile_real[r_idx] = data_real[local_lm, 1, local_r]
-                profile_imag[r_idx] = data_imag[local_lm, 1, local_r]
-            end
-        end
-    end
-
-    comm = get_comm()
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        MPI.Allreduce!(profile_real, MPI.SUM, comm)
-        MPI.Allreduce!(profile_imag, MPI.SUM, comm)
-    end
-
-    d2profile_real = zeros(T, nr)
-    d2profile_imag = zeros(T, nr)
-    apply_derivative_matrix!(d2profile_real, d2r_matrix, profile_real)
-    apply_derivative_matrix!(d2profile_imag, d2r_matrix, profile_imag)
-
-    idx_r = location == INNER_BOUNDARY ? 1 : nr
-    val = complex(d2profile_real[idx_r], d2profile_imag[idx_r])
-    if m < 0
-        phase = iseven(-m) ? one(T) : -one(T)
-        val = phase * conj(val)
-    end
-    return val
-end
 
 # ================================================================================
 # Compositional Field Support
@@ -572,29 +512,85 @@ function compute_boundary_heat_flux(temperature_field, topography::TopographyDat
     config_sht = spectral.config
     nlat, nlon = config_sht.nlat, config_sht.nlon
 
-    # Initialize flux array
-    flux = zeros(nlat, nlon)
-
-    # Get grid points
-    theta = range(0, π, length=nlat)
-    phi = range(0, 2π, length=nlon+1)[1:end-1]
-
-    # This is a simplified version - full implementation would transform
-    # spectral data to physical space and compute derivatives
-
-    # Flat-sphere contribution: -k ∂_r T
     dr_matrix = hasfield(typeof(temperature_field), :dr_matrix) ? temperature_field.dr_matrix : nothing
+    d2r_matrix = hasfield(typeof(temperature_field), :d2r_matrix) ? temperature_field.d2r_matrix : nothing
     domain = hasfield(typeof(temperature_field), :domain) ? temperature_field.domain : nothing
-    for l in 0:spectral.config.lmax
-        for m in -l:l
-            dT_dr = get_spectral_radial_derivative(spectral, l, abs(m), rb, location;
-                                                   dr_matrix=dr_matrix, domain=domain)
-            # Transform to physical space and add to flux
-            # (simplified - actual implementation needs SHTnsKit)
+    if dr_matrix === nothing || domain === nothing
+        @warn "Missing radial derivative metadata; cannot compute boundary heat flux"
+        return nothing
+    end
+
+    cache = compute_boundary_derivative_cache(spectral, dr_matrix, d2r_matrix, domain)
+
+    gaunt = topography.gaunt_cache
+    if gaunt === nothing && (config.include_slope_terms || config.include_shift_terms)
+        @warn "Gaunt cache not initialized; computing flat-sphere heat flux only"
+    end
+
+    lmax = spectral.config.lmax
+    mmax = spectral.config.mmax
+    lmax_coupling = gaunt === nothing ? -1 : min(lmax, gaunt.lmax)
+    lmax_t = gaunt === nothing ? -1 : topo_field.lmax
+
+    T = typeof(real(zero(eltype(cache.value_inner))))
+    coeffs = zeros(Complex{T}, spectral.config.nlm)
+    warned_missing_d2 = false
+
+    for l in 0:lmax
+        for m in 0:min(l, mmax)
+            dT_dr = get_cache_d1(cache, l, m, location)
+            slope_sum = zero(Complex{T})
+            shift_sum = zero(Complex{T})
+
+            if gaunt !== nothing && l <= lmax_coupling &&
+                (config.include_slope_terms || config.include_shift_terms)
+                for L in 0:lmax_t
+                    for M in -L:L
+                        h_LM = get_coefficient(topo_field, L, M)
+                        if abs(h_LM) < 1e-15
+                            continue
+                        end
+
+                        mp = m - M
+                        for lp in 0:lmax_coupling
+                            if abs(mp) > lp
+                                continue
+                            end
+
+                            if config.include_slope_terms
+                                G_grad = get_gradient_gaunt(gaunt, l, m, lp, mp, L, M)
+                                if abs(G_grad) > 1e-15
+                                    Theta_val = get_cache_value(cache, lp, mp, location)
+                                    slope_sum += h_LM * G_grad * Theta_val / rb^2
+                                end
+                            end
+
+                            if config.include_shift_terms
+                                if cache.d2_inner === nothing
+                                    if !warned_missing_d2
+                                        @warn "Missing second-derivative matrix; skipping thermal shift term in heat flux"
+                                        warned_missing_d2 = true
+                                    end
+                                else
+                                    G = get_gaunt_tensor(gaunt, l, m, lp, mp, L, M)
+                                    if abs(G) > 1e-15
+                                        d2Theta_dr2 = get_cache_d2(cache, lp, mp, location)
+                                        shift_sum += h_LM * G * d2Theta_dr2
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            qn_lm = -k * (dT_dr - ε * slope_sum + ε * shift_sum)
+            idx = lm_to_spectral_index(l, m, spectral.config)
+            if idx > 0 && idx <= length(coeffs)
+                coeffs[idx] = qn_lm
+            end
         end
     end
 
-    # Topography corrections would be added here
-
-    return flux .* (-k)
+    return BoundaryConditions.shtns_spectral_to_physical(coeffs, spectral.config, nlat, nlon)
 end
