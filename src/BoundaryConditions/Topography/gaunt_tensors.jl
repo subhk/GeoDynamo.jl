@@ -26,23 +26,6 @@ using LinearAlgebra
 # Gaunt Tensor Cache Structure
 # ================================================================================
 
-"""
-    GauntTensorCache{T}
-
-Cache structure for precomputed Gaunt tensors using SHTnsKit for efficiency.
-
-Stores sparse representations of Gaunt tensor elements for efficient lookup
-during boundary condition application.
-
-# Fields
-- `lmax::Int`: Maximum spherical harmonic degree
-- `lmax_topo::Int`: Maximum degree for topography
-- `G::Dict`: Basic Gaunt integrals G_{ℓm,ℓ'm',LM}
-- `G_grad::Dict`: Gradient Gaunt integrals G^{(∇)}
-- `G_cross::Dict`: Cross Gaunt integrals G^{(×)}
-- `sht_config`: SHTnsKit configuration for transforms
-- `is_precomputed::Bool`: Whether tensors have been precomputed
-"""
 mutable struct GauntTensorCache{T<:AbstractFloat}
     lmax::Int
     lmax_topo::Int

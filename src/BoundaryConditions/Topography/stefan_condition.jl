@@ -29,31 +29,6 @@
 # Stefan State Structure
 # ================================================================================
 
-"""
-    StefanState{T}
-
-State structure for Stefan condition and ICB evolution.
-
-# Physical Parameters
-- `k_ic::T`: Inner core thermal conductivity
-- `k_oc::T`: Outer core thermal conductivity
-- `rho::T`: Density at ICB
-- `L::T`: Latent heat of fusion
-- `Stefan::T`: Stefan number St = c_p ΔT / L
-- `lambda::T`: Conductivity ratio λ = k_ic / k
-
-# State Variables
-- `topography::TopographyField{T}`: Current ICB topography h_i(θ, φ)
-- `topography_rate::TopographyField{T}`: Time derivative ∂_t h_i
-- `heat_flux_ic::Vector{Complex{T}}`: Inner core heat flux k_ic ∂_n T_ic
-- `heat_flux_oc::Vector{Complex{T}}`: Outer core heat flux k ∂_n T
-- `normal_velocity::Vector{Complex{T}}`: Normal fluid velocity u_n at ICB
-
-# Configuration
-- `is_initialized::Bool`: Whether state has been initialized
-- `use_clapeyron::Bool`: Include Clapeyron slope correction
-- `clapeyron_slope::T`: dT_m/dP at ICB (K/Pa)
-"""
 mutable struct StefanState{T<:AbstractFloat}
     # Physical parameters
     k_ic::T                                  # Inner core conductivity

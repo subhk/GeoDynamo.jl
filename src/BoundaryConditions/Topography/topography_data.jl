@@ -18,23 +18,6 @@ using NCDatasets
 # Topography Field Structure
 # ================================================================================
 
-"""
-    TopographyField{T}
-
-Spectral representation of topography at a single boundary.
-
-# Fields
-- `radius::T`: Reference radius of the boundary (r_i or r_o)
-- `lmax::Int`: Maximum spherical harmonic degree
-- `mmax::Int`: Maximum azimuthal order
-- `nlm::Int`: Total number of spectral coefficients
-- `coeffs_real::Vector{T}`: Real parts of h_{LM} coefficients
-- `coeffs_imag::Vector{T}`: Imaginary parts of h_{LM} coefficients
-- `location::BoundaryLocation`: INNER_BOUNDARY (ICB) or OUTER_BOUNDARY (CMB)
-- `rms_amplitude::T`: RMS amplitude of topography
-- `max_amplitude::T`: Maximum |h| value
-- `description::String`: Description of topography source
-"""
 mutable struct TopographyField{T<:AbstractFloat}
     radius::T                          # Reference radius r_b
     lmax::Int                          # Maximum degree L
@@ -115,18 +98,6 @@ TopographyField(lmax::Int, mmax::Int, radius::Float64, location::BoundaryLocatio
 # Main Topography Data Structure
 # ================================================================================
 
-"""
-    TopographyData{T}
-
-Complete topography data for both boundaries.
-
-# Fields
-- `icb::Union{TopographyField{T}, Nothing}`: Inner core boundary topography
-- `cmb::Union{TopographyField{T}, Nothing}`: Core-mantle boundary topography
-- `gaunt_cache::Union{GauntTensorCache{T}, Nothing}`: Cached Gaunt tensors
-- `epsilon::T`: Topography amplitude parameter ε
-- `is_time_dependent::Bool`: Whether topography evolves in time
-"""
 mutable struct TopographyData{T<:AbstractFloat}
     icb::Union{TopographyField{T}, Nothing}      # Inner boundary
     cmb::Union{TopographyField{T}, Nothing}      # Outer boundary
