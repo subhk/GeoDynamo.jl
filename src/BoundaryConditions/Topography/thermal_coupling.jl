@@ -23,6 +23,8 @@
 #
 # ================================================================================
 
+import ...apply_derivative_matrix!
+
 # ================================================================================
 # Main Interface
 # ================================================================================
@@ -360,22 +362,62 @@ end
 # ================================================================================
 
 """
-    estimate_second_radial_derivative(field, l::Int, m::Int, r)
+    estimate_second_radial_derivative(field, l::Int, m::Int, r;
+                                      location::BoundaryLocation=OUTER_BOUNDARY,
+                                      d2r_matrix, domain)
 
-Estimate the second radial derivative of spectral coefficient (l, m) at radius r.
-
-This is an approximation - for accurate implementation, access to the full
-radial grid is needed.
+Compute the second radial derivative of spectral coefficient (l, m) at a boundary.
+Requires access to the radial second-derivative matrix and domain.
 """
-function estimate_second_radial_derivative(field, l::Int, m::Int, r,
-                                           location::BoundaryLocation=OUTER_BOUNDARY)
-    # Simple estimate based on boundary value and shell geometry
-    # ∂_rr Θ ≈ -ℓ(ℓ+1)/r² Θ for spherical harmonics (from Laplacian)
-    bv = get_spectral_boundary_value(field, l, m, location)
-    ll_factor = Float64(l * (l + 1))
+function estimate_second_radial_derivative(field::SHTnsSpectralField{T}, l::Int, m::Int, r::T;
+                                           location::BoundaryLocation=OUTER_BOUNDARY,
+                                           d2r_matrix=nothing, domain=nothing) where T
+    if d2r_matrix === nothing || domain === nothing
+        throw(ArgumentError("estimate_second_radial_derivative requires d2r_matrix and domain; use compute_boundary_derivative_cache and get_cache_d2"))
+    end
 
-    # This is the radial part of the spherical Laplacian estimate
-    return -ll_factor / r^2 * bv
+    idx = lm_to_spectral_index(l, abs(m), field.config)
+    if idx <= 0 || idx > field.nlm
+        return zero(Complex{T})
+    end
+
+    nr = domain.N
+    profile_real = zeros(T, nr)
+    profile_imag = zeros(T, nr)
+    data_real = parent(field.data_real)
+    data_imag = parent(field.data_imag)
+    lm_range = field.pencil.axes_local[1]
+    r_range = field.pencil.axes_local[3]
+
+    if idx in lm_range
+        local_lm = idx - first(lm_range) + 1
+        @inbounds for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(data_real, 3) && r_idx <= nr
+                profile_real[r_idx] = data_real[local_lm, 1, local_r]
+                profile_imag[r_idx] = data_imag[local_lm, 1, local_r]
+            end
+        end
+    end
+
+    comm = get_comm()
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        MPI.Allreduce!(profile_real, MPI.SUM, comm)
+        MPI.Allreduce!(profile_imag, MPI.SUM, comm)
+    end
+
+    d2profile_real = zeros(T, nr)
+    d2profile_imag = zeros(T, nr)
+    apply_derivative_matrix!(d2profile_real, d2r_matrix, profile_real)
+    apply_derivative_matrix!(d2profile_imag, d2r_matrix, profile_imag)
+
+    idx_r = location == INNER_BOUNDARY ? 1 : nr
+    val = complex(d2profile_real[idx_r], d2profile_imag[idx_r])
+    if m < 0
+        phase = iseven(-m) ? one(T) : -one(T)
+        val = phase * conj(val)
+    end
+    return val
 end
 
 # ================================================================================
