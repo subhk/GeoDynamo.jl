@@ -30,14 +30,17 @@ Compute boundary values and radial derivatives for all modes using the
 full radial profile (MPI-safe). This is expensive but avoids per-mode
 Allreduce inside tight coupling loops.
 """
-function compute_boundary_derivative_cache(field::SHTnsSpectralField{T},
+function compute_boundary_derivative_cache(field,
                                            dr_matrix,
                                            d2r_matrix,
-                                           domain) where T
+                                           domain)
     nlm = field.config.nlm
     lmax = field.config.lmax
     mmax = field.config.mmax
     nr = domain.N
+
+    # Infer element type from field data
+    T = eltype(parent(field.data_real))
 
     values_inner = zeros(Complex{T}, nlm)
     values_outer = zeros(Complex{T}, nlm)
