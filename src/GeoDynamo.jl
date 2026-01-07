@@ -120,6 +120,13 @@ module GeoDynamo
     export get_boundary_module_info
     # BoundaryConditions SHTnsKit v1.1.15 caching utilities
     export clear_bc_shtns_config_cache!, shtns_physical_to_spectral, shtns_spectral_to_physical
+    # Topography coupling exports
+    export enable_topography!, disable_topography!, is_topography_enabled
+    export TopographyCouplingConfig, get_topography_config, set_topography_config!
+    export TopographyData, TopographyField, GauntTensorCache
+    export precompute_gaunt_tensors!, apply_all_topography_corrections!
+    export create_topography_data, load_topography_from_file
+    export StefanState, initialize_stefan_state!, update_icb_topography!
 
     # exports simulation.jl (single unified state)
     export SimulationState, initialize_simulation, run_simulation!

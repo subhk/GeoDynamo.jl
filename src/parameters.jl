@@ -73,6 +73,31 @@ Base.@kwdef mutable struct GeoDynamoParameters
     
     # Geometry selection (:shell or :ball)
     geometry::Symbol = :shell
+
+    # ================================================================================
+    # Topography Coupling Parameters
+    # ================================================================================
+    # Enable boundary topography effects on BCs (CMB and/or ICB)
+    b_topography_enabled::Bool = false        # Master switch for topography coupling
+    d_topo_epsilon::Float64 = 0.01            # Topography amplitude parameter ε
+    i_topo_lmax::Int = -1                     # Max degree for topography (-1 = use i_L)
+
+    # Topography coupling flags
+    b_topo_velocity::Bool = true              # Enable velocity BC topography correction
+    b_topo_magnetic::Bool = true              # Enable magnetic BC topography correction
+    b_topo_thermal::Bool = true               # Enable thermal BC topography correction
+    b_topo_slope_terms::Bool = true           # Include slope (∇h) terms
+    b_topo_shift_terms::Bool = true           # Include shift (h) terms
+
+    # Stefan condition for ICB phase change (optional)
+    b_stefan_enabled::Bool = false            # Enable Stefan condition for ICB evolution
+    d_stefan_number::Float64 = 1.0            # Stefan number St = c_p ΔT / L
+    d_lambda_ic::Float64 = 1.0                # Conductivity ratio λ = k_ic / k_oc
+    d_latent_heat::Float64 = 1.0              # Latent heat (nondimensional)
+
+    # Topography source specifications
+    s_topo_icb_file::String = ""              # ICB topography file (NetCDF), empty = no ICB topo
+    s_topo_cmb_file::String = ""              # CMB topography file (NetCDF), empty = no CMB topo
 end
 
 function print_section(io::IO, title::AbstractString)
@@ -115,6 +140,18 @@ function Base.show(io::IO, ::MIME"text/plain", params::GeoDynamoParameters)
 
     print_section(io, "Flags")
     for key in (:b_mag_impose, :i_B)
+        print_entry(io, key, getfield(params, key))
+    end
+
+    print_section(io, "Topography Coupling")
+    for key in (:b_topography_enabled, :d_topo_epsilon, :i_topo_lmax,
+                :b_topo_velocity, :b_topo_magnetic, :b_topo_thermal,
+                :b_topo_slope_terms, :b_topo_shift_terms)
+        print_entry(io, key, getfield(params, key))
+    end
+
+    print_section(io, "Stefan Condition")
+    for key in (:b_stefan_enabled, :d_stefan_number, :d_lambda_ic, :d_latent_heat)
         print_entry(io, key, getfield(params, key))
     end
 end

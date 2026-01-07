@@ -184,6 +184,9 @@ include("magnetic.jl")         # Magnetic field boundary conditions
 include("integration.jl")      # Integration with field structures
 include("timestepping.jl")     # Integration with timestepping
 
+# Topography coupling module
+include("Topography/Topography.jl")  # Boundary topography effects
+
 # ================================================================================
 # Unified Interface Functions
 # ================================================================================
@@ -525,7 +528,7 @@ end
 function get_boundary_module_info()
     return Dict(
         "module_name" => "BoundaryConditions",
-        "version" => "1.0.0",
+        "version" => "1.1.0",
         "supported_fields" => ["temperature", "composition", "velocity", "magnetic"],
         "supported_formats" => ["netcdf", "programmatic", "hybrid"],
         "features" => [
@@ -534,11 +537,29 @@ function get_boundary_module_info()
             "PencilFFTs support",
             "Time-dependent boundaries",
             "Grid interpolation",
-            "Comprehensive validation"
+            "Comprehensive validation",
+            "Boundary topography coupling",
+            "Stefan condition for ICB evolution"
         ]
     )
 end
 
 export get_boundary_module_info
+
+# ================================================================================
+# Re-export Topography Module
+# ================================================================================
+
+# Make Topography module accessible as BoundaryConditions.Topography
+using .Topography
+
+# Re-export key topography functions for convenience
+export Topography
+export enable_topography!, disable_topography!, is_topography_enabled
+export TopographyCouplingConfig, get_topography_config, set_topography_config!
+export TopographyData, TopographyField
+export GauntTensorCache, precompute_gaunt_tensors!
+export apply_all_topography_corrections!
+export StefanState, initialize_stefan_state!, update_icb_topography!
 
 end # module BoundaryConditions
