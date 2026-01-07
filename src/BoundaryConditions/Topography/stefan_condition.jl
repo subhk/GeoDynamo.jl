@@ -121,7 +121,39 @@ function StefanState{T}(;
     )
 end
 
-# Convenience constructor
+@doc """
+    StefanState(; kwargs...)
+    StefanState{T}
+
+Stefan condition state for tracking ICB (inner core boundary) evolution.
+
+The Stefan condition relates the rate of phase boundary motion to the heat flux
+discontinuity across the interface:
+```math
+\\rho L \\frac{\\partial h_i}{\\partial t} = k_{oc} \\frac{\\partial T}{\\partial n}\\bigg|_{oc} - k_{ic} \\frac{\\partial T}{\\partial n}\\bigg|_{ic}
+```
+
+This structure tracks the ICB topography evolution including latent heat release
+and optional Clapeyron slope corrections.
+
+# Keyword Arguments
+- `lmax::Int=32`: Maximum spherical harmonic degree
+- `ri::Float64=0.35`: Inner core radius (nondimensional)
+- `k_ic::Float64=1.0`: Inner core thermal conductivity
+- `k_oc::Float64=1.0`: Outer core thermal conductivity
+- `rho::Float64=1.0`: Density at ICB
+- `L::Float64=1.0`: Latent heat of fusion
+- `use_clapeyron::Bool=false`: Include Clapeyron slope correction
+- `clapeyron_slope::Float64=0.0`: Clapeyron slope dT_m/dP (K/Pa)
+
+# Example
+```julia
+state = StefanState(lmax=64, ri=0.35, k_ic=2.0, k_oc=1.0)
+```
+
+See also: [`initialize_stefan_state!`](@ref), [`update_icb_topography!`](@ref)
+""" StefanState
+
 StefanState(; kwargs...) = StefanState{Float64}(; kwargs...)
 
 # ================================================================================

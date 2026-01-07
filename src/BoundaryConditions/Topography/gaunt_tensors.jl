@@ -94,7 +94,37 @@ function GauntTensorCache{T}(lmax::Int, lmax_topo::Int; nth::Int=0, nph::Int=0) 
     )
 end
 
-# Convenience constructor with default Float64
+@doc """
+    GauntTensorCache(lmax, lmax_topo; nth=0, nph=0)
+    GauntTensorCache{T}
+
+Cache for pre-computed Gaunt tensor integrals used in topography mode coupling.
+
+Gaunt integrals arise from triple products of spherical harmonics:
+```math
+G_{\\ell m, \\ell' m', LM} = \\int Y_\\ell^m Y_{\\ell'}^{m'*} Y_L^{M*} d\\Omega
+```
+
+This cache stores three types of Gaunt tensors:
+- **G**: Basic Gaunt integrals for shift terms
+- **G_grad**: Gradient Gaunt integrals G^{(∇)} for slope terms
+- **G_cross**: Cross Gaunt integrals G^{(×)} for tangential coupling
+
+# Arguments
+- `lmax::Int`: Maximum spherical harmonic degree for field variables
+- `lmax_topo::Int`: Maximum degree for topography expansion
+- `nth::Int=0`: Number of θ quadrature points (auto if 0)
+- `nph::Int=0`: Number of φ quadrature points (auto if 0)
+
+# Example
+```julia
+gaunt = GauntTensorCache(64, 16)
+precompute_gaunt_tensors!(gaunt)
+```
+
+See also: [`precompute_gaunt_tensors!`](@ref), [`get_gaunt_tensor`](@ref)
+""" GauntTensorCache
+
 GauntTensorCache(lmax::Int, lmax_topo::Int; kwargs...) =
     GauntTensorCache{Float64}(lmax, lmax_topo; kwargs...)
 

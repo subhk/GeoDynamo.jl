@@ -75,7 +75,39 @@ function TopographyField{T}(lmax::Int, mmax::Int, radius::T, location::BoundaryL
     )
 end
 
-# Convenience constructor
+@doc """
+    TopographyField(lmax, mmax, radius, location)
+    TopographyField{T}
+
+Spectral representation of boundary topography h(θ, φ) expanded in spherical harmonics.
+
+The topography is represented as:
+```math
+h(\\theta, \\phi) = \\sum_{L=0}^{L_{max}} \\sum_{M=-L}^{L} h_{LM} Y_L^M(\\theta, \\phi)
+```
+
+# Arguments
+- `lmax::Int`: Maximum spherical harmonic degree L
+- `mmax::Int`: Maximum azimuthal order M (capped at lmax)
+- `radius::Float64`: Reference boundary radius
+- `location::BoundaryLocation`: `INNER_BOUNDARY` (ICB) or `OUTER_BOUNDARY` (CMB)
+
+# Fields
+- `radius`: Reference radius of the boundary
+- `lmax`, `mmax`: Maximum degree and order
+- `nlm`: Total number of spectral coefficients
+- `coeffs_real`, `coeffs_imag`: Real and imaginary parts of h_{LM}
+- `location`: Boundary location enum
+- `rms_amplitude`, `max_amplitude`: Topography statistics
+
+# Example
+```julia
+topo = TopographyField(32, 32, 0.35, INNER_BOUNDARY)
+```
+
+See also: [`TopographyData`](@ref), [`set_topography_coefficients!`](@ref)
+""" TopographyField
+
 TopographyField(lmax::Int, mmax::Int, radius::Float64, location::BoundaryLocation) =
     TopographyField{Float64}(lmax, mmax, radius, location)
 
@@ -111,6 +143,30 @@ Create empty TopographyData with no topography.
 function TopographyData{T}() where T
     return TopographyData{T}(nothing, nothing, nothing, T(0.01), false)
 end
+
+@doc """
+    TopographyData
+    TopographyData{T}
+
+Complete topography data container for both ICB and CMB boundaries.
+
+This structure holds the spectral topography fields for inner and outer boundaries,
+along with pre-computed Gaunt tensor caches for efficient mode coupling calculations.
+
+# Fields
+- `icb::Union{TopographyField, Nothing}`: Inner core boundary (ICB) topography
+- `cmb::Union{TopographyField, Nothing}`: Core-mantle boundary (CMB) topography
+- `gaunt_cache::Union{GauntTensorCache, Nothing}`: Pre-computed Gaunt tensors
+- `epsilon::Float64`: Topography amplitude parameter ε
+- `is_time_dependent::Bool`: Whether topography evolves (e.g., Stefan condition)
+
+# Example
+```julia
+topo_data = TopographyData{Float64}(icb_field, cmb_field, gaunt, 0.02, false)
+```
+
+See also: [`TopographyField`](@ref), [`create_topography_data`](@ref), [`GauntTensorCache`](@ref)
+""" TopographyData
 
 TopographyData() = TopographyData{Float64}()
 

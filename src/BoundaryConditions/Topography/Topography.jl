@@ -46,7 +46,19 @@ const SHTnsSpectralField = Any
 # Topography Coupling Enable/Disable Flags
 # ================================================================================
 
-"""
+Base.@kwdef mutable struct TopographyCouplingConfig
+    enabled::Bool = false
+    velocity_coupling::Bool = true
+    magnetic_coupling::Bool = true
+    thermal_coupling::Bool = true
+    stefan_enabled::Bool = false
+    include_shift_terms::Bool = true
+    include_slope_terms::Bool = true
+    epsilon::Float64 = 0.01
+    lmax_topo::Int = -1  # -1 means use simulation lmax
+end
+
+@doc """
     TopographyCouplingConfig
 
 Configuration structure for enabling/disabling topography coupling.
@@ -61,18 +73,19 @@ Configuration structure for enabling/disabling topography coupling.
 - `include_slope_terms::Bool`: Include O(ε∇h) slope terms (required for coupling)
 - `epsilon::Float64`: Topography amplitude parameter ε (default: 0.01)
 - `lmax_topo::Int`: Maximum degree for topography expansion (default: same as simulation)
-"""
-Base.@kwdef mutable struct TopographyCouplingConfig
-    enabled::Bool = false
-    velocity_coupling::Bool = true
-    magnetic_coupling::Bool = true
-    thermal_coupling::Bool = true
-    stefan_enabled::Bool = false
-    include_shift_terms::Bool = true
-    include_slope_terms::Bool = true
-    epsilon::Float64 = 0.01
-    lmax_topo::Int = -1  # -1 means use simulation lmax
-end
+
+# Example
+```julia
+config = TopographyCouplingConfig(
+    enabled = true,
+    velocity_coupling = true,
+    magnetic_coupling = true,
+    epsilon = 0.02
+)
+```
+
+See also: [`enable_topography!`](@ref), [`get_topography_config`](@ref)
+""" TopographyCouplingConfig
 
 # Global configuration instance
 const TOPOGRAPHY_CONFIG = Ref{TopographyCouplingConfig}(TopographyCouplingConfig())
