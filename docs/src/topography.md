@@ -140,6 +140,10 @@ For toroidal-poloidal coupling:
 G^{(\times)}_{\ell m, \ell' m', LM} = \int Y_\ell^{m*} \hat{r} \cdot (\nabla_H Y_{\ell'}^{m'} \times \nabla_H Y_L^M) \, d\Omega
 ```
 
+Because ``\nabla_H`` includes ``1/r``, both ``G^{(\nabla)}`` and ``G^{(\times)}`` scale like
+``1/r_b^2`` on the boundary. In the implementation we evaluate the unit-sphere values
+and apply the ``1/r_b^2`` factor explicitly.
+
 ---
 
 ## Velocity Boundary Conditions
@@ -272,7 +276,8 @@ With topography corrections:
 ### ICB Insulating Condition
 
 For an insulating inner core, the flat-sphere condition is
-``(\partial_r - \ell/r_i) P_{\ell m} = 0`` and ``T_{\ell m}=0``, with topography couplings:
+``(\partial_r - \ell/r_i) P_{\ell m} = 0`` and ``T_{\ell m}=0``. The toroidal coupling remains
+``T + \varepsilon h_i \partial_r T = 0`` and the poloidal condition becomes:
 
 ```math
 \left(\partial_r - \frac{\ell}{r_i}\right) P_{\ell m}
@@ -527,10 +532,12 @@ update_icb_topography!
 
 ## References
 
-1. Glatzmaier, G.A. & Roberts, P.H. (1995). "A three-dimensional convective dynamo solution with rotating and finitely conducting inner core and mantle." *Physics of the Earth and Planetary Interiors*, 91, 63-75.
+1. "Geodynamo Boundary Conditions with Topography in Poloidal-Toroidal Form." Internal note (`topography_coupling.pdf`).
 
-2. Kuang, W. & Chao, B.F. (2001). "Topographic core-mantle coupling in geodynamo modeling." *Geophysical Research Letters*, 28, 1871-1874.
+2. Glatzmaier, G.A. & Roberts, P.H. (1995). "A three-dimensional convective dynamo solution with rotating and finitely conducting inner core and mantle." *Physics of the Earth and Planetary Interiors*, 91, 63-75.
 
-3. Edmonds, A.R. (1957). *Angular Momentum in Quantum Mechanics*. Princeton University Press. (For Gaunt integral and Wigner 3j symbols)
+3. Kuang, W. & Chao, B.F. (2001). "Topographic core-mantle coupling in geodynamo modeling." *Geophysical Research Letters*, 28, 1871-1874.
 
-4. Christensen, U.R. & Wicht, J. (2015). "Numerical Dynamo Simulations." *Treatise on Geophysics*, 8, 245-277.
+4. Edmonds, A.R. (1957). *Angular Momentum in Quantum Mechanics*. Princeton University Press. (For Gaunt integral and Wigner 3j symbols)
+
+5. Christensen, U.R. & Wicht, J. (2015). "Numerical Dynamo Simulations." *Treatise on Geophysics*, 8, 245-277.
