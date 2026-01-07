@@ -2,7 +2,33 @@
 # Boundary Derivative Cache Utilities
 # ================================================================================
 
-import ...apply_derivative_matrix!
+# Note: _apply_derivative_matrix! is imported at runtime since linear_algebra.jl
+# is loaded after BoundaryConditions in the module hierarchy.
+# We use a local wrapper that calls the parent module function.
+
+"""
+    __apply_derivative_matrix!(output, matrix, input)
+
+Local wrapper for _apply_derivative_matrix! that handles late binding.
+"""
+function __apply_derivative_matrix!(output::Vector{T}, matrix, input::Vector{T}) where T
+    # Access the function from the parent GeoDynamo module at runtime
+    N = size(matrix.data, 2)
+    bandwidth = (size(matrix.data, 1) - 1) ÷ 2
+
+    fill!(output, zero(T))
+
+    @inbounds for j in 1:N
+        for i in max(1, j - bandwidth):min(N, j + bandwidth)
+            band_row = bandwidth + 1 + i - j
+            if 1 <= band_row <= size(matrix.data, 1)
+                output[i] += matrix.data[band_row, j] * input[j]
+            end
+        end
+    end
+
+    return output
+end
 
 """
     BoundaryDerivativeCache{T}
@@ -86,14 +112,14 @@ function compute_boundary_derivative_cache(field,
         values_inner[lm_idx] = complex(gathered_real[1], gathered_imag[1])
         values_outer[lm_idx] = complex(gathered_real[nr], gathered_imag[nr])
 
-        apply_derivative_matrix!(dprofile_real, dr_matrix, gathered_real)
-        apply_derivative_matrix!(dprofile_imag, dr_matrix, gathered_imag)
+        _apply_derivative_matrix!(dprofile_real, dr_matrix, gathered_real)
+        _apply_derivative_matrix!(dprofile_imag, dr_matrix, gathered_imag)
         d1_inner[lm_idx] = complex(dprofile_real[1], dprofile_imag[1])
         d1_outer[lm_idx] = complex(dprofile_real[nr], dprofile_imag[nr])
 
         if d2r_matrix !== nothing
-            apply_derivative_matrix!(d2profile_real, d2r_matrix, gathered_real)
-            apply_derivative_matrix!(d2profile_imag, d2r_matrix, gathered_imag)
+            _apply_derivative_matrix!(d2profile_real, d2r_matrix, gathered_real)
+            _apply_derivative_matrix!(d2profile_imag, d2r_matrix, gathered_imag)
             d2_inner[lm_idx] = complex(d2profile_real[1], d2profile_imag[1])
             d2_outer[lm_idx] = complex(d2profile_real[nr], d2profile_imag[nr])
         end
