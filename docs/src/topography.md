@@ -240,7 +240,7 @@ In the linearized topographic form:
 The magnetic field is similarly decomposed:
 
 ```math
-\mathbf{B} = \nabla \times (S \hat{r}) + \nabla \times \nabla \times (W \hat{r})
+\mathbf{B} = \nabla \times (T \hat{r}) + \nabla \times \nabla \times (P \hat{r})
 ```
 
 ### CMB Insulating Condition
@@ -252,8 +252,8 @@ At the CMB, the mantle is effectively an electrical insulator. The magnetic fiel
 ```
 
 The matching conditions are:
-1. **Toroidal vanishes**: ``S_{\ell m}|_{r_o} = 0``
-2. **Poloidal matches potential**: ``\left(\partial_r + \frac{\ell+1}{r}\right) W_{\ell m}\bigg|_{r_o} = 0``
+1. **Toroidal vanishes**: ``T_{\ell m}|_{r_o} = 0``
+2. **Poloidal matches potential**: ``\left(\partial_r + \frac{\ell+1}{r}\right) P_{\ell m}\bigg|_{r_o} = 0``
 
 With topography corrections:
 
