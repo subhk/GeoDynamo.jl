@@ -511,21 +511,21 @@ The number of non-zero Gaunt coefficients scales as ``O(\ell_{max}^3 L_{max})`` 
 ## API Reference
 
 ```@docs
-enable_topography!
-disable_topography!
-is_topography_enabled
-get_topography_config
-set_topography_config!
-TopographyCouplingConfig
-TopographyData
-TopographyField
-GauntTensorCache
-precompute_gaunt_tensors!
-apply_all_topography_corrections!
-create_topography_data
-load_topography_from_file
-StefanState
-update_icb_topography!
+GeoDynamo.BoundaryConditions.Topography.enable_topography!
+GeoDynamo.BoundaryConditions.Topography.disable_topography!
+GeoDynamo.BoundaryConditions.Topography.is_topography_enabled
+GeoDynamo.BoundaryConditions.Topography.get_topography_config
+GeoDynamo.BoundaryConditions.Topography.set_topography_config!
+GeoDynamo.BoundaryConditions.Topography.TopographyCouplingConfig
+GeoDynamo.BoundaryConditions.Topography.TopographyData
+GeoDynamo.BoundaryConditions.Topography.TopographyField
+GeoDynamo.BoundaryConditions.Topography.GauntTensorCache
+GeoDynamo.BoundaryConditions.Topography.precompute_gaunt_tensors!
+GeoDynamo.BoundaryConditions.Topography.apply_all_topography_corrections!
+GeoDynamo.BoundaryConditions.Topography.create_topography_data
+GeoDynamo.BoundaryConditions.Topography.load_topography_from_file
+GeoDynamo.BoundaryConditions.Topography.StefanState
+GeoDynamo.BoundaryConditions.Topography.update_icb_topography!
 ```
 
 ---

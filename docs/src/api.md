@@ -17,6 +17,13 @@ Modules = [GeoDynamo.BoundaryConditions]
 Order   = [:module, :constant, :type, :macro, :function]
 ```
 
+## Boundary Topography
+
+```@autodocs
+Modules = [GeoDynamo.BoundaryConditions.Topography]
+Order   = [:module, :constant, :type, :macro, :function]
+```
+
 ## Initial Conditions
 
 ```@autodocs
