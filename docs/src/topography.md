@@ -49,6 +49,38 @@ The topography is expanded in spherical harmonics:
 h_b(\theta, \phi) = \sum_{L=0}^{L_{max}} \sum_{M=-L}^{L} h_{LM}^b Y_L^M(\theta, \phi)
 ```
 
+### Surface Gradient Convention
+
+We use the surface (tangential) gradient on the sphere:
+
+```math
+\nabla_H f = \hat{\theta}\,\frac{1}{r}\partial_{\theta} f
+          + \hat{\phi}\,\frac{1}{r \sin\theta}\partial_{\phi} f,
+\quad \nabla = \hat{r}\,\partial_r + \nabla_H
+```
+
+The surface Laplacian eigen-operator satisfies:
+
+```math
+L^2 \equiv -r^2 \nabla_H \cdot \nabla_H,
+\quad L^2 Y_{\ell m} = \ell(\ell+1) Y_{\ell m}
+```
+
+### Linearized Geometry at the Boundary
+
+The outward unit normal and normal derivative on the true surface, linearized at ``r=r_b``:
+
+```math
+\hat{n}_b = \hat{r} - \varepsilon \nabla_H h_b,
+\quad \partial_n \approx \partial_r - \varepsilon (\nabla_H h_b)\cdot \nabla_H + \varepsilon h_b \partial_{rr}
+```
+
+The normal velocity evaluated on the reference sphere is:
+
+```math
+u_n \approx u_r - \varepsilon (\nabla_H h_b)\cdot u_t + \varepsilon h_b \partial_r u_r
+```
+
 ### Taylor Expansion of Boundary Conditions
 
 For any field ``f(r, \theta, \phi)`` with a boundary condition at ``r = r_b``, we expand about the reference sphere:
@@ -132,19 +164,36 @@ where ``\mathcal{P}`` and ``\mathcal{T}`` are the poloidal and toroidal scalars:
 The kinematic boundary condition requires zero normal velocity at the boundary:
 
 ```math
-u_r = 0 \quad \text{at} \quad r = r_b + \varepsilon h_b
+u_n = 0 \quad \text{at} \quad r = r_b + \varepsilon h_b
 ```
 
 Expanding to first order in ``\varepsilon``:
 
 ```math
-\boxed{P_{\ell m}|_{r_b} + \varepsilon \sum_{\ell', m', L, M} G_{\ell m, \ell' m', LM} h_{LM} \partial_r P_{\ell' m'}|_{r_b} = 0}
+\boxed{u_r - \varepsilon (\nabla_H h_b)\cdot u_t + \varepsilon h_b \partial_r u_r = 0 \quad (r=r_b)}
 ```
 
 The radial velocity in terms of poloidal scalar is:
 
 ```math
 u_r = \frac{\ell(\ell+1)}{r^2} P_{\ell m}
+```
+
+The tangential velocity has both poloidal and toroidal parts:
+
+```math
+u_t = \partial_r (\nabla_H P) + \frac{1}{r}\nabla_H P + \hat{r}\times \nabla_H T
+```
+
+In spectral form (schematic):
+
+```math
+\frac{\ell(\ell+1)}{r_b^2} P_{\ell m}
++ \varepsilon \sum h_{LM} \Big[
+G\,\partial_r\!\left(\frac{\ell'(\ell'+1)}{r_b^2} P_{\ell' m'}\right)
+- G^{(\nabla)}\,\frac{\partial_r P_{\ell' m'}}{r_b^2}
+- G^{(\times)}\,\frac{T_{\ell' m'}}{r_b^2}
+\Big] = 0
 ```
 
 ### No-Slip Condition
@@ -157,12 +206,13 @@ u_\theta = u_\phi = 0 \quad \text{at} \quad r = r_b + \varepsilon h_b
 
 The tangential velocity components involve both poloidal and toroidal parts. The linearized conditions become:
 
-**Poloidal correction:**
 ```math
-\partial_r P_{\ell m}|_{r_b} + \varepsilon \sum G_{\ell m, \ell' m', LM} h_{LM} \partial_{rr} P_{\ell' m'}|_{r_b} = 0
+u_t(r_b) + \varepsilon h_b \partial_r u_t(r_b) = U_{b,t}
 ```
 
-**Toroidal correction:**
+For most cases ``U_{b,t}=0`` at the CMB; at the ICB it can include inner-core rotation.
+The toroidal Dirichlet condition reduces to:
+
 ```math
 T_{\ell m}|_{r_b} + \varepsilon \sum G_{\ell m, \ell' m', LM} h_{LM} \partial_r T_{\ell' m'}|_{r_b} = 0
 ```
@@ -175,10 +225,10 @@ For stress-free boundaries (zero tangential stress):
 \sigma_{r\theta} = \sigma_{r\phi} = 0
 ```
 
-The stress-free condition on the toroidal component:
+In the linearized topographic form:
 
 ```math
-\left(\partial_r - \frac{1}{r}\right) T_{\ell m}\bigg|_{r_b} + \varepsilon \sum G h_{LM} \left(\partial_{rr} - \frac{1}{r}\partial_r + \frac{1}{r^2}\right) T_{\ell' m'}\bigg|_{r_b} = 0
+\boxed{\partial_r \left(\frac{u_t}{r}\right) = \frac{\varepsilon}{r_b}(\nabla_H h_b)\,\partial_r u_r \quad (r=r_b)}
 ```
 
 ---
@@ -208,11 +258,15 @@ The matching conditions are:
 With topography corrections:
 
 ```math
-\boxed{S_{\ell m}|_{r_o} + \varepsilon \sum G h_{LM} \partial_r S_{\ell' m'}|_{r_o} = 0}
+\boxed{T_{\ell m}|_{r_o} + \varepsilon \sum G h_{LM} \partial_r T_{\ell' m'}|_{r_o} = 0}
 ```
 
 ```math
-\boxed{\left(\partial_r + \frac{\ell+1}{r}\right) W_{\ell m}\bigg|_{r_o} + \varepsilon \sum G h_{LM} \left(\partial_{rr} + \frac{\ell'+1}{r}\partial_r\right) W_{\ell' m'}\bigg|_{r_o} = 0}
+\boxed{\left(\partial_r + \frac{\ell+1}{r_o}\right) P_{\ell m}
+      + \varepsilon \sum h_{LM} \left[
+        G\,\partial_r\!\left(\partial_r P_{\ell' m'} + \frac{\ell'+1}{r_o}P_{\ell' m'}\right)
+        - G^{(\times)}\,\frac{T_{\ell' m'}}{r_o^2}
+      \right] = 0}
 ```
 
 ### ICB Conducting Condition
@@ -220,7 +274,11 @@ With topography corrections:
 At the ICB, the inner core has finite electrical conductivity. Additional terms involving the toroidal field gradient appear:
 
 ```math
-\left(\partial_r - \frac{\ell}{r}\right) W_{\ell m}\bigg|_{r_i} + \varepsilon \sum G h_{LM} \left(\partial_{rr} - \frac{\ell'}{r}\partial_r\right) W_{\ell' m'}\bigg|_{r_i} = 0
+\left(\partial_r - \frac{\ell}{r_i}\right) P_{\ell m}
+ + \varepsilon \sum h_{LM} \left[
+   G\,\partial_r\!\left(\partial_r P_{\ell' m'} - \frac{\ell'}{r_i}P_{\ell' m'}\right)
+   - G^{(\times)}\,\frac{T_{\ell' m'}}{r_i^2}
+ \right] = 0
 ```
 
 ---
@@ -238,7 +296,8 @@ For fixed temperature ``T_b`` at the boundary:
 Expanding:
 
 ```math
-\boxed{\Theta_{\ell m}|_{r_b} + \varepsilon \sum G_{\ell m, \ell' m', LM} h_{LM} \partial_r \Theta_{\ell' m'}|_{r_b} = T_{b,\ell m}}
+\boxed{\Theta_{\ell m}|_{r_b} + \varepsilon \sum G_{\ell m, \ell' m', LM} h_{LM} \partial_r \Theta_{\ell' m'}|_{r_b}
+      = [T_b - T_{cond}(r_b)]_{\ell m} - \varepsilon \sum h_{LM} G_{\ell m,00,LM} \partial_r T_{cond}}
 ```
 
 If the boundary temperature is uniform (``T_b`` = constant), the right-hand side is non-zero only for ``\ell = m = 0``.
@@ -248,13 +307,17 @@ If the boundary temperature is uniform (``T_b`` = constant), the right-hand side
 For fixed heat flux ``q_b`` at the boundary:
 
 ```math
-\frac{\partial \Theta}{\partial r}\bigg|_{r_b + \varepsilon h_b} = q_b(\theta, \phi)
+-k\,\frac{\partial T}{\partial n}\bigg|_{r_b + \varepsilon h_b} = q_b(\theta, \phi)
 ```
 
 The linearized condition:
 
 ```math
-\boxed{\partial_r \Theta_{\ell m}|_{r_b} + \varepsilon \sum G h_{LM} \partial_{rr} \Theta_{\ell' m'}|_{r_b} + \varepsilon \sum G^{(\nabla)} h_{LM} \Theta_{\ell' m'}|_{r_b} = q_{b,\ell m}}
+\boxed{\partial_r \Theta_{\ell m}
+ - \varepsilon \sum h_{LM} G^{(\nabla)}_{\ell m,\ell' m',LM} \Theta_{\ell' m'}
+ + \varepsilon \sum h_{LM} G_{\ell m,\ell' m',LM} \partial_{rr} \Theta_{\ell' m'}
+ = -q_{b,\ell m}/k - \partial_r T_{cond}\,\delta_{\ell 0}\delta_{m 0}
+   - \varepsilon \sum h_{LM} G_{\ell m,00,LM} \partial_{rr} T_{cond}}
 ```
 
 The gradient Gaunt term ``G^{(\nabla)}`` appears because the normal direction varies with topography.
@@ -285,6 +348,14 @@ Rearranging for the topography evolution rate:
 
 ```math
 \boxed{\varepsilon \frac{\partial h_i}{\partial t} = u_n + \frac{1}{\rho L}\left(k_{ic} \frac{\partial T_{ic}}{\partial n} - k \frac{\partial T}{\partial n}\right)}
+```
+
+Using the linearized operators at ``r=r_i``:
+
+```math
+\partial_n \approx \partial_r - \varepsilon \nabla_H h_i \cdot \nabla_H + \varepsilon h_i \partial_{rr},
+\quad
+u_n \approx u_r - \varepsilon \nabla_H h_i \cdot u_t + \varepsilon h_i \partial_r u_r
 ```
 
 In spectral form:
