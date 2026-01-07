@@ -85,7 +85,8 @@ function apply_thermal_topography_correction!(temperature_field, topography::Top
     if dr_matrix !== nothing && domain !== nothing
         cache = compute_boundary_derivative_cache(spectral, dr_matrix, d2r_matrix, domain)
     else
-        @warn "Missing radial derivative metadata; using approximate thermal topography coupling"
+        @warn "Missing radial derivative metadata; skipping thermal topography coupling"
+        return nothing
     end
 
     # Apply corrections at ICB if topography defined
@@ -326,17 +327,14 @@ function compute_neumann_thermal_correction(l::Int, m::Int,
                         correction -= h_LM * G_grad * Theta_val / rb^2
                     end
 
-                    # Shift term: G · ∂_rr Θ (if we have second derivative)
+                    # Shift term: G · ∂_rr Θ (requires second-derivative cache)
                     if config.include_shift_terms && abs(G) > 1e-15
-                        # Estimate ∂_rr Θ from available data
-                        # This is an approximation - actual implementation would
-                        # need access to the radial grid
-                        if cache === nothing
-                            d2Theta_dr2 = estimate_second_radial_derivative(spectral, lp, mp, rb, location)
+                        if cache === nothing || cache.d2_inner === nothing
+                            @warn "Missing second-derivative cache; skipping thermal shift term"
                         else
                             d2Theta_dr2 = get_cache_d2(cache, lp, mp, location)
+                            correction += h_LM * G * d2Theta_dr2
                         end
-                        correction += h_LM * G * d2Theta_dr2
                     end
                 end
             end
@@ -538,9 +536,12 @@ function compute_boundary_heat_flux(temperature_field, topography::TopographyDat
     # spectral data to physical space and compute derivatives
 
     # Flat-sphere contribution: -k ∂_r T
+    dr_matrix = hasfield(typeof(temperature_field), :dr_matrix) ? temperature_field.dr_matrix : nothing
+    domain = hasfield(typeof(temperature_field), :domain) ? temperature_field.domain : nothing
     for l in 0:spectral.config.lmax
         for m in -l:l
-            dT_dr = get_spectral_radial_derivative(spectral, l, abs(m), rb)
+            dT_dr = get_spectral_radial_derivative(spectral, l, abs(m), rb, location;
+                                                   dr_matrix=dr_matrix, domain=domain)
             # Transform to physical space and add to flux
             # (simplified - actual implementation needs SHTnsKit)
         end
