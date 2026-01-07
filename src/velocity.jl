@@ -454,7 +454,8 @@ end
 
 """
     apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
-                                apply_inner, apply_outer, dr_matrix, domain, r_range, owns_mode)
+                                apply_inner, apply_outer, boundary_values,
+                                dr_matrix, domain, r_range, owns_mode)
 
 Apply stress-free boundary conditions using the tau method for velocity components.
 
@@ -462,7 +463,7 @@ Apply stress-free boundary conditions using the tau method for velocity componen
 For the toroidal velocity potential T in spherical coordinates, the stress-free
 (free-slip) boundary condition requires zero tangential stress at the boundary.
 
-The correct condition is: ∂T/∂r = T/r
+The correct condition is: ∂T/∂r = T/r + boundary_values
 
 This means the target flux at each boundary is NOT zero, but T/r:
 - Inner boundary: target_flux = T[1]/r[1]
@@ -605,7 +606,8 @@ end
 
 """
     apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
-                                   apply_inner, apply_outer, domain, r_range, owns_mode)
+                                   apply_inner, apply_outer, boundary_values,
+                                   domain, r_range, owns_mode)
 
 Apply stress-free boundary conditions using direct substitution.
 
@@ -717,7 +719,8 @@ end
 
 """
     apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
-                                            apply_inner, apply_outer, domain, r_range, owns_mode)
+                                            apply_inner, apply_outer, boundary_values,
+                                            domain, r_range, owns_mode)
 
 Apply flux boundary conditions for proper stress-free boundaries.
 Enforces ∂T/∂r = T/r at boundaries, which corresponds to zero tangential stress.

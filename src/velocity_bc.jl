@@ -75,7 +75,7 @@
 
 """
     apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                      apply_inner, apply_outer,
+                                      apply_inner, apply_outer, boundary_values,
                                       domain, r_range, ws, tid, owns_mode)
 
 Workspace-based version of direct stress-free BC (zero allocation).
@@ -193,7 +193,7 @@ end
 
 """
     apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                               apply_inner, apply_outer,
+                                               apply_inner, apply_outer, boundary_values,
                                                domain, r_range, ws, tid, owns_mode)
 
 Workspace-based version of physical stress BC (zero allocation).
@@ -283,7 +283,7 @@ end
 
 """
     apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                   apply_inner, apply_outer, dr_matrix,
+                                   apply_inner, apply_outer, boundary_values, dr_matrix,
                                    domain, r_range, ws, tid, owns_mode)
 
 Workspace-based version of tau method stress-free BC (zero allocation).
@@ -293,7 +293,7 @@ Uses pre-allocated buffers for profiles, derivatives, and corrections.
 For the toroidal velocity potential T in spherical coordinates, the stress-free
 (free-slip) boundary condition requires zero tangential stress at the boundary.
 
-The correct condition is: ∂T/∂r = T/r
+The correct condition is: ∂T/∂r = T/r + boundary_values
 
 This means the target flux at each boundary is NOT zero, but T/r:
 - Inner boundary: target_flux = T[1]/r[1]
