@@ -36,8 +36,11 @@ import ..BoundaryConditions: FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGN
 import ..BoundaryConditions: get_rank, get_comm
 
 # These will be available when the module is loaded in the context of GeoDynamo
-# For now, we define a simplified type interface that works with any spectral field
-const SHTnsSpectralField{T} = Any  # Will be overridden when proper types are available
+# Define an abstract type for spectral fields - actual implementations will be duck-typed
+abstract type AbstractSpectralField{T} end
+
+# Type alias for compatibility - functions accept Any to allow duck typing
+const SHTnsSpectralField = Any
 
 # ================================================================================
 # Topography Coupling Enable/Disable Flags

@@ -92,8 +92,8 @@ end
 
 Apply velocity topography corrections at a specific boundary.
 """
-function apply_velocity_correction_at_boundary!(poloidal::SHTnsSpectralField{T},
-                                                toroidal::SHTnsSpectralField{T},
+function apply_velocity_correction_at_boundary!(poloidal,
+                                                toroidal,
                                                 topo_field::TopographyField{T},
                                                 gaunt::GauntTensorCache{T},
                                                 ε::T,
@@ -405,53 +405,53 @@ function lm_to_spectral_index(l::Int, m::Int, config)
 end
 
 """
-    get_spectral_boundary_value(field::SHTnsSpectralField{T}, l::Int, m::Int) where T
+    get_spectral_boundary_value(field, l::Int, m::Int)
 
 Get the boundary value of spectral coefficient (l, m).
 """
-function get_spectral_boundary_value(field::SHTnsSpectralField{T}, l::Int, m::Int) where T
+function get_spectral_boundary_value(field, l::Int, m::Int)
     idx = lm_to_spectral_index(l, abs(m), field.config)
     if idx <= 0 || idx > field.nlm
-        return zero(Complex{T})
+        return zero(ComplexF64)
     end
 
     # Get from boundary_values (row 1 = inner, row 2 = outer)
     # For now, return the outer boundary value (most common case)
     val_real = field.boundary_values[2, idx]
-    val_imag = zero(T)  # Boundary values are typically real
+    val_imag = 0.0  # Boundary values are typically real
 
     if m >= 0
         return complex(val_real, val_imag)
     else
         # Conjugate relation for negative m
-        phase = iseven(-m) ? 1 : -1
-        return T(phase) * conj(complex(val_real, val_imag))
+        phase = iseven(-m) ? 1.0 : -1.0
+        return phase * conj(complex(val_real, val_imag))
     end
 end
 
 """
-    get_spectral_radial_derivative(field::SHTnsSpectralField{T}, l::Int, m::Int, r::T) where T
+    get_spectral_radial_derivative(field, l::Int, m::Int, r)
 
 Estimate the radial derivative of spectral coefficient (l, m) at radius r.
 
 This is an approximation using finite differences from the field data.
 """
-function get_spectral_radial_derivative(field::SHTnsSpectralField{T}, l::Int, m::Int, r::T) where T
+function get_spectral_radial_derivative(field, l::Int, m::Int, r)
     # This is a placeholder - actual implementation needs access to radial grid
     # For now, return a simple estimate based on boundary value
     bv = get_spectral_boundary_value(field, l, m)
 
     # Simple estimate: derivative ~ value / shell_thickness
     # This should be replaced with proper finite difference from radial data
-    return bv / T(0.65)  # Assuming typical shell thickness
+    return bv / 0.65  # Assuming typical shell thickness
 end
 
 """
-    is_stress_free_boundary(field::SHTnsSpectralField, location::BoundaryLocation) -> Bool
+    is_stress_free_boundary(field, location::BoundaryLocation) -> Bool
 
 Check if the field has stress-free boundary conditions at the given location.
 """
-function is_stress_free_boundary(field::SHTnsSpectralField, location::BoundaryLocation)
+function is_stress_free_boundary(field, location::BoundaryLocation)
     # Check BC type - NEUMANN for toroidal typically means stress-free
     bc_array = location == INNER_BOUNDARY ? field.bc_type_inner : field.bc_type_outer
 

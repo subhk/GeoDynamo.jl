@@ -93,7 +93,7 @@ end
 
 Apply thermal topography corrections at a specific boundary.
 """
-function apply_thermal_correction_at_boundary!(spectral::SHTnsSpectralField{T},
+function apply_thermal_correction_at_boundary!(spectral,
                                                topo_field::TopographyField{T},
                                                gaunt::GauntTensorCache{T},
                                                ε::T,
@@ -315,18 +315,18 @@ end
 # ================================================================================
 
 """
-    estimate_second_radial_derivative(field::SHTnsSpectralField{T}, l::Int, m::Int, r::T) where T
+    estimate_second_radial_derivative(field, l::Int, m::Int, r)
 
 Estimate the second radial derivative of spectral coefficient (l, m) at radius r.
 
 This is an approximation - for accurate implementation, access to the full
 radial grid is needed.
 """
-function estimate_second_radial_derivative(field::SHTnsSpectralField{T}, l::Int, m::Int, r::T) where T
+function estimate_second_radial_derivative(field, l::Int, m::Int, r)
     # Simple estimate based on boundary value and shell geometry
     # ∂_rr Θ ≈ -ℓ(ℓ+1)/r² Θ for spherical harmonics (from Laplacian)
     bv = get_spectral_boundary_value(field, l, m)
-    ll_factor = T(l * (l + 1))
+    ll_factor = Float64(l * (l + 1))
 
     # This is the radial part of the spherical Laplacian estimate
     return -ll_factor / r^2 * bv

@@ -94,8 +94,8 @@ Apply magnetic topography corrections at a specific boundary.
 # Arguments
 - `bc_type`: :insulating_inner, :insulating_outer, or :conducting_inner
 """
-function apply_magnetic_correction_at_boundary!(poloidal::SHTnsSpectralField{T},
-                                                toroidal::SHTnsSpectralField{T},
+function apply_magnetic_correction_at_boundary!(poloidal,
+                                                toroidal,
                                                 topo_field::TopographyField{T},
                                                 gaunt::GauntTensorCache{T},
                                                 ε::T,
