@@ -219,7 +219,7 @@ export compute_neumann_thermal_correction
 
 # Stefan condition
 export StefanState
-export initialize_stefan_state, update_icb_topography!
+export initialize_stefan_state!, update_icb_topography!
 export compute_stefan_flux
 
 # High-level interface
