@@ -385,6 +385,9 @@ function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
     ws = get_velocity_workspace(T)
     tid = Threads.threadid()
 
+    # Flux corrections can be stored in boundary_values for Neumann BCs
+    bc_values = field.boundary_values
+
     # Use GLOBAL loop bounds to ensure all processes call Allreduce same number of times
     for lm_idx in 1:nlm_total
         # Check if this process owns this lm mode
@@ -407,36 +410,42 @@ function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
             if method == :tau
                 if ws !== nothing
                     apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                                   apply_inner, apply_outer, dr_matrix,
+                                                   apply_inner, apply_outer, bc_values, dr_matrix,
                                                    domain, r_range, ws, tid, owns_mode)
                 else
                     apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
-                                               apply_inner, apply_outer, dr_matrix, domain, r_range, owns_mode)
+                                               apply_inner, apply_outer, bc_values, dr_matrix, domain, r_range, owns_mode)
                 end
             elseif method == :direct
                 if ws !== nothing
                     apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                                      apply_inner, apply_outer, domain, r_range, ws, tid, owns_mode)
+                                                      apply_inner, apply_outer, bc_values,
+                                                      domain, r_range, ws, tid, owns_mode)
                 else
                     apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
-                                                   apply_inner, apply_outer, domain, r_range, owns_mode)
+                                                   apply_inner, apply_outer, bc_values,
+                                                   domain, r_range, owns_mode)
                 end
             elseif method == :physical_stress
                 if ws !== nothing
                     apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                                               apply_inner, apply_outer, domain, r_range, ws, tid, owns_mode)
+                                                               apply_inner, apply_outer, bc_values,
+                                                               domain, r_range, ws, tid, owns_mode)
                 else
                     apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
-                                                           apply_inner, apply_outer, domain, r_range, owns_mode)
+                                                           apply_inner, apply_outer, bc_values,
+                                                           domain, r_range, owns_mode)
                 end
             else
                 @warn "Flux BC method $method not implemented for velocity, using :physical_stress"
                 if ws !== nothing
                     apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                                               apply_inner, apply_outer, domain, r_range, ws, tid, owns_mode)
+                                                               apply_inner, apply_outer, bc_values,
+                                                               domain, r_range, ws, tid, owns_mode)
                 else
                     apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
-                                                           apply_inner, apply_outer, domain, r_range, owns_mode)
+                                                           apply_inner, apply_outer, bc_values,
+                                                           domain, r_range, owns_mode)
                 end
             end
         end
@@ -468,6 +477,7 @@ the same number of times by all processes (prevents deadlock).
 """
 function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
                                      apply_inner, apply_outer,
+                                     boundary_values::AbstractMatrix,
                                      dr_matrix::BandedMatrix, domain, r_range, owns_mode::Bool)
     T = eltype(spec_real)
     nr = domain.N
@@ -503,16 +513,19 @@ function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
     current_flux_inner_real = dprofile_real[1]
     current_flux_outer_real = dprofile_real[nr]
 
-    # Target flux for stress-free: ∂T/∂r = T/r
+    # Target flux for stress-free: ∂T/∂r = T/r + boundary_values (if provided)
     # Handle r=0 case (ball geometry) - at r=0, regularity enforces T=0 for l≥1
+    rhs_inner = boundary_values[1, lm_idx]
+    rhs_outer = boundary_values[2, lm_idx]
+
     if r[1] < 1e-14
         # At r=0, the condition ∂T/∂r = T/r is indeterminate (0/0)
         # By L'Hôpital's rule and regularity, we use ∂T/∂r = 0 at r=0
-        target_flux_inner_real = T(0)
+        target_flux_inner_real = T(0) + rhs_inner
     else
-        target_flux_inner_real = profile_real[1] / r[1]
+        target_flux_inner_real = profile_real[1] / r[1] + rhs_inner
     end
-    target_flux_outer_real = profile_real[nr] / r[nr]
+    target_flux_outer_real = profile_real[nr] / r[nr] + rhs_outer
 
     # Compute tau corrections to enforce ∂T/∂r = T/r
     if apply_inner && apply_outer
@@ -631,6 +644,7 @@ the same number of times by all processes (prevents deadlock).
 """
 function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
                                         apply_inner, apply_outer,
+                                        boundary_values::AbstractMatrix,
                                         domain, r_range, owns_mode::Bool)
     T = eltype(spec_real)
     nr = domain.N
@@ -661,6 +675,7 @@ function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
     # This ensures zero tangential stress at boundaries
     if apply_inner
         Δr = r[2] - r[1]
+        rhs_inner = boundary_values[1, lm_idx]
         # Handle r[1] = 0 case (ball geometry) - use L'Hôpital's rule limit
         if r[1] < 1e-14
             # At r=0, regularity requires T → 0 for smooth fields
@@ -671,7 +686,7 @@ function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
             end
         else
             scaling_factor = 1.0 / (1.0 + Δr / r[1])
-            profile_real[1] = profile_real[2] * scaling_factor
+            profile_real[1] = (profile_real[2] - rhs_inner * Δr) * scaling_factor
             if any(x -> abs(x) > 1e-12, profile_imag)
                 profile_imag[1] = profile_imag[2] * scaling_factor
             end
@@ -680,8 +695,9 @@ function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
 
     if apply_outer
         Δr = r[nr] - r[nr-1]
+        rhs_outer = boundary_values[2, lm_idx]
         scaling_factor = 1.0 / (1.0 - Δr / r[nr])
-        profile_real[nr] = profile_real[nr-1] * scaling_factor
+        profile_real[nr] = (profile_real[nr-1] + rhs_outer * Δr) * scaling_factor
         if any(x -> abs(x) > 1e-12, profile_imag)
             profile_imag[nr] = profile_imag[nr-1] * scaling_factor
         end
@@ -722,6 +738,7 @@ the same number of times by all processes (prevents deadlock).
 """
 function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
                                                  apply_inner, apply_outer,
+                                                 boundary_values::AbstractMatrix,
                                                  domain, r_range, owns_mode::Bool)
     T = eltype(spec_real)
     nr = domain.N
@@ -754,6 +771,7 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
 
     if apply_inner  # apply_inner already checks 1 in r_range
         Δr = r[2] - r[1]
+        rhs_inner = boundary_values[1, lm_idx]
         # Handle r[1] = 0 case (ball geometry) - use L'Hôpital's rule limit
         if r[1] < 1e-14
             # At r=0, regularity requires T → 0 for smooth fields
@@ -764,7 +782,7 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
             end
         else
             scaling_factor = 1.0 / (1.0 + Δr / r[1])
-            profile_real[1] = profile_real[2] * scaling_factor
+            profile_real[1] = (profile_real[2] - rhs_inner * Δr) * scaling_factor
             if any(x -> abs(x) > 1e-12, profile_imag)
                 profile_imag[1] = profile_imag[2] * scaling_factor
             end
@@ -773,10 +791,11 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
 
     if apply_outer  # apply_outer already checks nr in r_range
         Δr = r[nr] - r[nr-1]
+        rhs_outer = boundary_values[2, lm_idx]
         # For outer boundary: (T[N] - T[N-1])/Δr = T[N]/r[N]
         # Solve for T[N]: T[N] = T[N-1] / (1 - Δr/r[N])
         scaling_factor = 1.0 / (1.0 - Δr / r[nr])
-        profile_real[nr] = profile_real[nr-1] * scaling_factor
+        profile_real[nr] = (profile_real[nr-1] + rhs_outer * Δr) * scaling_factor
 
         if any(x -> abs(x) > 1e-12, profile_imag)
             profile_imag[nr] = profile_imag[nr-1] * scaling_factor
