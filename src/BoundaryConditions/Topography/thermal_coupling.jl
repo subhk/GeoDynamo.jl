@@ -284,9 +284,12 @@ The correction involves:
 3. Conductive correction: h · ∂_rr T_cond
 """
 function compute_neumann_thermal_correction(l::Int, m::Int,
-                                            spectral, topo::TopographyField{T},
+                                            spectral,
+                                            cache::Union{BoundaryDerivativeCache{T}, Nothing},
+                                            topo::TopographyField{T},
                                             gaunt::GauntTensorCache{T},
                                             rb::T,
+                                            location::BoundaryLocation,
                                             config::TopographyCouplingConfig,
                                             dTcond_dr::T,
                                             d2Tcond_dr2::T) where T
@@ -312,7 +315,11 @@ function compute_neumann_thermal_correction(l::Int, m::Int,
                     G = get_gaunt_tensor(gaunt, l, m, lp, mp, L, M)
                     G_grad = get_gradient_gaunt(gaunt, l, m, lp, mp, L, M)
 
-                    Theta_val = get_spectral_boundary_value(spectral, lp, mp)
+                    if cache === nothing
+                        Theta_val = get_spectral_boundary_value(spectral, lp, mp, location)
+                    else
+                        Theta_val = get_cache_value(cache, lp, mp, location)
+                    end
 
                     # Slope term: -G^{(∇)} · Θ
                     if config.include_slope_terms && abs(G_grad) > 1e-15
@@ -324,18 +331,20 @@ function compute_neumann_thermal_correction(l::Int, m::Int,
                         # Estimate ∂_rr Θ from available data
                         # This is an approximation - actual implementation would
                         # need access to the radial grid
-                        d2Theta_dr2 = estimate_second_radial_derivative(spectral, lp, mp, rb)
+                        if cache === nothing
+                            d2Theta_dr2 = estimate_second_radial_derivative(spectral, lp, mp, rb)
+                        else
+                            d2Theta_dr2 = get_cache_d2(cache, lp, mp, location)
+                        end
                         correction += h_LM * G * d2Theta_dr2
                     end
                 end
             end
 
-            # Conductive profile correction for (ℓ=0, m=0)
-            if l == 0 && m == 0
-                G_00 = get_gaunt_tensor(gaunt, 0, 0, 0, 0, L, M)
-                if abs(G_00) > 1e-15 && config.include_shift_terms
-                    correction -= h_LM * G_00 * d2Tcond_dr2
-                end
+            # Conductive profile correction
+            G_00 = get_gaunt_tensor(gaunt, l, m, 0, 0, L, M)
+            if abs(G_00) > 1e-15 && config.include_shift_terms
+                correction -= h_LM * G_00 * d2Tcond_dr2
             end
         end
     end

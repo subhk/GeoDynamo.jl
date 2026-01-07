@@ -224,6 +224,31 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
         return flux
     end
 
+    # Optional derivative caches for accurate shift terms
+    cache_ic = nothing
+    cache_oc = nothing
+    if hasfield(typeof(temperature_ic), :spectral) &&
+       hasfield(typeof(temperature_ic), :dr_matrix) &&
+       hasfield(typeof(temperature_ic), :domain)
+        cache_ic = compute_boundary_derivative_cache(temperature_ic.spectral,
+                                                     temperature_ic.dr_matrix,
+                                                     temperature_ic.d2r_matrix,
+                                                     temperature_ic.domain)
+    elseif temperature_ic isa SHTnsSpectralField
+        cache_ic = nothing
+    end
+
+    if hasfield(typeof(temperature_oc), :spectral) &&
+       hasfield(typeof(temperature_oc), :dr_matrix) &&
+       hasfield(typeof(temperature_oc), :domain)
+        cache_oc = compute_boundary_derivative_cache(temperature_oc.spectral,
+                                                     temperature_oc.dr_matrix,
+                                                     temperature_oc.d2r_matrix,
+                                                     temperature_oc.domain)
+    elseif temperature_oc isa SHTnsSpectralField
+        cache_oc = nothing
+    end
+
     # Add topography corrections to normal derivative
     for l in 0:lmax
         for m in -l:l
@@ -259,23 +284,38 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                         # Slope term: -∇_H h · ∇_H T
                         if config.include_slope_terms && abs(G_grad) > 1e-15
                             # For outer core
-                            Theta_oc = get_spectral_coefficient(temperature_oc, lp, mp)
+                            if cache_oc === nothing
+                                Theta_oc = get_spectral_coefficient(temperature_oc, lp, mp, INNER_BOUNDARY)
+                            else
+                                Theta_oc = get_cache_value(cache_oc, lp, mp, INNER_BOUNDARY)
+                            end
                             correction -= state.k_oc * G_grad / ri^2 * Theta_oc
 
                             # For inner core
-                            Theta_ic = get_spectral_coefficient(temperature_ic, lp, mp)
+                            if cache_ic === nothing
+                                Theta_ic = get_spectral_coefficient(temperature_ic, lp, mp, INNER_BOUNDARY)
+                            else
+                                Theta_ic = get_cache_value(cache_ic, lp, mp, INNER_BOUNDARY)
+                            end
                             correction += state.k_ic * G_grad / ri^2 * Theta_ic
                         end
 
                         # Shift term: h · ∂_rr T
                         if config.include_shift_terms && abs(G) > 1e-15
-                            # Second derivatives (approximated)
+                            # Second derivatives (use cache when available)
                             ll_factor = T(lp * (lp + 1))
-                            Theta_oc = get_spectral_coefficient(temperature_oc, lp, mp)
-                            Theta_ic = get_spectral_coefficient(temperature_ic, lp, mp)
-
-                            d2T_oc = -ll_factor / ri^2 * Theta_oc
-                            d2T_ic = -ll_factor / ri^2 * Theta_ic
+                            if cache_oc === nothing
+                                Theta_oc = get_spectral_coefficient(temperature_oc, lp, mp, INNER_BOUNDARY)
+                                d2T_oc = -ll_factor / ri^2 * Theta_oc
+                            else
+                                d2T_oc = get_cache_d2(cache_oc, lp, mp, INNER_BOUNDARY)
+                            end
+                            if cache_ic === nothing
+                                Theta_ic = get_spectral_coefficient(temperature_ic, lp, mp, INNER_BOUNDARY)
+                                d2T_ic = -ll_factor / ri^2 * Theta_ic
+                            else
+                                d2T_ic = get_cache_d2(cache_ic, lp, mp, INNER_BOUNDARY)
+                            end
 
                             correction -= state.k_oc * G * d2T_oc
                             correction += state.k_ic * G * d2T_ic
@@ -284,7 +324,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                 end
             end
 
-            flux[lm_idx] += ε * h_LM * correction
+            flux[lm_idx] += ε * correction
         end
     end
 
@@ -522,7 +562,8 @@ end
 
 Get spectral coefficient (l, m) from a field.
 """
-function get_spectral_coefficient(field, l::Int, m::Int)
+function get_spectral_coefficient(field, l::Int, m::Int,
+                                  location::BoundaryLocation=OUTER_BOUNDARY)
     if hasfield(typeof(field), :spectral)
         spectral = field.spectral
     elseif field isa SHTnsSpectralField
@@ -531,7 +572,7 @@ function get_spectral_coefficient(field, l::Int, m::Int)
         return zero(Complex{Float64})
     end
 
-    return get_spectral_boundary_value(spectral, l, m)
+    return get_spectral_boundary_value(spectral, l, m, location)
 end
 
 # ================================================================================
