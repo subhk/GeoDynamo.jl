@@ -141,7 +141,7 @@ function apply_velocity_correction_at_boundary!(poloidal,
             # With topography: ℓ(ℓ+1)/r² P + ε * correction = 0
             lm_idx = lm_to_spectral_index(l, m, poloidal.config)
             if lm_idx > 0 && lm_idx <= size(P_bv, 2)
-                P_bv[bc_row, lm_idx] -= ε * real(imp_corr)
+                P_bv[bc_row, lm_idx] -= ε * real(imp_corr) * rb^2 / (l * (l + 1))
             end
 
             # Apply toroidal correction if stress-free

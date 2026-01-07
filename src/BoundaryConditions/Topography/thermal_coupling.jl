@@ -257,7 +257,7 @@ function compute_dirichlet_thermal_correction(l::Int, m::Int,
             # Conductive profile correction
             G_00 = get_gaunt_tensor(gaunt, l, m, 0, 0, L, M)
             if abs(G_00) > 1e-15
-                correction -= h_LM * G_00 * dTcond_dr
+                correction += h_LM * G_00 * dTcond_dr
             end
         end
     end
@@ -347,7 +347,7 @@ function compute_neumann_thermal_correction(l::Int, m::Int,
             # Conductive profile correction
             G_00 = get_gaunt_tensor(gaunt, l, m, 0, 0, L, M)
             if abs(G_00) > 1e-15 && config.include_shift_terms
-                correction -= h_LM * G_00 * d2Tcond_dr2
+                correction += h_LM * G_00 * d2Tcond_dr2
             end
         end
     end
