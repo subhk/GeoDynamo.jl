@@ -38,6 +38,7 @@ additional_tests = (
     "shtnskit_roundtrip.jl",
     "ball_roundtrip.jl",
     "ball_finiteness.jl",
+    "stefan_condition_sanity.jl",
 )
 
 previous_setting = haskey(ENV, MPI_FINALIZE_KEY) ? ENV[MPI_FINALIZE_KEY] : nothing
