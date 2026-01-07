@@ -269,9 +269,10 @@ With topography corrections:
       \right] = 0}
 ```
 
-### ICB Conducting Condition
+### ICB Insulating Condition
 
-At the ICB, the inner core has finite electrical conductivity. Additional terms involving the toroidal field gradient appear:
+For an insulating inner core, the flat-sphere condition is
+``(\partial_r - \ell/r_i) P_{\ell m} = 0`` and ``T_{\ell m}=0``, with topography couplings:
 
 ```math
 \left(\partial_r - \frac{\ell}{r_i}\right) P_{\ell m}
