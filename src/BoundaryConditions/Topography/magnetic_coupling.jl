@@ -253,7 +253,7 @@ function compute_cmb_insulating_correction(l::Int, m::Int,
 
                 if config.include_slope_terms && abs(G_cross) > 1e-15
                     # Toroidal coupling from tangential matching
-                    P_correction += h_LM * G_cross * T_val / ro^2
+                    P_correction -= h_LM * G_cross * T_val / ro^2
                 end
             end
         end
@@ -349,7 +349,7 @@ function compute_icb_insulating_correction(l::Int, m::Int,
                 end
 
                 if config.include_slope_terms && abs(G_cross) > 1e-15
-                    P_correction += h_LM * G_cross * T_val / ri^2
+                    P_correction -= h_LM * G_cross * T_val / ri^2
                 end
             end
         end
@@ -440,7 +440,7 @@ function assemble_magnetic_boundary_operator(l::Int, topo::TopographyField{T},
                         # Add slope term (toroidal coupling)
                         key_T = (lp, mp, :T)
                         coeff = get(operator, key_T, zero(Complex{T}))
-                        operator[key_T] = coeff + ε * h_LM * G_cross / rb^2
+                        operator[key_T] = coeff - ε * h_LM * G_cross / rb^2
                     end
                 end
             end

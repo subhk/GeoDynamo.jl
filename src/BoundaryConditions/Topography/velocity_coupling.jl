@@ -18,7 +18,24 @@
 #
 # ================================================================================
 
-import ...apply_derivative_matrix!
+# Local helper for banded matrix multiplication (avoids import cycle)
+function _apply_banded_matrix!(output::Vector{T}, matrix, input::Vector{T}) where T
+    N = size(matrix.data, 2)
+    bandwidth = (size(matrix.data, 1) - 1) ÷ 2
+
+    fill!(output, zero(T))
+
+    @inbounds for j in 1:N
+        for i in max(1, j - bandwidth):min(N, j + bandwidth)
+            band_row = bandwidth + 1 + i - j
+            if 1 <= band_row <= size(matrix.data, 1)
+                output[i] += matrix.data[band_row, j] * input[j]
+            end
+        end
+    end
+
+    return output
+end
 
 # ================================================================================
 # Main Interface
@@ -455,12 +472,15 @@ end
 Compute the radial derivative of spectral coefficient (l, m) at a boundary.
 Requires access to the radial derivative matrix and domain.
 """
-function get_spectral_radial_derivative(field::SHTnsSpectralField{T}, l::Int, m::Int, r::T,
+function get_spectral_radial_derivative(field, l::Int, m::Int, r,
                                         location::BoundaryLocation=OUTER_BOUNDARY;
-                                        dr_matrix=nothing, domain=nothing) where T
+                                        dr_matrix=nothing, domain=nothing)
     if dr_matrix === nothing || domain === nothing
         throw(ArgumentError("get_spectral_radial_derivative requires dr_matrix and domain; use compute_boundary_derivative_cache and get_cache_d1"))
     end
+
+    # Infer element type from field data
+    T = eltype(parent(field.data_real))
 
     idx = lm_to_spectral_index(l, abs(m), field.config)
     if idx <= 0 || idx > field.nlm
@@ -494,8 +514,8 @@ function get_spectral_radial_derivative(field::SHTnsSpectralField{T}, l::Int, m:
 
     dprofile_real = zeros(T, nr)
     dprofile_imag = zeros(T, nr)
-    apply_derivative_matrix!(dprofile_real, dr_matrix, profile_real)
-    apply_derivative_matrix!(dprofile_imag, dr_matrix, profile_imag)
+    _apply_banded_matrix!(dprofile_real, dr_matrix, profile_real)
+    _apply_banded_matrix!(dprofile_imag, dr_matrix, profile_imag)
 
     idx_r = location == INNER_BOUNDARY ? 1 : nr
     val = complex(dprofile_real[idx_r], dprofile_imag[idx_r])
