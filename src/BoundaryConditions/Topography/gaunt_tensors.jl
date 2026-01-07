@@ -187,17 +187,17 @@ function evaluate_spherical_harmonics_grid(l::Int, m::Int, cache::GauntTensorCac
     lmax_total = cache.lmax + cache.lmax_topo
     coeffs = zeros(Complex{Float64}, lmax_total + 1, lmax_total + 1)
 
-    if m >= 0
-        coeffs[l + 1, m + 1] = 1.0
-    else
-        # For negative m, use conjugate symmetry
-        coeffs[l + 1, -m + 1] = (iseven(m) ? 1.0 : -1.0)
-    end
+    mabs = abs(m)
+    coeffs[l + 1, mabs + 1] = 1.0
 
     # Use SHTnsKit synthesis to get Y_l^m on the grid
     ylm_grid = SHTnsKit.synthesis(cache.sht_config, coeffs; real_output=false)
-
-    return Complex{T}.(ylm_grid)
+    ylm = Complex{T}.(ylm_grid)
+    if m < 0
+        phase = iseven(mabs) ? one(T) : -one(T)
+        return phase .* conj.(ylm)
+    end
+    return ylm
 end
 
 """
@@ -217,16 +217,19 @@ function evaluate_spherical_harmonic_gradient_grid(l::Int, m::Int, cache::GauntT
     lmax_total = cache.lmax + cache.lmax_topo
     coeffs = zeros(Complex{Float64}, lmax_total + 1, lmax_total + 1)
 
-    if m >= 0
-        coeffs[l + 1, m + 1] = 1.0
-    else
-        coeffs[l + 1, -m + 1] = (iseven(m) ? 1.0 : -1.0)
-    end
+    mabs = abs(m)
+    coeffs[l + 1, mabs + 1] = 1.0
 
     # Use SHTnsKit's gradient function if available
     try
         grad_theta, grad_phi = SHTnsKit.SH_to_grad_spat(cache.sht_config, coeffs; real_output=false)
-        return (Complex{T}.(grad_theta), Complex{T}.(grad_phi))
+        grad_theta_t = Complex{T}.(grad_theta)
+        grad_phi_t = Complex{T}.(grad_phi)
+        if m < 0
+            phase = iseven(mabs) ? one(T) : -one(T)
+            return (phase .* conj.(grad_theta_t), phase .* conj.(grad_phi_t))
+        end
+        return (grad_theta_t, grad_phi_t)
     catch e
         # Fallback: compute gradient numerically
         return _compute_gradient_fallback(l, m, cache)
@@ -319,13 +322,12 @@ function compute_gaunt_tensor(l1::Int, m1::Int, l2::Int, m2::Int, L::Int, M::Int
     result = zero(Complex{T})
 
     for i in 1:nlat
-        sin_theta = sin(theta[i])
         w = weights[i]
 
         for j in 1:nlon
             # Y_l1^{m1*} * Y_l2^{m2} * Y_L^M
             integrand = conj(Y1[i, j]) * Y2[i, j] * YL[i, j]
-            result += w * dphi * sin_theta * integrand
+            result += w * dphi * integrand
         end
     end
 
@@ -415,7 +417,7 @@ function compute_cross_gaunt_tensor(l1::Int, m1::Int, l2::Int, m2::Int, L::Int, 
             cross_r = grad2_theta[i, j] * gradL_phi[i, j] - grad2_phi[i, j] * gradL_theta[i, j]
 
             integrand = conj(Y1[i, j]) * cross_r
-            result += w * dphi * sin_theta * integrand
+            result += w * dphi * integrand
         end
     end
 
