@@ -18,6 +18,8 @@
 #
 # ================================================================================
 
+import ...apply_derivative_matrix!
+
 # ================================================================================
 # Main Interface
 # ================================================================================
@@ -148,7 +150,7 @@ function apply_velocity_correction_at_boundary!(poloidal,
                     l, m, p_cache, topo_field, gaunt, rb, location, config
                 )
                 if lm_idx > 0 && lm_idx <= size(T_bv, 2)
-                    T_bv[bc_row, lm_idx] -= ε * real(sf_corr)
+                    T_bv[bc_row, lm_idx] += ε * real(sf_corr)
                 end
             end
 
@@ -446,21 +448,62 @@ function get_spectral_boundary_value(field, l::Int, m::Int,
 end
 
 """
-    get_spectral_radial_derivative(field, l::Int, m::Int, r)
+    get_spectral_radial_derivative(field, l::Int, m::Int, r,
+                                   location::BoundaryLocation=OUTER_BOUNDARY;
+                                   dr_matrix, domain)
 
-Estimate the radial derivative of spectral coefficient (l, m) at radius r.
-
-This is an approximation using finite differences from the field data.
+Compute the radial derivative of spectral coefficient (l, m) at a boundary.
+Requires access to the radial derivative matrix and domain.
 """
-function get_spectral_radial_derivative(field, l::Int, m::Int, r,
-                                        location::BoundaryLocation=OUTER_BOUNDARY)
-    # This is a placeholder - actual implementation needs access to radial grid
-    # For now, return a simple estimate based on boundary value
-    bv = get_spectral_boundary_value(field, l, m, location)
+function get_spectral_radial_derivative(field::SHTnsSpectralField{T}, l::Int, m::Int, r::T,
+                                        location::BoundaryLocation=OUTER_BOUNDARY;
+                                        dr_matrix=nothing, domain=nothing) where T
+    if dr_matrix === nothing || domain === nothing
+        throw(ArgumentError("get_spectral_radial_derivative requires dr_matrix and domain; use compute_boundary_derivative_cache and get_cache_d1"))
+    end
 
-    # Simple estimate: derivative ~ value / shell_thickness
-    # This should be replaced with proper finite difference from radial data
-    return bv / 0.65  # Assuming typical shell thickness
+    idx = lm_to_spectral_index(l, abs(m), field.config)
+    if idx <= 0 || idx > field.nlm
+        return zero(Complex{T})
+    end
+
+    nr = domain.N
+    profile_real = zeros(T, nr)
+    profile_imag = zeros(T, nr)
+    data_real = parent(field.data_real)
+    data_imag = parent(field.data_imag)
+    lm_range = field.pencil.axes_local[1]
+    r_range = field.pencil.axes_local[3]
+
+    if idx in lm_range
+        local_lm = idx - first(lm_range) + 1
+        @inbounds for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(data_real, 3) && r_idx <= nr
+                profile_real[r_idx] = data_real[local_lm, 1, local_r]
+                profile_imag[r_idx] = data_imag[local_lm, 1, local_r]
+            end
+        end
+    end
+
+    comm = get_comm()
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        MPI.Allreduce!(profile_real, MPI.SUM, comm)
+        MPI.Allreduce!(profile_imag, MPI.SUM, comm)
+    end
+
+    dprofile_real = zeros(T, nr)
+    dprofile_imag = zeros(T, nr)
+    apply_derivative_matrix!(dprofile_real, dr_matrix, profile_real)
+    apply_derivative_matrix!(dprofile_imag, dr_matrix, profile_imag)
+
+    idx_r = location == INNER_BOUNDARY ? 1 : nr
+    val = complex(dprofile_real[idx_r], dprofile_imag[idx_r])
+    if m < 0
+        phase = iseven(-m) ? one(T) : -one(T)
+        val = phase * conj(val)
+    end
+    return val
 end
 
 """
