@@ -2,7 +2,7 @@
 # Magnetic Field Boundary Conditions
 # ================================================================================
 
-# Note: This file is included within the BoundaryConditions module
+# Note: This file is included within the bcs module
 # All necessary packages are imported at the module level
 
 """
@@ -1101,7 +1101,7 @@ function magnetic_to_qst_coefficients(B_r, B_theta, B_phi, config)
     end
 end
 
-# Function moved to main BoundaryConditions module to avoid duplication
+# Function moved to main bcs module to avoid duplication
 
 """
     enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)

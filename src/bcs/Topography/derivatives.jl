@@ -2,7 +2,7 @@
 # Boundary Derivative Cache Utilities
 # ================================================================================
 
-# Note: linear_algebra.jl is loaded after BoundaryConditions in the module
+# Note: linear_algebra.jl is loaded after bcs in the module
 # hierarchy, so we keep a local banded-matrix apply here to avoid ordering issues.
 
 """

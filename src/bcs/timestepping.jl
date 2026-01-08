@@ -3,7 +3,7 @@
 # ================================================================================
 
 # Note: BoundaryType, DIRICHLET, NEUMANN are already in scope
-# (this file is included within the BoundaryConditions module)
+# (this file is included within the bcs module)
 
 """
     update_boundary_conditions_for_timestep!(state, current_time::Float64)

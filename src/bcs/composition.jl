@@ -2,7 +2,7 @@
 # Composition Boundary Conditions
 # ================================================================================
 
-# Composition boundary conditions are implemented within the BoundaryConditions module
+# Composition boundary conditions are implemented within the bcs module
 # All required types and functions are available within the module scope
 
 """
@@ -583,7 +583,7 @@ function find_composition_boundary_time_index(boundary_set::BoundaryConditionSet
     return 1  # Fallback
 end
 
-# Function moved to main BoundaryConditions module to avoid duplication
+# Function moved to main bcs module to avoid duplication
 
 """
     get_composition_boundary_data(comp_field)

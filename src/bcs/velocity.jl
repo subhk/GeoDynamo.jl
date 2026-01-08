@@ -805,7 +805,7 @@ function velocity_to_qst_coefficients(v_r, v_theta, v_phi, config)
     return Q_coeffs, S_coeffs, T_coeffs
 end
 
-# Function moved to main BoundaryConditions module to avoid duplication
+# Function moved to main bcs module to avoid duplication
 
 """
     enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=:no_slip)

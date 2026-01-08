@@ -399,7 +399,7 @@ function find_temperature_boundary_time_index(boundary_set::BoundaryConditionSet
     return 1  # Fallback
 end
 
-# Function moved to main BoundaryConditions module to avoid duplication
+# Function moved to main bcs module to avoid duplication
 
 """
     get_temperature_boundary_data(temp_field)

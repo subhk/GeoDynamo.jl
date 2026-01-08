@@ -592,5 +592,5 @@ function compute_boundary_heat_flux(temperature_field, topography::TopographyDat
         end
     end
 
-    return BoundaryConditions.shtns_spectral_to_physical(coeffs, spectral.config, nlat, nlon)
+    return bcs.shtns_spectral_to_physical(coeffs, spectral.config, nlat, nlon)
 end
