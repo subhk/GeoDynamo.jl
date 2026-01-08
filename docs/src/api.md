@@ -20,7 +20,7 @@ Order   = [:module, :constant, :type, :macro, :function]
 ## Boundary Topography
 
 ```@autodocs
-Modules = [GeoDynamo.bcs.Topography]
+Modules = [GeoDynamo.bcs.topography]
 Order   = [:module, :constant, :type, :macro, :function]
 ```
 

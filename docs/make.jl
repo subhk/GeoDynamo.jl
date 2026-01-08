@@ -53,7 +53,7 @@ format = Documenter.HTML(;
 )
 
 makedocs(
-    modules = [GeoDynamo, GeoDynamo.bcs, GeoDynamo.bcs.Topography, GeoDynamo.InitialConditions, GeoDynamo.GeoDynamoShell, GeoDynamo.GeoDynamoBall],
+    modules = [GeoDynamo, GeoDynamo.bcs, GeoDynamo.bcs.topography, GeoDynamo.InitialConditions, GeoDynamo.GeoDynamoShell, GeoDynamo.GeoDynamoBall],
     sitename = "GeoDynamo.jl",
     format = format,
     pages = pages,
