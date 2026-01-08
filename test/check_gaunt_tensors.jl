@@ -1,7 +1,7 @@
 using Random
 using Printf
 
-using BoundaryConditions.Topography
+using bcs.Topography
 
 function gradient_gaunt_numeric(l1::Int, m1::Int, l2::Int, m2::Int, L::Int, M::Int,
                                 cache::GauntTensorCache{T}) where T

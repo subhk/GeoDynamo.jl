@@ -9,7 +9,7 @@ const MPI_FINALIZE_KEY = "GEODYNAMO_TEST_MPI_FINALIZE"
         @test isdefined(GeoDynamo, :SHTnsKitConfig)
         @test isdefined(GeoDynamo, :SimulationState)
         @test isdefined(GeoDynamo, :GeoDynamoParameters)
-        @test isdefined(GeoDynamo, :BoundaryConditions)
+        @test isdefined(GeoDynamo, :bcs)
         @test isdefined(GeoDynamo, :InitialConditions)
         @test isdefined(GeoDynamo, :GeoDynamoShell)
         @test isdefined(GeoDynamo, :GeoDynamoBall)
@@ -26,9 +26,9 @@ const MPI_FINALIZE_KEY = "GEODYNAMO_TEST_MPI_FINALIZE"
     end
 
     @testset "Submodules" begin
-        @test isdefined(GeoDynamo.BoundaryConditions, :FieldType)
-        @test isdefined(GeoDynamo.BoundaryConditions, :BoundaryLocation)
-        @test isdefined(GeoDynamo.BoundaryConditions, :BoundaryType)
+        @test isdefined(GeoDynamo.bcs, :FieldType)
+        @test isdefined(GeoDynamo.bcs, :BoundaryLocation)
+        @test isdefined(GeoDynamo.bcs, :BoundaryType)
     end
 end
 

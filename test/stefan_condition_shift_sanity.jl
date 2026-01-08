@@ -2,7 +2,7 @@ using Test
 using GeoDynamo
 using MPI
 
-const Topo = GeoDynamo.BoundaryConditions.Topography
+const Topo = GeoDynamo.bcs.Topography
 
 struct ShiftDummyConfig
     lmax::Int

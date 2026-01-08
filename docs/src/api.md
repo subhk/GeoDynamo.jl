@@ -13,14 +13,14 @@ Filter = t -> !(t === GeoDynamo.GeoDynamoParameters)
 ## Boundary Conditions
 
 ```@autodocs
-Modules = [GeoDynamo.BoundaryConditions]
+Modules = [GeoDynamo.bcs]
 Order   = [:module, :constant, :type, :macro, :function]
 ```
 
 ## Boundary Topography
 
 ```@autodocs
-Modules = [GeoDynamo.BoundaryConditions.Topography]
+Modules = [GeoDynamo.bcs.Topography]
 Order   = [:module, :constant, :type, :macro, :function]
 ```
 

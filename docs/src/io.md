@@ -316,7 +316,7 @@ step = metadata["current_step"]
 ### Reading Boundary Data
 
 ```julia
-using GeoDynamo.BoundaryConditions
+using GeoDynamo.bcs
 
 # Read boundary data from NetCDF
 bc_data = read_netcdf_boundary_data("boundary_temperature.nc"; precision=Float64)

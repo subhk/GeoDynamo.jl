@@ -5,7 +5,7 @@
 # Run with MPI: mpiexecjl -n 4 julia --project examples/shell_dynamo_demo.jl
 
 using GeoDynamo
-using GeoDynamo.BoundaryConditions: DIRICHLET
+using GeoDynamo.bcs: DIRICHLET
 using MPI
 using Random
 

@@ -70,7 +70,7 @@ See [Time Integration](timestepping.md) for scheme-specific details and recommen
 
 ## Boundary Conditions
 
-Boundary options are set through the integer selectors in `GeoDynamoParameters` and, optionally, via external files loaded through the `BoundaryConditions` module.
+Boundary options are set through the integer selectors in `GeoDynamoParameters` and, optionally, via external files loaded through the `bcs` module.
 
 | Field | Meaning | Built-in options |
 | --- | --- | --- |
@@ -79,7 +79,7 @@ Boundary options are set through the integer selectors in `GeoDynamoParameters` 
 | `i_cmp_bc` | Composition BC | `1` fixed composition. |
 | `i_poloidal_stress_iters` | Extra iterations enforcing stress-free poloidal constraints | Increase when using `i_vel_bc = 2`. |
 
-When a boundary file is present under `config/boundaries/<field>_boundary.nc` (or a custom path passed to `BoundaryConditions.load_boundary_conditions!`), those data override the analytic defaults. Each file provides spherical-harmonic coefficients for the inner and outer surfaces together with a `type` flag per mode (`DIRICHLET`, `NEUMANN`, `ROBIN`). See the docstrings in `src/BoundaryConditions/` for field-specific formats.
+When a boundary file is present under `config/boundaries/<field>_boundary.nc` (or a custom path passed to `bcs.load_boundary_conditions!`), those data override the analytic defaults. Each file provides spherical-harmonic coefficients for the inner and outer surfaces together with a `type` flag per mode (`DIRICHLET`, `NEUMANN`, `ROBIN`). See the docstrings in `src/bcs/` for field-specific formats.
 
 ### Boundary Topography Parameters
 
@@ -122,7 +122,7 @@ After loading parameters, call:
 
 ```julia
 using GeoDynamo
-GeoDynamo.BoundaryConditions.load_boundary_conditions!(
+GeoDynamo.bcs.load_boundary_conditions!(
     velocity = "config/boundaries/velocity_default.nc",
     temperature = "config/boundaries/thermal_flux.nc",
 )

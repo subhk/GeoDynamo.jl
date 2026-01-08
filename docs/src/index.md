@@ -42,7 +42,7 @@ The main pieces of the package are:
 - **Output writer** (`outputs_writer.jl`) – NetCDF writer with MPI support and precision controls.
 - **Optimizations** (`optimizations.jl`) – Performance utilities and profiling support.
 
-### Boundary Conditions (`BoundaryConditions/`)
+### Boundary Conditions (`bcs/`)
 - Modular BC system with thermal, velocity, magnetic, and composition handlers.
 - Supports NetCDF-based, programmatic, and interpolated boundary data.
 - **Topography coupling** for non-spherical CMB/ICB boundaries with Gaunt tensor mode coupling.

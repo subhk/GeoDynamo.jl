@@ -1,7 +1,7 @@
 using Test
 using GeoDynamo
 
-const Topo = GeoDynamo.BoundaryConditions.Topography
+const Topo = GeoDynamo.bcs.Topography
 
 struct DummyConfig
     lmax::Int

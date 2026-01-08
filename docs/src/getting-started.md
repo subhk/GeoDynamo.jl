@@ -140,7 +140,7 @@ The default shell setup enforces:
 - **Magnetic field:** electrically insulating boundaries, matching to potential fields outside the fluid shell.
 - **Composition (optional):** Dirichlet when `i_cmp_bc = 1`.
 
-To override boundary data, create files under `config/boundaries/` (see comments in `src/BoundaryConditions/` for formats) and load them with `BoundaryConditions.load_boundary_conditions!` before `run_simulation!`.
+To override boundary data, create files under `config/boundaries/` (see comments in `src/bcs/` for formats) and load them with `bcs.load_boundary_conditions!` before `run_simulation!`.
 
 ### Initial Conditions
 
@@ -165,7 +165,7 @@ You can also load spectral snapshots via `load_initial_conditions!` or restart f
 ## 7. Typical Workflow
 
 1. **Create or load parameters** (`load_parameters`, `set_parameters!`).
-2. **Set boundary data** if you need non-default conditions (`BoundaryConditions.load_boundary_conditions!`), otherwise the built-ins are applied.
+2. **Set boundary data** if you need non-default conditions (`bcs.load_boundary_conditions!`), otherwise the built-ins are applied.
 3. **Specify initial conditions** using the helpers above or your own spectral fields.
 4. **Initialise transforms** (either `create_shtnskit_config` manually or let `initialize_simulation` handle it).
 5. **Advance in time** with `run_simulation!` or step manually using the timestep utilities.

@@ -4,7 +4,7 @@
 # Run: julia --project examples/ball_mhd_demo.jl
 
 using GeoDynamo
-using GeoDynamo.BoundaryConditions: DIRICHLET
+using GeoDynamo.bcs: DIRICHLET
 using Random
 
 println("Setting up ball MHD dynamo simulation...")
