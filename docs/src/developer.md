@@ -37,8 +37,8 @@ GeoDynamo.jl/
 │   ├── gpu_backend.jl            # GPU acceleration support (experimental)
 │   │
 │   │   # Boundary Conditions
-│   ├── BoundaryConditions/
-│   │   ├── BoundaryConditions.jl # Main BC module with config caching
+│   ├── bcs/
+│   │   ├── bcs.jl               # Main BC module with config caching
 │   │   ├── common.jl             # Shared BC utilities and types
 │   │   ├── thermal.jl            # Thermal boundary conditions
 │   │   ├── velocity.jl           # Velocity boundary conditions
@@ -100,9 +100,9 @@ The CI workflow publishes the generated site to `gh-pages`. To preview locally, 
 
 ## Boundary Conditions
 
-Boundary definitions live under `src/BoundaryConditions/`. To add a new boundary type:
+Boundary definitions live under `src/bcs/`. To add a new boundary type:
 
-1. Extend the relevant `BoundaryConditions.*` module to parse your data source.
+1. Extend the relevant `bcs.*` module to parse your data source.
 2. Update `outputs_writer.jl` if you want the new fields recorded in NetCDF.
 3. Document the format in [Data Output & Restart Files](io.md).
 
