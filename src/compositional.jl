@@ -544,7 +544,7 @@ function set_composition_boundary_conditions!(comp_field::SHTnsCompositionField{
     end
 end
 
-# Note: NetCDF boundary condition functions moved to src/BoundaryConditions/composition.jl
+# Note: NetCDF boundary condition functions moved to src/bcs/composition.jl
 
 # ================================================================================
 # Export functions
@@ -556,6 +556,6 @@ end
 # export zero_composition_work_arrays!
 # export set_composition_ic!, set_composition_boundary_conditions!
 
-# Note: File-based boundary condition functions moved to src/BoundaryConditions/composition.jl
+# Note: File-based boundary condition functions moved to src/bcs/composition.jl
 
-# Note: Boundary condition exports moved to src/BoundaryConditions/composition.jl
+# Note: Boundary condition exports moved to src/bcs/composition.jl

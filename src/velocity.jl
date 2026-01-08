@@ -499,7 +499,7 @@ function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
     end
 
     # MPI gather to get complete profile (ALL processes call this for synchronization)
-    comm = BoundaryConditions.get_comm()
+    comm = bcs.get_comm()
     if comm !== nothing && MPI.Comm_size(comm) > 1
         Allreduce!(profile_real, MPI.SUM, comm)
         Allreduce!(profile_imag, MPI.SUM, comm)
@@ -667,7 +667,7 @@ function apply_velocity_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
     end
 
     # MPI gather (ALL processes call this for synchronization)
-    comm = BoundaryConditions.get_comm()
+    comm = bcs.get_comm()
     if comm !== nothing && MPI.Comm_size(comm) > 1
         Allreduce!(profile_real, MPI.SUM, comm)
         Allreduce!(profile_imag, MPI.SUM, comm)
@@ -762,7 +762,7 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
     end
 
     # MPI gather (ALL processes call this for synchronization)
-    comm = BoundaryConditions.get_comm()
+    comm = bcs.get_comm()
     if comm !== nothing && MPI.Comm_size(comm) > 1
         Allreduce!(profile_real, MPI.SUM, comm)
         Allreduce!(profile_imag, MPI.SUM, comm)
@@ -961,7 +961,7 @@ function validate_stress_free_boundary(v_r, v_theta, v_phi, r_val, theta, phi; t
 
     # Compute typical velocity magnitude
     v_magnitude = sqrt.(v_theta.^2 .+ v_phi.^2)
-    typical_v = BoundaryConditions._Statistics.mean(v_magnitude[v_magnitude .> 1e-10])
+    typical_v = bcs._Statistics.mean(v_magnitude[v_magnitude .> 1e-10])
 
     # Maximum stress (primarily checking v_r = 0 for now)
     max_stress = maximum(abs, v_r)
@@ -1736,7 +1736,7 @@ function add_lorentz_force!(fields::SHTnsVelocityFields{T},
 end
 
 
-# Note: Boundary condition functions moved to src/BoundaryConditions/velocity.jl
+# Note: Boundary condition functions moved to src/bcs/velocity.jl
 
 
 # ===========================================

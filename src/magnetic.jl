@@ -130,8 +130,8 @@
 #
 # ================================================================================
 
-import .BoundaryConditions
-import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
+import .bcs
+import .bcs: BoundaryType, DIRICHLET, NEUMANN
 
 mutable struct SHTnsMagneticFields{T}
     # Physical space magnetic field
@@ -171,7 +171,7 @@ mutable struct SHTnsMagneticFields{T}
     imposed_field::Union{SHTnsVectorField{T}, Nothing}
     config::SHTnsKitConfig
     outer_domain::RadialDomain
-    boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
+    boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}
     boundary_interpolation_cache::Dict{String, Any}
     boundary_time_index::Ref{Int}
 end
@@ -306,7 +306,7 @@ function enforce_magnetic_boundary_values!(fields::SHTnsMagneticFields{T}) where
     inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
     outer_idx = has_outer ? (domain.N - first(r_range) + 1) : 0
 
-    dirichlet_code = Int(BoundaryConditions.DIRICHLET)
+    dirichlet_code = Int(bcs.DIRICHLET)
 
     for lm_idx in lm_range
         if lm_idx <= fields.toroidal.nlm
@@ -342,20 +342,20 @@ end
 """
     apply_magnetic_boundary_conditions!(fields; time_index=nothing)
 
-Refresh magnetic boundary data from the BoundaryConditions subsystem and
+Refresh magnetic boundary data from the bcs subsystem and
 enforce the corresponding Dirichlet values in spectral space.
 """
 function apply_magnetic_boundary_conditions!(fields::SHTnsMagneticFields{T};
                                               time_index::Union{Nothing,Int}=nothing) where T
-    boundary_set, _ = BoundaryConditions.get_magnetic_boundary_data(fields)
+    boundary_set, _ = bcs.get_magnetic_boundary_data(fields)
     if boundary_set === nothing
         return fields
     end
 
     if time_index === nothing
-        BoundaryConditions.apply_magnetic_boundary_conditions!(fields)
+        bcs.apply_magnetic_boundary_conditions!(fields)
     else
-        BoundaryConditions.apply_magnetic_boundary_conditions!(fields, time_index)
+        bcs.apply_magnetic_boundary_conditions!(fields, time_index)
     end
 
     enforce_magnetic_boundary_values!(fields)
@@ -1102,4 +1102,4 @@ function compute_magnetic_helicity(mag_fields::SHTnsMagneticFields{T}) where T
 end
 
 
-# Note: Boundary condition functions moved to src/BoundaryConditions/magnetic.jl
+# Note: Boundary condition functions moved to src/bcs/magnetic.jl

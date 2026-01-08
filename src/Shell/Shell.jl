@@ -20,7 +20,7 @@ export create_shell_composition_field, create_shell_magnetic_fields
 export create_shell_hybrid_temperature_boundaries, create_shell_hybrid_composition_boundaries
 export apply_shell_temperature_boundaries!, apply_shell_composition_boundaries!
 
-const BC = GeoDynamo.BoundaryConditions
+const BC = GeoDynamo.bcs
 
 """
     create_shell_radial_domain(nr=i_N) -> RadialDomain
