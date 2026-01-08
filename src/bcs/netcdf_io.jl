@@ -2,7 +2,7 @@
 # NetCDF I/O Functionality for Boundary Conditions
 # ================================================================================
 
-# Note: This file is included within the BoundaryConditions module
+# Note: This file is included within the bcs module
 # All necessary packages are imported at the module level
 
 """
@@ -122,7 +122,7 @@ function write_netcdf_boundary_data(filename::String, boundary_data::BoundaryDat
         
         # Global attributes
         ds.attrib["title"] = "Boundary condition data for $(boundary_data.field_type)"
-        ds.attrib["created_by"] = "GeoDynamo.jl BoundaryConditions module"
+        ds.attrib["created_by"] = "GeoDynamo.jl bcs module"
         ds.attrib["creation_time"] = string(now())
     end
 end

@@ -2,7 +2,7 @@
 # Integration with Field Structures
 # ================================================================================
 
-# Note: This file is included within the BoundaryConditions module
+# Note: This file is included within the bcs module
 # SHTnsKit is imported at the module level
 
 """

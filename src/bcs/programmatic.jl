@@ -2,7 +2,7 @@
 # Programmatic Boundary Condition Generation
 # ================================================================================
 
-# Note: This file is included within the BoundaryConditions module
+# Note: This file is included within the bcs module
 # All necessary packages are imported at the module level
 
 """

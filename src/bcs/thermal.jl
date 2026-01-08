@@ -2,7 +2,7 @@
 # Temperature Boundary Conditions
 # ================================================================================
 
-# Temperature boundary conditions are implemented within the BoundaryConditions module
+# Temperature boundary conditions are implemented within the bcs module
 # All required types and functions are available within the module scope
 
 """
