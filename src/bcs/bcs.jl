@@ -184,8 +184,8 @@ include("magnetic.jl")         # Magnetic field boundary conditions
 include("integration.jl")      # Integration with field structures
 include("timestepping.jl")     # Integration with timestepping
 
-# Topography coupling module
-include("Topography/Topography.jl")  # Boundary topography effects
+# topography coupling module
+include("topography/topography.jl")  # Boundary topography effects
 
 # ================================================================================
 # Unified Interface Functions
@@ -547,14 +547,14 @@ end
 export get_boundary_module_info
 
 # ================================================================================
-# Re-export Topography Module
+# Re-export topography Module
 # ================================================================================
 
-# Make Topography module accessible as bcs.Topography
-using .Topography
+# Make topography module accessible as bcs.topography
+using .topography
 
 # Re-export key topography functions for convenience
-export Topography
+export topography
 export enable_topography!, disable_topography!, is_topography_enabled
 export TopographyCouplingConfig, get_topography_config, set_topography_config!
 export TopographyData, TopographyField

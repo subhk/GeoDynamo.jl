@@ -1,5 +1,5 @@
 # ================================================================================
-# Topography Module - Boundary Topography Coupling for Geodynamo Simulations
+# topography Module - Boundary Topography Coupling for Geodynamo Simulations
 # ================================================================================
 #
 # This module implements boundary topography effects for geodynamo simulations,
@@ -22,7 +22,7 @@
 #
 # ================================================================================
 
-module Topography
+module topography
 
 using LinearAlgebra
 using SHTnsKit
@@ -321,4 +321,4 @@ function print_topography_summary(topography::TopographyData)
     println("╚═══════════════════════════════════════════════════════════════╝")
 end
 
-end # module Topography
+end # module topography
