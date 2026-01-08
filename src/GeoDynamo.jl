@@ -110,7 +110,7 @@ module GeoDynamo
     export set_composition_ic!, set_composition_boundary_conditions!
     export apply_composition_boundary_conditions!, apply_composition_boundary_conditions_spectral!
     
-    # exports BoundaryConditions module
+    # exports bcs module
     export AbstractBoundaryCondition
     export BoundaryLocation, INNER_BOUNDARY, OUTER_BOUNDARY
     export BoundaryType, DIRICHLET, NEUMANN, MIXED, ROBIN
@@ -118,7 +118,7 @@ module GeoDynamo
     export load_boundary_conditions!, update_time_dependent_boundaries!
     export validate_boundary_files, get_current_boundaries, print_boundary_summary
     export get_boundary_module_info
-    # BoundaryConditions SHTnsKit v1.1.15 caching utilities
+    # bcs SHTnsKit v1.1.15 caching utilities
     export clear_bc_shtns_config_cache!, shtns_physical_to_spectral, shtns_spectral_to_physical
     # Topography coupling exports
     export enable_topography!, disable_topography!, is_topography_enabled
@@ -179,7 +179,7 @@ module GeoDynamo
     # Include base modules in dependency order
     include("pencil_decomps.jl")
     include("shtnskit_transforms.jl")  # New SHTnsKit-based transforms (includes SHTnsKitConfig)
-    include("BoundaryConditions/BoundaryConditions.jl")  # Needed before field types import BC enums
+    include("bcs/bcs.jl")  # Needed before field types import BC enums
     include("fields.jl")  # Field/type definitions needed by subsequent modules
     include("shtnskit_field_functions.jl")  # Field-dependent transform functions
     include("linear_algebra.jl")  # Requires RadialDomain/SHTns field types
