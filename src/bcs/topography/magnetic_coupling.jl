@@ -237,6 +237,7 @@ function compute_cmb_insulating_correction(l::Int, m::Int,
                 end
 
                 G = get_gaunt_tensor(gaunt, l, m, lp, mp, L, M)
+                G_grad = get_gradient_gaunt(gaunt, l, m, lp, mp, L, M)
                 G_cross = get_cross_gaunt(gaunt, l, m, lp, mp, L, M)
 
                 # Get field values
@@ -251,9 +252,17 @@ function compute_cmb_insulating_correction(l::Int, m::Int,
                     P_correction += h_LM * G * shift_term
                 end
 
-                if config.include_slope_terms && abs(G_cross) > 1e-15
-                    # Toroidal coupling from tangential matching
-                    P_correction -= h_LM * G_cross * T_val / ro^2
+                if config.include_slope_terms
+                    # Poloidal slope coupling: (∇_H h)·∇_H(∂_r P)
+                    # Uses G^{(∇)} with surface gradient scaling 1/r²
+                    if abs(G_grad) > 1e-15
+                        P_correction -= h_LM * G_grad * dP_dr / ro^2
+                    end
+
+                    # Toroidal coupling from tangential matching: (∇_H h)·(r̂ × ∇_H T)
+                    if abs(G_cross) > 1e-15
+                        P_correction -= h_LM * G_cross * T_val / ro^2
+                    end
                 end
             end
         end
@@ -335,6 +344,7 @@ function compute_icb_insulating_correction(l::Int, m::Int,
                 end
 
                 G = get_gaunt_tensor(gaunt, l, m, lp, mp, L, M)
+                G_grad = get_gradient_gaunt(gaunt, l, m, lp, mp, L, M)
                 G_cross = get_cross_gaunt(gaunt, l, m, lp, mp, L, M)
 
                 P_val = get_cache_value(p_cache, lp, mp, location)
@@ -348,8 +358,17 @@ function compute_icb_insulating_correction(l::Int, m::Int,
                     P_correction += h_LM * G * shift_term
                 end
 
-                if config.include_slope_terms && abs(G_cross) > 1e-15
-                    P_correction -= h_LM * G_cross * T_val / ri^2
+                if config.include_slope_terms
+                    # Poloidal slope coupling: (∇_H h)·∇_H(∂_r P)
+                    # Uses G^{(∇)} with surface gradient scaling 1/r²
+                    if abs(G_grad) > 1e-15
+                        P_correction -= h_LM * G_grad * dP_dr / ri^2
+                    end
+
+                    # Toroidal coupling from tangential matching
+                    if abs(G_cross) > 1e-15
+                        P_correction -= h_LM * G_cross * T_val / ri^2
+                    end
                 end
             end
         end
@@ -422,6 +441,7 @@ function assemble_magnetic_boundary_operator(l::Int, topo::TopographyField{T},
                     end
 
                     G = get_gaunt_tensor(gaunt, l, m, lp, mp, L, M)
+                    G_grad = get_gradient_gaunt(gaunt, l, m, lp, mp, L, M)
                     G_cross = get_cross_gaunt(gaunt, l, m, lp, mp, L, M)
 
                     if config.include_shift_terms && abs(G) > 1e-15
@@ -436,11 +456,20 @@ function assemble_magnetic_boundary_operator(l::Int, topo::TopographyField{T},
                         operator[key_P] = coeff + ε * h_LM * G * T(sign) / rb
                     end
 
-                    if config.include_slope_terms && abs(G_cross) > 1e-15
-                        # Add slope term (toroidal coupling)
-                        key_T = (lp, mp, :T)
-                        coeff = get(operator, key_T, zero(Complex{T}))
-                        operator[key_T] = coeff - ε * h_LM * G_cross / rb^2
+                    if config.include_slope_terms
+                        # Add poloidal slope term: (∇_H h)·∇_H(∂_r P)
+                        if abs(G_grad) > 1e-15
+                            key_dP = (lp, mp, :dP)
+                            coeff = get(operator, key_dP, zero(Complex{T}))
+                            operator[key_dP] = coeff - ε * h_LM * G_grad / rb^2
+                        end
+
+                        # Add toroidal slope term: (∇_H h)·(r̂ × ∇_H T)
+                        if abs(G_cross) > 1e-15
+                            key_T = (lp, mp, :T)
+                            coeff = get(operator, key_T, zero(Complex{T}))
+                            operator[key_T] = coeff - ε * h_LM * G_cross / rb^2
+                        end
                     end
                 end
             end
