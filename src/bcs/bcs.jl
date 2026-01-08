@@ -1,5 +1,5 @@
 # ================================================================================
-# BoundaryConditions Module - Unified Boundary Condition System
+# bcs Module - Unified Boundary Condition System
 # ================================================================================
 #
 # This module provides a unified interface for handling boundary conditions
@@ -47,8 +47,8 @@
 # FILE ORGANIZATION
 # ================================================================================
 #
-# BoundaryConditions/
-# ├── BoundaryConditions.jl   # Main module (this file)
+# bcs/
+# ├── bcs.jl                  # Main module (this file)
 # ├── common.jl               # Shared types and utilities
 # ├── netcdf_io.jl            # NetCDF file reading/writing
 # ├── interpolation.jl        # Grid interpolation
@@ -84,7 +84,7 @@
 #
 # ================================================================================
 
-module BoundaryConditions
+module bcs
 
 # Import packages from parent GeoDynamo module scope
 using MPI
@@ -108,7 +108,7 @@ end
 
 # Create a module-like object for compatibility with existing code
 module _Statistics
-    import ..BoundaryConditions: _mean as mean, _std as std
+    import ..bcs: _mean as mean, _std as std
 end
 
 # ================================================================================
@@ -527,7 +527,7 @@ end
 
 function get_boundary_module_info()
     return Dict(
-        "module_name" => "BoundaryConditions",
+        "module_name" => "bcs",
         "version" => "1.1.0",
         "supported_fields" => ["temperature", "composition", "velocity", "magnetic"],
         "supported_formats" => ["netcdf", "programmatic", "hybrid"],
@@ -550,7 +550,7 @@ export get_boundary_module_info
 # Re-export Topography Module
 # ================================================================================
 
-# Make Topography module accessible as BoundaryConditions.Topography
+# Make Topography module accessible as bcs.Topography
 using .Topography
 
 # Re-export key topography functions for convenience
@@ -562,4 +562,4 @@ export GauntTensorCache, precompute_gaunt_tensors!
 export apply_all_topography_corrections!
 export StefanState, initialize_stefan_state!, update_icb_topography!
 
-end # module BoundaryConditions
+end # module bcs
