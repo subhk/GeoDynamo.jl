@@ -16,8 +16,8 @@ using SHTnsKit
 using LinearAlgebra
 using SparseArrays
 
-import .BoundaryConditions
-import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
+import .bcs
+import .bcs: BoundaryType, DIRICHLET, NEUMANN
 
 # scalar_field_common.jl is included in main module - functions are available here
 
@@ -50,7 +50,7 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     bc_type_outer::Vector{Int}         # BC type for each mode at outer
 
     # File-based boundary condition support (matching thermal.jl field order)
-    boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
+    boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}
     boundary_interpolation_cache::Dict{String, Any}
     boundary_time_index::Ref{Int}
 
@@ -169,7 +169,7 @@ function enforce_composition_boundary_values!(field::SHTnsCompositionField{T}) w
     inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
     outer_idx = has_outer ? (field.domain.N - first(r_range) + 1) : 0
 
-    dirichlet = Int(BoundaryConditions.DIRICHLET)
+    dirichlet = Int(bcs.DIRICHLET)
 
     for lm_idx in lm_range
         if lm_idx <= field.config.nlm
@@ -193,7 +193,7 @@ end
 """
     apply_composition_boundary_conditions!(field; time_index=nothing)
 
-Refresh composition boundary values from the BoundaryConditions subsystem and
+Refresh composition boundary values from the bcs subsystem and
 enforce Dirichlet data in spectral space.
 """
 function apply_composition_boundary_conditions!(field::SHTnsCompositionField{T};
@@ -203,9 +203,9 @@ function apply_composition_boundary_conditions!(field::SHTnsCompositionField{T};
     end
 
     if time_index === nothing
-        BoundaryConditions.apply_composition_boundary_conditions!(field)
+        bcs.apply_composition_boundary_conditions!(field)
     else
-        BoundaryConditions.apply_composition_boundary_conditions!(field, time_index)
+        bcs.apply_composition_boundary_conditions!(field, time_index)
     end
 
     enforce_composition_boundary_values!(field)

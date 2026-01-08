@@ -24,7 +24,7 @@
 #
 # ================================================================================
 
-import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
+import .bcs: BoundaryType, DIRICHLET, NEUMANN
 
 # ================================================================================
 # Spectral Field Type

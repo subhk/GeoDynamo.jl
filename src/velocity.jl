@@ -104,8 +104,8 @@
 #
 # ================================================================================
 
-import .BoundaryConditions
-import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
+import .bcs
+import .bcs: BoundaryType, DIRICHLET, NEUMANN
 
 # ================================================================================
 # Velocity Field Data Structures
@@ -172,7 +172,7 @@ mutable struct SHTnsVelocityFields{T}
     # Transform manager removed; SHTnsKit transforms are used directly
     config::SHTnsKitConfig
     domain::RadialDomain
-    boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}
+    boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}
     boundary_interpolation_cache::Dict{String, Any}
     boundary_time_index::Ref{Int}
 end
@@ -243,7 +243,7 @@ function enforce_velocity_boundary_values!(fields::SHTnsVelocityFields{T}) where
     inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
     outer_idx = has_outer ? (domain.N - first(r_range) + 1) : 0
 
-    dirichlet_code = Int(BoundaryConditions.DIRICHLET)
+    dirichlet_code = Int(bcs.DIRICHLET)
 
     for lm_idx in lm_range
         if lm_idx <= fields.toroidal.nlm
@@ -279,20 +279,20 @@ end
 """
     apply_velocity_boundary_conditions!(fields; time_index=nothing)
 
-Refresh velocity boundary data from the BoundaryConditions subsystem and
+Refresh velocity boundary data from the bcs subsystem and
 immediately enforce Dirichlet constraints in spectral space.
 """
 function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T};
                                               time_index::Union{Nothing,Int}=nothing) where T
-    boundary_set, _ = BoundaryConditions.get_velocity_boundary_data(fields)
+    boundary_set, _ = bcs.get_velocity_boundary_data(fields)
     if boundary_set === nothing
         return fields
     end
 
     if time_index === nothing
-        BoundaryConditions.apply_velocity_boundary_conditions!(fields)
+        bcs.apply_velocity_boundary_conditions!(fields)
     else
-        BoundaryConditions.apply_velocity_boundary_conditions!(fields, time_index)
+        bcs.apply_velocity_boundary_conditions!(fields, time_index)
     end
 
     enforce_velocity_boundary_values!(fields)

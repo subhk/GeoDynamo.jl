@@ -55,8 +55,8 @@ using SHTnsKit
 using LinearAlgebra
 using SparseArrays
 
-import .BoundaryConditions
-import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
+import .bcs
+import .bcs: BoundaryType, DIRICHLET, NEUMANN
 
 # scalar_field_common.jl is included in main module - functions are available here
 
@@ -89,7 +89,7 @@ mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
     bc_type_outer::Vector{Int}         # BC type for each mode at outer
 
     # File-based boundary condition support
-    boundary_condition_set::Union{BoundaryConditions.BoundaryConditionSet{T}, Nothing}  # Loaded boundary conditions
+    boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}  # Loaded boundary conditions
     boundary_interpolation_cache::Dict{String, Any}                  # Cached interpolated data
     boundary_time_index::Ref{Int}                                    # Current time index for time-dependent BCs
     
@@ -228,18 +228,18 @@ end
 """
     apply_temperature_boundary_conditions!(field; time_index=nothing)
 
-Refresh cached boundary values through the BoundaryConditions subsystem and
+Refresh cached boundary values through the bcs subsystem and
 enforce Dirichlet data directly in spectral space when appropriate.
 """
 function apply_temperature_boundary_conditions!(field::SHTnsTemperatureField{T};
                                                  time_index::Union{Nothing,Int}=nothing) where T
-    boundary_set, _ = BoundaryConditions.get_temperature_boundary_data(field)
+    boundary_set, _ = bcs.get_temperature_boundary_data(field)
     boundary_set === nothing && return field
 
     if time_index === nothing
-        BoundaryConditions.apply_temperature_boundary_conditions!(field)
+        bcs.apply_temperature_boundary_conditions!(field)
     else
-        BoundaryConditions.apply_temperature_boundary_conditions!(field, time_index)
+        bcs.apply_temperature_boundary_conditions!(field, time_index)
     end
 
     enforce_temperature_boundary_values!(field)
@@ -769,7 +769,7 @@ function set_internal_heating!(temp_field::SHTnsTemperatureField{T},
     end
 end
 
-# Note: NetCDF boundary condition functions moved to src/BoundaryConditions/thermal.jl
+# Note: NetCDF boundary condition functions moved to src/bcs/thermal.jl
 
 # ================================================================================
 # Export functions
@@ -789,6 +789,6 @@ end
 # export compute_temperature_nonlinear!, compute_temperature_batch!
 # export zero_work_arrays!
 
-# Note: File-based boundary condition functions moved to src/BoundaryConditions/thermal.jl
+# Note: File-based boundary condition functions moved to src/bcs/thermal.jl
 
-# Note: Boundary condition exports moved to src/BoundaryConditions/thermal.jl
+# Note: Boundary condition exports moved to src/bcs/thermal.jl

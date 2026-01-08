@@ -91,7 +91,7 @@ using SHTnsKit
 using LinearAlgebra
 using SparseArrays
 
-import .BoundaryConditions: BoundaryType, DIRICHLET, NEUMANN
+import .bcs: BoundaryType, DIRICHLET, NEUMANN
 
 # BandedMatrix type is defined in linear_algebra.jl and available in parent module scope
 
