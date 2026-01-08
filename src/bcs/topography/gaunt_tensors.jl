@@ -85,7 +85,7 @@ Cache for pre-computed Gaunt tensor integrals used in topography mode coupling.
 
 Gaunt integrals arise from triple products of spherical harmonics:
 ```math
-G_{\\ell m, \\ell' m', LM} = \\int Y_\\ell^m Y_{\\ell'}^{m'*} Y_L^{M*} d\\Omega
+G_{\\ell m, \\ell' m', LM} = \\int Y_\\ell^{m*} Y_{\\ell'}^{m'} Y_L^{M} d\\Omega
 ```
 
 This cache stores three types of Gaunt tensors:
