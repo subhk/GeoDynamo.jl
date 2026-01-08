@@ -34,6 +34,7 @@ import ..bcs: BoundaryLocation, INNER_BOUNDARY, OUTER_BOUNDARY
 import ..bcs: BoundaryType, DIRICHLET, NEUMANN
 import ..bcs: FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC
 import ..bcs: get_rank, get_comm
+import ..bcs: shtns_spectral_to_physical
 
 # These will be available when the module is loaded in the context of GeoDynamo
 # Define an abstract type for spectral fields - actual implementations will be duck-typed
