@@ -142,7 +142,7 @@ function check_field_for_nan(field_data::AbstractArray, field_name::String,
 end
 
 """
-    check_spectral_field_for_nan(field::SHTnsSpectralField, field_name::String,
+    check_spectral_field_for_nan(field::SHTnsSpecField, field_name::String,
                                   config::NaNDetectionConfig, step::Int)
 
 Check both real and imaginary parts of a spectral field.
@@ -491,8 +491,8 @@ EAB2 update using Krylov exp/φ1 actions and banded LU for φ1.
 Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
 the same number of times, preventing deadlock with uneven lm distribution.
 """
-function eab2_update_krylov!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
-                             nl_prev::SHTnsSpectralField{T}, domain::RadialDomain,
+function eab2_update_krylov!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
+                             nl_prev::SHTnsSpecField{T}, domain::RadialDomain,
                              diffusivity::Float64, config::SHTnsKitConfig,
                              dt::Float64; m::Int=20, tol::Float64=1e-8) where T
     u_real = parent(u.data_real); u_imag = parent(u.data_imag)
@@ -596,8 +596,8 @@ Same as eab2_update_krylov!, but reuses cached banded A and LU per l.
 Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
 the same number of times, preventing deadlock with uneven lm distribution.
 """
-function eab2_update_krylov_cached!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
-                                    nl_prev::SHTnsSpectralField{T}, alu_map::Dict{Int, Tuple{BandedMatrix{T}, BandedLU{T}}},
+function eab2_update_krylov_cached!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
+                                    nl_prev::SHTnsSpecField{T}, alu_map::Dict{Int, Tuple{BandedMatrix{T}, BandedLU{T}}},
                                     domain::RadialDomain, diffusivity::Float64, config::SHTnsKitConfig,
                                     dt::Float64; m::Int=20, tol::Float64=1e-8) where T
     u_real = parent(u.data_real); u_imag = parent(u.data_imag)
@@ -687,8 +687,8 @@ Apply EAB2 update per (l,m): u^{n+1} = E u^n + dt*phi1*(3/2 nl^n − 1/2 nl^{n�
 Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
 the same number of times, preventing deadlock with uneven lm distribution.
 """
-function eab2_update!(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T},
-                      nl_prev::SHTnsSpectralField{T}, etd::ETDCache{T}, config::SHTnsKitConfig,
+function eab2_update!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
+                      nl_prev::SHTnsSpecField{T}, etd::ETDCache{T}, config::SHTnsKitConfig,
                       dt::Float64) where T
     u_real = parent(u.data_real); u_imag = parent(u.data_imag)
     n_real = parent(nl.data_real); n_imag = parent(nl.data_imag)
@@ -834,13 +834,13 @@ function banded_to_dense(matrix::BandedMatrix{T}) where T
     return dense
 end
 
-function apply_explicit_operator!(output::SHTnsSpectralField{T},
-                                  input::SHTnsSpectralField{T},
-                                  nonlinear::SHTnsSpectralField{T},
+function apply_explicit_operator!(output::SHTnsSpecField{T},
+                                  input::SHTnsSpecField{T},
+                                  nonlinear::SHTnsSpecField{T},
                                   domain::RadialDomain,
                                   diffusivity::Float64,
                                   dt::Float64;
-                                  nl_prev::Union{SHTnsSpectralField{T},Nothing}=nothing,
+                                  nl_prev::Union{SHTnsSpecField{T},Nothing}=nothing,
                                   matrices::Union{SHTnsImplicitMatrices{T},Nothing}=nothing) where T
 
     if nl_prev !== nothing && matrices !== nothing
@@ -887,8 +887,8 @@ where θ = matrices.theta and L is the diffusivity-scaled linear operator.
 Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
 the same number of times, preventing deadlock with uneven lm distribution.
 """
-function build_rhs_cnab2!(rhs::SHTnsSpectralField{T}, un::SHTnsSpectralField{T},
-                          nl::SHTnsSpectralField{T}, nl_prev::SHTnsSpectralField{T},
+function build_rhs_cnab2!(rhs::SHTnsSpecField{T}, un::SHTnsSpecField{T},
+                          nl::SHTnsSpecField{T}, nl_prev::SHTnsSpecField{T},
                           dt::Float64, matrices::SHTnsImplicitMatrices{T}) where T
     r_real = parent(rhs.data_real); r_imag = parent(rhs.data_imag)
     u_real = parent(un.data_real);  u_imag = parent(un.data_imag)
@@ -983,8 +983,8 @@ function build_rhs_cnab2!(rhs::SHTnsSpectralField{T}, un::SHTnsSpectralField{T},
     return rhs
 end
 
-function solve_implicit_step!(solution::SHTnsSpectralField{T},
-                              rhs::SHTnsSpectralField{T},
+function solve_implicit_step!(solution::SHTnsSpecField{T},
+                              rhs::SHTnsSpecField{T},
                               matrices::SHTnsImplicitMatrices{T}) where T
     sol_real = parent(solution.data_real)
     sol_imag = parent(solution.data_imag)
@@ -1024,8 +1024,8 @@ function solve_implicit_step!(solution::SHTnsSpectralField{T},
 end
 
 
-function compute_timestep_error(new_field::SHTnsSpectralField{T}, 
-                               old_field::SHTnsSpectralField{T}) where T
+function compute_timestep_error(new_field::SHTnsSpecField{T}, 
+                               old_field::SHTnsSpecField{T}) where T
     error = zero(Float64)
     
     # Get local data
@@ -1047,22 +1047,22 @@ function compute_timestep_error(new_field::SHTnsSpectralField{T},
 end
 
 """
-    synchronize_pencil_transforms!(field::SHTnsSpectralField{T}) where T
+    synchronize_pencil_transforms!(field::SHTnsSpecField{T}) where T
 
 Ensure all pending PencilFFTs operations are completed and data is consistent across processes.
 """
-function synchronize_pencil_transforms!(field::SHTnsSpectralField{T}) where T
+function synchronize_pencil_transforms!(field::SHTnsSpecField{T}) where T
     # Synchronize data across pencil decomposition
     MPI.Barrier(get_comm())
     return field
 end
 
 """
-    validate_mpi_consistency!(field::SHTnsSpectralField{T}) where T
+    validate_mpi_consistency!(field::SHTnsSpecField{T}) where T
 
 Check that spectral field data is consistent across MPI processes after time stepping.
 """
-function validate_mpi_consistency!(field::SHTnsSpectralField{T}) where T
+function validate_mpi_consistency!(field::SHTnsSpecField{T}) where T
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
@@ -1705,7 +1705,7 @@ struct ERK2FieldBuffers{T}
     nr::Int
 end
 
-function ERK2FieldBuffers(u::SHTnsSpectralField{T}, nl::SHTnsSpectralField{T}, cache::ERK2Cache{T}) where T
+function ERK2FieldBuffers(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T}, cache::ERK2Cache{T}) where T
     isempty(cache.E_full) && error("ERK2 cache has no precomputed matrices")
     real_data = parent(u.data_real)
     imag_data = parent(u.data_imag)
@@ -1732,8 +1732,8 @@ Prepare ERK2 first stage by computing linear evolution and k1 terms.
 Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
 the same number of times, preventing deadlock with uneven lm distribution.
 """
-function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField{T},
-                             nl::SHTnsSpectralField{T}, cache::ERK2Cache{T},
+function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T},
+                             nl::SHTnsSpecField{T}, cache::ERK2Cache{T},
                              config::SHTnsKitConfig, dt::Float64) where T
     cache.use_krylov && error("Krylov-based ERK2 caches are not supported in staged integration")
 
@@ -1878,13 +1878,13 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField
     return buffers
 end
 
-erk2_apply_stage!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField{T}) where T = begin
+erk2_apply_stage!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T}) where T = begin
     parent(u.data_real) .= buffers.stage_real
     parent(u.data_imag) .= buffers.stage_imag
     return u
 end
 
-erk2_store_stage_nonlinear!(buffers::ERK2FieldBuffers{T}, nl::SHTnsSpectralField{T}) where T = begin
+erk2_store_stage_nonlinear!(buffers::ERK2FieldBuffers{T}, nl::SHTnsSpecField{T}) where T = begin
     parent_nl_real = parent(nl.data_real)
     parent_nl_imag = parent(nl.data_imag)
     copyto!(buffers.stage_nl_real, parent_nl_real)
@@ -1901,7 +1901,7 @@ Finalize ERK2 second stage by applying phi2 correction.
 Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
 the same number of times, preventing deadlock with uneven lm distribution.
 """
-function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpectralField{T},
+function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T},
                               cache::ERK2Cache{T}, config::SHTnsKitConfig, dt::Float64) where T
     cache.use_krylov && error("Krylov-based ERK2 caches are not supported in staged integration")
 

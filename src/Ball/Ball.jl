@@ -144,13 +144,13 @@ create_ball_hybrid_composition_boundaries(inner_spec, outer_spec, cfg::BallConfi
     GeoDynamo.create_hybrid_composition_boundaries(inner_spec, outer_spec, cfg; precision)
 
 """
-    enforce_ball_scalar_regularity!(spec::GeoDynamo.SHTnsSpectralField)
+    enforce_ball_scalar_regularity!(spec::GeoDynamo.SHTnsSpecField)
 
 Enforce scalar regularity at r=0 for solid sphere: for l>0, the scalar
 amplitude must vanish at r=0. Sets inner radial plane to zero for all
 nonzero l modes (both real and imaginary parts).
 """
-function enforce_ball_scalar_regularity!(spec::GeoDynamo.SHTnsSpectralField)
+function enforce_ball_scalar_regularity!(spec::GeoDynamo.SHTnsSpecField)
     cfg = spec.config
     spec_real = parent(spec.data_real)
     spec_imag = parent(spec.data_imag)
@@ -169,15 +169,15 @@ function enforce_ball_scalar_regularity!(spec::GeoDynamo.SHTnsSpectralField)
 end
 
 """
-    enforce_ball_vector_regularity!(tor_spec::GeoDynamo.SHTnsSpectralField,
-                                    pol_spec::GeoDynamo.SHTnsSpectralField)
+    enforce_ball_vector_regularity!(tor_spec::GeoDynamo.SHTnsSpecField,
+                                    pol_spec::GeoDynamo.SHTnsSpecField)
 
 Enforce vector-field regularity at r=0 for solid sphere. For smooth
 fields, both toroidal and poloidal potentials behave like r^{l+1}, so
 they vanish at r=0 for all l ≥ 1. Zeros the inner radial plane for l≥1.
 """
-function enforce_ball_vector_regularity!(tor_spec::GeoDynamo.SHTnsSpectralField,
-                                         pol_spec::GeoDynamo.SHTnsSpectralField)
+function enforce_ball_vector_regularity!(tor_spec::GeoDynamo.SHTnsSpecField,
+                                         pol_spec::GeoDynamo.SHTnsSpecField)
     cfg = tor_spec.config
     for sp in (tor_spec, pol_spec)
         sreal = parent(sp.data_real)
@@ -216,13 +216,13 @@ end
 
 """
     ball_physical_to_spectral!(phys::GeoDynamo.SHTnsPhysicalField,
-                               spec::GeoDynamo.SHTnsSpectralField)
+                               spec::GeoDynamo.SHTnsSpecField)
 
 Wrapper for transforms in a solid sphere that enforces scalar regularity at r=0
 after analysis. Use this for scalar fields (temperature, composition, etc.).
 """
 function ball_physical_to_spectral!(phys::GeoDynamo.SHTnsPhysicalField{T},
-                                    spec::GeoDynamo.SHTnsSpectralField{T}) where {T}
+                                    spec::GeoDynamo.SHTnsSpecField{T}) where {T}
     GeoDynamo.shtnskit_physical_to_spectral!(phys, spec)
     enforce_ball_scalar_regularity!(spec)
     return spec
@@ -230,15 +230,15 @@ end
 
 """
     ball_vector_analysis!(vec::GeoDynamo.SHTnsVectorField,
-                          tor::GeoDynamo.SHTnsSpectralField,
-                          pol::GeoDynamo.SHTnsSpectralField)
+                          tor::GeoDynamo.SHTnsSpecField,
+                          pol::GeoDynamo.SHTnsSpecField)
 
 Wrapper for vector analysis in a solid sphere; enforces vector regularity at r=0
 after transforming to spectral toroidal/poloidal.
 """
 function ball_vector_analysis!(vec::GeoDynamo.SHTnsVectorField{T},
-                               tor::GeoDynamo.SHTnsSpectralField{T},
-                               pol::GeoDynamo.SHTnsSpectralField{T}) where {T}
+                               tor::GeoDynamo.SHTnsSpecField{T},
+                               pol::GeoDynamo.SHTnsSpecField{T}) where {T}
     GeoDynamo.shtnskit_vector_analysis!(vec, tor, pol)
     enforce_ball_vector_regularity!(tor, pol)
     return tor, pol

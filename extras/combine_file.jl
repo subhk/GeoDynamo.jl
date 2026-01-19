@@ -708,12 +708,12 @@ function load_single_file!(combiner::FieldCombiner{T}, filename::String) where T
 end
 
 """
-    load_single_spectral_field!(field::SHTnsSpectralField{T}, nc_file, 
+    load_single_spectral_field!(field::SHTnsSpecField{T}, nc_file, 
                                real_var::String, imag_var::String) where T
 
 Load a single spectral field from NetCDF file.
 """
-function load_single_spectral_field!(field::SHTnsSpectralField{T}, nc_file, 
+function load_single_spectral_field!(field::SHTnsSpecField{T}, nc_file, 
                                     real_var::String, imag_var::String) where T
     
     real_data = T.(NetCDF.readvar(nc_file, real_var))
@@ -1026,11 +1026,11 @@ function save_combined_time_series(combiners::Vector{FieldCombiner{T}}, output_d
 end
 
 """
-    extract_spectral_subset(field::SHTnsSpectralField{T}; l_max::Int = 10) where T
+    extract_spectral_subset(field::SHTnsSpecField{T}; l_max::Int = 10) where T
 
 Extract a subset of spectral modes for analysis.
 """
-function extract_spectral_subset(field::SHTnsSpectralField{T}; l_max::Int = 10) where T
+function extract_spectral_subset(field::SHTnsSpecField{T}; l_max::Int = 10) where T
     
     # This would require more sophisticated indexing based on the field's l,m structure
     # For now, return the field as-is

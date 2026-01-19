@@ -242,7 +242,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                                                      hasfield(typeof(temperature_ic), :∂²r) ?
                                                          temperature_ic.∂²r : nothing,
                                                      temperature_ic.domain)
-    elseif temperature_ic isa SHTnsSpectralField
+    elseif temperature_ic isa SHTnsSpecField
         cache_ic = nothing
     end
 
@@ -254,7 +254,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                                                      hasfield(typeof(temperature_oc), :∂²r) ?
                                                          temperature_oc.∂²r : nothing,
                                                      temperature_oc.domain)
-    elseif temperature_oc isa SHTnsSpectralField
+    elseif temperature_oc isa SHTnsSpecField
         cache_oc = nothing
     end
 
@@ -506,7 +506,7 @@ function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symb
     # Get spectral field
     if hasfield(typeof(temperature_field), :spectral)
         spectral = temperature_field.spectral
-    elseif temperature_field isa SHTnsSpectralField
+    elseif temperature_field isa SHTnsSpecField
         spectral = temperature_field
     else
         return Complex{T}[]
@@ -593,7 +593,7 @@ function get_spectral_coefficient(field, l::Int, m::Int,
                                   location::BoundaryLocation=OUTER_BOUNDARY)
     if hasfield(typeof(field), :spectral)
         spectral = field.spectral
-    elseif field isa SHTnsSpectralField
+    elseif field isa SHTnsSpecField
         spectral = field
     else
         return zero(Complex{Float64})

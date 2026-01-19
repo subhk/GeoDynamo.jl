@@ -391,14 +391,14 @@ function load_spectral_data!(converter::SpectralToPhysicalConverter{T}, filename
 end
 
 """
-    load_spectral_coefficients!(field::SHTnsSpectralField{T}, nc_file, 
+    load_spectral_coefficients!(field::SHTnsSpecField{T}, nc_file, 
                                 real_var_name::String, imag_var_name::String,
                                 l_values::Vector{Int}, m_values::Vector{Int}, 
                                 r_spectral::Vector{Float64}) where T
 
 Load spectral coefficients from NetCDF file into a spectral field structure.
 """
-function load_spectral_coefficients!(field::SHTnsSpectralField{T}, nc_file,
+function load_spectral_coefficients!(field::SHTnsSpecField{T}, nc_file,
                                      real_var_name::String, imag_var_name::String,
                                      l_values::Vector{Int}, m_values::Vector{Int},
                                      r_spectral::Vector{Float64}) where T

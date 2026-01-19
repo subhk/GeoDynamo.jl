@@ -41,7 +41,7 @@ import ..bcs: shtns_spectral_to_physical
 abstract type AbstractSpectralField{T} end
 
 # Type alias for compatibility - functions accept Any to allow duck typing
-const SHTnsSpectralField = Any
+const SHTnsSpecField = Any
 
 # ================================================================================
 # Topography Coupling Enable/Disable Flags

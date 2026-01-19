@@ -139,22 +139,22 @@ mutable struct SHTnsMagneticFields{T}
     current::SHTnsVectorField{T}
 
     # Spectral representation
-    toroidal::SHTnsSpectralField{T}
-    poloidal::SHTnsSpectralField{T}
+    toroidal::SHTnsSpecField{T}
+    poloidal::SHTnsSpecField{T}
 
     # Inner core fields
-    ic_toroidal::SHTnsSpectralField{T}
-    ic_poloidal::SHTnsSpectralField{T}
+    ic_toroidal::SHTnsSpecField{T}
+    ic_poloidal::SHTnsSpecField{T}
 
     # Nonlinear terms (induction)
-    nlᵀ::SHTnsSpectralField{T}
-    nlᴾ::SHTnsSpectralField{T}
-    prev_nlᵀ::SHTnsSpectralField{T}
-    prev_nlᴾ::SHTnsSpectralField{T}
+    nlᵀ::SHTnsSpecField{T}
+    nlᴾ::SHTnsSpecField{T}
+    prev_nlᵀ::SHTnsSpecField{T}
+    prev_nlᴾ::SHTnsSpecField{T}
 
     # Work arrays
-    work_tor::SHTnsSpectralField{T}
-    work_pol::SHTnsSpectralField{T}
+    work_tor::SHTnsSpecField{T}
+    work_pol::SHTnsSpecField{T}
     work_physical::SHTnsVectorField{T}
     induction_physical::SHTnsVectorField{T}  # Added missing field for u×B
 

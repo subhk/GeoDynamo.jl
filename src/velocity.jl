@@ -141,22 +141,22 @@ mutable struct SHTnsVelocityFields{T}
     vorticity::SHTnsVectorField{T}
     
     # Spectral representation (toroidal-poloidal)
-    toroidal::SHTnsSpectralField{T}
-    poloidal::SHTnsSpectralField{T}
+    toroidal::SHTnsSpecField{T}
+    poloidal::SHTnsSpecField{T}
     
     # Vorticity in spectral space (for efficient curl computation)
-    ζᵀ::SHTnsSpectralField{T}
-    ζᴾ::SHTnsSpectralField{T}
+    ζᵀ::SHTnsSpecField{T}
+    ζᴾ::SHTnsSpecField{T}
     
     # Nonlinear terms
-    nlᵀ::SHTnsSpectralField{T}
-    nlᴾ::SHTnsSpectralField{T}
-    prev_nlᵀ::SHTnsSpectralField{T}
-    prev_nlᴾ::SHTnsSpectralField{T}
+    nlᵀ::SHTnsSpecField{T}
+    nlᴾ::SHTnsSpecField{T}
+    prev_nlᵀ::SHTnsSpecField{T}
+    prev_nlᴾ::SHTnsSpecField{T}
     
     # Work arrays for efficient computation
-    work_tor::SHTnsSpectralField{T}
-    work_pol::SHTnsSpectralField{T}
+    work_tor::SHTnsSpecField{T}
+    work_pol::SHTnsSpecField{T}
     work_physical::SHTnsVectorField{T}
     advection_physical::SHTnsVectorField{T}
     
@@ -347,7 +347,7 @@ function apply_velocity_flux_bc_spectral!(fields::SHTnsVelocityFields{T},
 end
 
 """
-    apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
+    apply_velocity_component_flux_bc!(field::SHTnsSpecField{T},
                                        domain::RadialDomain,
                                        ∂r::BandedMatrix{T},
                                        method::Symbol) where T
@@ -369,7 +369,7 @@ Otherwise allocates temporary arrays (slower).
 Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
 the same number of times, preventing deadlock with uneven lm distribution.
 """
-function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
+function apply_velocity_component_flux_bc!(field::SHTnsSpecField{T},
                                            domain::RadialDomain,
                                            ∂r::BandedMatrix{T},
                                            method::Symbol) where T

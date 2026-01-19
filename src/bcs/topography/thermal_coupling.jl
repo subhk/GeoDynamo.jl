@@ -58,7 +58,7 @@ function apply_thermal_topography_correction!(temperature_field, topography::Top
     # Get the spectral field (temperature is stored as perturbation Θ = T - T_cond)
     if hasfield(typeof(temperature_field), :spectral)
         spectral = temperature_field.spectral
-    elseif temperature_field isa SHTnsSpectralField
+    elseif temperature_field isa SHTnsSpecField
         spectral = temperature_field
     else
         @warn "Cannot identify spectral component in temperature field"

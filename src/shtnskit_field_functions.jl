@@ -49,13 +49,13 @@ Uses SHTnsKit's synthesis function which:
 2. Performs the FFT along longitude (summing over m)
 
 # Arguments
-- `spec::SHTnsSpectralField`: Source spectral field with coefficients
+- `spec::SHTnsSpecField`: Source spectral field with coefficients
 - `phys::SHTnsPhysicalField`: Destination physical field (modified in-place)
 
 # Side Effects
 Modifies `phys.data` with the synthesized field values
 """
-function shtnskit_spectral_to_physical!(spec::SHTnsSpectralField{T},
+function shtnskit_spectral_to_physical!(spec::SHTnsSpecField{T},
                                        phys::SHTnsPhysicalField{T}) where T
     config = spec.config
 
@@ -81,7 +81,7 @@ This is the most efficient synthesis path because:
 2. Call SHTnsKit.synthesis() which does Legendre transform + FFT
 3. Store the resulting (nlat, nlon) physical field slice
 """
-function perform_synthesis_phi_local!(spec::SHTnsSpectralField{T},
+function perform_synthesis_phi_local!(spec::SHTnsSpecField{T},
                                      phys::SHTnsPhysicalField{T},
                                      config) where T
     sht_config = config.sht_config
@@ -123,7 +123,7 @@ Solution:
 This involves one extra MPI all-to-all communication (the transpose) but
 ensures the FFT can operate on contiguous local data.
 """
-function perform_synthesis_with_transpose!(spec::SHTnsSpectralField{T},
+function perform_synthesis_with_transpose!(spec::SHTnsSpecField{T},
                                          phys::SHTnsPhysicalField{T},
                                          config, back_plan) where T
     # Allocate temporary array in phi-pencil orientation
@@ -145,7 +145,7 @@ Core synthesis routine that writes directly to a phi-pencil array.
 This is the workhorse function called by other synthesis routines.
 It assumes the destination array is already in phi-pencil orientation.
 """
-function perform_synthesis_to_phi_pencil!(spec::SHTnsSpectralField{T},
+function perform_synthesis_to_phi_pencil!(spec::SHTnsSpecField{T},
                                         phys_phi::PencilArray{T,3},
                                         config) where T
     sht_config = config.sht_config
@@ -181,7 +181,7 @@ handles the index mapping appropriately.
 For phi-pencil physical fields, `perform_synthesis_phi_local!` is more
 efficient as it can use optimized storage.
 """
-function perform_synthesis_direct!(spec::SHTnsSpectralField{T},
+function perform_synthesis_direct!(spec::SHTnsSpecField{T},
                                   phys::SHTnsPhysicalField{T},
                                   config) where T
     sht_config = config.sht_config
@@ -224,13 +224,13 @@ Uses SHTnsKit's analysis function which:
 
 # Arguments
 - `phys::SHTnsPhysicalField`: Source physical field values
-- `spec::SHTnsSpectralField`: Destination spectral field (modified in-place)
+- `spec::SHTnsSpecField`: Destination spectral field (modified in-place)
 
 # Side Effects
 Modifies `spec.data_real` and `spec.data_imag` with the computed coefficients
 """
 function shtnskit_physical_to_spectral!(phys::SHTnsPhysicalField{T},
-                                       spec::SHTnsSpectralField{T}) where T
+                                       spec::SHTnsSpecField{T}) where T
     config = spec.config
 
     # Use direct analysis method (processes each radial level)
@@ -251,7 +251,7 @@ This is the most efficient analysis path because:
 3. No MPI communication needed during the transform itself
 """
 function perform_analysis_phi_local!(phys::SHTnsPhysicalField{T}, 
-                                    spec::SHTnsSpectralField{T}, 
+                                    spec::SHTnsSpecField{T}, 
                                     config) where T
     sht_config = config.sht_config
     
@@ -279,7 +279,7 @@ end
 Perform analysis with transpose to phi-pencil.
 """
 function perform_analysis_with_transpose!(phys::SHTnsPhysicalField{T},
-                                        spec::SHTnsSpectralField{T},
+                                        spec::SHTnsSpecField{T},
                                         config, to_phi_plan) where T
     phys_phi = PencilArray{T}(undef, config.pencils.phi)
     # Transpose to phi-pencil using pre-computed plan
@@ -293,7 +293,7 @@ end
 Perform analysis from phi-pencil data.
 """
 function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T,3}, 
-                                         spec::SHTnsSpectralField{T}, 
+                                         spec::SHTnsSpecField{T}, 
                                          config) where T
     sht_config = config.sht_config
     
@@ -321,7 +321,7 @@ end
 Direct analysis without transpose (fallback).
 """
 function perform_analysis_direct!(phys::SHTnsPhysicalField{T},
-                                 spec::SHTnsSpectralField{T},
+                                 spec::SHTnsSpecField{T},
                                  config) where T
     sht_config = config.sht_config
 
@@ -348,8 +348,8 @@ end
 # ================================================================================
 
 """
-    shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
-                              pol_spec::SHTnsSpectralField{T},
+    shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
+                              pol_spec::SHTnsSpecField{T},
                               vec_phys::SHTnsVectorField{T};
                               domain::Union{RadialDomain,Nothing}=nothing) where T
 
@@ -373,8 +373,8 @@ The radial component v_r MUST be computed separately from the poloidal scalar.
 - `domain`: Optional RadialDomain needed for computing v_r with correct radial scaling.
             If not provided, v_r will be set to zero (suitable for tests).
 """
-function shtnskit_vector_synthesis!(tor_spec::SHTnsSpectralField{T},
-                                   pol_spec::SHTnsSpectralField{T},
+function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
+                                   pol_spec::SHTnsSpecField{T},
                                    vec_phys::SHTnsVectorField{T};
                                    domain::Union{RadialDomain,Nothing}=nothing) where T
     config = tor_spec.config
@@ -459,8 +459,8 @@ end
 
 """
     shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
-                             tor_spec::SHTnsSpectralField{T},
-                             pol_spec::SHTnsSpectralField{T}) where T
+                             tor_spec::SHTnsSpecField{T},
+                             pol_spec::SHTnsSpecField{T}) where T
 
 Vector analysis using SHTnsKit with PencilArrays.
 
@@ -495,8 +495,8 @@ Current implementation uses 2-component analysis which is standard practice
 for solenoidal MHD simulations.
 """
 function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
-                                  tor_spec::SHTnsSpectralField{T},
-                                  pol_spec::SHTnsSpectralField{T};
+                                  tor_spec::SHTnsSpecField{T},
+                                  pol_spec::SHTnsSpecField{T};
                                   domain::Union{RadialDomain,Nothing}=nothing,
                                   verify_solenoidal::Bool=false) where T
     config = tor_spec.config
@@ -1127,7 +1127,7 @@ end
 # ================================================================================
 
 """
-    batch_shtnskit_transforms!(specs::Vector{SHTnsSpectralField{T}},
+    batch_shtnskit_transforms!(specs::Vector{SHTnsSpecField{T}},
                               physs::Vector{SHTnsPhysicalField{T}}) where T
 
 Batch process multiple transforms using SHTnsKit with PencilArrays.
@@ -1140,7 +1140,7 @@ be called from the same thread on all processes to avoid deadlock.
 Note: The individual transforms themselves are still efficient as SHTnsKit
 performs optimized Legendre transforms and FFTs internally.
 """
-function batch_shtnskit_transforms!(specs::Vector{SHTnsSpectralField{T}},
+function batch_shtnskit_transforms!(specs::Vector{SHTnsSpecField{T}},
                                    physs::Vector{SHTnsPhysicalField{T}}) where T
     @assert length(specs) == length(physs)
 
@@ -1165,7 +1165,7 @@ end
 Compatibility wrapper that calls `batch_shtnskit_transforms!` for batched
 spectral→physical transforms using SHTnsKit with PencilArrays/MPI.
 """
-function batch_spectral_to_physical!(specs::Vector{SHTnsSpectralField{T}},
+function batch_spectral_to_physical!(specs::Vector{SHTnsSpecField{T}},
                                      physs::Vector{SHTnsPhysicalField{T}}) where T
     return batch_shtnskit_transforms!(specs, physs)
 end
@@ -1207,7 +1207,7 @@ end
 
 Synchronize PencilArray data across MPI processes to ensure consistency.
 """
-function synchronize_pencil_data!(field::Union{SHTnsSpectralField{T}, SHTnsPhysicalField{T}}) where T
+function synchronize_pencil_data!(field::Union{SHTnsSpecField{T}, SHTnsPhysicalField{T}}) where T
     # Synchronize the underlying PencilArray data
     if hasmethod(MPI.Barrier, Tuple{typeof(get_comm())})
         MPI.Barrier(get_comm())

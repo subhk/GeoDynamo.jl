@@ -195,9 +195,9 @@ function create_radial_laplacian(domain::RadialDomain)
 end
 
 # Apply banded matrix to PencilArray data
-function apply_banded_matrix!(output::SHTnsSpectralField{T},
+function apply_banded_matrix!(output::SHTnsSpecField{T},
                              matrix::BandedMatrix{T},
-                             input::SHTnsSpectralField{T}) where T
+                             input::SHTnsSpecField{T}) where T
     # Get local data portions
     out_real = parent(output.data_real)
     out_imag = parent(output.data_imag)

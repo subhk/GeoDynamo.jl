@@ -701,7 +701,7 @@ function create_async_comm_manager(::Type{T}, max_concurrent::Int=16) where T
 end
 
 function async_spectral_transform!(manager::AsyncCommManager{T}, 
-                                  spec_field::SHTnsSpectralField{T},
+                                  spec_field::SHTnsSpecField{T},
                                   phys_field::SHTnsPhysicalField{T}) where T
     
     # Start asynchronous data exchange
@@ -715,7 +715,7 @@ function async_spectral_transform!(manager::AsyncCommManager{T},
 end
 
 function start_async_exchange!(manager::AsyncCommManager{T}, 
-                              spec_field::SHTnsSpectralField{T}) where T
+                              spec_field::SHTnsSpecField{T}) where T
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()

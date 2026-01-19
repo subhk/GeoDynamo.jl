@@ -8,7 +8,7 @@ GeoDynamo.jl/
 │   ├── GeoDynamo.jl              # Module entry point & exports
 │   │
 │   │   # Core Infrastructure
-│   ├── fields.jl                 # PencilArray-backed field types (SHTnsSpectralField, etc.)
+│   ├── fields.jl                 # PencilArray-backed field types (SHTnsSpecField, etc.)
 │   ├── parameters.jl             # GeoDynamoParameters definition and management
 │   ├── pencil_decomps.jl         # PencilArrays decomposition setup and configuration
 │   ├── linear_algebra.jl         # Banded matrix operations for radial derivatives

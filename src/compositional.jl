@@ -78,21 +78,21 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     gradient::SHTnsVectorField{T}
 
     # Spectral representation
-    spectral::SHTnsSpectralField{T}
+    spectral::SHTnsSpecField{T}
 
     # Nonlinear terms (advection)
-    nonlinear::SHTnsSpectralField{T}
-    prev_nonlinear::SHTnsSpectralField{T}
+    nonlinear::SHTnsSpecField{T}
+    prev_nonlinear::SHTnsSpecField{T}
 
     # Work arrays for efficient computation
-    work_spectral::SHTnsSpectralField{T}
+    work_spectral::SHTnsSpecField{T}
     work_physical::SHTnsPhysicalField{T}
     advection_physical::SHTnsPhysicalField{T}
 
     # Gradient spectral components for efficiency
-    grad_theta_spec::SHTnsSpectralField{T}
-    grad_phi_spec::SHTnsSpectralField{T}
-    grad_r_spec::SHTnsSpectralField{T}
+    grad_theta_spec::SHTnsSpecField{T}
+    grad_phi_spec::SHTnsSpecField{T}
+    grad_r_spec::SHTnsSpecField{T}
 
     # Sources and boundary conditions
     internal_sources::Vector{T}        # Radial profile of compositional sources

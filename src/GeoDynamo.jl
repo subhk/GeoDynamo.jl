@@ -64,7 +64,7 @@ module GeoDynamo
 
 
     # exports field.jl
-    export SHTnsSpectralField, SHTnsPhysicalField, SHTnsVectorField, SHTnsTorPolField
+    export SHTnsSpecField, SHTnsPhysicalField, SHTnsVectorField, SHTnsTorPolField
     export RadialDomain, create_shtns_spectral_field, create_shtns_physical_field
     export create_shtns_vector_field, create_radial_domain
     export get_local_range, get_local_indices, local_data_size, get_local_data

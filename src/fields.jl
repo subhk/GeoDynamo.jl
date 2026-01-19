@@ -13,7 +13,7 @@
 # FIELD REPRESENTATION OVERVIEW:
 # ------------------------------
 # Scalar fields (temperature, composition):
-#   - Spectral: SHTnsSpectralField storing (l,m) coefficients
+#   - Spectral: SHTnsSpecField storing (l,m) coefficients
 #   - Physical: SHTnsPhysicalField storing grid point values
 #
 # Vector fields (velocity, magnetic field):
@@ -31,7 +31,7 @@ import .bcs: BoundaryType, DIRICHLET, NEUMANN
 # ================================================================================
 
 """
-    SHTnsSpectralField{T}
+    SHTnsSpecField{T}
 
 A scalar field represented in spectral space as spherical harmonic coefficients.
 
@@ -55,7 +55,7 @@ and outer radial boundaries. Common types:
 - `bc_type_inner/outer`: Boundary condition type for each mode
 - `boundary_values`: Boundary values [2, nlm] for inner/outer
 """
-mutable struct SHTnsSpectralField{T<:Number}
+mutable struct SHTnsSpecField{T<:Number}
     config::AbstractSHTnsConfig
     nlm::Int
     data_real::PencilArray{T,3}   # Real part of f_l^m(r)
@@ -141,8 +141,8 @@ where T and P are scalar functions called the toroidal and poloidal potentials.
 - `poloidal`: Poloidal potential P(l,m,r) in spectral space
 """
 struct SHTnsTorPolField{T<:Number}
-    toroidal::SHTnsSpectralField{T}
-    poloidal::SHTnsSpectralField{T}
+    toroidal::SHTnsSpecField{T}
+    poloidal::SHTnsSpecField{T}
 end
 
 # ================================================================================
@@ -181,7 +181,7 @@ end
 # ================================================================================
 
 """
-    create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec) -> SHTnsSpectralField{T}
+    create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec) -> SHTnsSpecField{T}
 
 Create a new spectral field initialized to zero with default Dirichlet BCs.
 
@@ -192,7 +192,7 @@ Create a new spectral field initialized to zero with default Dirichlet BCs.
 - `pencil_spec`: PencilArrays Pencil defining the data distribution
 
 # Returns
-A new SHTnsSpectralField with:
+A new SHTnsSpecField with:
 - All spectral coefficients initialized to zero
 - Dirichlet boundary conditions on all modes
 - Zero boundary values
@@ -215,7 +215,7 @@ function create_shtns_spectral_field(::Type{T}, config::AbstractSHTnsConfig,
     bc_outer = fill(Int(DIRICHLET), nlm)
     boundary_vals = zeros(T, 2, nlm)  # Row 1: inner, Row 2: outer
 
-    return SHTnsSpectralField{T}(config, nlm,
+    return SHTnsSpecField{T}(config, nlm,
                         data_real, data_imag, pencil_spec,
                         bc_inner, bc_outer, boundary_vals)
 end
@@ -365,7 +365,7 @@ function get_local_indices(pencil::Pencil{3})
 end
 
 # Access patterns for PencilArrays
-function local_data_size(field::SHTnsSpectralField{T}) where T
+function local_data_size(field::SHTnsSpecField{T}) where T
     return size_local(field.pencil)
 end
 
@@ -374,7 +374,7 @@ function local_data_size(field::SHTnsPhysicalField{T}) where T
 end
 
 # Safe accessors that respect PencilArray's local data
-function get_local_data(field::SHTnsSpectralField{T}) where T
+function get_local_data(field::SHTnsSpecField{T}) where T
     return (real=parent(field.data_real), imag=parent(field.data_imag))
 end
 
@@ -386,11 +386,11 @@ end
 # Base interface implementations for PencilArray-backed field types
 # ------------------------------------------------------------------------------
 
-function Base.similar(field::SHTnsSpectralField{T}) where T
+function Base.similar(field::SHTnsSpecField{T}) where T
     return Base.similar(field, T)
 end
 
-function Base.similar(field::SHTnsSpectralField{T}, ::Type{S}) where {T,S<:Number}
+function Base.similar(field::SHTnsSpecField{T}, ::Type{S}) where {T,S<:Number}
     data_real = PencilArray{S}(undef, field.pencil)
     data_imag = PencilArray{S}(undef, field.pencil)
     fill!(parent(data_real), zero(S))
@@ -398,12 +398,12 @@ function Base.similar(field::SHTnsSpectralField{T}, ::Type{S}) where {T,S<:Numbe
     bc_inner = copy(field.bc_type_inner)
     bc_outer = copy(field.bc_type_outer)
     boundary_values = zeros(S, size(field.boundary_values, 1), size(field.boundary_values, 2))
-    return SHTnsSpectralField{S}(field.config, field.nlm,
+    return SHTnsSpecField{S}(field.config, field.nlm,
                                  data_real, data_imag, field.pencil,
                                  bc_inner, bc_outer, boundary_values)
 end
 
-function Base.copy(field::SHTnsSpectralField{T}) where T
+function Base.copy(field::SHTnsSpecField{T}) where T
     duplicate = similar(field)
     parent(duplicate.data_real) .= parent(field.data_real)
     parent(duplicate.data_imag) .= parent(field.data_imag)
@@ -429,7 +429,7 @@ function Base.copy(field::SHTnsPhysicalField{T}) where T
     return duplicate
 end
 
-# export SHTnsSpectralField, SHTnsPhysicalField, SHTnsVectorField, SHTnsTorPolField
+# export SHTnsSpecField, SHTnsPhysicalField, SHTnsVectorField, SHTnsTorPolField
 # export RadialDomain, create_shtns_spectral_field, create_shtns_physical_field
 # export create_shtns_vector_field, create_radial_domain
 # end

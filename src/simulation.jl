@@ -1293,7 +1293,7 @@ const SOLENOIDAL_MONITOR = SolenoidalMonitor(
 )
 
 """
-    compute_divergence_spectral(tor_spec::SHTnsSpectralField, pol_spec::SHTnsSpectralField,
+    compute_divergence_spectral(tor_spec::SHTnsSpecField, pol_spec::SHTnsSpecField,
                                 domain::RadialDomain) where T
 
 Compute divergence of a vector field in spectral space.
@@ -1301,8 +1301,8 @@ For toroidal-poloidal decomposition: v = ∇×(T r̂) + ∇×∇×(P r̂)
 The divergence is: ∇·v = ∇·(∇×∇×(P r̂)) = 0 theoretically
 But numerically we check: div_max = max |∇·v|
 """
-function compute_divergence_spectral(tor_spec::SHTnsSpectralField{T},
-                                     pol_spec::SHTnsSpectralField{T},
+function compute_divergence_spectral(tor_spec::SHTnsSpecField{T},
+                                     pol_spec::SHTnsSpecField{T},
                                      domain::RadialDomain) where T
     # Simplified divergence check:
     # For solenoidal field, all spectral coefficients should have consistent scaling
