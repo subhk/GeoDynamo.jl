@@ -74,16 +74,16 @@ function apply_thermal_topography_correction!(temperature_field, topography::Top
         temperature_field.boundary_values : spectral.boundary_values
 
     # Radial derivative metadata for accurate coupling terms
-    dr_matrix = hasfield(typeof(temperature_field), :dr_matrix) ?
-        temperature_field.dr_matrix : nothing
+    ∂r = hasfield(typeof(temperature_field), :∂r) ?
+        temperature_field.∂r : nothing
     d²r_matrix = hasfield(typeof(temperature_field), :d²r_matrix) ?
         temperature_field.d²r_matrix : nothing
     domain = hasfield(typeof(temperature_field), :domain) ?
         temperature_field.domain : nothing
 
     cache = nothing
-    if dr_matrix !== nothing && domain !== nothing
-        cache = compute_boundary_derivative_cache(spectral, dr_matrix, d²r_matrix, domain)
+    if ∂r !== nothing && domain !== nothing
+        cache = compute_boundary_derivative_cache(spectral, ∂r, d²r_matrix, domain)
     else
         @warn "Missing radial derivative metadata; skipping thermal topography coupling"
         return nothing
@@ -512,15 +512,15 @@ function compute_boundary_heat_flux(temperature_field, topography::TopographyDat
     config_sht = spectral.config
     nlat, nlon = config_sht.nlat, config_sht.nlon
 
-    dr_matrix = hasfield(typeof(temperature_field), :dr_matrix) ? temperature_field.dr_matrix : nothing
+    ∂r = hasfield(typeof(temperature_field), :∂r) ? temperature_field.∂r : nothing
     d²r_matrix = hasfield(typeof(temperature_field), :d²r_matrix) ? temperature_field.d²r_matrix : nothing
     domain = hasfield(typeof(temperature_field), :domain) ? temperature_field.domain : nothing
-    if dr_matrix === nothing || domain === nothing
+    if ∂r === nothing || domain === nothing
         @warn "Missing radial derivative metadata; cannot compute boundary heat flux"
         return nothing
     end
 
-    cache = compute_boundary_derivative_cache(spectral, dr_matrix, d²r_matrix, domain)
+    cache = compute_boundary_derivative_cache(spectral, ∂r, d²r_matrix, domain)
 
     gaunt = topography.gaunt_cache
     if gaunt === nothing && (config.include_slope_terms || config.include_shift_terms)

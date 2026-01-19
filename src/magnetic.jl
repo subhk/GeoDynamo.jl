@@ -162,7 +162,7 @@ mutable struct SHTnsMagneticFields{T}
     ℓ_factors::Vector{Float64}  # l(l+1) values
 
     # Radial derivative matrices (cached for performance)
-    dr_matrix::BandedMatrix{T}          # First derivative d/dr
+    ∂r::BandedMatrix{T}          # First derivative d/dr
     d²r_matrix::BandedMatrix{T}         # Second derivative d²/dr²
 
     # Transform manager removed; SHTnsKit transforms are used directly
@@ -221,7 +221,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     ℓ_factors = Float64[l * (l + 1) for l in config.l_values]
 
     # Create radial derivative matrices (cached for performance)
-    dr_matrix  = create_derivative_matrix(1, Dᵒᶜ)
+    ∂r  = create_derivative_matrix(1, Dᵒᶜ)
     d²r_matrix = create_derivative_matrix(2, Dᵒᶜ)
 
     # Create transpose plans for efficient data movement
@@ -239,7 +239,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
                                 work_tor, work_pol, work_physical,
                                 induction_physical,
                                 ℓ_factors,
-                                dr_matrix, d²r_matrix,
+                                ∂r, d²r_matrix,
                                 imposed_field,
                                 config,
                                 Dᵒᶜ,
@@ -406,7 +406,7 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
     total_nlm = config.nlm  # Total number of (l,m) modes
 
     # Use cached radial derivative matrices for performance
-    d1_matrix = mag_fields.dr_matrix   # First derivative d/dr
+    d1_matrix = mag_fields.∂r   # First derivative d/dr
     d²_matrix = mag_fields.d²r_matrix  # Second derivative d²/dr²
 
     # Pre-allocate work arrays for radial profiles
@@ -663,7 +663,7 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
     nr = domain.N
 
     # Use cached radial derivative matrices for performance
-    d1_matrix = mag_fields.dr_matrix   # First derivative d/dr
+    d1_matrix = mag_fields.∂r   # First derivative d/dr
     d²_matrix = mag_fields.d²r_matrix  # Second derivative d²/dr²
 
     # Pre-allocate work arrays for radial profiles

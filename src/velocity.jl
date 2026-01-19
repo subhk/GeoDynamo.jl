@@ -165,7 +165,7 @@ mutable struct SHTnsVelocityFields{T}
     coriolis_factors::Matrix{Float64}   # Pre-computed Coriolis terms
     
     # Radial derivative matrices
-    dr_matrix::BandedMatrix{T}          # First derivative
+    ∂r::BandedMatrix{T}          # First derivative
     d²r_matrix::BandedMatrix{T}         # Second derivative
     laplacian_matrix::BandedMatrix{T}   # Radial Laplacian operator
     
@@ -336,12 +336,12 @@ function apply_velocity_flux_bc_spectral!(fields::SHTnsVelocityFields{T},
                                           method::Symbol=:tau) where T
 
     # Apply flux BC to toroidal component (if Neumann BC is set)
-    apply_velocity_component_flux_bc!(fields.toroidal, domain, fields.dr_matrix, method)
+    apply_velocity_component_flux_bc!(fields.toroidal, domain, fields.∂r, method)
 
     # Apply flux BC to poloidal component (if Neumann BC is set)
     # Note: For typical stress-free boundaries, poloidal uses Dirichlet (v_r = 0)
     # but this allows flexibility for other boundary conditions
-    apply_velocity_component_flux_bc!(fields.poloidal, domain, fields.dr_matrix, method)
+    apply_velocity_component_flux_bc!(fields.poloidal, domain, fields.∂r, method)
 
     return fields
 end
@@ -349,7 +349,7 @@ end
 """
     apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
                                        domain::RadialDomain,
-                                       dr_matrix::BandedMatrix{T},
+                                       ∂r::BandedMatrix{T},
                                        method::Symbol) where T
 
 Apply stress-free boundary conditions to a single velocity component (toroidal or poloidal).
@@ -371,7 +371,7 @@ the same number of times, preventing deadlock with uneven lm distribution.
 """
 function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
                                            domain::RadialDomain,
-                                           dr_matrix::BandedMatrix{T},
+                                           ∂r::BandedMatrix{T},
                                            method::Symbol) where T
 
     spec_real = parent(field.data_real)
@@ -410,11 +410,11 @@ function apply_velocity_component_flux_bc!(field::SHTnsSpectralField{T},
             if method == :tau
                 if ws !== nothing
                     apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                                   apply_inner, apply_outer, bc_values, dr_matrix,
+                                                   apply_inner, apply_outer, bc_values, ∂r,
                                                    domain, r_range, ws, tid, owns_mode)
                 else
                     apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
-                                               apply_inner, apply_outer, bc_values, dr_matrix, domain, r_range, owns_mode)
+                                               apply_inner, apply_outer, bc_values, ∂r, domain, r_range, owns_mode)
                 end
             elseif method == :direct
                 if ws !== nothing
@@ -455,7 +455,7 @@ end
 """
     apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
                                 apply_inner, apply_outer, boundary_values,
-                                dr_matrix, domain, r_range, owns_mode)
+                                ∂r, domain, r_range, owns_mode)
 
 Apply stress-free boundary conditions using the tau method for velocity components.
 
@@ -479,7 +479,7 @@ the same number of times by all processes (prevents deadlock).
 function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
                                      apply_inner, apply_outer,
                                      boundary_values::AbstractMatrix,
-                                     dr_matrix::BandedMatrix, domain, r_range, owns_mode::Bool)
+                                     ∂r::BandedMatrix, domain, r_range, owns_mode::Bool)
     T = eltype(spec_real)
     nr = domain.N
     r = domain.r[:, 4]  # Radial coordinates
@@ -508,8 +508,8 @@ function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
     # Compute current fluxes at boundaries using derivative matrix
     dprofile_real = zeros(T, nr)
     dprofile_imag = zeros(T, nr)
-    apply_∂r!(dprofile_real, dr_matrix, profile_real)
-    apply_∂r!(dprofile_imag, dr_matrix, profile_imag)
+    apply_∂r!(dprofile_real, ∂r, profile_real)
+    apply_∂r!(dprofile_imag, ∂r, profile_imag)
 
     current_flux_inner_real = dprofile_real[1]
     current_flux_outer_real = dprofile_real[nr]
@@ -1048,8 +1048,8 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             extract_local_radial_profile!(Tᵀ_profile_real, uᵀ_real, local_lm, nr, r_range)
             extract_local_radial_profile!(Tᵀ_profile_imag, uᵀ_imag, local_lm, nr, r_range)
 
-            apply_∂r!(dᴾ_dr_real,   fields.dr_matrix,  Pᴾ_profile_real)
-            apply_∂r!(dᴾ_dr_imag,   fields.dr_matrix,  Pᴾ_profile_imag)
+            apply_∂r!(dᴾ_dr_real,   fields.∂r,  Pᴾ_profile_real)
+            apply_∂r!(dᴾ_dr_imag,   fields.∂r,  Pᴾ_profile_imag)
             apply_∂r!(d²ᴾ_dr²_real, fields.d²r_matrix, Pᴾ_profile_real)
             apply_∂r!(d²ᴾ_dr²_imag, fields.d²r_matrix, Pᴾ_profile_imag)
 
@@ -1134,7 +1134,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     end
     
     # Create radial derivative matrices
-    dr_matrix        = create_derivative_matrix(1, Dᵒᶜ)
+    ∂r        = create_derivative_matrix(1, Dᵒᶜ)
     d²r_matrix       = create_derivative_matrix(2, Dᵒᶜ)
     laplacian_matrix = create_radial_laplacian(Dᵒᶜ)
     
@@ -1151,7 +1151,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
                                   work_tor, work_pol, work_physical,
                                   advection_physical,
                                   ℓ_factors, coriolis_factors,
-                                  dr_matrix, d²r_matrix, laplacian_matrix,
+                                  ∂r, d²r_matrix, laplacian_matrix,
                                   config,
                                   Dᵒᶜ,
                                   boundary_condition_set, boundary_cache, boundary_time_index)
@@ -1333,8 +1333,8 @@ function _compute_vorticity_spectral_mpi!(fields::SHTnsVelocityFields{T}, domain
             local_lm = lm_idx - first(lm_range) + 1
 
             # Compute radial derivatives using complete poloidal profile
-            apply_∂r!(dᴾ_dr_real,   fields.dr_matrix,  pol_gathered_real)
-            apply_∂r!(dᴾ_dr_imag,   fields.dr_matrix,  pol_gathered_imag)
+            apply_∂r!(dᴾ_dr_real,   fields.∂r,  pol_gathered_real)
+            apply_∂r!(dᴾ_dr_imag,   fields.∂r,  pol_gathered_imag)
             apply_∂r!(d²ᴾ_dr²_real, fields.d²r_matrix, pol_gathered_real)
             apply_∂r!(d²ᴾ_dr²_imag, fields.d²r_matrix, pol_gathered_imag)
 
@@ -1416,8 +1416,8 @@ function _compute_vorticity_spectral_threaded!(fields::SHTnsVelocityFields{T}, d
             extract_local_radial_profile!(Tᵀ_profile_imag, uᵀ_imag, local_lm, nr, r_range)
 
             # Compute radial derivatives for poloidal component (in-place, reuse buffers)
-            apply_∂r!(dᴾ_dr_real,   fields.dr_matrix,  Pᴾ_profile_real)
-            apply_∂r!(dᴾ_dr_imag,   fields.dr_matrix,  Pᴾ_profile_imag)
+            apply_∂r!(dᴾ_dr_real,   fields.∂r,  Pᴾ_profile_real)
+            apply_∂r!(dᴾ_dr_imag,   fields.∂r,  Pᴾ_profile_imag)
             apply_∂r!(d²ᴾ_dr²_real, fields.d²r_matrix, Pᴾ_profile_real)
             apply_∂r!(d²ᴾ_dr²_imag, fields.d²r_matrix, Pᴾ_profile_imag)
 

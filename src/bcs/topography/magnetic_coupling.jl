@@ -64,11 +64,11 @@ function apply_magnetic_topography_correction!(magnetic_field, topography::Topog
 
     # Precompute boundary value/derivative caches once for this field
     p_cache = compute_boundary_derivative_cache(poloidal,
-                                                magnetic_field.dr_matrix,
+                                                magnetic_field.∂r,
                                                 magnetic_field.d²r_matrix,
                                                 magnetic_field.outer_domain)
     t_cache = compute_boundary_derivative_cache(toroidal,
-                                                magnetic_field.dr_matrix,
+                                                magnetic_field.∂r,
                                                 magnetic_field.d²r_matrix,
                                                 magnetic_field.outer_domain)
 

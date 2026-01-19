@@ -112,7 +112,7 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     config::SHTnsKitConfig
 
     # Radial derivative matrices
-    dr_matrix::BandedMatrix{T}         # First derivative d/dr
+    ∂r::BandedMatrix{T}         # First derivative d/dr
     d²r_matrix::BandedMatrix{T}        # Second derivative d²/dr²
 
     # Spectral derivative operators (matching thermal.jl types)
@@ -213,7 +213,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     ℓ_factors = Float64[l * (l + 1) for l in config.l_values]
 
     # Create radial derivative matrices
-    dr_matrix  = create_derivative_matrix(1, Dᵒᶜ)
+    ∂r  = create_derivative_matrix(1, Dᵒᶜ)
     d²r_matrix = create_derivative_matrix(2, Dᵒᶜ)
 
     # Pre-compute spectral derivative operators
@@ -228,7 +228,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
         bc_type_inner, bc_type_outer,
         nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
         ℓ_factors, config,
-        dr_matrix, d²r_matrix,
+        ∂r, d²r_matrix,
         theta_derivative_matrix, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),
         Dᵒᶜ

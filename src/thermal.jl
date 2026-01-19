@@ -100,7 +100,7 @@ mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
     config::SHTnsKitConfig
     
     # Radial derivative matrices
-    dr_matrix::BandedMatrix{T}
+    ∂r::BandedMatrix{T}
     d²r_matrix::BandedMatrix{T}
     
     # Spectral derivative operators
@@ -170,7 +170,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     # Transform manager removed in SHTnsKit migration
     
     # Create radial derivative matrices
-    dr_matrix  = create_derivative_matrix(1, Dᵒᶜ)
+    ∂r  = create_derivative_matrix(1, Dᵒᶜ)
     d²r_matrix = create_derivative_matrix(2, Dᵒᶜ)
     
     # Pre-compute spectral derivative operators
@@ -185,7 +185,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
         bc_type_inner, bc_type_outer,
         nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
         ℓ_factors, config,
-        dr_matrix, d²r_matrix,
+        ∂r, d²r_matrix,
         theta_derivative_matrix, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),
         Dᵒᶜ

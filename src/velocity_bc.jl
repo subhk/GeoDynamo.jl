@@ -283,7 +283,7 @@ end
 
 """
     apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                   apply_inner, apply_outer, boundary_values, dr_matrix,
+                                   apply_inner, apply_outer, boundary_values, ∂r,
                                    domain, r_range, ws, tid, owns_mode)
 
 Workspace-based version of tau method stress-free BC (zero allocation).
@@ -309,7 +309,7 @@ the same number of times by all processes (prevents deadlock).
 function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
                                        apply_inner, apply_outer,
                                        boundary_values::AbstractMatrix,
-                                       dr_matrix::BandedMatrix, domain, r_range,
+                                       ∂r::BandedMatrix, domain, r_range,
                                        ws::VelocityWorkspace{T}, tid::Int, owns_mode::Bool) where T
     nr = domain.N
     r = domain.r[:, 4]  # Radial coordinates
@@ -344,7 +344,7 @@ function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
     end
 
     # Compute current fluxes (∂T/∂r)
-    apply_∂r!(dprofile_real, dr_matrix, profile_real)
+    apply_∂r!(dprofile_real, ∂r, profile_real)
     current_flux_inner_real = dprofile_real[1]
     current_flux_outer_real = dprofile_real[nr]
 
@@ -373,7 +373,7 @@ function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
         end
 
         if any(x -> abs(x) > 1e-12, profile_imag)
-            apply_∂r!(dprofile_imag, dr_matrix, profile_imag)
+            apply_∂r!(dprofile_imag, ∂r, profile_imag)
             current_flux_inner_imag = dprofile_imag[1]
             current_flux_outer_imag = dprofile_imag[nr]
 
@@ -403,7 +403,7 @@ function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
         end
 
         if any(x -> abs(x) > 1e-12, profile_imag)
-            apply_∂r!(dprofile_imag, dr_matrix, profile_imag)
+            apply_∂r!(dprofile_imag, ∂r, profile_imag)
             current_flux_inner_imag = dprofile_imag[1]
 
             if r[1] < 1e-14
@@ -429,7 +429,7 @@ function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
         end
 
         if any(x -> abs(x) > 1e-12, profile_imag)
-            apply_∂r!(dprofile_imag, dr_matrix, profile_imag)
+            apply_∂r!(dprofile_imag, ∂r, profile_imag)
             current_flux_outer_imag = dprofile_imag[nr]
             target_flux_outer_imag = profile_imag[nr] / r[nr]
 

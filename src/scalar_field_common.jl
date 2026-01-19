@@ -391,8 +391,8 @@ function _compute_radial_gradient_mpi!(field::AbstractScalarField{T}, domain::Ra
             local_lm = lm_idx - first(lm_range) + 1
 
             # Compute radial derivative using complete profile
-            apply_∂r!(deriv_real, field.dr_matrix, gathered_real)
-            apply_∂r!(deriv_imag, field.dr_matrix, gathered_imag)
+            apply_∂r!(deriv_real, field.∂r, gathered_real)
+            apply_∂r!(deriv_imag, field.∂r, gathered_imag)
 
             # Store only local results
             r_first = first(r_range)
@@ -412,7 +412,7 @@ end
 function _compute_radial_gradient_local!(field::AbstractScalarField{T}, domain::RadialDomain,
                                           spec_real, spec_imag, ∇ᵣ_real, ∇ᵣ_imag,
                                           lm_range, r_range, nr) where T
-    bandwidth = field.dr_matrix.bandwidth
+    bandwidth = field.∂r.bandwidth
 
     @inbounds for lm_idx in lm_range
         if lm_idx <= field.config.nlm
@@ -432,7 +432,7 @@ function _compute_radial_gradient_local!(field::AbstractScalarField{T}, domain::
                             local_j = j - first(r_range) + 1
                             band_row = bandwidth + 1 + r_idx - j
                             if 1 <= band_row <= 2*bandwidth + 1
-                                coeff = field.dr_matrix.data[band_row, j]
+                                coeff = field.∂r.data[band_row, j]
                                 dr_real += coeff * spec_real[local_lm, 1, local_j]
                                 dr_imag += coeff * spec_imag[local_lm, 1, local_j]
                             end
@@ -940,8 +940,8 @@ end
 Evaluate tau function derivative at inner boundary.
 """
 function evaluate_tau_derivative_inner(tau::Vector, domain::RadialDomain)
-    dr_matrix = create_derivative_matrix(1, domain)
-    dtau = dr_matrix * tau
+    ∂r = create_derivative_matrix(1, domain)
+    dtau = ∂r * tau
     return dtau[1]
 end
 
@@ -951,8 +951,8 @@ end
 Evaluate tau function derivative at outer boundary.
 """
 function evaluate_tau_derivative_outer(tau::Vector, domain::RadialDomain)
-    dr_matrix = create_derivative_matrix(1, domain)
-    dtau = dr_matrix * tau
+    ∂r = create_derivative_matrix(1, domain)
+    dtau = ∂r * tau
     return dtau[end]
 end
 
@@ -976,15 +976,15 @@ end
 # ================================================================================
 
 """
-    compute_boundary_fluxes(profile::Vector{T}, dr_matrix, domain::RadialDomain) where T
+    compute_boundary_fluxes(profile::Vector{T}, ∂r, domain::RadialDomain) where T
 
 Compute flux (dT/dr) at both boundaries using the derivative matrix.
-Note: dr_matrix should be a BandedMatrix{T} (defined in linear_algebra.jl)
+Note: ∂r should be a BandedMatrix{T} (defined in linear_algebra.jl)
 """
-function compute_boundary_fluxes(profile::Vector{T}, dr_matrix,
+function compute_boundary_fluxes(profile::Vector{T}, ∂r,
                                 domain::RadialDomain) where T
     nr = domain.N
-    dprofile = dr_matrix * profile
+    dprofile = ∂r * profile
     
     return dprofile[1], dprofile[nr]
 end
@@ -1072,7 +1072,7 @@ function apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
 
     # Compute current fluxes at boundaries
     current_flux_inner, current_flux_outer = compute_boundary_fluxes(
-        profile_real, field.dr_matrix, domain)
+        profile_real, field.∂r, domain)
     
     # Compute tau corrections
     if apply_inner && apply_outer
@@ -1165,30 +1165,30 @@ function normalize_influence_function!(G::Vector{T}, domain::RadialDomain, which
 end
 
 """
-    build_influence_matrix(G_inner, G_outer, dr_matrix, domain)
+    build_influence_matrix(G_inner, G_outer, ∂r, domain)
 
 Construct a 2×2 matrix mapping influence amplitudes to boundary flux errors.
 Rows correspond to (inner, outer) boundaries; columns to (inner, outer) influence functions.
 """
 function build_influence_matrix(G_inner::Vector{T}, G_outer::Vector{T},
-                               dr_matrix, domain::RadialDomain) where T
-    dGi = dr_matrix * G_inner
-    dGo = dr_matrix * G_outer
+                               ∂r, domain::RadialDomain) where T
+    dGi = ∂r * G_inner
+    dGo = ∂r * G_outer
     return [dGi[1]  dGo[1];
             dGi[end] dGo[end]]
 end
 
 """
-    _get_influence_cache(domain::RadialDomain, dr_matrix)
+    _get_influence_cache(domain::RadialDomain, ∂r)
 
 Get or create cached influence functions and matrix for given domain.
-Note: dr_matrix should be a BandedMatrix (defined in linear_algebra.jl)
+Note: ∂r should be a BandedMatrix (defined in linear_algebra.jl)
 """
-function _get_influence_cache(domain::RadialDomain, dr_matrix)
+function _get_influence_cache(domain::RadialDomain, ∂r)
     cache = get(_INFLUENCE_CACHE, domain, nothing)
     if cache === nothing || cache.nr != domain.N
         Gi, Go = compute_influence_functions_flux(domain)
-        M = build_influence_matrix(Gi, Go, dr_matrix, domain)
+        M = build_influence_matrix(Gi, Go, ∂r, domain)
         cache = _InfluenceCache(domain.N, Gi, Go, M)
         _INFLUENCE_CACHE[domain] = cache
     end
@@ -1211,7 +1211,7 @@ function apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
                                        apply_inner, apply_outer,
                                        field::AbstractScalarField, domain, r_range, owns_mode::Bool)
     T = eltype(spec_real)
-    infl = _get_influence_cache(domain, field.dr_matrix)
+    infl = _get_influence_cache(domain, field.∂r)
 
     # Get prescribed and current flux values
     flux_prescribed = [get_flux_value(lm_idx, 1, field),
@@ -1241,7 +1241,7 @@ function apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
 
     # Compute current flux at boundaries
     current_flux_inner, current_flux_outer = compute_boundary_fluxes(
-        profile_real, field.dr_matrix, domain)
+        profile_real, field.∂r, domain)
     flux_current = [current_flux_inner, current_flux_outer]
 
     # Solve for influence amplitudes
@@ -1285,25 +1285,25 @@ function apply_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
     if 1 in r_range
         flux_inner = get_flux_value(lm_idx, 1, field)
         modify_for_flux_inner!(spec_real, spec_imag, local_lm, flux_inner, 
-                              field.dr_matrix, domain, r_range)
+                              field.∂r, domain, r_range)
     end
     
     if domain.N in r_range
         flux_outer = get_flux_value(lm_idx, 2, field)
         modify_for_flux_outer!(spec_real, spec_imag, local_lm, flux_outer,
-                              field.dr_matrix, domain, r_range)
+                              field.∂r, domain, r_range)
     end
 end
 
 """
     modify_for_flux_inner!(spec_real, spec_imag, local_lm, prescribed_flux,
-                          dr_matrix, domain, r_range)
+                          ∂r, domain, r_range)
 
 Modify coefficients near inner boundary to approximate flux condition.
 Uses low-order extrapolation.
 """
 function modify_for_flux_inner!(spec_real, spec_imag, local_lm, prescribed_flux,
-                               dr_matrix, domain, r_range)
+                               ∂r, domain, r_range)
     T = eltype(spec_real)
     
     if 1 in r_range && 2 in r_range
@@ -1321,13 +1321,13 @@ end
 
 """
     modify_for_flux_outer!(spec_real, spec_imag, local_lm, prescribed_flux,
-                          dr_matrix, domain, r_range)
+                          ∂r, domain, r_range)
 
 Modify coefficients near outer boundary to approximate flux condition.
 Uses low-order extrapolation.
 """
 function modify_for_flux_outer!(spec_real, spec_imag, local_lm, prescribed_flux,
-                               dr_matrix, domain, r_range)
+                               ∂r, domain, r_range)
     T = eltype(spec_real)
     nr = domain.N
     

@@ -24,7 +24,7 @@ end
 
 struct ShiftDummyTemperatureField{T}
     spectral::ShiftDummySpectralField{T}
-    dr_matrix::GeoDynamo.BandedMatrix{T}
+    ∂r::GeoDynamo.BandedMatrix{T}
     d2r_matrix::GeoDynamo.BandedMatrix{T}
     domain::GeoDynamo.RadialDomain
 end
@@ -66,7 +66,7 @@ end
     domain = GeoDynamo.RadialDomain(nr, 1:nr, r, dr_mats, radial_lap, weights)
 
     # Identity d2, zero d1
-    dr_matrix = GeoDynamo.BandedMatrix(zeros(1, nr), 0, nr)
+    ∂r = GeoDynamo.BandedMatrix(zeros(1, nr), 0, nr)
     d2r_matrix = GeoDynamo.BandedMatrix(ones(1, nr), 0, nr)
 
     # Spectral data: constant across radius for (l=1,m=0)
@@ -83,8 +83,8 @@ end
     spec_oc = ShiftDummySpectralField(cfg, nlm, data_real_oc, data_imag_oc, pencil)
     spec_ic = ShiftDummySpectralField(cfg, nlm, data_real_ic, data_imag_ic, pencil)
 
-    temp_oc = ShiftDummyTemperatureField(spec_oc, dr_matrix, d2r_matrix, domain)
-    temp_ic = ShiftDummyTemperatureField(spec_ic, dr_matrix, d2r_matrix, domain)
+    temp_oc = ShiftDummyTemperatureField(spec_oc, ∂r, d2r_matrix, domain)
+    temp_ic = ShiftDummyTemperatureField(spec_ic, ∂r, d2r_matrix, domain)
 
     # Gaunt cache with required entry
     gaunt = Topo.GauntTensorCache(lmax, lmax)

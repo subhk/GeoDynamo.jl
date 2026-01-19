@@ -4,7 +4,7 @@ using GeoDynamo
 
 function check_tau_flux_correction()
     domain = GeoDynamo.create_radial_domain(nr=8, rratio=0.35, kl=2)
-    dr_matrix = GeoDynamo.create_derivative_matrix(1, domain)
+    ∂r = GeoDynamo.create_derivative_matrix(1, domain)
 
     nr = domain.N
     spec_real = zeros(Float64, 1, 1, nr)
@@ -19,10 +19,10 @@ function check_tau_flux_correction()
 
     GeoDynamo.apply_velocity_flux_bc_tau!(spec_real, spec_imag, 1, 1,
                                           true, true, boundary_values,
-                                          dr_matrix, domain, 1:nr, true)
+                                          ∂r, domain, 1:nr, true)
 
     profile = vec(spec_real[1, 1, :])
-    dprofile = dr_matrix * profile
+    dprofile = ∂r * profile
 
     target_inner = (r[1] < 1e-14 ? 0.0 : profile[1] / r[1]) + boundary_values[1, 1]
     target_outer = profile[end] / r[end] + boundary_values[2, 1]

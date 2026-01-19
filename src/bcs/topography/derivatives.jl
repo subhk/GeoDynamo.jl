@@ -48,14 +48,14 @@ struct BoundaryDerivativeCache{T<:AbstractFloat}
 end
 
 """
-    compute_boundary_derivative_cache(field, dr_matrix, d²r_matrix, domain) -> BoundaryDerivativeCache
+    compute_boundary_derivative_cache(field, ∂r, d²r_matrix, domain) -> BoundaryDerivativeCache
 
 Compute boundary values and radial derivatives for all modes using the
 full radial profile (MPI-safe). This is expensive but avoids per-mode
 Allreduce inside tight coupling loops.
 """
 function compute_boundary_derivative_cache(field,
-                                           dr_matrix,
+                                           ∂r,
                                            d²r_matrix,
                                            domain)
     nlm = field.config.nlm
@@ -110,8 +110,8 @@ function compute_boundary_derivative_cache(field,
         values_inner[lm_idx] = complex(gathered_real[1], gathered_imag[1])
         values_outer[lm_idx] = complex(gathered_real[nr], gathered_imag[nr])
 
-        __apply_∂r!(dprofile_real, dr_matrix, gathered_real)
-        __apply_∂r!(dprofile_imag, dr_matrix, gathered_imag)
+        __apply_∂r!(dprofile_real, ∂r, gathered_real)
+        __apply_∂r!(dprofile_imag, ∂r, gathered_imag)
         d1_inner[lm_idx] = complex(dprofile_real[1], dprofile_imag[1])
         d1_outer[lm_idx] = complex(dprofile_real[nr], dprofile_imag[nr])
 

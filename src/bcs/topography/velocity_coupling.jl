@@ -84,11 +84,11 @@ function apply_velocity_topography_correction!(velocity_field, topography::Topog
 
     # Precompute boundary value/derivative caches once for this field
     p_cache = compute_boundary_derivative_cache(poloidal,
-                                                velocity_field.dr_matrix,
+                                                velocity_field.∂r,
                                                 velocity_field.d²r_matrix,
                                                 velocity_field.domain)
     t_cache = compute_boundary_derivative_cache(toroidal,
-                                                velocity_field.dr_matrix,
+                                                velocity_field.∂r,
                                                 velocity_field.d²r_matrix,
                                                 velocity_field.domain)
 
@@ -467,16 +467,16 @@ end
 """
     get_spectral_radial_derivative(field, l::Int, m::Int, r,
                                    location::BoundaryLocation=OUTER_BOUNDARY;
-                                   dr_matrix, domain)
+                                   ∂r, domain)
 
 Compute the radial derivative of spectral coefficient (l, m) at a boundary.
 Requires access to the radial derivative matrix and domain.
 """
 function get_spectral_radial_derivative(field, l::Int, m::Int, r,
                                         location::BoundaryLocation=OUTER_BOUNDARY;
-                                        dr_matrix=nothing, domain=nothing)
-    if dr_matrix === nothing || domain === nothing
-        throw(ArgumentError("get_spectral_radial_derivative requires dr_matrix and domain; use compute_boundary_derivative_cache and get_cache_d1"))
+                                        ∂r=nothing, domain=nothing)
+    if ∂r === nothing || domain === nothing
+        throw(ArgumentError("get_spectral_radial_derivative requires ∂r and domain; use compute_boundary_derivative_cache and get_cache_d1"))
     end
 
     # Infer element type from field data
@@ -514,8 +514,8 @@ function get_spectral_radial_derivative(field, l::Int, m::Int, r,
 
     dprofile_real = zeros(T, nr)
     dprofile_imag = zeros(T, nr)
-    _apply_banded_matrix!(dprofile_real, dr_matrix, profile_real)
-    _apply_banded_matrix!(dprofile_imag, dr_matrix, profile_imag)
+    _apply_banded_matrix!(dprofile_real, ∂r, profile_real)
+    _apply_banded_matrix!(dprofile_imag, ∂r, profile_imag)
 
     idx_r = location == INNER_BOUNDARY ? 1 : nr
     val = complex(dprofile_real[idx_r], dprofile_imag[idx_r])

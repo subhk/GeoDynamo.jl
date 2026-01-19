@@ -235,10 +235,10 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
     cache_ic = nothing
     cache_oc = nothing
     if hasfield(typeof(temperature_ic), :spectral) &&
-       hasfield(typeof(temperature_ic), :dr_matrix) &&
+       hasfield(typeof(temperature_ic), :∂r) &&
        hasfield(typeof(temperature_ic), :domain)
         cache_ic = compute_boundary_derivative_cache(temperature_ic.spectral,
-                                                     temperature_ic.dr_matrix,
+                                                     temperature_ic.∂r,
                                                      hasfield(typeof(temperature_ic), :d²r_matrix) ?
                                                          temperature_ic.d²r_matrix : nothing,
                                                      temperature_ic.domain)
@@ -247,10 +247,10 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
     end
 
     if hasfield(typeof(temperature_oc), :spectral) &&
-       hasfield(typeof(temperature_oc), :dr_matrix) &&
+       hasfield(typeof(temperature_oc), :∂r) &&
        hasfield(typeof(temperature_oc), :domain)
         cache_oc = compute_boundary_derivative_cache(temperature_oc.spectral,
-                                                     temperature_oc.dr_matrix,
+                                                     temperature_oc.∂r,
                                                      hasfield(typeof(temperature_oc), :d²r_matrix) ?
                                                          temperature_oc.d²r_matrix : nothing,
                                                      temperature_oc.domain)
@@ -517,10 +517,10 @@ function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symb
     location = side == :inner ? INNER_BOUNDARY : OUTER_BOUNDARY
 
     cache = nothing
-    if hasfield(typeof(temperature_field), :dr_matrix) &&
+    if hasfield(typeof(temperature_field), :∂r) &&
        hasfield(typeof(temperature_field), :domain)
         cache = compute_boundary_derivative_cache(spectral,
-                                                  temperature_field.dr_matrix,
+                                                  temperature_field.∂r,
                                                   nothing,
                                                   temperature_field.domain)
     end
@@ -531,10 +531,10 @@ function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symb
 
         # Get radial derivative at boundary
         if cache === nothing
-            dr_matrix = hasfield(typeof(temperature_field), :dr_matrix) ? temperature_field.dr_matrix : nothing
+            ∂r = hasfield(typeof(temperature_field), :∂r) ? temperature_field.∂r : nothing
             domain = hasfield(typeof(temperature_field), :domain) ? temperature_field.domain : nothing
             dT_dr = get_spectral_radial_derivative(spectral, l, m, r, location;
-                                                   dr_matrix=dr_matrix, domain=domain)
+                                                   ∂r=∂r, domain=domain)
         else
             dT_dr = get_cache_d1(cache, l, m, location)
         end
