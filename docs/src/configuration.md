@@ -11,7 +11,7 @@ GeoDynamo.GeoDynamoParameters
 | Field | Meaning | Notes |
 | --- | --- | --- |
 | `geometry` | `:shell` or `:ball` | Drives boundary conditions, initialisation, and diagnostic logic. |
-| `i_N` | Radial grid points | Applies to both outer-core (`oc_domain`) and inner-core (`ic_domain`) grids. |
+| `i_N` | Radial grid points | Applies to both outer-core (`Dᵒᶜ`) and inner-core (`Dⁱᶜ`) grids. |
 | `i_L`, `i_M` | Maximum spherical harmonic degree/order | Communicated to SHTnsKit. `i_M` defaults to `i_L`. |
 | `i_Th`, `i_Ph` | Physical θ/φ grid resolution | Overridden by SHTnsKit heuristics if incompatible with gauss grids. |
 | `i_KL` | Radial finite-difference bandwidth | Controls stencil width for derivative operators. |

@@ -6,11 +6,11 @@
 # hierarchy, so we keep a local banded-matrix apply here to avoid ordering issues.
 
 """
-    __apply_derivative_matrix!(output, matrix, input)
+    __apply_∂r!(output, matrix, input)
 
 Local banded-matrix apply for derivative operators.
 """
-function __apply_derivative_matrix!(output::Vector{T}, matrix, input::Vector{T}) where T
+function __apply_∂r!(output::Vector{T}, matrix, input::Vector{T}) where T
     N = matrix.size
     bandwidth = matrix.bandwidth
 
@@ -110,14 +110,14 @@ function compute_boundary_derivative_cache(field,
         values_inner[lm_idx] = complex(gathered_real[1], gathered_imag[1])
         values_outer[lm_idx] = complex(gathered_real[nr], gathered_imag[nr])
 
-        __apply_derivative_matrix!(dprofile_real, dr_matrix, gathered_real)
-        __apply_derivative_matrix!(dprofile_imag, dr_matrix, gathered_imag)
+        __apply_∂r!(dprofile_real, dr_matrix, gathered_real)
+        __apply_∂r!(dprofile_imag, dr_matrix, gathered_imag)
         d1_inner[lm_idx] = complex(dprofile_real[1], dprofile_imag[1])
         d1_outer[lm_idx] = complex(dprofile_real[nr], dprofile_imag[nr])
 
         if d²r_matrix !== nothing
-            __apply_derivative_matrix!(d2profile_real, d²r_matrix, gathered_real)
-            __apply_derivative_matrix!(d2profile_imag, d²r_matrix, gathered_imag)
+            __apply_∂r!(d2profile_real, d²r_matrix, gathered_real)
+            __apply_∂r!(d2profile_imag, d²r_matrix, gathered_imag)
             d2_inner[lm_idx] = complex(d2profile_real[1], d2profile_imag[1])
             d2_outer[lm_idx] = complex(d2profile_real[nr], d2profile_imag[nr])
         end

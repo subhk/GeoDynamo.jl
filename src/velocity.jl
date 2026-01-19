@@ -508,8 +508,8 @@ function apply_velocity_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
     # Compute current fluxes at boundaries using derivative matrix
     dprofile_real = zeros(T, nr)
     dprofile_imag = zeros(T, nr)
-    apply_derivative_matrix!(dprofile_real, dr_matrix, profile_real)
-    apply_derivative_matrix!(dprofile_imag, dr_matrix, profile_imag)
+    apply_∂r!(dprofile_real, dr_matrix, profile_real)
+    apply_∂r!(dprofile_imag, dr_matrix, profile_imag)
 
     current_flux_inner_real = dprofile_real[1]
     current_flux_outer_real = dprofile_real[nr]
@@ -1048,10 +1048,10 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             extract_local_radial_profile!(Tᵀ_profile_real, uᵀ_real, local_lm, nr, r_range)
             extract_local_radial_profile!(Tᵀ_profile_imag, uᵀ_imag, local_lm, nr, r_range)
 
-            apply_derivative_matrix!(dᴾ_dr_real,   fields.dr_matrix,  Pᴾ_profile_real)
-            apply_derivative_matrix!(dᴾ_dr_imag,   fields.dr_matrix,  Pᴾ_profile_imag)
-            apply_derivative_matrix!(d²ᴾ_dr²_real, fields.d²r_matrix, Pᴾ_profile_real)
-            apply_derivative_matrix!(d²ᴾ_dr²_imag, fields.d²r_matrix, Pᴾ_profile_imag)
+            apply_∂r!(dᴾ_dr_real,   fields.dr_matrix,  Pᴾ_profile_real)
+            apply_∂r!(dᴾ_dr_imag,   fields.dr_matrix,  Pᴾ_profile_imag)
+            apply_∂r!(d²ᴾ_dr²_real, fields.d²r_matrix, Pᴾ_profile_real)
+            apply_∂r!(d²ᴾ_dr²_imag, fields.d²r_matrix, Pᴾ_profile_imag)
 
             r_first = first(r_range)
             r_last = min(last(r_range), nr)
@@ -1333,10 +1333,10 @@ function _compute_vorticity_spectral_mpi!(fields::SHTnsVelocityFields{T}, domain
             local_lm = lm_idx - first(lm_range) + 1
 
             # Compute radial derivatives using complete poloidal profile
-            apply_derivative_matrix!(dᴾ_dr_real,   fields.dr_matrix,  pol_gathered_real)
-            apply_derivative_matrix!(dᴾ_dr_imag,   fields.dr_matrix,  pol_gathered_imag)
-            apply_derivative_matrix!(d²ᴾ_dr²_real, fields.d²r_matrix, pol_gathered_real)
-            apply_derivative_matrix!(d²ᴾ_dr²_imag, fields.d²r_matrix, pol_gathered_imag)
+            apply_∂r!(dᴾ_dr_real,   fields.dr_matrix,  pol_gathered_real)
+            apply_∂r!(dᴾ_dr_imag,   fields.dr_matrix,  pol_gathered_imag)
+            apply_∂r!(d²ᴾ_dr²_real, fields.d²r_matrix, pol_gathered_real)
+            apply_∂r!(d²ᴾ_dr²_imag, fields.d²r_matrix, pol_gathered_imag)
 
             # Compute vorticity components (only for local r indices)
             r_first = first(r_range)
@@ -1416,10 +1416,10 @@ function _compute_vorticity_spectral_threaded!(fields::SHTnsVelocityFields{T}, d
             extract_local_radial_profile!(Tᵀ_profile_imag, uᵀ_imag, local_lm, nr, r_range)
 
             # Compute radial derivatives for poloidal component (in-place, reuse buffers)
-            apply_derivative_matrix!(dᴾ_dr_real,   fields.dr_matrix,  Pᴾ_profile_real)
-            apply_derivative_matrix!(dᴾ_dr_imag,   fields.dr_matrix,  Pᴾ_profile_imag)
-            apply_derivative_matrix!(d²ᴾ_dr²_real, fields.d²r_matrix, Pᴾ_profile_real)
-            apply_derivative_matrix!(d²ᴾ_dr²_imag, fields.d²r_matrix, Pᴾ_profile_imag)
+            apply_∂r!(dᴾ_dr_real,   fields.dr_matrix,  Pᴾ_profile_real)
+            apply_∂r!(dᴾ_dr_imag,   fields.dr_matrix,  Pᴾ_profile_imag)
+            apply_∂r!(d²ᴾ_dr²_real, fields.d²r_matrix, Pᴾ_profile_real)
+            apply_∂r!(d²ᴾ_dr²_imag, fields.d²r_matrix, Pᴾ_profile_imag)
 
             # Compute vorticity components
             r_first = first(r_range)

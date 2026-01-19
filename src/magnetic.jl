@@ -459,10 +459,10 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
                 local_lm = lm_idx - first(lm_range) + 1
 
                 # Compute radial derivatives using complete profile
-                apply_derivative_matrix!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
-                apply_derivative_matrix!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
-                apply_derivative_matrix!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
-                apply_derivative_matrix!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
+                apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
+                apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
+                apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
+                apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
 
                 # Compute current density components
                 r_first = first(r_range)
@@ -515,10 +515,10 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
                 copyto!(Pᴾ_gathered_imag, Pᴾ_profile_imag)
 
                 # Compute radial derivatives
-                apply_derivative_matrix!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
-                apply_derivative_matrix!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
-                apply_derivative_matrix!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
-                apply_derivative_matrix!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
+                apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
+                apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
+                apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
+                apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
 
                 # Compute current density components
                 r_first = first(r_range)
@@ -714,10 +714,10 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
                 local_lm = lm_idx - first(lm_range) + 1
 
                 # Compute radial derivatives using complete profile
-                apply_derivative_matrix!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
-                apply_derivative_matrix!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
-                apply_derivative_matrix!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
-                apply_derivative_matrix!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
+                apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
+                apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
+                apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
+                apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
 
                 # Compute curl components
                 r_first = first(r_range)
@@ -769,10 +769,10 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
                 copyto!(Pᴾ_gathered_imag, Pᴾ_profile_imag)
 
                 # Compute radial derivatives
-                apply_derivative_matrix!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
-                apply_derivative_matrix!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
-                apply_derivative_matrix!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
-                apply_derivative_matrix!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
+                apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
+                apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
+                apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
+                apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
 
                 # Compute curl components
                 r_first = first(r_range)

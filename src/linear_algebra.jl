@@ -247,7 +247,7 @@ function apply_banded_vector_local!(output::AbstractVector{T},
     return nothing
 end
 
-function apply_derivative_matrix!(output::Vector{T},
+function apply_∂r!(output::Vector{T},
                                 matrix::BandedMatrix{T},
                                 input::Vector{T}) where T
     N = matrix.size

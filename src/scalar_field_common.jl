@@ -391,8 +391,8 @@ function _compute_radial_gradient_mpi!(field::AbstractScalarField{T}, domain::Ra
             local_lm = lm_idx - first(lm_range) + 1
 
             # Compute radial derivative using complete profile
-            apply_derivative_matrix!(deriv_real, field.dr_matrix, gathered_real)
-            apply_derivative_matrix!(deriv_imag, field.dr_matrix, gathered_imag)
+            apply_∂r!(deriv_real, field.dr_matrix, gathered_real)
+            apply_∂r!(deriv_imag, field.dr_matrix, gathered_imag)
 
             # Store only local results
             r_first = first(r_range)
