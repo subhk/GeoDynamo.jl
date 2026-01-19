@@ -139,8 +139,8 @@ mutable struct SHTnsMagneticFields{T}
     current::SHTnsVectorField{T}
 
     # Spectral representation
-    toroidal::SHTnsSpecField{T}
-    poloidal::SHTnsSpecField{T}
+    𝒯::SHTnsSpecField{T}
+    𝒫::SHTnsSpecField{T}
 
     # Inner core fields
     ic_toroidal::SHTnsSpecField{T}
@@ -198,8 +198,8 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     current  = create_shtns_vector_field(T, config, Dᵒᶜ, pencils)
     
     # Spectral fields
-    toroidal = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    poloidal = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
+    𝒯 = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
+    𝒫 = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
     
     # Inner core fields (different domain)
     ic_toroidal = create_shtns_spectral_field(T, config, Dⁱᶜ, pencil_spec)
@@ -233,7 +233,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     boundary_time_index = Ref{Int}(1)
     
     return SHTnsMagneticFields{T}(magnetic, current,
-                                toroidal, poloidal,
+                                𝒯, 𝒫,
                                 ic_toroidal, ic_poloidal,
                                 nlᵀ, nlᴾ, prev_nlᵀ, prev_nlᴾ,
                                 work_tor, work_pol, work_physical,
@@ -258,7 +258,7 @@ function compute_magnetic_nonlinear!(ℬ::SHTnsMagneticFields{T},
     zero_magnetic_work_arrays!(ℬ)
     
     # Step 1: Convert spectral B to physical space using enhanced transforms
-    shtnskit_vector_synthesis!(ℬ.toroidal, ℬ.poloidal,
+    shtnskit_vector_synthesis!(ℬ.𝒯, ℬ.𝒫,
                                ℬ.magnetic; domain=Dᵒᶜ)
 
     # Step 2: Compute current density j = ∇ × B in spectral space
@@ -290,16 +290,16 @@ values on the inner and outer radial surfaces.
 function enforce_magnetic_boundary_values!(fields::SHTnsMagneticFields{T}) where T
     domain = fields.outer_domain
 
-    tor_real = parent(fields.toroidal.data_real)
-    tor_imag = parent(fields.toroidal.data_imag)
-    pol_real = parent(fields.poloidal.data_real)
-    pol_imag = parent(fields.poloidal.data_imag)
+    tor_real = parent(fields.𝒯.data_real)
+    tor_imag = parent(fields.𝒯.data_imag)
+    pol_real = parent(fields.𝒫.data_real)
+    pol_imag = parent(fields.𝒫.data_imag)
 
-    tor_bc = fields.toroidal.boundary_values
-    pol_bc = fields.poloidal.boundary_values
+    tor_bc = fields.𝒯.boundary_values
+    pol_bc = fields.𝒫.boundary_values
 
-    lm_range = get_local_range(fields.toroidal.pencil, 1)
-    r_range = get_local_range(fields.toroidal.pencil, 3)
+    lm_range = get_local_range(fields.𝒯.pencil, 1)
+    r_range = get_local_range(fields.𝒯.pencil, 3)
 
     has_inner = 1 in r_range && domain.r[1, 4] > 0
     has_outer = domain.N in r_range
@@ -310,26 +310,26 @@ function enforce_magnetic_boundary_values!(fields::SHTnsMagneticFields{T}) where
     dirichlet_code = Int(bcs.DIRICHLET)
 
     for lm_idx in lm_range
-        if lm_idx <= fields.toroidal.nlm
+        if lm_idx <= fields.𝒯.nlm
             local_lm = lm_idx - first(lm_range) + 1
 
             if has_inner && 1 <= inner_idx <= size(tor_real, 3)
-                if fields.toroidal.bc_type_inner[lm_idx] == dirichlet_code
+                if fields.𝒯.bc_type_inner[lm_idx] == dirichlet_code
                     tor_real[local_lm, 1, inner_idx] = tor_bc[1, lm_idx]
                     tor_imag[local_lm, 1, inner_idx] = zero(T)
                 end
-                if fields.poloidal.bc_type_inner[lm_idx] == dirichlet_code
+                if fields.𝒫.bc_type_inner[lm_idx] == dirichlet_code
                     pol_real[local_lm, 1, inner_idx] = pol_bc[1, lm_idx]
                     pol_imag[local_lm, 1, inner_idx] = zero(T)
                 end
             end
 
             if has_outer && 1 <= outer_idx <= size(tor_real, 3)
-                if fields.toroidal.bc_type_outer[lm_idx] == dirichlet_code
+                if fields.𝒯.bc_type_outer[lm_idx] == dirichlet_code
                     tor_real[local_lm, 1, outer_idx] = tor_bc[2, lm_idx]
                     tor_imag[local_lm, 1, outer_idx] = zero(T)
                 end
-                if fields.poloidal.bc_type_outer[lm_idx] == dirichlet_code
+                if fields.𝒫.bc_type_outer[lm_idx] == dirichlet_code
                     pol_real[local_lm, 1, outer_idx] = pol_bc[2, lm_idx]
                     pol_imag[local_lm, 1, outer_idx] = zero(T)
                 end
@@ -362,7 +362,7 @@ function apply_magnetic_boundary_conditions!(fields::SHTnsMagneticFields{T};
     enforce_magnetic_boundary_values!(fields)
 
     if fields.outer_domain.r[1, 4] == 0.0
-        enforce_ball_vector_regularity!(fields.toroidal, fields.poloidal)
+        enforce_ball_vector_regularity!(fields.𝒯, fields.𝒫)
     end
     return fields
 end
@@ -387,10 +387,10 @@ function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T},
     #   jᴾ = -[l(l+1)/r²] T^{lm}
     
     # Get local data views
-    Bᵀ_real = parent(ℬ.toroidal.data_real)
-    Bᵀ_imag = parent(ℬ.toroidal.data_imag)
-    Bᴾ_real = parent(ℬ.poloidal.data_real)
-    Bᴾ_imag = parent(ℬ.poloidal.data_imag)
+    Bᵀ_real = parent(ℬ.𝒯.data_real)
+    Bᵀ_imag = parent(ℬ.𝒯.data_imag)
+    Bᴾ_real = parent(ℬ.𝒫.data_real)
+    Bᴾ_imag = parent(ℬ.𝒫.data_imag)
     
     jᵀ_real = parent(ℬ.work_tor.data_real)
     jᵀ_imag = parent(ℬ.work_tor.data_imag)
@@ -400,7 +400,7 @@ function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T},
     # Get local ranges using config-aware pencil topology
     # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
     # since spectral field data is distributed using pencils.spec
-    config = ℬ.toroidal.config
+    config = ℬ.𝒯.config
     lm_range = range_local(config.pencils.spec, 1)
     r_range  = range_local(config.pencils.spec, 3)
     total_nlm = config.nlm  # Total number of (l,m) modes
@@ -575,7 +575,7 @@ function compute_curl_of_induction!(ℬ::SHTnsMagneticFields{T}) where T
     # Get local ranges using config-aware pencil topology
     # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
     # since spectral field data is distributed using pencils.spec
-    config = ℬ.toroidal.config
+    config = ℬ.𝒯.config
     domain = ℬ.outer_domain
     lm_range = range_local(config.pencils.spec, 1)
     r_range  = range_local(config.pencils.spec, 3)
@@ -682,7 +682,7 @@ function add_inner_core_rotation!(ℬ::SHTnsMagneticFields{T}, Ω::Float64) wher
     @inbounds for lm_idx in lm_range
         if lm_idx <= ℬ.ic_toroidal.nlm
             local_lm = lm_idx - first(lm_range) + 1
-            m = ℬ.toroidal.config.m_values[lm_idx]
+            m = ℬ.𝒯.config.m_values[lm_idx]
             
             # Only affects m ≠ 0 modes (azimuthal dependence)
             if m != 0
@@ -712,22 +712,22 @@ end
 function compute_magnetic_energy(ℬ::SHTnsMagneticFields{T}) where T
     # Compute magnetic energy in spectral space
     
-    tor_real = parent(ℬ.toroidal.data_real)
-    tor_imag = parent(ℬ.toroidal.data_imag)
-    pol_real = parent(ℬ.poloidal.data_real)
-    pol_imag = parent(ℬ.poloidal.data_imag)
+    tor_real = parent(ℬ.𝒯.data_real)
+    tor_imag = parent(ℬ.𝒯.data_imag)
+    pol_real = parent(ℬ.𝒫.data_real)
+    pol_imag = parent(ℬ.𝒫.data_imag)
     
     local_energy = zero(Float64)
 
     # Get local ranges using config-aware pencil topology
     # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
     # since spectral field data is distributed using pencils.spec
-    config = ℬ.toroidal.config
+    config = ℬ.𝒯.config
     lm_range = range_local(config.pencils.spec, 1)
     r_range  = range_local(config.pencils.spec, 3)
 
     @inbounds for lm_idx in lm_range
-        if lm_idx <= ℬ.toroidal.nlm
+        if lm_idx <= ℬ.𝒯.nlm
             local_lm = lm_idx - first(lm_range) + 1
             ℓ_factor = ℬ.ℓ_factors[lm_idx]
             
@@ -823,7 +823,7 @@ Perform batched transforms for better cache efficiency using shtnskit_transforms
 """
 function batch_magnetic_transforms!(ℬ::SHTnsMagneticFields{T}) where T
     # Use batched operations from shtnskit_transforms.jl for better performance
-    specs = [ℬ.toroidal, ℬ.poloidal, ℬ.ic_toroidal, ℬ.ic_poloidal]
+    specs = [ℬ.𝒯, ℬ.𝒫, ℬ.ic_toroidal, ℬ.ic_poloidal]
     physs = [ℬ.work_physical.r_component, ℬ.work_physical.θ_component, 
              ℬ.work_physical.φ_component, ℬ.magnetic.r_component]
     
@@ -842,14 +842,14 @@ Optimize memory layout for better cache performance using pencil topology
 """
 function optimize_magnetic_memory_layout!(ℬ::SHTnsMagneticFields{T}) where T
     # Use transpose plans for optimal data layout based on upcoming operations
-    config = ℬ.toroidal.config
+    config = ℬ.𝒯.config
     
     # Use transpose plans if available
     plans = config.transpose_plans
     if !isempty(plans) && haskey(plans, :r_to_spec)
-        transpose_with_timer!(ℬ.work_tor.data_real, ℬ.toroidal.data_real, 
+        transpose_with_timer!(ℬ.work_tor.data_real, ℬ.𝒯.data_real, 
                               plans[:r_to_spec], "magnetic_toroidal_layout_opt")
-        transpose_with_timer!(ℬ.work_pol.data_real, ℬ.poloidal.data_real, 
+        transpose_with_timer!(ℬ.work_pol.data_real, ℬ.𝒫.data_real, 
                               plans[:r_to_spec], "magnetic_poloidal_layout_opt")
     end
 end
@@ -864,7 +864,7 @@ function validate_magnetic_configuration(ℬ::SHTnsMagneticFields{T}, config::SH
     errors = String[]
     
     # Check field dimensions match config
-    if size(ℬ.toroidal.data_real, 1) != config.nlm
+    if size(ℬ.𝒯.data_real, 1) != config.nlm
         push!(errors, "Toroidal magnetic field size mismatch with config.nlm")
     end
     
@@ -905,22 +905,22 @@ function compute_magnetic_helicity(ℬ::SHTnsMagneticFields{T}) where T
     # This requires the magnetic vector potential A
     
     # Get local data views
-    tor_real = parent(ℬ.toroidal.data_real)
-    tor_imag = parent(ℬ.toroidal.data_imag)
-    pol_real = parent(ℬ.poloidal.data_real)
-    pol_imag = parent(ℬ.poloidal.data_imag)
+    tor_real = parent(ℬ.𝒯.data_real)
+    tor_imag = parent(ℬ.𝒯.data_imag)
+    pol_real = parent(ℬ.𝒫.data_real)
+    pol_imag = parent(ℬ.𝒫.data_imag)
     
     local_helicity = zero(Float64)
 
     # Use configuration pencils for consistent range access
     # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
     # since spectral field data is distributed using pencils.spec
-    config = ℬ.toroidal.config
+    config = ℬ.𝒯.config
     lm_range = range_local(config.pencils.spec, 1)
     r_range = range_local(config.pencils.spec, 3)
 
     @inbounds for lm_idx in lm_range
-        if lm_idx <= ℬ.toroidal.nlm
+        if lm_idx <= ℬ.𝒯.nlm
             local_lm = lm_idx - first(lm_range) + 1
             ℓ_factor = ℬ.ℓ_factors[lm_idx]
             
