@@ -62,7 +62,7 @@ import .bcs: BoundaryType, DIRICHLET, NEUMANN
 
 mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
     # Physical space temperature
-    temperature::SHTnsPhysicalField{T}
+    temperature::SHTnsPhysField{T}
     gradient::SHTnsVectorField{T}
 
     # Spectral representation
@@ -74,8 +74,8 @@ mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
 
     # Work arrays for efficient computation
     work_spectral::SHTnsSpecField{T}
-    work_physical::SHTnsPhysicalField{T}
-    advection_physical::SHTnsPhysicalField{T}
+    work_physical::SHTnsPhysField{T}
+    advection_physical::SHTnsPhysField{T}
 
     # Gradient spectral components for efficiency
     grad_theta_spec::SHTnsSpecField{T}
@@ -576,7 +576,7 @@ function compute_thermal_energy(temp_field::SHTnsTemperatureField{T}) where T
 end
 
 
-function compute_surface_flux(field::SHTnsPhysicalField{T}, r_level::Int, 
+function compute_surface_flux(field::SHTnsPhysField{T}, r_level::Int, 
                              config::SHTnsKitConfig) where T
     """
     Compute surface integral of flux at given radial level

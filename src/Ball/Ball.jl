@@ -215,13 +215,13 @@ function apply_ball_composition_regularity!(comp_field)
 end
 
 """
-    ball_physical_to_spectral!(phys::GeoDynamo.SHTnsPhysicalField,
+    ball_physical_to_spectral!(phys::GeoDynamo.SHTnsPhysField,
                                spec::GeoDynamo.SHTnsSpecField)
 
 Wrapper for transforms in a solid sphere that enforces scalar regularity at r=0
 after analysis. Use this for scalar fields (temperature, composition, etc.).
 """
-function ball_physical_to_spectral!(phys::GeoDynamo.SHTnsPhysicalField{T},
+function ball_physical_to_spectral!(phys::GeoDynamo.SHTnsPhysField{T},
                                     spec::GeoDynamo.SHTnsSpecField{T}) where {T}
     GeoDynamo.shtnskit_physical_to_spectral!(phys, spec)
     enforce_ball_scalar_regularity!(spec)

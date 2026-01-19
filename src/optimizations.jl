@@ -702,7 +702,7 @@ end
 
 function async_spectral_transform!(manager::AsyncCommManager{T}, 
                                   spec_field::SHTnsSpecField{T},
-                                  phys_field::SHTnsPhysicalField{T}) where T
+                                  phys_field::SHTnsPhysField{T}) where T
     
     # Start asynchronous data exchange
     start_async_exchange!(manager, spec_field)

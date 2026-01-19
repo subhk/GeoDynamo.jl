@@ -74,7 +74,7 @@ import .bcs: BoundaryType, DIRICHLET, NEUMANN
 
 mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     # Physical space composition
-    composition::SHTnsPhysicalField{T}
+    composition::SHTnsPhysField{T}
     gradient::SHTnsVectorField{T}
 
     # Spectral representation
@@ -86,8 +86,8 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
 
     # Work arrays for efficient computation
     work_spectral::SHTnsSpecField{T}
-    work_physical::SHTnsPhysicalField{T}
-    advection_physical::SHTnsPhysicalField{T}
+    work_physical::SHTnsPhysField{T}
+    advection_physical::SHTnsPhysField{T}
 
     # Gradient spectral components for efficiency
     grad_theta_spec::SHTnsSpecField{T}

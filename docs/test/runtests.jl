@@ -10,7 +10,7 @@ using GeoDynamo
     
     @testset "Basic Types" begin
         @test isdefined(GeoDynamo, :SHTnsSpecField)
-        @test isdefined(GeoDynamo, :SHTnsPhysicalField)
+        @test isdefined(GeoDynamo, :SHTnsPhysField)
         @test isdefined(GeoDynamo, :RadialDomain)
     end
 end

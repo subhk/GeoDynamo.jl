@@ -1641,7 +1641,7 @@ function add_thermal_buoyancy_force!(force_r::AbstractArray{T,3},
     end
 
     # Get scalar field data
-    if isa(scalar_field, SHTnsPhysicalField)
+    if isa(scalar_field, SHTnsPhysField)
         scalar_data = parent(scalar_field.data)
     else
         scalar_data = parent(scalar_field.temperature.data)
@@ -1678,7 +1678,7 @@ function add_buoyancy_force!(force_r::AbstractArray{T,3},
     end
 
     # Get compositional field data
-    if isa(comp_field, SHTnsPhysicalField)
+    if isa(comp_field, SHTnsPhysField)
         comp_data = parent(comp_field.data)
     else
         comp_data = parent(comp_field.composition.data)

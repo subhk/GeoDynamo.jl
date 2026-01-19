@@ -14,7 +14,7 @@
 # ------------------------------
 # Scalar fields (temperature, composition):
 #   - Spectral: SHTnsSpecField storing (l,m) coefficients
-#   - Physical: SHTnsPhysicalField storing grid point values
+#   - Physical: SHTnsPhysField storing grid point values
 #
 # Vector fields (velocity, magnetic field):
 #   - Physical: SHTnsVectorField with (r, θ, φ) components
@@ -71,7 +71,7 @@ end
 # ================================================================================
 
 """
-    SHTnsPhysicalField{T}
+    SHTnsPhysField{T}
 
 A scalar field represented on the physical (θ, φ, r) grid.
 
@@ -88,7 +88,7 @@ Different pencil orientations are optimal for different operations:
 - theta pencil: Optimal for Legendre transforms (all latitudes local)
 - r pencil: Optimal for radial operations (all radii local)
 """
-struct SHTnsPhysicalField{T<:Number}
+struct SHTnsPhysField{T<:Number}
     config::AbstractSHTnsConfig
     nlat::Int                     # Number of latitude points
     nlon::Int                     # Number of longitude points
@@ -110,13 +110,13 @@ Components:
 - `θ_component`: Latitudinal component v_θ(θ, φ, r)
 - `φ_component`: Longitudinal component v_φ(θ, φ, r)
 
-Each component is a SHTnsPhysicalField, potentially with different pencil
+Each component is a SHTnsPhysField, potentially with different pencil
 orientations for optimal computation of different operations.
 """
 struct SHTnsVectorField{T<:Number}
-    r_component::SHTnsPhysicalField{T}
-    θ_component::SHTnsPhysicalField{T}
-    φ_component::SHTnsPhysicalField{T}
+    r_component::SHTnsPhysField{T}
+    θ_component::SHTnsPhysField{T}
+    φ_component::SHTnsPhysField{T}
 end
 
 """
@@ -221,7 +221,7 @@ function create_shtns_spectral_field(::Type{T}, config::AbstractSHTnsConfig,
 end
 
 """
-    create_shtns_physical_field(T, config, Dᵒᶜ, pencil) -> SHTnsPhysicalField{T}
+    create_shtns_physical_field(T, config, Dᵒᶜ, pencil) -> SHTnsPhysField{T}
 
 Create a new physical space field initialized to zero.
 
@@ -232,7 +232,7 @@ Create a new physical space field initialized to zero.
 - `pencil`: PencilArrays Pencil defining the data distribution
 
 # Returns
-A new SHTnsPhysicalField with all grid values initialized to zero.
+A new SHTnsPhysField with all grid values initialized to zero.
 """
 function create_shtns_physical_field(::Type{T}, config::AbstractSHTnsConfig,
                                     Dᵒᶜ::RadialDomain,
@@ -244,7 +244,7 @@ function create_shtns_physical_field(::Type{T}, config::AbstractSHTnsConfig,
     data = PencilArray{T}(undef, pencil)
     fill!(parent(data), zero(T))
 
-    return SHTnsPhysicalField{T}(config, nlat, nlon, data, pencil)
+    return SHTnsPhysField{T}(config, nlat, nlon, data, pencil)
 end
 
 """
@@ -369,7 +369,7 @@ function local_data_size(field::SHTnsSpecField{T}) where T
     return size_local(field.pencil)
 end
 
-function local_data_size(field::SHTnsPhysicalField{T}) where T
+function local_data_size(field::SHTnsPhysField{T}) where T
     return size_local(field.pencil)
 end
 
@@ -378,7 +378,7 @@ function get_local_data(field::SHTnsSpecField{T}) where T
     return (real=parent(field.data_real), imag=parent(field.data_imag))
 end
 
-function get_local_data(field::SHTnsPhysicalField{T}) where T
+function get_local_data(field::SHTnsPhysField{T}) where T
     return parent(field.data)
 end
 
@@ -413,23 +413,23 @@ function Base.copy(field::SHTnsSpecField{T}) where T
     return duplicate
 end
 
-function Base.similar(field::SHTnsPhysicalField{T}) where T
+function Base.similar(field::SHTnsPhysField{T}) where T
     return Base.similar(field, T)
 end
 
-function Base.similar(field::SHTnsPhysicalField{T}, ::Type{S}) where {T,S<:Number}
+function Base.similar(field::SHTnsPhysField{T}, ::Type{S}) where {T,S<:Number}
     data = PencilArray{S}(undef, field.pencil)
     fill!(parent(data), zero(S))
-    return SHTnsPhysicalField{S}(field.config, field.nlat, field.nlon, data, field.pencil)
+    return SHTnsPhysField{S}(field.config, field.nlat, field.nlon, data, field.pencil)
 end
 
-function Base.copy(field::SHTnsPhysicalField{T}) where T
+function Base.copy(field::SHTnsPhysField{T}) where T
     duplicate = similar(field)
     parent(duplicate.data) .= parent(field.data)
     return duplicate
 end
 
-# export SHTnsSpecField, SHTnsPhysicalField, SHTnsVectorField, SHTnsTorPolField
+# export SHTnsSpecField, SHTnsPhysField, SHTnsVectorField, SHTnsTorPolField
 # export RadialDomain, create_shtns_spectral_field, create_shtns_physical_field
 # export create_shtns_vector_field, create_radial_domain
 # end

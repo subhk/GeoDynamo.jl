@@ -429,11 +429,11 @@ function load_spectral_coefficients!(field::SHTnsSpecField{T}, nc_file,
 end
 
 """
-    load_physical_temperature!(field::SHTnsPhysicalField{T}, nc_file, var_name::String) where T
+    load_physical_temperature!(field::SHTnsPhysField{T}, nc_file, var_name::String) where T
 
 Load physical space temperature data from NetCDF file.
 """
-function load_physical_temperature!(field::SHTnsPhysicalField{T}, nc_file, var_name::String) where T
+function load_physical_temperature!(field::SHTnsPhysField{T}, nc_file, var_name::String) where T
     
     # Read the full temperature field
     temp_data = T.(NetCDF.readvar(nc_file, var_name))  # (nlat, nlon, nr)

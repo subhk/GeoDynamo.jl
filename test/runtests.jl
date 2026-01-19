@@ -17,7 +17,7 @@ const MPI_FINALIZE_KEY = "GEODYNAMO_TEST_MPI_FINALIZE"
 
     @testset "Basic Types" begin
         @test isdefined(GeoDynamo, :SHTnsSpecField)
-        @test isdefined(GeoDynamo, :SHTnsPhysicalField)
+        @test isdefined(GeoDynamo, :SHTnsPhysField)
         @test isdefined(GeoDynamo, :RadialDomain)
 
         # Test parameter system
