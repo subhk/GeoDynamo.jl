@@ -85,11 +85,11 @@ function apply_velocity_topography_correction!(velocity_field, topography::Topog
     # Precompute boundary value/derivative caches once for this field
     p_cache = compute_boundary_derivative_cache(poloidal,
                                                 velocity_field.∂r,
-                                                velocity_field.d²r_matrix,
+                                                velocity_field.∂²r,
                                                 velocity_field.domain)
     t_cache = compute_boundary_derivative_cache(toroidal,
                                                 velocity_field.∂r,
-                                                velocity_field.d²r_matrix,
+                                                velocity_field.∂²r,
                                                 velocity_field.domain)
 
     # Apply corrections at ICB if topography defined

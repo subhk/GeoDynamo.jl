@@ -48,7 +48,7 @@ struct BoundaryDerivativeCache{T<:AbstractFloat}
 end
 
 """
-    compute_boundary_derivative_cache(field, ∂r, d²r_matrix, domain) -> BoundaryDerivativeCache
+    compute_boundary_derivative_cache(field, ∂r, ∂²r, domain) -> BoundaryDerivativeCache
 
 Compute boundary values and radial derivatives for all modes using the
 full radial profile (MPI-safe). This is expensive but avoids per-mode
@@ -56,7 +56,7 @@ Allreduce inside tight coupling loops.
 """
 function compute_boundary_derivative_cache(field,
                                            ∂r,
-                                           d²r_matrix,
+                                           ∂²r,
                                            domain)
     nlm = field.config.nlm
     lmax = field.config.lmax
@@ -70,8 +70,8 @@ function compute_boundary_derivative_cache(field,
     values_outer = zeros(Complex{T}, nlm)
     d1_inner = zeros(Complex{T}, nlm)
     d1_outer = zeros(Complex{T}, nlm)
-    d2_inner = d²r_matrix === nothing ? nothing : zeros(Complex{T}, nlm)
-    d2_outer = d²r_matrix === nothing ? nothing : zeros(Complex{T}, nlm)
+    d2_inner = ∂²r === nothing ? nothing : zeros(Complex{T}, nlm)
+    d2_outer = ∂²r === nothing ? nothing : zeros(Complex{T}, nlm)
 
     data_real = parent(field.data_real)
     data_imag = parent(field.data_imag)
@@ -86,8 +86,8 @@ function compute_boundary_derivative_cache(field,
     gathered_imag = zeros(T, nr)
     dprofile_real = zeros(T, nr)
     dprofile_imag = zeros(T, nr)
-    d2profile_real = d²r_matrix === nothing ? zeros(T, 0) : zeros(T, nr)
-    d2profile_imag = d²r_matrix === nothing ? zeros(T, 0) : zeros(T, nr)
+    d2profile_real = ∂²r === nothing ? zeros(T, 0) : zeros(T, nr)
+    d2profile_imag = ∂²r === nothing ? zeros(T, 0) : zeros(T, nr)
 
     for lm_idx in 1:nlm
         fill!(profile_real, zero(T))
@@ -115,9 +115,9 @@ function compute_boundary_derivative_cache(field,
         d1_inner[lm_idx] = complex(dprofile_real[1], dprofile_imag[1])
         d1_outer[lm_idx] = complex(dprofile_real[nr], dprofile_imag[nr])
 
-        if d²r_matrix !== nothing
-            __apply_∂r!(d2profile_real, d²r_matrix, gathered_real)
-            __apply_∂r!(d2profile_imag, d²r_matrix, gathered_imag)
+        if ∂²r !== nothing
+            __apply_∂r!(d2profile_real, ∂²r, gathered_real)
+            __apply_∂r!(d2profile_imag, ∂²r, gathered_imag)
             d2_inner[lm_idx] = complex(d2profile_real[1], d2profile_imag[1])
             d2_outer[lm_idx] = complex(d2profile_real[nr], d2profile_imag[nr])
         end

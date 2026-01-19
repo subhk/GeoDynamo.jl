@@ -163,7 +163,7 @@ mutable struct SHTnsMagneticFields{T}
 
     # Radial derivative matrices (cached for performance)
     ∂r::BandedMatrix{T}          # First derivative d/dr
-    d²r_matrix::BandedMatrix{T}         # Second derivative d²/dr²
+    ∂²r::BandedMatrix{T}         # Second derivative d²/dr²
 
     # Transform manager removed; SHTnsKit transforms are used directly
 
@@ -222,7 +222,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
 
     # Create radial derivative matrices (cached for performance)
     ∂r  = create_derivative_matrix(1, Dᵒᶜ)
-    d²r_matrix = create_derivative_matrix(2, Dᵒᶜ)
+    ∂²r = create_derivative_matrix(2, Dᵒᶜ)
 
     # Create transpose plans for efficient data movement
     transpose_plans = create_transpose_plans(pencils)
@@ -239,7 +239,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
                                 work_tor, work_pol, work_physical,
                                 induction_physical,
                                 ℓ_factors,
-                                ∂r, d²r_matrix,
+                                ∂r, ∂²r,
                                 imposed_field,
                                 config,
                                 Dᵒᶜ,
@@ -407,7 +407,7 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
 
     # Use cached radial derivative matrices for performance
     d1_matrix = mag_fields.∂r   # First derivative d/dr
-    d²_matrix = mag_fields.d²r_matrix  # Second derivative d²/dr²
+    d²_matrix = mag_fields.∂²r  # Second derivative d²/dr²
 
     # Pre-allocate work arrays for radial profiles
     nr = Dᵒᶜ.N
@@ -664,7 +664,7 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
 
     # Use cached radial derivative matrices for performance
     d1_matrix = mag_fields.∂r   # First derivative d/dr
-    d²_matrix = mag_fields.d²r_matrix  # Second derivative d²/dr²
+    d²_matrix = mag_fields.∂²r  # Second derivative d²/dr²
 
     # Pre-allocate work arrays for radial profiles
     Pᴾ_profile_real = zeros(T, nr)

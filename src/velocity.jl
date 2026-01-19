@@ -166,7 +166,7 @@ mutable struct SHTnsVelocityFields{T}
     
     # Radial derivative matrices
     ∂r::BandedMatrix{T}          # First derivative
-    d²r_matrix::BandedMatrix{T}         # Second derivative
+    ∂²r::BandedMatrix{T}         # Second derivative
     laplacian_matrix::BandedMatrix{T}   # Radial Laplacian operator
     
     # Transform manager removed; SHTnsKit transforms are used directly
@@ -1050,8 +1050,8 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
 
             apply_∂r!(dᴾ_dr_real,   fields.∂r,  Pᴾ_profile_real)
             apply_∂r!(dᴾ_dr_imag,   fields.∂r,  Pᴾ_profile_imag)
-            apply_∂r!(d²ᴾ_dr²_real, fields.d²r_matrix, Pᴾ_profile_real)
-            apply_∂r!(d²ᴾ_dr²_imag, fields.d²r_matrix, Pᴾ_profile_imag)
+            apply_∂r!(d²ᴾ_dr²_real, fields.∂²r, Pᴾ_profile_real)
+            apply_∂r!(d²ᴾ_dr²_imag, fields.∂²r, Pᴾ_profile_imag)
 
             r_first = first(r_range)
             r_last = min(last(r_range), nr)
@@ -1135,7 +1135,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     
     # Create radial derivative matrices
     ∂r        = create_derivative_matrix(1, Dᵒᶜ)
-    d²r_matrix       = create_derivative_matrix(2, Dᵒᶜ)
+    ∂²r       = create_derivative_matrix(2, Dᵒᶜ)
     laplacian_matrix = create_radial_laplacian(Dᵒᶜ)
     
     # Create transpose plans for efficient data movement
@@ -1151,7 +1151,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
                                   work_tor, work_pol, work_physical,
                                   advection_physical,
                                   ℓ_factors, coriolis_factors,
-                                  ∂r, d²r_matrix, laplacian_matrix,
+                                  ∂r, ∂²r, laplacian_matrix,
                                   config,
                                   Dᵒᶜ,
                                   boundary_condition_set, boundary_cache, boundary_time_index)
@@ -1335,8 +1335,8 @@ function _compute_vorticity_spectral_mpi!(fields::SHTnsVelocityFields{T}, domain
             # Compute radial derivatives using complete poloidal profile
             apply_∂r!(dᴾ_dr_real,   fields.∂r,  pol_gathered_real)
             apply_∂r!(dᴾ_dr_imag,   fields.∂r,  pol_gathered_imag)
-            apply_∂r!(d²ᴾ_dr²_real, fields.d²r_matrix, pol_gathered_real)
-            apply_∂r!(d²ᴾ_dr²_imag, fields.d²r_matrix, pol_gathered_imag)
+            apply_∂r!(d²ᴾ_dr²_real, fields.∂²r, pol_gathered_real)
+            apply_∂r!(d²ᴾ_dr²_imag, fields.∂²r, pol_gathered_imag)
 
             # Compute vorticity components (only for local r indices)
             r_first = first(r_range)
@@ -1418,8 +1418,8 @@ function _compute_vorticity_spectral_threaded!(fields::SHTnsVelocityFields{T}, d
             # Compute radial derivatives for poloidal component (in-place, reuse buffers)
             apply_∂r!(dᴾ_dr_real,   fields.∂r,  Pᴾ_profile_real)
             apply_∂r!(dᴾ_dr_imag,   fields.∂r,  Pᴾ_profile_imag)
-            apply_∂r!(d²ᴾ_dr²_real, fields.d²r_matrix, Pᴾ_profile_real)
-            apply_∂r!(d²ᴾ_dr²_imag, fields.d²r_matrix, Pᴾ_profile_imag)
+            apply_∂r!(d²ᴾ_dr²_real, fields.∂²r, Pᴾ_profile_real)
+            apply_∂r!(d²ᴾ_dr²_imag, fields.∂²r, Pᴾ_profile_imag)
 
             # Compute vorticity components
             r_first = first(r_range)

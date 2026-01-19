@@ -239,8 +239,8 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
        hasfield(typeof(temperature_ic), :domain)
         cache_ic = compute_boundary_derivative_cache(temperature_ic.spectral,
                                                      temperature_ic.∂r,
-                                                     hasfield(typeof(temperature_ic), :d²r_matrix) ?
-                                                         temperature_ic.d²r_matrix : nothing,
+                                                     hasfield(typeof(temperature_ic), :∂²r) ?
+                                                         temperature_ic.∂²r : nothing,
                                                      temperature_ic.domain)
     elseif temperature_ic isa SHTnsSpectralField
         cache_ic = nothing
@@ -251,8 +251,8 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
        hasfield(typeof(temperature_oc), :domain)
         cache_oc = compute_boundary_derivative_cache(temperature_oc.spectral,
                                                      temperature_oc.∂r,
-                                                     hasfield(typeof(temperature_oc), :d²r_matrix) ?
-                                                         temperature_oc.d²r_matrix : nothing,
+                                                     hasfield(typeof(temperature_oc), :∂²r) ?
+                                                         temperature_oc.∂²r : nothing,
                                                      temperature_oc.domain)
     elseif temperature_oc isa SHTnsSpectralField
         cache_oc = nothing

@@ -76,14 +76,14 @@ function apply_thermal_topography_correction!(temperature_field, topography::Top
     # Radial derivative metadata for accurate coupling terms
     ∂r = hasfield(typeof(temperature_field), :∂r) ?
         temperature_field.∂r : nothing
-    d²r_matrix = hasfield(typeof(temperature_field), :d²r_matrix) ?
-        temperature_field.d²r_matrix : nothing
+    ∂²r = hasfield(typeof(temperature_field), :∂²r) ?
+        temperature_field.∂²r : nothing
     domain = hasfield(typeof(temperature_field), :domain) ?
         temperature_field.domain : nothing
 
     cache = nothing
     if ∂r !== nothing && domain !== nothing
-        cache = compute_boundary_derivative_cache(spectral, ∂r, d²r_matrix, domain)
+        cache = compute_boundary_derivative_cache(spectral, ∂r, ∂²r, domain)
     else
         @warn "Missing radial derivative metadata; skipping thermal topography coupling"
         return nothing
@@ -513,14 +513,14 @@ function compute_boundary_heat_flux(temperature_field, topography::TopographyDat
     nlat, nlon = config_sht.nlat, config_sht.nlon
 
     ∂r = hasfield(typeof(temperature_field), :∂r) ? temperature_field.∂r : nothing
-    d²r_matrix = hasfield(typeof(temperature_field), :d²r_matrix) ? temperature_field.d²r_matrix : nothing
+    ∂²r = hasfield(typeof(temperature_field), :∂²r) ? temperature_field.∂²r : nothing
     domain = hasfield(typeof(temperature_field), :domain) ? temperature_field.domain : nothing
     if ∂r === nothing || domain === nothing
         @warn "Missing radial derivative metadata; cannot compute boundary heat flux"
         return nothing
     end
 
-    cache = compute_boundary_derivative_cache(spectral, ∂r, d²r_matrix, domain)
+    cache = compute_boundary_derivative_cache(spectral, ∂r, ∂²r, domain)
 
     gaunt = topography.gaunt_cache
     if gaunt === nothing && (config.include_slope_terms || config.include_shift_terms)
