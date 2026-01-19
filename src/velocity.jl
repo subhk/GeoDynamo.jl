@@ -132,7 +132,7 @@ struct VelocityWorkspace{T}
 end
 
 # Include optimized workspace-based BC functions (now VelocityWorkspace is defined)
-include("velocity_bc.jl")
+include("bcs/velocity_bc.jl")
 
 # Velocity field components with SHTns
 mutable struct SHTnsVelocityFields{T}
