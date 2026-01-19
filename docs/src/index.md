@@ -1,14 +1,5 @@
 # GeoDynamo.jl
 
-```
-   ____           ____                                      _ _
-  / ___| ___  ___|  _ \ _   _ _ __   __ _ _ __ ___   ___   (_) |
- | |  _ / _ \/ _ \ | | | | | | '_ \ / _` | '_ ` _ \ / _ \  | | |
- | |_| |  __/ (_) | |_| | |_| | | | | (_| | | | | | | (_) |_| | |
-  \____|\___|\___/|____/ \__, |_| |_|\__,_|_| |_| |_|\___/(_)_|_|
-                         |___/
-```
-
 **High-performance spherical-MHD solver for geodynamo and planetary-core simulations**
 
 [![Julia](https://img.shields.io/badge/Julia-1.10%2B-blue)](https://julialang.org)
