@@ -107,13 +107,15 @@ function solve_banded!(x::Vector{T}, lu::BandedLU{T}, b::Vector{T}) where T
     return x
 end
 
-function create_derivative_matrix(order::Int, domain::RadialDomain)
+function create_derivative_matrix(::Type{T}, order::Int, domain::RadialDomain) where T
     # Create finite difference matrix for given derivative order
     N = domain.N
-    bandwidth = get_parameters().i_KL
+    bandwidth = isempty(domain.dr_matrices) ? get_parameters().i_KL :
+                (size(domain.dr_matrices[1], 1) - 1) ÷ 2
+    calc_T = promote_type(T, eltype(domain.r))
 
     # Initialize banded matrix storage
-    data = zeros(2*bandwidth + 1, N)
+    data = zeros(T, 2*bandwidth + 1, N)
 
     # Compute finite difference coefficients using Chebyshev points
     for n in 1:N
@@ -122,12 +124,13 @@ function create_derivative_matrix(order::Int, domain::RadialDomain)
         stencil_size = right - left + 1
 
         # Vandermonde matrix for interpolation
-        V = ones(stencil_size, stencil_size)
-        points = domain.r[left:right, 4]  # r values
+        V = ones(calc_T, stencil_size, stencil_size)
+        points = calc_T.(domain.r[left:right, 4])  # r values
+        center = calc_T(domain.r[n, 4])
 
         for j in 2:stencil_size
             for i in 1:stencil_size
-                V[i, j] = V[i, j-1] * (points[i] - domain.r[n, 4])
+                V[i, j] = V[i, j-1] * (points[i] - center)
             end
         end
 
@@ -141,13 +144,13 @@ function create_derivative_matrix(order::Int, domain::RadialDomain)
         end
 
         # Solve for derivative coefficients with error handling
-        rhs = zeros(stencil_size)
+        rhs = zeros(calc_T, stencil_size)
         if order + 1 > stencil_size
             error("Insufficient stencil size ($stencil_size) for derivative order $order at grid point $n. " *
                   "Need at least $(order + 1) points. Consider increasing bandwidth (i_KL) or " *
                   "using a coarser grid near boundaries.")
         end
-        rhs[order + 1] = factorial(order)
+        rhs[order + 1] = calc_T(factorial(order))
 
         # Solve for derivative coefficients
         # We need the (order+1)-th ROW of V^(-1), not the column.
@@ -166,85 +169,40 @@ function create_derivative_matrix(order::Int, domain::RadialDomain)
         for (i, idx) in enumerate(left:right)
             band_row = bandwidth + 1 + n - idx
             if 1 <= band_row <= 2*bandwidth + 1
-                data[band_row, idx] = coeffs[i]
+                data[band_row, idx] = T(coeffs[i])
             end
         end
     end
 
-    return BandedMatrix(data, bandwidth, N)
+    return BandedMatrix{T}(data, bandwidth, N)
 end
 
-function create_radial_laplacian(domain::RadialDomain)
-    # d²/dr² + (2/r) d/dr
-    d2_matrix = create_derivative_matrix(2, domain)
-    d1_matrix = create_derivative_matrix(1, domain)
+function create_derivative_matrix(order::Int, domain::RadialDomain)
+    return create_derivative_matrix(eltype(domain.r), order, domain)
+end
 
-    bandwidth = get_parameters().i_KL
+function create_radial_laplacian(::Type{T}, domain::RadialDomain) where T
+    # d²/dr² + (2/r) d/dr
+    d2_matrix = create_derivative_matrix(T, 2, domain)
+    d1_matrix = create_derivative_matrix(T, 1, domain)
+
+    bandwidth = d2_matrix.bandwidth
     laplacian_data = copy(d2_matrix.data)
 
     # Add (2/r) * d/dr term
     for n in 1:domain.N
-        r_inv = domain.r[n, 3]  # 1/r
+        r_inv = T(domain.r[n, 3])  # 1/r
         for j in max(1, n - bandwidth):min(domain.N, n + bandwidth)
             band_row = bandwidth + 1 + n - j
-            laplacian_data[band_row, j] += 2.0 * r_inv * d1_matrix.data[band_row, j]
+            laplacian_data[band_row, j] += T(2) * r_inv * d1_matrix.data[band_row, j]
         end
     end
 
-    return BandedMatrix(laplacian_data, bandwidth, domain.N)
+    return BandedMatrix{T}(laplacian_data, bandwidth, domain.N)
 end
 
-# Apply banded matrix to PencilArray data
-function apply_banded_matrix!(output::SHTnsSpecField{T},
-                             matrix::BandedMatrix{T},
-                             input::SHTnsSpecField{T}) where T
-    # Get local data portions
-    out_real = parent(output.data_real)
-    out_imag = parent(output.data_imag)
-    in_real  = parent(input.data_real)
-    in_imag  = parent(input.data_imag)
-
-    # Get local indices - only iterate over (lm, dummy) dimensions
-    # The radial dimension is handled by apply_banded_vector_local!
-    local_indices = get_local_indices(input.pencil)
-    lm_range = local_indices[1]      # Spectral mode indices
-    dummy_range = local_indices[2]   # Dummy dimension (size 1)
-
-    # Apply matrix to each (lm, dummy) slice along the radial dimension
-    for lm_idx in 1:length(lm_range)
-        for d_idx in 1:length(dummy_range)
-            # Apply to real part
-            apply_banded_vector_local!(view(out_real, lm_idx, d_idx, :),
-                                      matrix,
-                                      view(in_real, lm_idx, d_idx, :))
-            # Apply to imaginary part
-            apply_banded_vector_local!(view(out_imag, lm_idx, d_idx, :),
-                                      matrix,
-                                      view(in_imag, lm_idx, d_idx, :))
-        end
-    end
-
-    return nothing
-end
-
-# Helper function to apply derivative matrix
-function apply_banded_vector_local!(output::AbstractVector{T}, 
-                                   matrix::BandedMatrix{T}, 
-                                   input::AbstractVector{T}) where T
-    fill!(output, zero(T))
-    N = min(matrix.size, length(input))
-    bandwidth = matrix.bandwidth
-    
-    for j in 1:N
-        for i in max(1, j - bandwidth):min(N, j + bandwidth)
-            if i <= length(output)
-                band_row = bandwidth + 1 + i - j
-                output[i] += matrix.data[band_row, j] * input[j]
-            end
-        end
-    end
-
-    return nothing
+function create_radial_laplacian(domain::RadialDomain)
+    return create_radial_laplacian(eltype(domain.r), domain)
 end
 
 function apply_∂r!(output::Vector{T},

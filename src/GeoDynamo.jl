@@ -74,7 +74,7 @@ module GeoDynamo
 
     # exports linear_algebra.jl
     export BandedMatrix, create_derivative_matrix, create_radial_laplacian
-    export apply_∂r!, apply_banded_matrix!
+    export apply_∂r!
 
     # exports timestep.jl
     export TimestepState, SHTnsImplicitMatrices, create_shtns_timestepping_matrices

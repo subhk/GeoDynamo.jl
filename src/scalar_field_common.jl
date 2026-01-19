@@ -313,105 +313,18 @@ end
 Compute ∂field/∂r using banded matrix derivative operator in spectral space.
 This uses the pre-computed derivative matrices from the field for optimal accuracy and efficiency.
 
-IMPORTANT: When radial dimension is distributed across MPI processes, this function
-properly gathers complete radial profiles before computing derivatives, ensuring
-correct stencil computation at process boundaries.
+Note: Radial data is always local (not MPI distributed). Only spectral (lm) modes
+are distributed across MPI processes.
 """
 function compute_radial_gradient_spectral!(field::AbstractScalarField{T}, domain::RadialDomain) where T
-    spec_real   = parent(field.spectral.data_real)
-    spec_imag   = parent(field.spectral.data_imag)
-    ∇ᵣ_real = parent(field.∇ᵣ_spec.data_real)
-    ∇ᵣ_imag = parent(field.∇ᵣ_spec.data_imag)
+    spec_real = parent(field.spectral.data_real)
+    spec_imag = parent(field.spectral.data_imag)
+    ∇ᵣ_real   = parent(field.∇ᵣ_spec.data_real)
+    ∇ᵣ_imag   = parent(field.∇ᵣ_spec.data_imag)
 
     lm_range = range_local(field.config.pencils.spec, 1)
     r_range  = range_local(field.config.pencils.spec, 3)
-
-    # Use the banded matrix derivative operator from the field
-    nr = domain.N
-    total_nlm = field.config.nlm
-
-    # Check if radial dimension is distributed
-    comm = get_comm()
-    nprocs = comm === nothing ? 1 : MPI.Comm_size(comm)
-    radial_distributed = length(r_range) < nr
-
-    if radial_distributed && nprocs > 1
-        # MPI path: Gather complete radial profiles before computing derivatives
-        # CRITICAL MPI SYNCHRONIZATION:
-        # ALL processes must call Allreduce for the SAME lm mode at the SAME time.
-        # Different processes may own different lm_range, so we must loop over ALL
-        # lm modes to ensure synchronization. Processes that don't own a mode contribute zeros.
-        _compute_radial_gradient_mpi!(field, domain, spec_real, spec_imag,
-                                       ∇ᵣ_real, ∇ᵣ_imag,
-                                       lm_range, r_range, nr, total_nlm, comm)
-    else
-        # Local path: All radial data is local, no MPI communication needed
-        _compute_radial_gradient_local!(field, domain, spec_real, spec_imag,
-                                         ∇ᵣ_real, ∇ᵣ_imag,
-                                         lm_range, r_range, nr)
-    end
-end
-
-# MPI version: Sequential loop with Allreduce for complete radial profiles
-function _compute_radial_gradient_mpi!(field::AbstractScalarField{T}, domain::RadialDomain,
-                                        spec_real, spec_imag, ∇ᵣ_real, ∇ᵣ_imag,
-                                        lm_range, r_range, nr, total_nlm, comm) where T
-    # Pre-allocate work arrays for radial profiles
-    profile_real  = zeros(T, nr)
-    profile_imag  = zeros(T, nr)
-    gathered_real = zeros(T, nr)
-    gathered_imag = zeros(T, nr)
-    deriv_real    = zeros(T, nr)
-    deriv_imag    = zeros(T, nr)
-
-    # ALL processes loop over ALL lm modes for proper MPI synchronization
-    @inbounds for lm_idx in 1:total_nlm
-        i_own_this_mode = lm_idx in lm_range
-
-        # Extract radial profile (owners contribute data, non-owners contribute zeros)
-        fill!(profile_real, zero(T))
-        fill!(profile_imag, zero(T))
-        if i_own_this_mode
-            local_lm = lm_idx - first(lm_range) + 1
-            for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
-                if local_r <= size(spec_real, 3)
-                    profile_real[r_idx] = spec_real[local_lm, 1, local_r]
-                    profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
-                end
-            end
-        end
-
-        # ALL processes call Allreduce together for this lm mode
-        MPI.Allreduce!(profile_real, gathered_real, MPI.SUM, comm)
-        MPI.Allreduce!(profile_imag, gathered_imag, MPI.SUM, comm)
-
-        # Only mode owners compute derivatives and store results
-        if i_own_this_mode
-            local_lm = lm_idx - first(lm_range) + 1
-
-            # Compute radial derivative using complete profile
-            apply_∂r!(deriv_real, field.∂r, gathered_real)
-            apply_∂r!(deriv_imag, field.∂r, gathered_imag)
-
-            # Store only local results
-            r_first = first(r_range)
-            r_last = min(last(r_range), nr)
-            @simd for r_idx in r_first:r_last
-                local_r = r_idx - r_first + 1
-                if local_r <= size(∇ᵣ_real, 3)
-                    ∇ᵣ_real[local_lm, 1, local_r] = deriv_real[r_idx]
-                    ∇ᵣ_imag[local_lm, 1, local_r] = deriv_imag[r_idx]
-                end
-            end
-        end
-    end
-end
-
-# Local version: For when radial data is local (no MPI communication needed)
-function _compute_radial_gradient_local!(field::AbstractScalarField{T}, domain::RadialDomain,
-                                          spec_real, spec_imag, ∇ᵣ_real, ∇ᵣ_imag,
-                                          lm_range, r_range, nr) where T
+    nr       = domain.N
     bandwidth = field.∂r.bandwidth
 
     @inbounds for lm_idx in lm_range
