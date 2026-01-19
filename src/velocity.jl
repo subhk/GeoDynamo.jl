@@ -219,23 +219,23 @@ function get_velocity_workspace(::Type{T})::Union{VelocityWorkspace{T}, Nothing}
 end
 
 """
-    enforce_velocity_boundary_values!(fields)
+    enforce_velocity_boundary_values!(𝒰)
 
 Anchor toroidal and poloidal spectral coefficients to the currently cached
 Dirichlet boundary values on the inner and outer radial surfaces.
 """
-function enforce_velocity_boundary_values!(fields::SHTnsVelocityFields{T}) where T
-    domain = fields.domain
-    tor_real = parent(fields.toroidal.data_real)
-    tor_imag = parent(fields.toroidal.data_imag)
-    pol_real = parent(fields.poloidal.data_real)
-    pol_imag = parent(fields.poloidal.data_imag)
+function enforce_velocity_boundary_values!(𝒰::SHTnsVelocityFields{T}) where T
+    domain = 𝒰.domain
+    tor_real = parent(𝒰.toroidal.data_real)
+    tor_imag = parent(𝒰.toroidal.data_imag)
+    pol_real = parent(𝒰.poloidal.data_real)
+    pol_imag = parent(𝒰.poloidal.data_imag)
 
-    tor_bc = fields.toroidal.boundary_values
-    pol_bc = fields.poloidal.boundary_values
+    tor_bc = 𝒰.toroidal.boundary_values
+    pol_bc = 𝒰.poloidal.boundary_values
 
-    lm_range = get_local_range(fields.toroidal.pencil, 1)
-    r_range  = get_local_range(fields.toroidal.pencil, 3)
+    lm_range = get_local_range(𝒰.toroidal.pencil, 1)
+    r_range  = get_local_range(𝒰.toroidal.pencil, 3)
 
     has_inner = 1 in r_range && domain.r[1, 4] > 0
     has_outer = domain.N in r_range
@@ -246,26 +246,26 @@ function enforce_velocity_boundary_values!(fields::SHTnsVelocityFields{T}) where
     dirichlet_code = Int(bcs.DIRICHLET)
 
     for lm_idx in lm_range
-        if lm_idx <= fields.toroidal.nlm
+        if lm_idx <= 𝒰.toroidal.nlm
             local_lm = lm_idx - first(lm_range) + 1
 
             if has_inner && 1 <= inner_idx <= size(tor_real, 3)
-                if fields.toroidal.bc_type_inner[lm_idx] == dirichlet_code
+                if 𝒰.toroidal.bc_type_inner[lm_idx] == dirichlet_code
                     tor_real[local_lm, 1, inner_idx] = tor_bc[1, lm_idx]
                     tor_imag[local_lm, 1, inner_idx] = zero(T)
                 end
-                if fields.poloidal.bc_type_inner[lm_idx] == dirichlet_code
+                if 𝒰.poloidal.bc_type_inner[lm_idx] == dirichlet_code
                     pol_real[local_lm, 1, inner_idx] = pol_bc[1, lm_idx]
                     pol_imag[local_lm, 1, inner_idx] = zero(T)
                 end
             end
 
             if has_outer && 1 <= outer_idx <= size(tor_real, 3)
-                if fields.toroidal.bc_type_outer[lm_idx] == dirichlet_code
+                if 𝒰.toroidal.bc_type_outer[lm_idx] == dirichlet_code
                     tor_real[local_lm, 1, outer_idx] = tor_bc[2, lm_idx]
                     tor_imag[local_lm, 1, outer_idx] = zero(T)
                 end
-                if fields.poloidal.bc_type_outer[lm_idx] == dirichlet_code
+                if 𝒰.poloidal.bc_type_outer[lm_idx] == dirichlet_code
                     pol_real[local_lm, 1, outer_idx] = pol_bc[2, lm_idx]
                     pol_imag[local_lm, 1, outer_idx] = zero(T)
                 end
@@ -273,38 +273,38 @@ function enforce_velocity_boundary_values!(fields::SHTnsVelocityFields{T}) where
         end
     end
 
-    return fields
+    return 𝒰
 end
 
 """
-    apply_velocity_boundary_conditions!(fields; time_index=nothing)
+    apply_velocity_boundary_conditions!(𝒰; time_index=nothing)
 
 Refresh velocity boundary data from the bcs subsystem and
 immediately enforce Dirichlet constraints in spectral space.
 """
-function apply_velocity_boundary_conditions!(fields::SHTnsVelocityFields{T};
+function apply_velocity_boundary_conditions!(𝒰::SHTnsVelocityFields{T};
                                               time_index::Union{Nothing,Int}=nothing) where T
-    boundary_set, _ = bcs.get_velocity_boundary_data(fields)
+    boundary_set, _ = bcs.get_velocity_boundary_data(𝒰)
     if boundary_set === nothing
-        return fields
+        return 𝒰
     end
 
     if time_index === nothing
-        bcs.apply_velocity_boundary_conditions!(fields)
+        bcs.apply_velocity_boundary_conditions!(𝒰)
     else
-        bcs.apply_velocity_boundary_conditions!(fields, time_index)
+        bcs.apply_velocity_boundary_conditions!(𝒰, time_index)
     end
 
-    enforce_velocity_boundary_values!(fields)
+    enforce_velocity_boundary_values!(𝒰)
 
-    if fields.domain.r[1, 4] == 0.0
-        enforce_ball_vector_regularity!(fields.toroidal, fields.poloidal)
+    if 𝒰.domain.r[1, 4] == 0.0
+        enforce_ball_vector_regularity!(𝒰.toroidal, 𝒰.poloidal)
     end
-    return fields
+    return 𝒰
 end
 
 """
-    apply_velocity_flux_bc_spectral!(fields::SHTnsVelocityFields{T}, domain::RadialDomain;
+    apply_velocity_flux_bc_spectral!(𝒰::SHTnsVelocityFields{T}, domain::RadialDomain;
                                      method::Symbol=:tau) where T
 
 Apply stress-free boundary conditions to velocity field components in spectral space.
@@ -315,7 +315,7 @@ potential. For stress-free boundaries:
 - Toroidal (tangential) component: ∂T/∂r = T/r (stress-free condition, handled here)
 
 # Arguments
-- `fields`: Velocity field structure with toroidal and poloidal components
+- `𝒰`: Velocity field structure with toroidal and poloidal components
 - `domain`: Radial domain information
 - `method`: Method for applying BCs (default `:tau` recommended for accuracy)
   - `:tau` - High-order accurate tau method (recommended)
@@ -331,19 +331,19 @@ For the toroidal potential T where v_θ ∝ T, this becomes:
 
 Note: This is NOT the same as simple Neumann (∂T/∂r = 0)!
 """
-function apply_velocity_flux_bc_spectral!(fields::SHTnsVelocityFields{T},
+function apply_velocity_flux_bc_spectral!(𝒰::SHTnsVelocityFields{T},
                                           domain::RadialDomain;
                                           method::Symbol=:tau) where T
 
     # Apply flux BC to toroidal component (if Neumann BC is set)
-    apply_velocity_flux_bc!(fields.toroidal, domain, fields.∂r, method)
+    apply_velocity_flux_bc!(𝒰.toroidal, domain, 𝒰.∂r, method)
 
     # Apply flux BC to poloidal component (if Neumann BC is set)
     # Note: For typical stress-free boundaries, poloidal uses Dirichlet (v_r = 0)
     # but this allows flexibility for other boundary conditions
-    apply_velocity_flux_bc!(fields.poloidal, domain, fields.∂r, method)
+    apply_velocity_flux_bc!(𝒰.poloidal, domain, 𝒰.∂r, method)
 
-    return fields
+    return 𝒰
 end
 
 """
@@ -1002,28 +1002,28 @@ function compute_tangential_stress_components(v_theta, v_phi, dv_theta_dr, dv_ph
     return tau_theta, tau_phi, max_stress
 end
 
-function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
+function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
                                           domain::RadialDomain,
                                           ws::VelocityWorkspace{T}) where T
     # Same as the threaded version but using provided workspace buffers
-    uᵀ_real = parent(fields.toroidal.data_real)
-    uᵀ_imag = parent(fields.toroidal.data_imag)
-    uᴾ_real = parent(fields.poloidal.data_real)
-    uᴾ_imag = parent(fields.poloidal.data_imag)
-    ζᵀ_real = parent(fields.ζᵀ.data_real)
-    ζᵀ_imag = parent(fields.ζᵀ.data_imag)
-    ζᴾ_real = parent(fields.ζᴾ.data_real)
-    ζᴾ_imag = parent(fields.ζᴾ.data_imag)
+    uᵀ_real = parent(𝒰.toroidal.data_real)
+    uᵀ_imag = parent(𝒰.toroidal.data_imag)
+    uᴾ_real = parent(𝒰.poloidal.data_real)
+    uᴾ_imag = parent(𝒰.poloidal.data_imag)
+    ζᵀ_real = parent(𝒰.ζᵀ.data_real)
+    ζᵀ_imag = parent(𝒰.ζᵀ.data_imag)
+    ζᴾ_real = parent(𝒰.ζᴾ.data_real)
+    ζᴾ_imag = parent(𝒰.ζᴾ.data_imag)
 
-    config = fields.toroidal.config
-    lm_range = get_local_range(fields.toroidal.pencil, 1)
-    r_range  = get_local_range(fields.toroidal.pencil, 3)
+    config = 𝒰.toroidal.config
+    lm_range = get_local_range(𝒰.toroidal.pencil, 1)
+    r_range  = get_local_range(𝒰.toroidal.pencil, 3)
     nr = domain.N
 
     Threads.@threads for lm_idx in lm_range
-        if lm_idx <= length(fields.ℓ_factors)
+        if lm_idx <= length(𝒰.ℓ_factors)
             local_lm = lm_idx - first(lm_range) + 1
-            ℓ_factor = fields.ℓ_factors[lm_idx]
+            ℓ_factor = 𝒰.ℓ_factors[lm_idx]
             tid = Threads.threadid()
 
             # Thread safety: ensure thread ID is within workspace bounds
@@ -1048,10 +1048,10 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             extract_local_radial_profile!(Tᵀ_profile_real, uᵀ_real, local_lm, nr, r_range)
             extract_local_radial_profile!(Tᵀ_profile_imag, uᵀ_imag, local_lm, nr, r_range)
 
-            apply_∂r!(∂ᵣP_real,   fields.∂r,  Pᴾ_profile_real)
-            apply_∂r!(∂ᵣP_imag,   fields.∂r,  Pᴾ_profile_imag)
-            apply_∂r!(∂ᵣᵣP_real, fields.∂²r, Pᴾ_profile_real)
-            apply_∂r!(∂ᵣᵣP_imag, fields.∂²r, Pᴾ_profile_imag)
+            apply_∂r!(∂ᵣP_real,   𝒰.∂r,  Pᴾ_profile_real)
+            apply_∂r!(∂ᵣP_imag,   𝒰.∂r,  Pᴾ_profile_imag)
+            apply_∂r!(∂ᵣᵣP_real, 𝒰.∂²r, Pᴾ_profile_real)
+            apply_∂r!(∂ᵣᵣP_imag, 𝒰.∂²r, Pᴾ_profile_imag)
 
             r_first = first(r_range)
             r_last = min(last(r_range), nr)
@@ -1161,30 +1161,30 @@ end
 # =============================
 # Main nonlinear computation
 # =============================
-function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
+function compute_velocity_nonlinear!(𝒰::SHTnsVelocityFields{T},
                                     temp_field, comp_field, mag_field,
                                     Dᵒᶜ::RadialDomain;
                                     geometry::Symbol = get_parameters().geometry) where T
     # Zero work arrays once
-    zero_velocity_work_arrays!(fields)
+    zero_velocity_work_arrays!(𝒰)
 
     # Step 1: Use enhanced vector synthesis with automatic transpose handling
-    shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity; domain=Dᵒᶜ)
+    shtnskit_vector_synthesis!(𝒰.toroidal, 𝒰.poloidal, 𝒰.velocity; domain=Dᵒᶜ)
 
     # Step 2: Compute vorticity in spectral space with enhanced derivative computation
-    compute_vorticity_spectral_full!(fields, Dᵒᶜ)
+    compute_vorticity_spectral_full!(𝒰, Dᵒᶜ)
 
     # Step 3: Transform vorticity to physical space with batched operations
-    shtnskit_vector_synthesis!(fields.ζᵀ, fields.ζᴾ, fields.vorticity; domain=Dᵒᶜ)
+    shtnskit_vector_synthesis!(𝒰.ζᵀ, 𝒰.ζᴾ, 𝒰.vorticity; domain=Dᵒᶜ)
 
     # Step 4: Compute all nonlinear terms with enhanced memory access patterns
-    compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, Dᵒᶜ)
+    compute_all_nonlinear_terms!(𝒰, temp_field, comp_field, mag_field, Dᵒᶜ)
 
     # Step 5: Use enhanced vector analysis with efficient data layout
     if geometry === :ball
-        ball_vector_analysis!(fields.advection_physical, fields.nlᵀ, fields.nlᴾ)
+        ball_vector_analysis!(𝒰.advection_physical, 𝒰.nlᵀ, 𝒰.nlᴾ)
     else
-        shtnskit_vector_analysis!(fields.advection_physical, fields.nlᵀ, fields.nlᴾ)
+        shtnskit_vector_analysis!(𝒰.advection_physical, 𝒰.nlᵀ, 𝒰.nlᴾ)
     end
 end
 
@@ -1214,12 +1214,12 @@ end
 #
 # =================================================
 using Base.Threads
-function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
+function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
                                          domain::RadialDomain) where T
     # If a compatible workspace is registered, use it
     ws_any = VELOCITY_WS[]
     if ws_any !== nothing && ws_any isa VelocityWorkspace{T}
-        return compute_vorticity_spectral_full!(fields, domain, ws_any)
+        return compute_vorticity_spectral_full!(𝒰, domain, ws_any)
     end
 
     # =========================================================================
@@ -1232,20 +1232,20 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     #
     # where l is the spherical harmonic degree.
     # =========================================================================
-    
+
     # Get local data views with enhanced memory access
-    uᵀ_real = parent(fields.toroidal.data_real)
-    uᵀ_imag = parent(fields.toroidal.data_imag)
-    uᴾ_real = parent(fields.poloidal.data_real)
-    uᴾ_imag = parent(fields.poloidal.data_imag)
-    
-    ζᵀ_real = parent(fields.ζᵀ.data_real)
-    ζᵀ_imag = parent(fields.ζᵀ.data_imag)
-    ζᴾ_real = parent(fields.ζᴾ.data_real)
-    ζᴾ_imag = parent(fields.ζᴾ.data_imag)
-    
+    uᵀ_real = parent(𝒰.toroidal.data_real)
+    uᵀ_imag = parent(𝒰.toroidal.data_imag)
+    uᴾ_real = parent(𝒰.poloidal.data_real)
+    uᴾ_imag = parent(𝒰.poloidal.data_imag)
+
+    ζᵀ_real = parent(𝒰.ζᵀ.data_real)
+    ζᵀ_imag = parent(𝒰.ζᵀ.data_imag)
+    ζᴾ_real = parent(𝒰.ζᴾ.data_real)
+    ζᴾ_imag = parent(𝒰.ζᴾ.data_imag)
+
     # Use enhanced range functions from pencil decomposition
-    config = fields.toroidal.config
+    config = 𝒰.toroidal.config
 
     # Get local ranges using pencil topology
     # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
@@ -1256,13 +1256,13 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     nr = domain.N
 
     # Radial data is always local (not MPI distributed), use threaded version
-    _compute_vorticity_spectral_threaded!(fields, domain, uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
+    _compute_vorticity_spectral_threaded!(𝒰, domain, uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
                                            ζᵀ_real, ζᵀ_imag, ζᴾ_real, ζᴾ_imag,
                                            lm_range, r_range, nr)
 end
 
 # Threaded version: Radial data is local (no MPI communication needed)
-function _compute_vorticity_spectral_threaded!(fields::SHTnsVelocityFields{T}, domain::RadialDomain,
+function _compute_vorticity_spectral_threaded!(𝒰::SHTnsVelocityFields{T}, domain::RadialDomain,
                                                 uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
                                                 ζᵀ_real, ζᵀ_imag, ζᴾ_real, ζᴾ_imag,
                                                 lm_range, r_range, nr) where T
@@ -1279,9 +1279,9 @@ function _compute_vorticity_spectral_threaded!(fields::SHTnsVelocityFields{T}, d
 
     # Process each (l,m) mode (parallel over lm)
     @inbounds Threads.@threads for lm_idx in lm_range
-        if lm_idx <= length(fields.ℓ_factors)
+        if lm_idx <= length(𝒰.ℓ_factors)
             local_lm = lm_idx - first(lm_range) + 1
-            ℓ_factor = fields.ℓ_factors[lm_idx]
+            ℓ_factor = 𝒰.ℓ_factors[lm_idx]
 
             # Select thread-local buffers with proper bounds checking
             tid = Threads.threadid()
@@ -1307,10 +1307,10 @@ function _compute_vorticity_spectral_threaded!(fields::SHTnsVelocityFields{T}, d
             extract_local_radial_profile!(Tᵀ_profile_imag, uᵀ_imag, local_lm, nr, r_range)
 
             # Compute radial derivatives for poloidal component (in-place, reuse buffers)
-            apply_∂r!(∂ᵣP_real,   fields.∂r,  Pᴾ_profile_real)
-            apply_∂r!(∂ᵣP_imag,   fields.∂r,  Pᴾ_profile_imag)
-            apply_∂r!(∂ᵣᵣP_real, fields.∂²r, Pᴾ_profile_real)
-            apply_∂r!(∂ᵣᵣP_imag, fields.∂²r, Pᴾ_profile_imag)
+            apply_∂r!(∂ᵣP_real,   𝒰.∂r,  Pᴾ_profile_real)
+            apply_∂r!(∂ᵣP_imag,   𝒰.∂r,  Pᴾ_profile_imag)
+            apply_∂r!(∂ᵣᵣP_real, 𝒰.∂²r, Pᴾ_profile_real)
+            apply_∂r!(∂ᵣᵣP_imag, 𝒰.∂²r, Pᴾ_profile_imag)
 
             # Compute vorticity components
             r_first = first(r_range)
@@ -1354,7 +1354,7 @@ end
 # ==========================================
 
 """
-    compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, domain)
+    compute_all_nonlinear_terms!(𝒰, temp_field, comp_field, mag_field, domain)
 
 Compute all nonlinear forcing terms for the momentum equation.
 
@@ -1409,7 +1409,7 @@ Viscous diffusion is treated implicitly with coefficient Pm (passed via `diffusi
 
 The time derivative has unit coefficient after the division and is handled by the integrator.
 """
-function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
+function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
                                                temp_field, comp_field, mag_field,
                                                domain::RadialDomain) where T
     # Compute all forces in a single enhanced loop
@@ -1418,29 +1418,29 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
         throw(ArgumentError("Ekman number d_E must be nonzero when evaluating the velocity equation in magnetic-diffusion scaling."))
     end
     rossby_factor = d_Pm / d_E
-    
+
     # Get all data views
-    vᵣ = parent(fields.velocity.r_component.data)
-    vθ = parent(fields.velocity.θ_component.data)
-    vφ = parent(fields.velocity.φ_component.data)
-    
-    ζᵣ = parent(fields.vorticity.r_component.data)
-    ζθ = parent(fields.vorticity.θ_component.data)
-    ζφ = parent(fields.vorticity.φ_component.data)
-    
-    adv_r = parent(fields.advection_physical.r_component.data)
-    adv_θ = parent(fields.advection_physical.θ_component.data)
-    adv_φ = parent(fields.advection_physical.φ_component.data)
-    
+    vᵣ = parent(𝒰.velocity.r_component.data)
+    vθ = parent(𝒰.velocity.θ_component.data)
+    vφ = parent(𝒰.velocity.φ_component.data)
+
+    ζᵣ = parent(𝒰.vorticity.r_component.data)
+    ζθ = parent(𝒰.vorticity.θ_component.data)
+    ζφ = parent(𝒰.vorticity.φ_component.data)
+
+    adv_r = parent(𝒰.advection_physical.r_component.data)
+    adv_θ = parent(𝒰.advection_physical.θ_component.data)
+    adv_φ = parent(𝒰.advection_physical.φ_component.data)
+
     # Get dimensions from config for better performance
-    config = fields.velocity.r_component.config
+    config = 𝒰.velocity.r_component.config
     local_size = size(vᵣ)
     nlat = config.nlat
     nlon = config.nlon
-    
+
     # Use pencil ranges for enhanced loop bounds
     r_range = range_local(config.pencils.r, 3)
-    
+
     # Main fused computation loop with enhanced indexing (parallel over r-slices)
     # After dividing Eq. (1) by E/Pm, advection has coefficient Pm/E (same as Coriolis)
     adv_coeff = rossby_factor  # (Pm/E) scaling per Sreenivasan & Kar (2018)
@@ -1454,12 +1454,12 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
             r = 1.0
             r⁻¹ = 1.0
         end
-        
+
         for j in 1:local_size[2]
             # Get pre-computed Coriolis factors for this latitude
             theta_idx = min(j, nlat)
-            sin_theta = fields.coriolis_factors[1, theta_idx]
-            cos_theta = fields.coriolis_factors[2, theta_idx]
+            sin_theta = 𝒰.coriolis_factors[1, theta_idx]
+            cos_theta = 𝒰.coriolis_factors[2, theta_idx]
             
             @simd for i in 1:local_size[1]
                 linear_idx = i + (j-1)*local_size[1] + (k-1)*local_size[1]*local_size[2]
@@ -1509,7 +1509,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     
     # Add Lorentz force if magnetic field present
     if mag_field !== nothing
-        add_lorentz_force!(fields, mag_field, domain)
+        add_lorentz_force!(𝒰, mag_field, domain)
     end
 end
 
@@ -1593,7 +1593,7 @@ end
 # ===============================
 # Optimized Lorentz force computation
 # ===============================
-function add_lorentz_force!(fields::SHTnsVelocityFields{T}, 
+function add_lorentz_force!(𝒰::SHTnsVelocityFields{T},
                            mag_field::SHTnsMagneticFields{T},
                            domain::RadialDomain) where T
 
@@ -1601,24 +1601,24 @@ function add_lorentz_force!(fields::SHTnsVelocityFields{T},
     if iszero(d_E)
         throw(ArgumentError("Ekman number d_E must be nonzero when evaluating the velocity equation in magnetic-diffusion scaling."))
     end
-    
+
     lorentz_factor = d_Pm / d_E
-    
+
     # Step 1: Use pre-computed current density from magnetic field
     # Leverage shared memory access patterns for efficiency
-    
+
     # Step 2: Compute j × B with enhanced vectorization
     j_r = parent(mag_field.current.r_component.data)
     j_θ = parent(mag_field.current.θ_component.data)
     j_φ = parent(mag_field.current.φ_component.data)
-    
+
     B_r = parent(mag_field.magnetic.r_component.data)
     B_θ = parent(mag_field.magnetic.θ_component.data)
     B_φ = parent(mag_field.magnetic.φ_component.data)
-    
-    adv_r = parent(fields.advection_physical.r_component.data)
-    adv_θ = parent(fields.advection_physical.θ_component.data)
-    adv_φ = parent(fields.advection_physical.φ_component.data)
+
+    adv_r = parent(𝒰.advection_physical.r_component.data)
+    adv_θ = parent(𝒰.advection_physical.θ_component.data)
+    adv_φ = parent(𝒰.advection_physical.φ_component.data)
     
     # Fused loop for j × B / Pm
     @inbounds @simd for idx in eachindex(j_r)
@@ -1739,27 +1739,27 @@ end
 # =====================================================
 # Diagnostic functions using transform infrastructure
 # =====================================================
-function compute_kinetic_energy(fields::SHTnsVelocityFields{T}, Dᵒᶜ::RadialDomain) where T
+function compute_kinetic_energy(𝒰::SHTnsVelocityFields{T}, Dᵒᶜ::RadialDomain) where T
     # Compute kinetic energy with configuration-aware integration
-    
-    tor_real = parent(fields.toroidal.data_real)
-    tor_imag = parent(fields.toroidal.data_imag)
-    pol_real = parent(fields.poloidal.data_real)
-    pol_imag = parent(fields.poloidal.data_imag)
-    
+
+    tor_real = parent(𝒰.toroidal.data_real)
+    tor_imag = parent(𝒰.toroidal.data_imag)
+    pol_real = parent(𝒰.poloidal.data_real)
+    pol_imag = parent(𝒰.poloidal.data_imag)
+
     local_energy = zero(Float64)
 
     # Use configuration pencils for consistent range access
     # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
     # since spectral field data is distributed using pencils.spec
-    config = fields.toroidal.config
+    config = 𝒰.toroidal.config
     lm_range = range_local(config.pencils.spec, 1)
     r_range = range_local(config.pencils.spec, 3)
 
     @inbounds for lm_idx in lm_range
-        if lm_idx <= fields.toroidal.nlm
+        if lm_idx <= 𝒰.toroidal.nlm
             local_lm = lm_idx - first(lm_range) + 1
-            ℓ_factor = fields.ℓ_factors[lm_idx]
+            ℓ_factor = 𝒰.ℓ_factors[lm_idx]
             
             # Weight by l(l+1) for proper spectral integration
             weight = 1.0 / max(ℓ_factor, 1.0)
@@ -1787,13 +1787,13 @@ function compute_kinetic_energy(fields::SHTnsVelocityFields{T}, Dᵒᶜ::RadialD
 end
 
 
-function compute_reynolds_stress(fields::SHTnsVelocityFields{T}) where T
+function compute_reynolds_stress(𝒰::SHTnsVelocityFields{T}) where T
     # Compute Reynolds stress tensor <u_i u_j>
     # This requires transforming to physical space and computing products
-    
-    vᵣ = parent(fields.velocity.r_component.data)
-    vθ = parent(fields.velocity.θ_component.data)
-    vφ = parent(fields.velocity.φ_component.data)
+
+    vᵣ = parent(𝒰.velocity.r_component.data)
+    vθ = parent(𝒰.velocity.θ_component.data)
+    vφ = parent(𝒰.velocity.φ_component.data)
     
     # Compute all 6 independent components
     R_rr = mean(vᵣ .* vᵣ)
@@ -1818,24 +1818,24 @@ end
 # ================================================================================
 # Utility functions
 # ================================================================================
-function zero_velocity_work_arrays!(fields::SHTnsVelocityFields{T}) where T
+function zero_velocity_work_arrays!(𝒰::SHTnsVelocityFields{T}) where T
     # Efficiently zero all work arrays with batch operations
     # Use threaded operations for better performance on large arrays
     Threads.@threads for arr in [
-        parent(fields.work_tor.data_real),
-        parent(fields.work_tor.data_imag),
-        parent(fields.work_pol.data_real),
-        parent(fields.work_pol.data_imag),
-        parent(fields.work_physical.r_component.data),
-        parent(fields.work_physical.θ_component.data),
-        parent(fields.work_physical.φ_component.data),
-        parent(fields.advection_physical.r_component.data),
-        parent(fields.advection_physical.θ_component.data),
-        parent(fields.advection_physical.φ_component.data),
-        parent(fields.ζᵀ.data_real),
-        parent(fields.ζᵀ.data_imag),
-        parent(fields.ζᴾ.data_real),
-        parent(fields.ζᴾ.data_imag)
+        parent(𝒰.work_tor.data_real),
+        parent(𝒰.work_tor.data_imag),
+        parent(𝒰.work_pol.data_real),
+        parent(𝒰.work_pol.data_imag),
+        parent(𝒰.work_physical.r_component.data),
+        parent(𝒰.work_physical.θ_component.data),
+        parent(𝒰.work_physical.φ_component.data),
+        parent(𝒰.advection_physical.r_component.data),
+        parent(𝒰.advection_physical.θ_component.data),
+        parent(𝒰.advection_physical.φ_component.data),
+        parent(𝒰.ζᵀ.data_real),
+        parent(𝒰.ζᵀ.data_imag),
+        parent(𝒰.ζᴾ.data_real),
+        parent(𝒰.ζᴾ.data_imag)
     ]
         fill!(arr, zero(T))
     end
@@ -1861,16 +1861,16 @@ end
 # ================================================================================
 
 """
-    batch_velocity_transforms!(fields::SHTnsVelocityFields{T}) where T
-    
+    batch_velocity_transforms!(𝒰::SHTnsVelocityFields{T}) where T
+
 Perform batched transforms for better cache efficiency using shtnskit_transforms.jl
 """
-function batch_velocity_transforms!(fields::SHTnsVelocityFields{T}) where T
+function batch_velocity_transforms!(𝒰::SHTnsVelocityFields{T}) where T
     # Use batched operations from shtnskit_transforms.jl for better performance
-    specs = [fields.toroidal, fields.poloidal, fields.ζᵀ, fields.ζᴾ]
-    physs = [fields.work_physical.r_component, fields.work_physical.θ_component, 
-             fields.work_physical.φ_component, fields.velocity.r_component]
-    
+    specs = [𝒰.toroidal, 𝒰.poloidal, 𝒰.ζᵀ, 𝒰.ζᴾ]
+    physs = [𝒰.work_physical.r_component, 𝒰.work_physical.θ_component,
+             𝒰.work_physical.φ_component, 𝒰.velocity.r_component]
+
     # Only transform if specs and physs have compatible lengths
     n_transform = min(length(specs), length(physs))
     if n_transform > 0
@@ -1880,40 +1880,40 @@ end
 
 
 """
-    optimize_velocity_memory_layout!(fields::SHTnsVelocityFields{T}) where T
-    
+    optimize_velocity_memory_layout!(𝒰::SHTnsVelocityFields{T}) where T
+
 Optimize memory layout for better cache performance using pencil topology
 """
-function optimize_velocity_memory_layout!(fields::SHTnsVelocityFields{T}) where T
+function optimize_velocity_memory_layout!(𝒰::SHTnsVelocityFields{T}) where T
     # Use transpose plans for optimal data layout based on upcoming operations
-    config = fields.toroidal.config
-    
+    config = 𝒰.toroidal.config
+
     # Use transpose plans if available
     plans = config.transpose_plans
     if !isempty(plans) && haskey(plans, :r_to_spec)
-        transpose_with_timer!(fields.work_tor.data_real, fields.toroidal.data_real, 
+        transpose_with_timer!(𝒰.work_tor.data_real, 𝒰.toroidal.data_real,
                               plans[:r_to_spec], "toroidal_layout_opt")
-        transpose_with_timer!(fields.work_pol.data_real, fields.poloidal.data_real, 
+        transpose_with_timer!(𝒰.work_pol.data_real, 𝒰.poloidal.data_real,
                               plans[:r_to_spec], "poloidal_layout_opt")
     end
 end
 
 
 """
-    validate_velocity_configuration(fields::SHTnsVelocityFields{T}, config::SHTnsKitConfig) where T
-    
+    validate_velocity_configuration(𝒰::SHTnsVelocityFields{T}, config::SHTnsKitConfig) where T
+
 Validate velocity field configuration consistency with SHTns setup
 """
-function validate_velocity_configuration(fields::SHTnsVelocityFields{T}, config::SHTnsKitConfig) where T
+function validate_velocity_configuration(𝒰::SHTnsVelocityFields{T}, config::SHTnsKitConfig) where T
     errors = String[]
-    
+
     # Check field dimensions match config
-    if size(fields.toroidal.data_real, 1) != config.nlm
+    if size(𝒰.toroidal.data_real, 1) != config.nlm
         push!(errors, "Toroidal field size mismatch with config.nlm")
     end
-    
+
     # Check that ℓ_factors are consistent
-    if length(fields.ℓ_factors) != config.nlm
+    if length(𝒰.ℓ_factors) != config.nlm
         push!(errors, "ℓ_factors length mismatch with config.nlm")
     end
     
