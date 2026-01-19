@@ -1,128 +1,243 @@
 # GeoDynamo.jl
 
-> High-performance spherical-MHD solver for geodynamo and planetary-core studies built on SHTnsKit and PencilArrays
+```
+   ____           ____                                      _ _
+  / ___| ___  ___|  _ \ _   _ _ __   __ _ _ __ ___   ___   (_) |
+ | |  _ / _ \/ _ \ | | | | | | '_ \ / _` | '_ ` _ \ / _ \  | | |
+ | |_| |  __/ (_) | |_| | |_| | | | | (_| | | | | | | (_) |_| | |
+  \____|\___|\___/|____/ \__, |_| |_|\__,_|_| |_| |_|\___/(_)_|_|
+                         |___/
+```
 
-GeoDynamo.jl couples spectral spherical-harmonic transforms with domain-decomposed finite-difference operators to evolve the governing magnetohydrodynamic (MHD) equations for rapidly rotating planetary interiors. The code targets multi-node simulations, supports mixed toroidal/poloidal representations, and provides a modern Julia interface for extending dynamo studies.
+**High-performance spherical-MHD solver for geodynamo and planetary-core simulations**
 
-## Why GeoDynamo.jl?
+[![Julia](https://img.shields.io/badge/Julia-1.10%2B-blue)](https://julialang.org)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-- **End-to-end MHD pipeline** – temperature, composition, velocity, and magnetic sub-systems are advanced in a single, tightly coupled solver.
-- **Hybrid spectral–radial discretisation** – SHTnsKit supplies fast spherical harmonics while pencil-decomposed finite differences handle radial terms.
-- **Time integration options** – CNAB2 IMEX, exponential AB2 (EAB2), and exponential RK2 (ERK2) schemes with Krylov-based linear operators.
-- **MPI-friendly I/O** – each rank owns its checkpoint/output files with selectable precision (Float32/Float64) and NetCDF metadata.
-- **Composable Julia design** – the module exposes field constructors, transform utilities, and workflow helpers for custom studies.
+---
 
-## Architecture Overview
+!!! tip "New to GeoDynamo.jl?"
+    Get up and running in minutes with our [Getting Started](getting-started.md) guide.
 
-The main pieces of the package are:
+---
 
-### Core Infrastructure
-- **Field abstractions** (`fields.jl`) – PencilArray-backed spectral and physical fields with boundary metadata.
-- **Parameters** (`parameters.jl`) – `GeoDynamoParameters` configuration and runtime management.
-- **Pencil decomposition** (`pencil_decomps.jl`) – MPI domain decomposition setup via PencilArrays.
-- **Linear algebra** (`linear_algebra.jl`) – Banded matrix operations for radial finite differences.
+## What is GeoDynamo.jl?
+
+GeoDynamo.jl is a modern Julia package for simulating magnetohydrodynamic (MHD) flows in rapidly rotating planetary interiors. It couples:
+
+- **Spectral spherical-harmonic transforms** via SHTnsKit
+- **Domain-decomposed finite differences** via PencilArrays
+- **Scalable MPI parallelism** for multi-node simulations
+
+```julia
+using GeoDynamo
+
+# Configure and run a simulation
+params = GeoDynamoParameters(geometry=:shell, i_N=64, i_L=31, d_E=1e-4, d_Ra=1e6)
+set_parameters!(params)
+state = initialize_simulation(Float64)
+run_simulation!(state; t_end=0.1)
+```
+
+---
+
+## Highlights
+
+!!! success "End-to-End MHD Pipeline"
+    Temperature, composition, velocity, and magnetic fields evolved in a single tightly coupled solver.
+
+!!! success "Hybrid Spectral–Radial Discretization"
+    SHTnsKit for fast spherical harmonics + pencil-decomposed finite differences for radial terms.
+
+!!! success "Multiple Time Integrators"
+    CNAB2 IMEX, exponential AB2 (EAB2), and exponential RK2 (ERK2) with Krylov-based operators.
+
+!!! success "Scalable MPI I/O"
+    Per-rank checkpoint/output with selectable precision (Float32/Float64) and NetCDF metadata.
+
+!!! success "Boundary Topography"
+    Linearized non-spherical CMB/ICB boundaries with Gaunt tensor mode coupling.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          GeoDynamo.jl                                   │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐            │
+│   │    Fields     │   │  Parameters   │   │    Pencil     │            │
+│   │  & Transforms │   │  & Config     │   │ Decomposition │            │
+│   └───────┬───────┘   └───────┬───────┘   └───────┬───────┘            │
+│           │                   │                   │                     │
+│           └───────────────────┼───────────────────┘                     │
+│                               ▼                                         │
+│   ┌─────────────────────────────────────────────────────────┐          │
+│   │                   Physics Kernels                        │          │
+│   │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────────┐   │          │
+│   │  │Velocity │ │Magnetic │ │ Thermal │ │Compositional│   │          │
+│   │  └─────────┘ └─────────┘ └─────────┘ └─────────────┘   │          │
+│   └─────────────────────────────────────────────────────────┘          │
+│                               │                                         │
+│                               ▼                                         │
+│   ┌─────────────────────────────────────────────────────────┐          │
+│   │              Time Integration (CNAB2/EAB2/ERK2)          │          │
+│   └─────────────────────────────────────────────────────────┘          │
+│                               │                                         │
+│                               ▼                                         │
+│   ┌─────────────────────────────────────────────────────────┐          │
+│   │                  NetCDF Output & Restart                 │          │
+│   └─────────────────────────────────────────────────────────┘          │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Core Modules
+
+### Infrastructure
+
+| Module | Description |
+|:-------|:------------|
+| `fields.jl` | PencilArray-backed spectral and physical fields |
+| `parameters.jl` | `GeoDynamoParameters` configuration management |
+| `pencil_decomps.jl` | MPI domain decomposition via PencilArrays |
+| `linear_algebra.jl` | Banded matrix operations for radial derivatives |
 
 ### SHTnsKit Integration
-- **Transform configuration** (`shtnskit_transforms.jl`) – SHTnsKit grid setup, FFT plans, and transpose operators.
-- **Field operations** (`shtnskit_field_functions.jl`) – Transforms, energy spectra, rotations, spectral operators.
 
-### Physics Kernels
-- **Velocity** (`velocity.jl`, `velocity_bc.jl`) – Toroidal-poloidal velocity evolution and boundary conditions.
-- **Magnetic** (`magnetic.jl`) – Magnetic field induction, diffusion, and inner core coupling.
-- **Thermal** (`thermal.jl`) – Temperature advection-diffusion with scalar field operations.
-- **Compositional** (`compositional.jl`) – Composition advection-diffusion matching thermal structure.
-- **Shared operations** (`scalar_field_common.jl`) – Common scalar field gradients, transforms, and utilities.
+| Module | Description |
+|:-------|:------------|
+| `shtnskit_transforms.jl` | Grid setup, FFT plans, transpose operators |
+| `shtnskit_field_functions.jl` | Transforms, energy spectra, rotations |
 
-### Time Integration & Simulation
-- **Timestep** (`timestep.jl`) – CNAB2/EAB2/ERK2 integrators, Krylov utilities, implicit solvers.
-- **Simulation driver** (`simulation.jl`) – Assembles `SimulationState`, manages timestepping, coordinates output.
-- **Initial conditions** (`InitialConditions.jl`) – Setup routines for all field types.
+### Physics
 
-### I/O & Utilities
-- **Output writer** (`outputs_writer.jl`) – NetCDF writer with MPI support and precision controls.
-- **Optimizations** (`optimizations.jl`) – Performance utilities and profiling support.
+| Module | Description |
+|:-------|:------------|
+| `velocity.jl` | Toroidal-poloidal velocity evolution |
+| `magnetic.jl` | Magnetic field induction and diffusion |
+| `thermal.jl` | Temperature advection-diffusion |
+| `compositional.jl` | Composition advection-diffusion |
 
-### Boundary Conditions (`bcs/`)
-- Modular BC system with thermal, velocity, magnetic, and composition handlers.
-- Supports NetCDF-based, programmatic, and interpolated boundary data.
-- **Topography coupling** for non-spherical CMB/ICB boundaries with Gaunt tensor mode coupling.
-- Stefan condition for ICB phase change evolution.
+### Boundary Conditions
 
-### Required Dependencies
+| Module | Description |
+|:-------|:------------|
+| `bcs/` | Modular BC system (thermal, velocity, magnetic, composition) |
+| `bcs/topography/` | Non-spherical CMB/ICB with Gaunt tensors |
 
-| Layer | Library | Responsibility |
-| --- | --- | --- |
-| Message passing | [MPI.jl](https://github.com/JuliaParallel/MPI.jl) | Communicator management, collective reductions. |
-| Pencil decomposition | [PencilArrays.jl](https://github.com/chriselrod/PencilArrays.jl) & [PencilFFTs.jl](https://github.com/chriselrod/PencilFFTs.jl) | Domain decomposition, transpose plans, distributed FFTs. |
-| Spherical harmonics | [SHTnsKit.jl](https://github.com/subhk/SHTnsKit.jl) **v1.1.15+** | Gauss grids, spectral transforms, energy spectra, field rotations, QST decomposition. |
-| I/O | [NetCDF.jl](https://github.com/JuliaGeo/NetCDF.jl) & [HDF5.jl](https://github.com/JuliaIO/HDF5.jl) | Structured output, restart files, metadata. |
+---
 
-These dependencies are pulled in automatically via the package manifest. You only need a working MPI implementation and NetCDF C libraries at runtime.
+## Dependencies
 
-### SHTnsKit v1.1.15 Features
+GeoDynamo.jl builds on a robust stack of Julia packages:
 
-GeoDynamo.jl leverages advanced features from SHTnsKit.jl v1.1.15:
+```
+                    ┌─────────────────┐
+                    │   GeoDynamo.jl  │
+                    └────────┬────────┘
+                             │
+        ┌────────────────────┼────────────────────┐
+        │                    │                    │
+        ▼                    ▼                    ▼
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+│   SHTnsKit    │   │ PencilArrays  │   │    MPI.jl     │
+│  (Harmonics)  │   │(Decomposition)│   │  (Parallel)   │
+└───────────────┘   └───────────────┘   └───────────────┘
+                             │
+                             ▼
+                    ┌───────────────┐
+                    │   NetCDF.jl   │
+                    │     (I/O)     │
+                    └───────────────┘
+```
 
-| Feature | Description |
-| --- | --- |
-| **Energy Spectra** | Native `energy_scalar`, `energy_vector`, `enstrophy` functions for spectral analysis. |
-| **QST Transforms** | Full 3D vector field decomposition with `SHqst_to_spat` / `spat_to_SHqst`. |
-| **Field Rotations** | Wigner D-matrix rotations via `SH_Zrotate`, `SH_Yrotate`, Euler angle compositions. |
-| **Spectral Operators** | Horizontal gradient, divergence, vorticity via `SH_to_grad_spat`. |
-| **In-Place Transforms** | Memory-efficient `synthesis!` / `analysis!` operations. |
-| **Scratch Buffers** | Pre-allocated `scratch_spatial` / `scratch_fft` for reduced allocations. |
+!!! note "Automatic Installation"
+    All dependencies are pulled in automatically via the package manifest. You only need a working MPI implementation and NetCDF C libraries at runtime.
 
-Use `get_shtnskit_version_info()` to check available features at runtime.
+---
 
 ## Governing Equations
 
-The solver advances the nondimensional Boussinesq MHD system presented in Sreenivasan & Kar, *Phys. Rev. Fluids* **3**, 093801 (2018), Eqs. (1)–(4). In magnetic-diffusion units the equations read
+The solver advances the nondimensional Boussinesq MHD system from *Sreenivasan & Kar, Phys. Rev. Fluids* **3**, 093801 (2018).
+
+### Momentum
 
 ```math
-\begin{aligned}
 \frac{E}{\mathrm{Pm}}\frac{\partial \boldsymbol{u}}{\partial t}
   + (\nabla \times \boldsymbol{u}) \times \boldsymbol{u}
   + \hat{\boldsymbol{z}} \times \boldsymbol{u}
-  &= -\nabla p^\star
+  = -\nabla p^\star
      + \frac{\mathrm{Pm}}{\mathrm{Pr}}\,\mathrm{Ra}\,T\,\boldsymbol{r}
      + (\nabla \times \boldsymbol{B}) \times \boldsymbol{B}
-     + E \nabla^2 \boldsymbol{u}, \\
-\frac{\partial T}{\partial t} + \boldsymbol{u} \cdot \nabla T
-  &= \frac{\mathrm{Pm}}{\mathrm{Pr}} \nabla^2 T, \\
-\frac{\partial \boldsymbol{B}}{\partial t}
-  &= \nabla \times (\boldsymbol{u} \times \boldsymbol{B}) + \nabla^2 \boldsymbol{B}, \\
-\nabla \cdot \boldsymbol{u} &= \nabla \cdot \boldsymbol{B} = 0.
-\end{aligned}
+     + E \nabla^2 \boldsymbol{u}
 ```
 
-Internally we divide the momentum equation by `E/Pm`, so the CNAB2/ERK2/EAB2 integrators work with a unit mass matrix and a viscous operator scaled by `Pm`. Thermal and compositional diffusion use `(Pm/Pr)` and `(Pm/Sc)` respectively, while the induction equation diffuses with unit coefficient.
+### Temperature & Magnetic Field
 
-The solver stores both velocity and magnetic fields in a **toroidal–poloidal decomposition**, which enforces `∇·u = ∇·B = 0` spectrally. Each timestep reconstructs physical-space vectors through SHTnsKit transforms, evaluates nonlinear terms, and projects back to toroidal/poloidal coefficients before applying the implicit diffusive operators above.
+```math
+\frac{\partial T}{\partial t} + \boldsymbol{u} \cdot \nabla T = \frac{\mathrm{Pm}}{\mathrm{Pr}} \nabla^2 T
+```
 
-## Documentation Map
+```math
+\frac{\partial \boldsymbol{B}}{\partial t} = \nabla \times (\boldsymbol{u} \times \boldsymbol{B}) + \nabla^2 \boldsymbol{B}
+```
 
-The remainder of the docs walk you through the typical workflow:
+### Constraints
 
-- [Getting Started](getting-started.md) – installation, verifying the build, running the quick example.
-- [Configuration & Parameters](configuration.md) – how `GeoDynamoParameters` map to grids, physics, and timestepping.
-- [Time Integration](timestepping.md) – CNAB2, EAB2, and ERK2 schemes, caches, and recommended settings.
-- [Spherical Harmonics](shtnskit.md) – SHTnsKit v1.1.15 transforms, energy spectra, rotations, and spectral operators.
-- [Boundary Topography](topography.md) – linearized CMB/ICB topography, Gaunt tensors, and Stefan condition.
-- [Data Output & Restart Files](io.md) – per-rank NetCDF layout, precision control, diagnostics, and boundary datasets.
-- [API Reference](api.md) – automatically generated index of exported types and functions.
-- [Developer Guide](developer.md) – project layout, testing, documentation build, and contribution guidelines.
+```math
+\nabla \cdot \boldsymbol{u} = 0 \qquad \nabla \cdot \boldsymbol{B} = 0
+```
 
-If you are familiar with SHTnsKit itself, skim the configuration guide and jump straight to the timestepping section. Otherwise, start with [Getting Started](getting-started.md) to ensure the MPI/SHTnsKit toolchain is correctly configured.
+!!! info "Toroidal–Poloidal Decomposition"
+    Both velocity and magnetic fields use toroidal–poloidal decomposition, which spectrally enforces the divergence-free constraints.
 
-## Cite & Support
+---
 
-If GeoDynamo.jl supports your research, please cite the repository and consider opening an issue or PR with improvements. Community feedback is the fastest way to expand the physics modules and add new diagnostic hooks.
+## Documentation
 
-## Release Cadence & Support Matrix
+| Page | Description |
+|:-----|:------------|
+| **[Getting Started](getting-started.md)** | Installation and first simulation |
+| **[Configuration](configuration.md)** | All parameter options explained |
+| **[Time Integration](timestepping.md)** | CNAB2, EAB2, ERK2 schemes |
+| **[Spherical Harmonics](shtnskit.md)** | SHTnsKit transforms and operators |
+| **[Boundary Topography](topography.md)** | Non-spherical boundary coupling |
+| **[Data Output](io.md)** | NetCDF files, restarts, diagnostics |
+| **[Developer Guide](developer.md)** | Contributing and code structure |
+| **[API Reference](api.md)** | Complete function documentation |
 
-| Branch | Status | Julia | Notes |
-| --- | --- | --- | --- |
-| `main` | active development | 1.10–1.11 | Latest features, documentation builds on each push. |
-| release tags | snapshots | 1.10 | Stable checkpoints for published results. |
+---
 
-We run CI on Linux (OpenMPI) and macOS (MPICH). Contributions targeting other MPI distributions are welcome—check [Developer Guide](developer.md) for instructions on adding regression tests.
+## Compatibility
+
+| Environment | Versions | Status |
+|:------------|:---------|:-------|
+| **Julia** | 1.10, 1.11 | Supported |
+| **Linux** | OpenMPI, MPICH | Tested in CI |
+| **macOS** | MPICH (Homebrew) | Tested in CI |
+| **Windows** | Microsoft MPI | Tested in CI |
+
+---
+
+## Citation
+
+If GeoDynamo.jl supports your research, please cite:
+
+```bibtex
+@software{geodynamo_jl,
+  author = {Kar, Subhadeep},
+  title  = {GeoDynamo.jl: Spherical-MHD Solver for Planetary Cores},
+  url    = {https://github.com/subhk/GeoDynamo.jl},
+  year   = {2024}
+}
+```
+
+---
+
+!!! tip "Get Involved"
+    Community feedback via [GitHub Issues](https://github.com/subhk/GeoDynamo.jl/issues) and PRs is the fastest way to expand physics modules and add diagnostic hooks!

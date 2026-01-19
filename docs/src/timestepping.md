@@ -1,46 +1,77 @@
 # Time Integration
 
-GeoDynamo.jl provides three production-grade implicit-explicit (IMEX) time-stepping schemes optimized for the stiff diffusion terms that arise in magnetohydrodynamic simulations. All schemes leverage MPI-parallel PencilArray decompositions and respect the spectral structure of spherical harmonic transforms.
+GeoDynamo.jl provides three production-grade implicit-explicit (IMEX) time-stepping schemes optimized for the stiff diffusion terms in magnetohydrodynamic simulations.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     Time Integration Schemes                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐              │
+│   │   CNAB2     │     │    EAB2     │     │    ERK2     │              │
+│   │  ─────────  │     │  ─────────  │     │  ─────────  │              │
+│   │  Workhorse  │     │  Stiff OK   │     │  Accurate   │              │
+│   │  A-stable   │     │  L-stable   │     │  L-stable   │              │
+│   └─────────────┘     └─────────────┘     └─────────────┘              │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Quick Selection
+
+!!! tip "Which Scheme Should I Use?"
+
+    | Scenario | Scheme | Why |
+    |:---------|:-------|:----|
+    | **Production dynamo runs** | CNAB2 | Robust, well-tested, low cost |
+    | **Strong diffusion** (low E, Pm) | EAB2 | Exact linear integration, larger Δt |
+    | **Wave studies / benchmarks** | ERK2 | Best transient accuracy |
+    | **Development / debugging** | CNAB2 | Simplest to understand |
+
+---
 
 ## Governing Equations
 
-The geodynamo equations in non-dimensional form contain both linear (diffusion) and nonlinear (advection, Lorentz force) terms:
+The geodynamo equations contain both linear (diffusion) and nonlinear (advection, Lorentz force) terms:
 
+**Velocity:**
 ```math
 \frac{\partial \mathbf{u}}{\partial t} = \underbrace{E \nabla^2 \mathbf{u}}_{\text{viscous diffusion}} + \underbrace{\mathbf{N}_u(\mathbf{u}, \mathbf{B}, T)}_{\text{nonlinear terms}}
 ```
 
+**Magnetic field:**
 ```math
 \frac{\partial \mathbf{B}}{\partial t} = \underbrace{\frac{E}{Pm} \nabla^2 \mathbf{B}}_{\text{magnetic diffusion}} + \underbrace{\nabla \times (\mathbf{u} \times \mathbf{B})}_{\text{induction}}
 ```
 
+**Temperature:**
 ```math
 \frac{\partial T}{\partial t} = \underbrace{\frac{E}{Pr} \nabla^2 T}_{\text{thermal diffusion}} + \underbrace{N_T(\mathbf{u}, T)}_{\text{advection}}
 ```
 
-where:
-- ``E`` = Ekman number (viscous diffusion)
-- ``Pm`` = Magnetic Prandtl number
-- ``Pr`` = Prandtl number
-
-The **stiffness** comes from the diffusion terms, which have eigenvalues scaling as ``\ell(\ell+1)/r^2`` in spherical harmonics—potentially very large for high-degree modes.
-
-## IMEX Framework
-
-All schemes split the equations into:
-
-| Part | Treatment | Physical Terms |
-|------|-----------|----------------|
-| **Linear (L)** | Implicit | Diffusion: ``\nabla^2 \mathbf{u}``, ``\nabla^2 \mathbf{B}``, ``\nabla^2 T`` |
-| **Nonlinear (N)** | Explicit | Advection, Coriolis, Lorentz force, buoyancy |
-
-This allows large timesteps limited only by the CFL condition on advection, not by the stiff diffusion.
+!!! info "Stiffness"
+    The **stiffness** comes from diffusion terms with eigenvalues scaling as `ℓ(ℓ+1)/r²` in spherical harmonics—potentially very large for high-degree modes.
 
 ---
 
-## CNAB2 (Crank–Nicolson Adams–Bashforth 2)
+## IMEX Framework
 
-The workhorse scheme for production simulations.
+All schemes split the equations:
+
+| Part | Treatment | Physical Terms |
+|:-----|:----------|:---------------|
+| **Linear (L)** | Implicit | Diffusion: ∇²**u**, ∇²**B**, ∇²T |
+| **Nonlinear (N)** | Explicit | Advection, Coriolis, Lorentz force, buoyancy |
+
+This allows large timesteps limited only by the CFL condition on advection, not by stiff diffusion.
+
+---
+
+## CNAB2: Crank–Nicolson Adams–Bashforth 2
+
+*The workhorse scheme for production simulations.*
 
 ### Mathematical Formulation
 
@@ -54,16 +85,16 @@ Rearranging:
 \underbrace{(I - \theta \Delta t L)}_{A} u^{n+1} = \underbrace{(I + (1-\theta) \Delta t L) u^n + \Delta t \left(\frac{3}{2} N^n - \frac{1}{2} N^{n-1}\right)}_{\text{RHS}}
 ```
 
-where ``\theta = 0.5`` gives the classic Crank-Nicolson (second-order, A-stable).
+where θ = 0.5 gives classic Crank–Nicolson (second-order, A-stable).
 
-### Implementation Details
+### Implementation
 
 1. **Build RHS** via `build_rhs_cnab2!`:
-   - Apply ``(1-\theta) \Delta t L`` to current solution
-   - Add Adams-Bashforth extrapolation of nonlinear terms
+   - Apply `(1-θ) Δt L` to current solution
+   - Add Adams–Bashforth extrapolation of nonlinear terms
 
 2. **Solve** the implicit system using banded LU factorization:
-   - One factorization per spherical harmonic degree ``\ell``
+   - One factorization per spherical harmonic degree ℓ
    - Cached in `SHTnsImplicitMatrices` for reuse
 
 3. **Apply boundary conditions** after solve
@@ -71,30 +102,25 @@ where ``\theta = 0.5`` gives the classic Crank-Nicolson (second-order, A-stable)
 ### Usage
 
 ```julia
-# In simulation loop
 params = get_parameters()
 params.i_timestepper = :cnab2
 params.d_implicit = 0.5  # θ parameter (0.5 = Crank-Nicolson)
-
-# The scheme is applied automatically in the time loop
 ```
 
 ### Properties
 
 | Property | Value |
-|----------|-------|
+|:---------|:------|
 | Order | 2nd (both linear and nonlinear) |
 | Stability | A-stable for θ ≥ 0.5 |
 | Memory | 1 previous nonlinear term |
 | Cost | 1 LU solve per (ℓ,m) mode per field |
 
-**Best for:** Production dynamo runs with moderate timesteps.
-
 ---
 
-## EAB2 (Exponential Adams–Bashforth 2)
+## EAB2: Exponential Adams–Bashforth 2
 
-Uses matrix exponentials to exactly integrate the stiff linear part.
+*Uses matrix exponentials to exactly integrate the stiff linear part.*
 
 ### Mathematical Formulation
 
@@ -102,29 +128,24 @@ Uses matrix exponentials to exactly integrate the stiff linear part.
 u^{n+1} = e^{\Delta t L} u^n + \Delta t \, \varphi_1(\Delta t L) \left(\frac{3}{2} N^n - \frac{1}{2} N^{n-1}\right)
 ```
 
-where the ``\varphi_1`` function is:
+where:
 
 ```math
 \varphi_1(z) = \frac{e^z - 1}{z}
 ```
 
-### Key Insight
+!!! info "Key Insight"
+    The matrix exponential `exp(Δt L)` **exactly** propagates linear dynamics, removing any timestep restriction from diffusion. Nonlinear terms are still treated explicitly with AB2 extrapolation.
 
-The matrix exponential ``e^{\Delta t L}`` **exactly** propagates the linear dynamics, removing any timestep restriction from diffusion. The nonlinear terms are still treated explicitly with AB2 extrapolation.
+### Implementation Modes
 
-### Implementation Details
-
-Two modes of operation:
-
-#### 1. Dense Matrix Mode (small problems)
+**1. Dense Matrix Mode** (small problems):
 ```julia
-# Precompute exp(ΔtA) and φ₁(ΔtA) matrices
 cache = create_etd_cache(domain, diffusivity, dt)
 ```
 
-#### 2. Krylov Action Mode (large problems, recommended)
+**2. Krylov Action Mode** (large problems, recommended):
 ```julia
-# Compute matrix-vector products without forming dense matrices
 eab2_update_krylov_cached!(u, nl, nl_prev, alu_map, domain, ν, config, dt;
                            m=20,      # Arnoldi basis size
                            tol=1e-8)  # Convergence tolerance
@@ -132,8 +153,8 @@ eab2_update_krylov_cached!(u, nl, nl_prev, alu_map, domain, ν, config, dt;
 
 The Krylov approach:
 - Builds an Arnoldi basis of dimension `m`
-- Computes ``e^{\Delta t L} v`` and ``\varphi_1(\Delta t L) v`` in this reduced space
-- Avoids forming or storing the full ``nr \times nr`` exponential matrices
+- Computes `exp(Δt L) v` and `φ₁(Δt L) v` in reduced space
+- Avoids forming or storing full `nr × nr` exponential matrices
 
 ### Usage
 
@@ -141,29 +162,27 @@ The Krylov approach:
 params = get_parameters()
 params.i_timestepper = :eab2
 params.i_etd_m = 20        # Arnoldi basis size
-params.d_krylov_tol = 1e-8 # Krylov convergence tolerance
+params.d_krylov_tol = 1e-8 # Convergence tolerance
 ```
 
 ### Properties
 
 | Property | Value |
-|----------|-------|
+|:---------|:------|
 | Order | 2nd for nonlinear, exact for linear |
 | Stability | L-stable (excellent for stiff problems) |
 | Memory | 1 previous nonlinear term + Krylov workspace |
 | Cost | ~m matrix-vector products per (ℓ,m) mode |
 
-**Best for:** Strongly diffusive regimes where CNAB2 requires small timesteps.
-
 ---
 
-## ERK2 (Exponential Runge–Kutta 2)
+## ERK2: Exponential Runge–Kutta 2
 
-Two-stage exponential integrator for maximum accuracy.
+*Two-stage exponential integrator for maximum accuracy.*
 
 ### Mathematical Formulation
 
-**Stage 1:** Compute intermediate state at ``t + \Delta t/2``
+**Stage 1:** Compute intermediate state at t + Δt/2
 
 ```math
 u^* = e^{\frac{\Delta t}{2} L} u^n + \frac{\Delta t}{2} \varphi_1\left(\frac{\Delta t}{2} L\right) N^n
@@ -181,12 +200,11 @@ where:
 \varphi_2(z) = \frac{e^z - 1 - z}{z^2}
 ```
 
-### Implementation Details
+### Implementation
 
 Uses dedicated cache structures:
 
 ```julia
-# ERK2-specific buffers
 struct ERK2Cache{T}
     exp_half::Matrix{T}    # exp(Δt/2 · L)
     exp_full::Matrix{T}    # exp(Δt · L)
@@ -202,15 +220,17 @@ Helper functions:
 
 ### Cache Management
 
+**Precompute caches (recommended for production):**
+
 ```bash
-# Precompute caches (recommended for production)
 julia --project scripts/precompute_erk2_caches.jl \
     --dt=1e-5 \
     --fields=temperature,vel_tor,vel_pol,mag_tor,mag_pol
 ```
 
+**Load precomputed caches:**
+
 ```julia
-# Load precomputed caches
 load_erk2_cache_bundle!(state.erk2_caches, "erk2_caches.jld2")
 ```
 
@@ -231,13 +251,11 @@ println("Max residual: $(stats.max_residual)")
 ### Properties
 
 | Property | Value |
-|----------|-------|
+|:---------|:------|
 | Order | 2nd (but more accurate than EAB2) |
 | Stability | L-stable |
 | Memory | 2× EAB2 (half-step and full-step caches) |
 | Cost | 2× nonlinear evaluations per step |
-
-**Best for:** Wave propagation studies, transient dynamics, accuracy-critical applications.
 
 ---
 
@@ -247,16 +265,16 @@ All exponential schemes share these core routines:
 
 ### `exp_action_krylov(Aop!, v, Δt; m=20, tol=1e-8)`
 
-Computes ``e^{\Delta t A} v`` using Arnoldi iteration:
+Computes `exp(Δt A) v` using Arnoldi iteration:
 
-1. Build orthonormal Krylov basis ``V_m = [v, Av, A^2v, \ldots]``
-2. Form upper Hessenberg matrix ``H_m = V_m^T A V_m``
-3. Compute ``e^{\Delta t H_m}`` (small dense matrix)
-4. Recover solution: ``e^{\Delta t A} v \approx \|v\| V_m e^{\Delta t H_m} e_1``
+1. Build orthonormal Krylov basis `Vₘ = [v, Av, A²v, ...]`
+2. Form upper Hessenberg matrix `Hₘ = Vₘᵀ A Vₘ`
+3. Compute `exp(Δt Hₘ)` (small dense matrix)
+4. Recover solution: `exp(Δt A) v ≈ ‖v‖ Vₘ exp(Δt Hₘ) e₁`
 
 ### `phi1_action_krylov(Aop!, A_lu, v, Δt; m=20, tol=1e-8)`
 
-Computes ``\varphi_1(\Delta t A) v`` using the identity:
+Computes `φ₁(Δt A) v` using the identity:
 
 ```math
 \varphi_1(z) v = \frac{e^z v - v}{z} = A^{-1}(e^z - I) v
@@ -281,12 +299,13 @@ Manages per-degree LU factorizations:
 ### Data Distribution
 
 Spectral data is distributed across MPI ranks using PencilArrays:
-- Each rank owns a subset of ``(\ell, m)`` modes: `lm_range`
+- Each rank owns a subset of (ℓ, m) modes: `lm_range`
 - Radial points may also be distributed: `r_range`
 
 ### Critical Pattern for MPI Safety
 
-Time-stepping functions with MPI collectives use **global loop bounds**:
+!!! danger "Avoiding Deadlocks"
+    Time-stepping functions with MPI collectives **must** use global loop bounds:
 
 ```julia
 nlm_total = field.nlm  # Same for all processes
@@ -344,7 +363,7 @@ end
 ### Scheme Selection Guide
 
 | Scenario | Scheme | Rationale |
-|----------|--------|-----------|
+|:---------|:-------|:----------|
 | Production dynamo | **CNAB2** | Robust, well-tested, moderate cost |
 | Strong diffusion (low E, Pm) | **EAB2** | Allows larger Δt, exact linear integration |
 | Wave studies | **ERK2** | Best transient accuracy |
@@ -354,7 +373,7 @@ end
 ### Parameter Guidelines
 
 | Parameter | CNAB2 | EAB2 | ERK2 |
-|-----------|-------|------|------|
+|:----------|:------|:-----|:-----|
 | `d_implicit` (θ) | 0.5 | N/A | N/A |
 | `i_etd_m` (Krylov dim) | N/A | 20-30 | 20-30 |
 | `d_krylov_tol` | N/A | 1e-8 | 1e-8 |
@@ -362,17 +381,17 @@ end
 
 ### Startup Protocol
 
-Always pre-warm the nonlinear history on the first step:
+!!! note "First Timestep"
+    Always pre-warm the nonlinear history on the first step:
 
-```julia
-# First timestep: use forward Euler for nonlinear terms
-if step == 1
-    # N^{n-1} = N^n (no history available)
-    copy!(prev_nonlinear, nonlinear)
-end
-```
+    ```julia
+    if step == 1
+        # N^{n-1} = N^n (no history available)
+        copy!(prev_nonlinear, nonlinear)
+    end
+    ```
 
-This is handled automatically by `apply_master_implicit_step!`.
+    This is handled automatically by `apply_master_implicit_step!`.
 
 ---
 
@@ -380,26 +399,48 @@ This is handled automatically by `apply_master_implicit_step!`.
 
 ### Simulation Blows Up
 
-1. **Reduce timestep**: `params.d_dt *= 0.5`
-2. **Check CFL**: Enable `compute_cfl_timestep!` monitoring
-3. **Increase θ**: For CNAB2, try `d_implicit = 0.6` (more damping)
-4. **Check boundary conditions**: Ensure consistent BC application
+| Action | Details |
+|:-------|:--------|
+| Reduce timestep | `params.d_dt *= 0.5` |
+| Check CFL | Enable `compute_cfl_timestep!` monitoring |
+| Increase θ | For CNAB2, try `d_implicit = 0.6` (more damping) |
+| Check BCs | Ensure consistent boundary condition application |
 
 ### Simulation Hangs (MPI Deadlock)
 
-1. Check that loops with `Allreduce` use global bounds
-2. Verify all ranks have consistent `nlm_total`
-3. Enable MPI debugging: `export MPI_DEBUG=1`
+| Check | Solution |
+|:------|:---------|
+| Loop bounds | Ensure loops with `Allreduce` use global bounds |
+| Consistent `nlm_total` | Verify all ranks have same value |
+| Debug MPI | `export MPI_DEBUG=1` |
 
 ### Poor Accuracy
 
-1. **Increase Krylov dimension**: `i_etd_m = 30` or higher
-2. **Tighten tolerance**: `d_krylov_tol = 1e-10`
-3. **Reduce timestep** for transient accuracy
-4. **Use ERK2** for critical accuracy requirements
+| Action | Details |
+|:-------|:--------|
+| Increase Krylov dimension | `i_etd_m = 30` or higher |
+| Tighten tolerance | `d_krylov_tol = 1e-10` |
+| Reduce timestep | For transient accuracy |
+| Use ERK2 | For critical accuracy requirements |
 
 ### Memory Issues
 
-1. Use Krylov mode instead of dense matrices for EAB2/ERK2
-2. Reduce `i_etd_m` if memory-limited (minimum ~15)
-3. Check for memory leaks in nonlinear term caching
+| Action | Details |
+|:-------|:--------|
+| Use Krylov mode | Instead of dense matrices for EAB2/ERK2 |
+| Reduce `i_etd_m` | Minimum ~15 if memory-limited |
+| Check for leaks | In nonlinear term caching |
+
+---
+
+## Summary Comparison
+
+| Feature | CNAB2 | EAB2 | ERK2 |
+|:--------|:------|:-----|:-----|
+| **Order** | 2nd | 2nd (exact linear) | 2nd |
+| **Stability** | A-stable | L-stable | L-stable |
+| **Linear Treatment** | Implicit | Exponential | Exponential |
+| **Nonlinear Treatment** | AB2 | AB2 | Midpoint RK |
+| **Memory** | Low | Medium | High |
+| **Cost per Step** | Low | Medium | High |
+| **Best Use Case** | Production | Stiff problems | High accuracy |

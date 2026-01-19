@@ -1,6 +1,35 @@
 # Spherical Harmonic Transforms
 
-GeoDynamo.jl uses [SHTnsKit.jl](https://github.com/subhk/SHTnsKit.jl) v1.1.15+ for all spherical harmonic operations. This page documents the transform infrastructure, v1.1.15 features, and best practices.
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     Spectral ⟷ Physical Transforms                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│    Physical Space              SHTnsKit              Spectral Space     │
+│   ┌─────────────┐                                   ┌─────────────┐     │
+│   │  f(θ,φ,r)   │  ──── analysis ────────────────▶  │   aₗₘ(r)    │     │
+│   │             │                                   │             │     │
+│   │  Grid Data  │  ◀──── synthesis ──────────────   │  Harmonics  │     │
+│   └─────────────┘                                   └─────────────┘     │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+GeoDynamo.jl uses [SHTnsKit.jl](https://github.com/subhk/SHTnsKit.jl) v1.1.15+ for all spherical harmonic operations.
+
+---
+
+## Quick Reference
+
+!!! tip "Essential Functions"
+
+    | Operation | Function |
+    |:----------|:---------|
+    | Spectral → Physical | `shtnskit_synthesis!(config, alm, f)` |
+    | Physical → Spectral | `shtnskit_analysis!(config, f, alm)` |
+    | Check features | `get_shtnskit_version_info()` |
+
+---
 
 ## Configuration
 
@@ -8,10 +37,10 @@ The `SHTnsKitConfig` struct holds all transform state:
 
 ```julia
 config = create_shtnskit_config(
-    lmax = 63,           # Maximum spherical harmonic degree
-    mmax = 63,           # Maximum order (defaults to lmax)
-    nlat = 96,           # Latitude grid points (≥ lmax + 2)
-    nlon = 192,          # Longitude grid points (≥ 2*lmax + 1)
+    lmax = 63,              # Maximum spherical harmonic degree
+    mmax = 63,              # Maximum order (defaults to lmax)
+    nlat = 96,              # Latitude grid points (≥ lmax + 2)
+    nlon = 192,             # Longitude grid points (≥ 2*lmax + 1)
     optimize_decomp = true  # Optimize MPI decomposition
 )
 ```
@@ -28,18 +57,20 @@ The configuration includes:
 GeoDynamo.jl exposes three feature flags that control v1.1.15 optimizations:
 
 | Flag | Default | Description |
-| --- | --- | --- |
-| `SHTNSKIT_USE_DISTRIBUTED` | `true` | Use native `dist_analysis`/`dist_synthesis` for MPI transforms |
-| `SHTNSKIT_USE_QST` | `true` | Use `SHqst_to_spat`/`spat_to_SHqst` for 3D vector fields |
-| `SHTNSKIT_USE_SCRATCH_BUFFERS` | `true` | Pre-allocate scratch buffers via `scratch_spatial`/`scratch_fft` |
+|:-----|:--------|:------------|
+| `SHTNSKIT_USE_DISTRIBUTED` | `true` | Use native `dist_analysis`/`dist_synthesis` for MPI |
+| `SHTNSKIT_USE_QST` | `true` | Use `SHqst_to_spat`/`spat_to_SHqst` for 3D vectors |
+| `SHTNSKIT_USE_SCRATCH_BUFFERS` | `true` | Pre-allocate scratch buffers |
 
-Check available features at runtime:
+### Checking Available Features
 
 ```julia
 info = get_shtnskit_version_info()
 # Returns: (version, has_distributed_transforms, has_qst_transforms,
 #           has_energy_functions, has_rotation_functions, has_inplace_transforms, ...)
 ```
+
+---
 
 ## Core Transforms
 
@@ -79,10 +110,14 @@ shtnskit_qst_to_spatial!(config, Qlm, Slm, Tlm, vr, vtheta, vphi)
 shtnskit_spatial_to_qst!(config, vr, vtheta, vphi, Qlm, Slm, Tlm)
 ```
 
-QST decomposition:
-- **Q** (radial): Relates to the radial velocity/field component
-- **S** (spheroidal/poloidal): Divergent part of tangential flow
-- **T** (toroidal): Rotational part of tangential flow
+!!! info "QST Decomposition"
+    | Component | Symbol | Description |
+    |:----------|:-------|:------------|
+    | **Q** | Radial | Relates to radial velocity/field component |
+    | **S** | Spheroidal/Poloidal | Divergent part of tangential flow |
+    | **T** | Toroidal | Rotational part of tangential flow |
+
+---
 
 ## Energy & Power Spectra
 
@@ -103,7 +138,10 @@ E_vector = compute_total_vector_energy(config, Slm, Tlm)
 enstrophy = compute_enstrophy(config, Tlm)
 ```
 
-All functions accept `real_field=true` (default) to account for the conjugate symmetry of real-valued fields.
+!!! note
+    All functions accept `real_field=true` (default) to account for the conjugate symmetry of real-valued fields.
+
+---
 
 ## Spectral Differential Operators
 
@@ -128,7 +166,7 @@ vort_coeffs = extract_vorticity_coefficients(config, Tlm)
 
 ### Horizontal Laplacian
 
-The horizontal Laplacian on the unit sphere: ∇²_h Y_l^m = -l(l+1) Y_l^m
+The horizontal Laplacian on the unit sphere satisfies: ∇²_h Y_ℓ^m = -ℓ(ℓ+1) Y_ℓ^m
 
 ```julia
 # Apply ∇²_h in spectral space
@@ -142,9 +180,13 @@ apply_inverse_horizontal_laplacian!(config, alm; regularize_l0=true)
 grad_mag = compute_horizontal_gradient_magnitude(config, alm)
 ```
 
+---
+
 ## Field Rotations
 
 SHTnsKit v1.1.15 provides Wigner D-matrix rotations in spectral space:
+
+### Basic Rotations
 
 ```julia
 # Z-axis rotation (pure phase shift)
@@ -157,13 +199,19 @@ rotate_field_y!(config, alm, beta; alm_out=result)
 # Special 90° rotations (optimized)
 rotate_field_90y!(config, alm; alm_out=result)
 rotate_field_90x!(config, alm; alm_out=result)
+```
 
-# General Euler rotation (ZYZ convention)
-# R = Rz(gamma) * Ry(beta) * Rz(alpha)
+### General Euler Rotation
+
+```julia
+# ZYZ convention: R = Rz(gamma) * Ry(beta) * Rz(alpha)
 rotate_field_euler!(config, alm, alpha, beta, gamma; alm_out=result)
 ```
 
-Rotations in spectral space are exact and avoid interpolation artifacts.
+!!! tip
+    Rotations in spectral space are exact and avoid interpolation artifacts.
+
+---
 
 ## Spectral Filtering
 
@@ -191,6 +239,8 @@ The filter is: `exp(-α * (l/lmax)^order)` where α is chosen so `filter(cutoff*
 truncate_spectral_modes!(config, alm, lmax_new=31, mmax_new=31)
 ```
 
+---
+
 ## Threading Control
 
 ```julia
@@ -199,6 +249,8 @@ set_shtnskit_threads(4)
 ```
 
 Useful when running hybrid MPI+threads configurations.
+
+---
 
 ## Boundary Condition Transforms
 
@@ -218,13 +270,19 @@ clear_bc_shtns_config_cache!()
 
 These functions cache SHTnsKit configurations to avoid repeated setup overhead.
 
+---
+
 ## Performance Tips
 
-1. **Use in-place transforms** when possible to reduce allocations
-2. **Pre-warm FFT plans** via `optimize_erk2_transforms!(config)`
-3. **Batch transforms** with `batch_spectral_to_physical!` for multiple fields
-4. **Monitor with** `get_shtnskit_performance_stats()` to verify feature usage
-5. **Set threading** appropriately for your MPI configuration
+| Tip | Details |
+|:----|:--------|
+| Use in-place transforms | Reduce allocations with `_inplace!` variants |
+| Pre-warm FFT plans | `optimize_erk2_transforms!(config)` |
+| Batch transforms | `batch_spectral_to_physical!` for multiple fields |
+| Monitor usage | `get_shtnskit_performance_stats()` to verify features |
+| Set threading | Match to your MPI configuration |
+
+---
 
 ## Diagnostics
 
@@ -238,6 +296,17 @@ stats = get_shtnskit_performance_stats()
 validate_pencil_decomposition(config)
 ```
 
-## API Reference
+---
 
-See the [API Reference](@ref) page for complete function documentation.
+## API Summary
+
+| Category | Functions |
+|:---------|:----------|
+| **Scalar Transforms** | `shtnskit_synthesis!`, `shtnskit_analysis!`, `*_inplace!` variants |
+| **Vector Transforms** | `shtnskit_vector_synthesis!`, `shtnskit_vector_analysis!`, `shtnskit_qst_*` |
+| **Energy Spectra** | `compute_*_energy_spectrum`, `compute_total_*_energy`, `compute_enstrophy` |
+| **Operators** | `spectral_gradient!`, `apply_horizontal_laplacian!`, `extract_*_coefficients` |
+| **Rotations** | `rotate_field_z!`, `rotate_field_y!`, `rotate_field_euler!`, `rotate_field_90*!` |
+| **Filtering** | `apply_spectral_filter!`, `apply_exponential_filter!`, `truncate_spectral_modes!` |
+
+See the [API Reference](api.md) for complete function documentation.

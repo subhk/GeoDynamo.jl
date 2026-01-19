@@ -1,175 +1,297 @@
 # Getting Started
 
-This quick-start guide walks through preparing the environment, running the sample simulation, and inspecting the first output files. It assumes familiarity with Julia's package manager and a working MPI installation.
+Welcome to GeoDynamo.jl! This guide will get you from zero to running your first simulation.
 
-## 1. Install Julia & MPI
+---
 
-1. Install Julia **1.10 or 1.11** from [julialang.org/downloads](https://julialang.org/downloads/).
-2. Install an MPI distribution (OpenMPI, MPICH, Intel MPI). Ensure `mpiexec` is on your `PATH`.
-3. On macOS/Linux you might also need NetCDF libraries (`libnetcdf`, `libnetcdff`) for output. Package managers usually provide them (`brew install netcdf`, `apt install libnetcdf-dev`).
+## Prerequisites
 
-## 2. Clone the Repository
+!!! note "What You Need"
+    | Requirement | Version |
+    |:------------|:--------|
+    | Julia | **1.10** or **1.11** |
+    | MPI | OpenMPI, MPICH, or Intel MPI |
+    | NetCDF | C libraries for output |
 
+---
+
+## Installation
+
+### 1. Install Julia
+
+Download from [julialang.org/downloads](https://julialang.org/downloads/) and ensure it's on your `PATH`.
+
+### 2. Install MPI & NetCDF
+
+=== "Ubuntu/Debian"
+    ```bash
+    sudo apt install mpich libnetcdf-dev
+    ```
+
+=== "macOS"
+    ```bash
+    brew install mpich netcdf
+    ```
+
+=== "Fedora/RHEL"
+    ```bash
+    sudo dnf install mpich netcdf-devel
+    ```
+
+Verify MPI is working:
 ```bash
-$ git clone https://github.com/subhk/GeoDynamo.jl
-$ cd GeoDynamo.jl
+mpiexec --version
 ```
 
-If you are working in a monorepo that already contains SHTnsKit, keep the sibling directory `../SHTnsKit.jl` checked out so GeoDynamo can develop against the local copy.
+### 3. Clone GeoDynamo.jl
 
-## 3. Instantiate the Environment
+```bash
+git clone https://github.com/subhk/GeoDynamo.jl
+cd GeoDynamo.jl
+```
 
-Run the following once to download dependencies and build MPI/SHTnsKit artefacts:
+### 4. Install Dependencies
 
-```julia
+```bash
 julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
 ```
 
-For development, it is convenient to activate the environment inside the Julia REPL:
+!!! tip "Development Mode"
+    For development with a local SHTnsKit checkout at `../SHTnsKit.jl`:
+    ```bash
+    julia --project -e 'using Pkg; Pkg.develop(PackageSpec(path="../SHTnsKit.jl"))'
+    ```
 
-```julia
-julia> using Pkg
-julia> Pkg.activate(".")
-[ Info: activating project at /path/to/GeoDynamo.jl
-julia> Pkg.instantiate()
-```
+---
 
-## 4. Verify SHTnsKit & MPI
+## Verification
 
-Before launching full simulations, confirm the angular transforms and MPI topology are functioning:
+### Test the Installation
 
-```julia
+```bash
+# Quick test
 julia --project test/shtnskit_roundtrip.jl
+
+# Full test suite
+julia --project -e 'using Pkg; Pkg.test("GeoDynamo")'
 ```
 
-Or launch the package test-suite (requires MPI to be initialised correctly):
-
-```bash
-$ julia --project -e 'using Pkg; Pkg.test("GeoDynamo")'
-```
-
-### Verify SHTnsKit v1.1.15 Features
-
-GeoDynamo.jl requires SHTnsKit.jl v1.1.15 or later for optimal performance. Verify the installation:
+### Check SHTnsKit Features
 
 ```julia
 julia> using GeoDynamo
+
 julia> info = get_shtnskit_version_info()
-julia> println("SHTnsKit version: ", info.version)
-julia> println("QST transforms: ", info.has_qst_transforms)
-julia> println("Energy functions: ", info.has_energy_functions)
-julia> println("Rotation functions: ", info.has_rotation_functions)
+julia> @show info.version
+julia> @show info.has_qst_transforms
+julia> @show info.has_energy_functions
 ```
 
-If features are missing, update SHTnsKit:
+!!! warning "Missing Features?"
+    Update SHTnsKit with:
+    ```julia
+    using Pkg; Pkg.update("SHTnsKit")
+    ```
 
-```julia
-julia> using Pkg; Pkg.update("SHTnsKit")
-```
+---
 
-## 5. Minimal Example
+## Your First Simulation
 
-```julia
-julia> using GeoDynamo
-
-julia> params = GeoDynamoParameters(
-           geometry = :shell,
-           i_N = 64,
-           i_L = 31,
-           i_M = 31,
-           d_E = 1e-4,
-           d_Ra = 1e6,
-           d_Pr = 1.0,
-           d_Pm = 1.0,
-           i_B = 1,
-           output_precision = :float32,
-           independent_output_files = true,
-       );
-
-julia> set_parameters!(params);   # push to global configuration
-
-julia> state = initialize_simulation(Float64);
-
-julia> run_simulation!(state; t_end = 0.02)
-
-# Save parameters for reproducibility
-julia> save_parameters(params, "config/run_local_shell.jl");
-```
-
-### Running with MPI
-
-Launch the same setup on four processes:
-
-```bash
-mpiexec -n 4 julia --project -e 'using GeoDynamo; state = initialize_simulation(Float64); run_simulation!(state; t_end = 0.02)'
-```
-
-The driver will write NetCDF files into `./output/` (see the [Output guide](io.md) for details). When running under MPI, start the executable with `mpiexec` and the desired number of ranks.
-
-## 6. What the Solver Advances
-
-GeoDynamo.jl integrates the nondimensional Boussinesq MHD system from Sreenivasan & Kar (2018), Eqs. (1)–(4). In magnetic-diffusion units the fields satisfy
-
-```math
-\frac{E}{\mathrm{Pm}}\frac{\partial \boldsymbol{u}}{\partial t}
-  + (\nabla \times \boldsymbol{u}) \times \boldsymbol{u}
-  + \hat{\boldsymbol{z}} \times \boldsymbol{u}
-  = -\nabla p^\star
-    + \frac{\mathrm{Pm}}{\mathrm{Pr}} \mathrm{Ra}\,T\,\boldsymbol{r}
-    + (\nabla \times \boldsymbol{B}) \times \boldsymbol{B}
-    + E \nabla^2 \boldsymbol{u},
-```
-
-with thermal and magnetic evolution,
-
-```math
-\frac{\partial T}{\partial t} + \boldsymbol{u} \cdot \nabla T = \frac{\mathrm{Pm}}{\mathrm{Pr}} \nabla^2 T, \qquad
-\frac{\partial \boldsymbol{B}}{\partial t} = \nabla \times (\boldsymbol{u} \times \boldsymbol{B}) + \nabla^2 \boldsymbol{B},
-```
-
-and solenoidality constraints `∇·u = ∇·B = 0`. The code automatically applies the published prefactors—no additional scaling is required from the user beyond specifying `(E, Pm, Pr, Ra, …)` in `GeoDynamoParameters`.
-
-Both `u` and `B` are represented spectrally via toroidal (`T`) and poloidal (`P`) potentials (`u = ∇×(T \hat{r}) + ∇×∇×(P \hat{r})`, and likewise for `B`). This guarantees divergence-free fields while keeping the spherical-harmonic bookkeeping minimal; the helper functions in `InitialConditions.jl` operate directly on these toroidal/poloidal coefficients.
-
-### Boundary Conditions
-
-The default shell setup enforces:
-
-- **Velocity:** no-slip at both the inner-core boundary (ICB) and core-mantle boundary (CMB) when `i_vel_bc = 1`; use `2` for stress-free.
-- **Temperature:** fixed values at each boundary (`i_tmp_bc = 1`). Mixed/flux conditions can be configured through the boundary files in `config/`.
-- **Magnetic field:** electrically insulating boundaries, matching to potential fields outside the fluid shell.
-- **Composition (optional):** Dirichlet when `i_cmp_bc = 1`.
-
-To override boundary data, create files under `config/boundaries/` (see comments in `src/bcs/` for formats) and load them with `bcs.load_boundary_conditions!` before `run_simulation!`.
-
-### Initial Conditions
-
-GeoDynamo provides helpers in `InitialConditions.jl`:
+### Minimal Example
 
 ```julia
 using GeoDynamo
 
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    Configure Parameters                        ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+params = GeoDynamoParameters(
+    # Geometry
+    geometry = :shell,         # Spherical shell
+    i_N  = 64,                 # Radial points
+    i_L  = 31,                 # Max spherical harmonic degree
+    i_M  = 31,                 # Max spherical harmonic order
+
+    # Physics
+    d_E  = 1e-4,               # Ekman number
+    d_Ra = 1e6,                # Rayleigh number
+    d_Pr = 1.0,                # Prandtl number
+    d_Pm = 1.0,                # Magnetic Prandtl number
+    i_B  = 1,                  # Enable magnetic field
+
+    # Output
+    output_precision = :float32,
+    independent_output_files = true,
+)
+
+# ╔═══════════════════════════════════════════════════════════════╗
+# ║                    Initialize & Run                            ║
+# ╚═══════════════════════════════════════════════════════════════╝
+
+set_parameters!(params)
+state = initialize_simulation(Float64)
+run_simulation!(state; t_end = 0.02)
+
+# Save for reproducibility
+save_parameters(params, "config/my_run.jl")
+```
+
+### Running with MPI
+
+```bash
+mpiexec -n 4 julia --project -e '
+    using GeoDynamo
+    state = initialize_simulation(Float64)
+    run_simulation!(state; t_end = 0.02)
+'
+```
+
+!!! success "Output"
+    NetCDF files are written to `./output/` by default. See [Data Output](io.md) for details.
+
+---
+
+## Understanding the Physics
+
+GeoDynamo.jl solves the Boussinesq MHD equations in a rotating spherical shell:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│    ∂u/∂t  =  viscous diffusion  +  buoyancy  +  Lorentz force      │
+│                    ↓                  ↓              ↓              │
+│               E∇²u           Ra·T·r̂      (∇×B)×B           │
+│                                                                     │
+│    ∂T/∂t  =  thermal diffusion  -  advection                       │
+│                    ↓                  ↓                              │
+│              (Pm/Pr)∇²T          u·∇T                              │
+│                                                                     │
+│    ∂B/∂t  =  magnetic diffusion  +  induction                      │
+│                    ↓                    ↓                            │
+│                 ∇²B              ∇×(u×B)                           │
+│                                                                     │
+│    Constraints:  ∇·u = 0    ∇·B = 0                                │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+!!! info "Toroidal-Poloidal Decomposition"
+    Fields are represented as:
+    ```math
+    \boldsymbol{u} = \nabla \times (T \hat{r}) + \nabla \times \nabla \times (P \hat{r})
+    ```
+    This automatically satisfies the divergence-free constraint.
+
+---
+
+## Boundary Conditions
+
+### Default Setup (Shell Geometry)
+
+| Field | Inner (ICB) | Outer (CMB) | Parameter |
+|:------|:------------|:------------|:----------|
+| **Velocity** | No-slip | No-slip | `i_vel_bc = 1` |
+| **Velocity** | Stress-free | Stress-free | `i_vel_bc = 2` |
+| **Temperature** | Fixed T | Fixed T | `i_tmp_bc = 1` |
+| **Magnetic** | Insulating | Insulating | (automatic) |
+| **Composition** | Fixed C | Fixed C | `i_cmp_bc = 1` |
+
+### Custom Boundaries
+
+```julia
+using GeoDynamo
+
+# Load custom boundary data before initialization
+GeoDynamo.bcs.load_boundary_conditions!(
+    velocity    = "config/boundaries/velocity.nc",
+    temperature = "config/boundaries/thermal_flux.nc",
+)
+
+# Then initialize
+state = initialize_simulation(Float64)
+```
+
+---
+
+## Initial Conditions
+
+### Setting Up Fields
+
+```julia
+using GeoDynamo
+using Random
+
 state = initialize_simulation(Float64)
 
-# Simple conductive profile with random perturbations
+# ── Temperature ──────────────────────────────────────────────
 set_temperature_ic!(state.temperature; profile = :conductive)
-randomize_scalar_field!(state.temperature; amplitude = 1e-3, rng = Random.default_rng())
+randomize_scalar_field!(state.temperature; amplitude = 1e-3)
 
-# Small random velocity and magnetic seeds
+# ── Velocity ─────────────────────────────────────────────────
 randomize_vector_field!(state.velocity.velocity; amplitude = 1e-4)
+
+# ── Magnetic Field ───────────────────────────────────────────
 randomize_magnetic_field!(state.magnetic; amplitude = 1e-5)
 ```
 
-You can also load spectral snapshots via `load_initial_conditions!` or restart files with `read_restart!`. Always reapply `set_parameters!` before initialising so the grid matches the data you load.
+### Loading from Files
 
-## 7. Typical Workflow
+```julia
+# From restart file
+read_restart!("output/geodynamo_shell_rank_0000_restart_1.nc")
 
-1. **Create or load parameters** (`load_parameters`, `set_parameters!`).
-2. **Set boundary data** if you need non-default conditions (`bcs.load_boundary_conditions!`), otherwise the built-ins are applied.
-3. **Specify initial conditions** using the helpers above or your own spectral fields.
-4. **Initialise transforms** (either `create_shtnskit_config` manually or let `initialize_simulation` handle it).
-5. **Advance in time** with `run_simulation!` or step manually using the timestep utilities.
-6. **Inspect diagnostics** from the NetCDF output, or use `extras/spectral_to_physical.jl` to convert files.
-7. **Restart** from saved state via `read_restart!` and resume the run.
+# From snapshot
+load_initial_conditions!("path/to/snapshot.nc")
+```
 
-For an overview of all configuration options, continue to [Configuration & Parameters](configuration.md).
+---
+
+## Workflow Overview
+
+```
+    ┌─────────────────────────────────────────────────────────┐
+    │  1. CONFIGURE                                           │
+    │     GeoDynamoParameters(...) → set_parameters!(...)     │
+    └───────────────────────────┬─────────────────────────────┘
+                                ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  2. BOUNDARIES (optional)                               │
+    │     bcs.load_boundary_conditions!(...)                  │
+    └───────────────────────────┬─────────────────────────────┘
+                                ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  3. INITIALIZE                                          │
+    │     state = initialize_simulation(Float64)              │
+    │     set_temperature_ic!(...) / randomize_*(...)         │
+    └───────────────────────────┬─────────────────────────────┘
+                                ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  4. RUN                                                 │
+    │     run_simulation!(state; t_end = ...)                 │
+    └───────────────────────────┬─────────────────────────────┘
+                                ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  5. ANALYZE                                             │
+    │     Inspect NetCDF output in ./output/                  │
+    └───────────────────────────┬─────────────────────────────┘
+                                ▼
+    ┌─────────────────────────────────────────────────────────┐
+    │  6. RESTART (optional)                                  │
+    │     read_restart!(...) → run_simulation!(...)           │
+    └─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Next Steps
+
+!!! tip "Where to Go From Here"
+    | I want to... | Read... |
+    |:-------------|:--------|
+    | Understand all parameters | [Configuration](configuration.md) |
+    | Learn about time integration | [Time Integration](timestepping.md) |
+    | Explore spherical harmonics | [Spherical Harmonics](shtnskit.md) |
+    | Configure output files | [Data Output](io.md) |
+    | Add non-spherical boundaries | [Boundary Topography](topography.md) |
+    | Contribute code | [Developer Guide](developer.md) |

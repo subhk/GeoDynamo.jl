@@ -2,6 +2,15 @@
 
 GeoDynamo.jl provides a comprehensive NetCDF-based I/O system designed for scalable MPI parallelism. The system handles simulation snapshots, restart files, diagnostics, and boundary condition data.
 
+!!! tip "Quick Start"
+    ```julia
+    config = default_config(precision=Float64, independent_writes=true)
+    tracker = create_time_tracker(config, 0.0)
+    write_fields!(fields, tracker, metadata, config)
+    ```
+
+---
+
 ## Architecture Overview
 
 ```
@@ -26,42 +35,55 @@ GeoDynamo.jl provides a comprehensive NetCDF-based I/O system designed for scala
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Key Design Principles:**
-- **Independent writes**: Each MPI rank writes its own file without synchronization
-- **Mixed-space output**: Spectral data for velocity/magnetic, physical for temperature/composition
-- **Compressed storage**: NetCDF4 with configurable deflate compression
-- **Time-based scheduling**: Automatic output at specified intervals
+### Design Principles
+
+| Principle | Description |
+|:----------|:------------|
+| **Independent writes** | Each MPI rank writes its own file without synchronization |
+| **Mixed-space output** | Spectral data for velocity/magnetic, physical for T/C |
+| **Compressed storage** | NetCDF4 with configurable deflate compression |
+| **Time-based scheduling** | Automatic output at specified intervals |
 
 ---
 
 ## OutputConfig
 
-The `OutputConfig` struct controls all aspects of data output:
+The `OutputConfig` struct controls all aspects of data output.
+
+### Creating Configurations
 
 ```julia
+# Method 1: From defaults
 config = default_config(precision=Float64, independent_writes=true)
+
+# Method 2: From simulation parameters
+config = output_config_from_parameters()
+
+# Method 3: Modify existing config
+config = with_output_precision(config, Float32)
+config = with_independent_writes(config, true)
 ```
 
 ### Configuration Options
 
 | Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `output_space` | `OutputSpace` | `MIXED_FIELDS` | Data representation mode |
-| `naming_scheme` | `FileNaming` | `RANK_TIME` | Filename pattern |
-| `output_dir` | `String` | `"./output"` | Output directory |
-| `filename_prefix` | `String` | `"geodynamo"` | File prefix |
-| `compression_level` | `Int` | `6` | NetCDF deflate level (0-9) |
-| `include_metadata` | `Bool` | `true` | Include simulation metadata |
-| `include_grid` | `Bool` | `true` | Include coordinate arrays |
-| `include_diagnostics` | `Bool` | `true` | Include diagnostic scalars |
-| `output_precision` | `DataType` | `Float64` | Precision for field data |
-| `spectral_lmax_output` | `Int` | `-1` | Max l to output (-1 = all) |
-| `overwrite_files` | `Bool` | `true` | Overwrite existing files |
-| `independent_writes` | `Bool` | `true` | Ranks write independently |
-| `output_interval` | `Float64` | `0.1` | Time between snapshots |
-| `restart_interval` | `Float64` | `1.0` | Time between restarts |
-| `max_output_time` | `Float64` | `Inf` | Stop output after this time |
-| `time_tolerance` | `Float64` | `1e-10` | Tolerance for time comparisons |
+|:------|:-----|:--------|:------------|
+| `output_space` | OutputSpace | `MIXED_FIELDS` | Data representation mode |
+| `naming_scheme` | FileNaming | `RANK_TIME` | Filename pattern |
+| `output_dir` | String | `"./output"` | Output directory |
+| `filename_prefix` | String | `"geodynamo"` | File prefix |
+| `compression_level` | Int | `6` | NetCDF deflate level (0-9) |
+| `include_metadata` | Bool | `true` | Include simulation metadata |
+| `include_grid` | Bool | `true` | Include coordinate arrays |
+| `include_diagnostics` | Bool | `true` | Include diagnostic scalars |
+| `output_precision` | DataType | `Float64` | Precision for field data |
+| `spectral_lmax_output` | Int | `-1` | Max ℓ to output (-1 = all) |
+| `overwrite_files` | Bool | `true` | Overwrite existing files |
+| `independent_writes` | Bool | `true` | Ranks write independently |
+| `output_interval` | Float64 | `0.1` | Time between snapshots |
+| `restart_interval` | Float64 | `1.0` | Time between restarts |
+| `max_output_time` | Float64 | `Inf` | Stop output after this time |
+| `time_tolerance` | Float64 | `1e-10` | Tolerance for time comparisons |
 
 ### Output Space Modes
 
@@ -73,21 +95,8 @@ config = default_config(precision=Float64, independent_writes=true)
 end
 ```
 
-**Recommended:** `MIXED_FIELDS` balances compact spectral storage for divergence-free fields with intuitive physical representation for scalars.
-
-### Creating Configurations
-
-```julia
-# Method 1: From defaults
-config = default_config(precision=Float32)
-
-# Method 2: From simulation parameters
-config = output_config_from_parameters()
-
-# Method 3: Modify existing config
-config = with_output_precision(config, Float32)
-config = with_independent_writes(config, true)
-```
+!!! tip "Recommended Mode"
+    `MIXED_FIELDS` balances compact spectral storage for divergence-free fields with intuitive physical representation for scalars.
 
 ---
 
@@ -100,7 +109,7 @@ Files follow the pattern:
 {prefix}_{geometry}_rank_{XXXX}_{type}_{N}.nc
 ```
 
-Examples:
+**Examples:**
 ```
 geodynamo_shell_rank_0000_hist_1.nc    # History snapshot 1, rank 0
 geodynamo_shell_rank_0015_hist_42.nc   # History snapshot 42, rank 15
@@ -109,8 +118,6 @@ geodynamo_shell_grid.nc                # Grid file (rank 0 only)
 ```
 
 ### NetCDF Structure
-
-Each output file contains:
 
 ```
 NetCDF File Structure
@@ -132,19 +139,18 @@ NetCDF File Structure
 │   ├── time[time]          : Simulation time
 │   └── step[time]          : Timestep number
 │
-├── Physical Fields (if MIXED_FIELDS or PHYSICAL_ONLY)
+├── Physical Fields (MIXED_FIELDS or PHYSICAL_ONLY)
 │   ├── temperature[theta,phi,r]
 │   └── composition[theta,phi,r]
 │
-├── Spectral Fields (if MIXED_FIELDS or SPECTRAL_ONLY)
+├── Spectral Fields (MIXED_FIELDS or SPECTRAL_ONLY)
 │   ├── velocity_toroidal_real[spectral,r]
 │   ├── velocity_toroidal_imag[spectral,r]
 │   ├── velocity_poloidal_real[spectral,r]
 │   ├── velocity_poloidal_imag[spectral,r]
 │   ├── magnetic_toroidal_real[spectral,r]
 │   ├── magnetic_poloidal_real[spectral,r]
-│   ├── temperature_spectral_real[spectral,r]  (optional)
-│   └── composition_spectral_real[spectral,r]  (optional)
+│   └── (optional) temperature_spectral_*, composition_spectral_*
 │
 ├── Diagnostics
 │   ├── diag_temp_mean, diag_temp_std, diag_temp_min, diag_temp_max
@@ -168,7 +174,8 @@ The grid file (`{prefix}_{geometry}_grid.nc`) is written once by rank 0 and cont
 - SHTnsKit configuration metadata
 - Grid type descriptors
 
-This allows post-processing tools to reconstruct the full grid without duplicating coordinates in every history file.
+!!! note
+    This allows post-processing tools to reconstruct the full grid without duplicating coordinates in every history file.
 
 ---
 
@@ -192,14 +199,14 @@ dt_to_output = time_to_next_output(tracker, current_time, config)
 ### TimeTracker Fields
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `last_output_time` | `Float64` | Time of last snapshot |
-| `last_restart_time` | `Float64` | Time of last restart |
-| `output_count` | `Int` | Total snapshots written |
-| `restart_count` | `Int` | Total restarts written |
-| `next_output_time` | `Float64` | Scheduled next snapshot |
-| `next_restart_time` | `Float64` | Scheduled next restart |
-| `grid_file_written` | `Bool` | Whether grid file exists |
+|:------|:-----|:------------|
+| `last_output_time` | Float64 | Time of last snapshot |
+| `last_restart_time` | Float64 | Time of last restart |
+| `output_count` | Int | Total snapshots written |
+| `restart_count` | Int | Total restarts written |
+| `next_output_time` | Float64 | Scheduled next snapshot |
+| `next_restart_time` | Float64 | Scheduled next restart |
+| `grid_file_written` | Bool | Whether grid file exists |
 
 ### Adaptive Timestep Integration
 
@@ -243,16 +250,9 @@ fields = Dict(
         "real" => Array{Float64,3}(nlm, 1, nr),
         "imag" => Array{Float64,3}(nlm, 1, nr)
     ),
-    "velocity_poloidal" => Dict(
-        "real" => Array{Float64,3}(nlm, 1, nr),
-        "imag" => Array{Float64,3}(nlm, 1, nr)
-    ),
-    "magnetic_toroidal" => Dict(...),
-    "magnetic_poloidal" => Dict(...),
-
-    # Optional: Scalar fields in spectral space
-    "temperature_spectral" => Dict("real" => ..., "imag" => ...),
-    "composition_spectral" => Dict("real" => ..., "imag" => ...)
+    "velocity_poloidal" => Dict("real" => ..., "imag" => ...),
+    "magnetic_toroidal" => Dict("real" => ..., "imag" => ...),
+    "magnetic_poloidal" => Dict("real" => ..., "imag" => ...)
 )
 ```
 
@@ -267,8 +267,7 @@ metadata = Dict{String,Any}(
     "Ekman_number" => E,
     "Prandtl_number" => Pr,
     "magnetic_Prandtl" => Pm,
-    "geometry" => "shell",  # or "ball"
-    # ... additional parameters
+    "geometry" => "shell"  # or "ball"
 )
 ```
 
@@ -294,20 +293,19 @@ Restart files include:
 ```julia
 restart_data, metadata = read_restart!(tracker, "output", target_time, config)
 
-# restart_data contains all fields
+# Access fields
 temperature = restart_data["temperature"]
 velocity_tor = restart_data["velocity_toroidal"]
 
-# metadata contains simulation state
+# Access simulation state
 t = metadata["current_time"]
 step = metadata["current_step"]
 ```
 
-### Restart Tips
-
-1. **Cadence**: Set `restart_interval` longer than `output_interval` unless frequent checkpointing is needed
-2. **Precision change**: Load restart, then apply `with_output_precision` before continuing
-3. **File matching**: MPI ranks automatically find files matching their `rank_XXXX` suffix
+!!! tip "Restart Tips"
+    - Set `restart_interval` longer than `output_interval` unless frequent checkpointing is needed
+    - MPI ranks automatically find files matching their `rank_XXXX` suffix
+    - To change precision: load restart, apply `with_output_precision`, then continue
 
 ---
 
@@ -318,7 +316,7 @@ step = metadata["current_step"]
 ```julia
 using GeoDynamo.bcs
 
-# Read boundary data from NetCDF
+# Read from NetCDF
 bc_data = read_netcdf_boundary_data("boundary_temperature.nc"; precision=Float64)
 
 # Access fields
@@ -381,17 +379,24 @@ boundary_temperature.nc
 Each output file includes computed diagnostics:
 
 **Scalar Field Statistics:**
-- `diag_temp_mean`, `diag_temp_std`, `diag_temp_min`, `diag_temp_max`
-- `diag_comp_mean`, `diag_comp_std`, `diag_comp_min`, `diag_comp_max`
-- `diag_temp_radial_variation`, `diag_comp_radial_variation`
+
+| Diagnostic | Description |
+|:-----------|:------------|
+| `diag_temp_mean` | Volume-averaged temperature |
+| `diag_temp_std` | Temperature standard deviation |
+| `diag_temp_min`, `diag_temp_max` | Temperature extrema |
+| `diag_temp_radial_variation` | Radial temperature variation |
 
 **Spectral Field Diagnostics:**
-- `diag_{field}_energy` - Total spectral energy
-- `diag_{field}_rms` - RMS amplitude
-- `diag_{field}_max` - Maximum coefficient magnitude
-- `diag_{field}_peak_l` - Degree with maximum energy
-- `diag_{field}_spectral_centroid` - Energy-weighted mean degree
-- `diag_{field}_low_mode_fraction` - Energy fraction in l ≤ 10
+
+| Diagnostic | Description |
+|:-----------|:------------|
+| `diag_{field}_energy` | Total spectral energy |
+| `diag_{field}_rms` | RMS amplitude |
+| `diag_{field}_max` | Maximum coefficient magnitude |
+| `diag_{field}_peak_l` | Degree with maximum energy |
+| `diag_{field}_spectral_centroid` | Energy-weighted mean degree |
+| `diag_{field}_low_mode_fraction` | Energy fraction in ℓ ≤ 10 |
 
 ### Custom Diagnostics
 
@@ -399,7 +404,6 @@ Each output file includes computed diagnostics:
 function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
     diagnostics = Dict{String, Float64}()
 
-    # Add custom diagnostics
     if haskey(fields, "temperature")
         T = fields["temperature"]
         diagnostics["temp_nusselt"] = compute_nusselt(T, field_info)
@@ -415,17 +419,13 @@ end
 
 ### Independent vs Synchronized Writes
 
-**Independent Mode** (`independent_writes=true`, default):
-- Each rank writes immediately when triggered
-- No barriers or synchronization
-- Best for large-scale runs
-- Files may have slightly different timestamps
+| Mode | Behavior | Best For |
+|:-----|:---------|:---------|
+| **Independent** (`true`) | Each rank writes immediately, no barriers | Large-scale runs |
+| **Synchronized** (`false`) | All ranks sync before/after writes | Parallel NetCDF collective I/O |
 
-**Synchronized Mode** (`independent_writes=false`):
-- All ranks synchronize before/after writes
-- Guarantees consistent output across ranks
-- Required for parallel NetCDF collective I/O
-- Overhead from `MPI.Barrier` calls
+!!! warning
+    Independent mode may result in files with slightly different timestamps across ranks.
 
 ### Per-Rank Data Distribution
 
@@ -492,20 +492,18 @@ cleanup_old_files("output", 10)
 ### Combining Multi-Rank Data
 
 ```julia
+using NCDatasets
+
 # Collect files from all ranks for a given time
 nprocs = 16
-files = String[]
-for rank in 0:(nprocs-1)
-    push!(files, "output/geodynamo_shell_rank_$(lpad(rank,4,'0'))_hist_5.nc")
-end
+files = ["output/geodynamo_shell_rank_$(lpad(rank,4,'0'))_hist_5.nc"
+         for rank in 0:(nprocs-1)]
 
-# Read and combine (example for temperature)
-using NCDatasets
+# Read and combine
 global_temp = zeros(nlat_global, nlon_global, nr_global)
 for (rank, file) in enumerate(files)
     NCDataset(file, "r") do ds
         # Map local data to global array based on pencil ranges
-        # ...
     end
 end
 ```
@@ -517,33 +515,32 @@ end
 ### Compression Levels
 
 | Level | Compression | Speed | Use Case |
-|-------|-------------|-------|----------|
+|:------|:------------|:------|:---------|
 | 0 | None | Fastest | Development, SSDs |
-| 1-3 | Low | Fast | Balance |
+| 1-3 | Low | Fast | Balanced performance |
 | 4-6 | Medium | Moderate | Production (default) |
-| 7-9 | High | Slow | Archival |
+| 7-9 | High | Slow | Archival storage |
 
 ### Precision vs Size
 
-| Precision | Size/element | Relative Size |
-|-----------|--------------|---------------|
-| Float64 | 8 bytes | 100% |
-| Float32 | 4 bytes | 50% |
+| Precision | Bytes/Element | Relative Size |
+|:----------|:--------------|:--------------|
+| Float64 | 8 | 100% |
+| Float32 | 4 | 50% |
 
-**Recommendation:** Use `Float32` for history files, `Float64` for restart files.
+!!! tip "Recommendation"
+    Use `Float32` for history files, `Float64` for restart files:
 
-```julia
-# Different configs for different purposes
-history_config = with_output_precision(default_config(), Float32)
-restart_config = with_output_precision(default_config(), Float64)
-```
+    ```julia
+    history_config = with_output_precision(default_config(), Float32)
+    restart_config = with_output_precision(default_config(), Float64)
+    ```
 
 ### Memory-Efficient Output
 
 For large arrays, the system automatically uses optimized copying:
 
 ```julia
-# Automatic for arrays > 10000 elements
 if length(data) > 10000
     data_out = similar(data, output_precision)
     copyto!(data_out, data)  # Efficient in-place conversion
@@ -556,35 +553,32 @@ end
 
 ## Troubleshooting
 
-### Common Issues
+### Files Not Created
 
-**Files not created:**
 ```julia
-# Check directory exists
+# Check directory exists and is writable
 mkpath(config.output_dir)
-
-# Verify permissions
-isdir(config.output_dir) && iswritable(config.output_dir)
+@assert isdir(config.output_dir) && iswritable(config.output_dir)
 ```
 
-**Missing ranks in output:**
+### Missing Ranks in Output
+
 ```julia
-# Verify all ranks completed
 success, missing, _ = verify_all_ranks_wrote("output", 1, nprocs)
 if !success
     @warn "Missing output from ranks: $missing"
 end
 ```
 
-**Dimension mismatches:**
+### Dimension Mismatches
+
 ```julia
-# Validate compatibility
 validate_output_compatibility(field_info, shtns_config)
 ```
 
-**NaN in output:**
+### NaN in Output
+
 ```julia
-# Check for NaN before writing
 if any(isnan, temperature)
     @warn "NaN detected in temperature field!"
 end
@@ -615,12 +609,16 @@ MPI.Init()
 config = OutputConfig(
     MIXED_FIELDS, RANK_TIME,
     "./output", "dynamo",
-    6, true, true, true,
-    Float32, -1, true, true,
-    0.05, 0.5, 10.0, 1e-12
+    6,                  # compression
+    true, true, true,   # metadata, grid, diagnostics
+    Float32,            # output precision
+    -1,                 # all spectral modes
+    true, true,         # overwrite, independent
+    0.05, 0.5,          # output, restart intervals
+    10.0, 1e-12         # max time, tolerance
 )
 
-# Initialize
+# Initialize tracker
 tracker = create_time_tracker(config, 0.0)
 t, dt, step = 0.0, 0.001, 0
 
@@ -631,7 +629,7 @@ while t < 2.0
 
     # ... physics update ...
 
-    # Prepare output
+    # Prepare output data
     fields = Dict(
         "temperature" => T_physical,
         "velocity_toroidal" => Dict("real" => vT_real, "imag" => vT_imag),
@@ -661,3 +659,14 @@ end
 
 MPI.Finalize()
 ```
+
+---
+
+## Next Steps
+
+| Goal | Resource |
+|:-----|:---------|
+| Configure simulation parameters | [Configuration & Parameters](configuration.md) |
+| Understand time integration | [Time Integration](timestepping.md) |
+| Set up boundary conditions | [Boundary Topography](topography.md) |
+| Contribute to development | [Developer Guide](developer.md) |

@@ -1,34 +1,55 @@
 # Configuration & Parameters
 
-`GeoDynamoParameters` collects every tunable knob controlling geometry, resolution, physics, and time-stepping. This page explains how the fields fit together and provides guidance for common setups.
+`GeoDynamoParameters` controls every tunable setting in GeoDynamo.jl—geometry, resolution, physics, time-stepping, and I/O. This page explains how the fields fit together and provides guidance for common setups.
 
 ```@docs
 GeoDynamo.GeoDynamoParameters
 ```
 
+---
+
+## Quick Reference
+
+!!! tip "Essential Parameters"
+    For most simulations, you'll primarily configure:
+
+    - **Geometry**: `geometry`, `i_N`, `i_L`, `i_M`
+    - **Physics**: `d_E`, `d_Ra`, `d_Pr`, `d_Pm`
+    - **Time**: `ts_scheme`, `d_timestep`
+    - **Output**: `output_precision`, `independent_output_files`
+
+---
+
 ## Geometry & Resolution
 
-| Field | Meaning | Notes |
-| --- | --- | --- |
-| `geometry` | `:shell` or `:ball` | Drives boundary conditions, initialisation, and diagnostic logic. |
-| `i_N` | Radial grid points | Applies to both outer-core (`Dᵒᶜ`) and inner-core (`Dⁱᶜ`) grids. |
-| `i_L`, `i_M` | Maximum spherical harmonic degree/order | Communicated to SHTnsKit. `i_M` defaults to `i_L`. |
-| `i_Th`, `i_Ph` | Physical θ/φ grid resolution | Overridden by SHTnsKit heuristics if incompatible with gauss grids. |
-| `i_KL` | Radial finite-difference bandwidth | Controls stencil width for derivative operators. |
+### Grid Parameters
 
-In practice, choose `i_L ≈ i_N` for balanced spectral/radial workload, and scale `i_Th`, `i_Ph` so SHTnsKit can allocate Gauss–Legendre grid points (`nlat ≥ i_L + 2`, `nlon ≥ 2*i_L + 1`).
+| Parameter | Type | Description |
+|:----------|:-----|:------------|
+| `geometry` | Symbol | `:shell` or `:ball` — determines boundary conditions and initialization |
+| `i_N` | Int | Radial grid points (applies to outer-core and inner-core grids) |
+| `i_L` | Int | Maximum spherical harmonic degree |
+| `i_M` | Int | Maximum spherical harmonic order (defaults to `i_L`) |
+| `i_Th` | Int | Physical θ grid resolution |
+| `i_Ph` | Int | Physical φ grid resolution |
+| `i_KL` | Int | Radial finite-difference bandwidth (stencil width) |
 
-### SHTnsKit v1.1.15 Transform Options
+!!! note "Resolution Guidelines"
+    - Choose `i_L ≈ i_N` for balanced spectral/radial workload
+    - SHTnsKit requires `nlat ≥ i_L + 2` and `nlon ≥ 2*i_L + 1`
+    - If `i_Th`/`i_Ph` are incompatible, SHTnsKit will override them
 
-The following feature flags control SHTnsKit v1.1.15 optimizations (set in `shtnskit_transforms.jl`):
+### SHTnsKit Transform Options
+
+These flags control SHTnsKit v1.1.15 optimizations (set in `shtnskit_transforms.jl`):
 
 | Flag | Default | Effect |
-| --- | --- | --- |
+|:-----|:--------|:-------|
 | `SHTNSKIT_USE_DISTRIBUTED` | `true` | Use native MPI-distributed transforms |
 | `SHTNSKIT_USE_QST` | `true` | Use full QST decomposition for 3D vectors |
 | `SHTNSKIT_USE_SCRATCH_BUFFERS` | `true` | Pre-allocate transform buffers |
 
-Check feature availability at runtime:
+**Check feature availability at runtime:**
 
 ```julia
 info = get_shtnskit_version_info()
@@ -39,68 +60,128 @@ println("Energy functions: ", info.has_energy_functions)
 
 See [Spherical Harmonics](shtnskit.md) for the complete transform API.
 
+---
+
 ## Physical Parameters
 
-| Field | Description |
-| --- | --- |
-| `d_rratio` | Inner-to-outer radius ratio (shell runs). |
-| `d_Ra`, `d_Ra_C` | Thermal and compositional Rayleigh numbers. |
-| `d_E`, `d_Pr`, `d_Pm`, `d_Sc` | Ekman, Prandtl, magnetic Prandtl, Schmidt. |
-| `d_Ro`, `d_q` | Rossby number (informational; solver derives Pm/E internally) and thermal diffusivity ratio. |
-| `b_mag_impose`, `i_B` | Flags for imposed background fields and enabling magnetic evolution. |
+### Dimensionless Numbers
 
-These directly scale the nondimensionalised MHD equations summarised on the [overview](index.md) page.
+| Parameter | Symbol | Description |
+|:----------|:-------|:------------|
+| `d_rratio` | — | Inner-to-outer radius ratio (shell geometry) |
+| `d_Ra` | Ra | Thermal Rayleigh number |
+| `d_Ra_C` | Ra_C | Compositional Rayleigh number |
+| `d_E` | E | Ekman number |
+| `d_Pr` | Pr | Prandtl number |
+| `d_Pm` | Pm | Magnetic Prandtl number |
+| `d_Sc` | Sc | Schmidt number |
+| `d_Ro` | Ro | Rossby number (informational) |
+| `d_q` | q | Thermal diffusivity ratio |
 
-!!! note "Rossby prefactor"
-    When advancing Eq. (1) the code computes the Rossby prefactor as `d_Pm / d_E` (the ratio \( \mathrm{Pm}/E \)) so that the time derivative matches the \(E/\mathrm{Pm}\) mass matrix in the published formulation. The `d_Ro` parameter is retained for backwards compatibility but is not used during timestepping.
+### Magnetic Field Control
+
+| Parameter | Type | Description |
+|:----------|:-----|:------------|
+| `b_mag_impose` | Bool | Enable imposed background magnetic field |
+| `i_B` | Int | Enable magnetic evolution (1 = on, 0 = off) |
+
+!!! info "Rossby Prefactor"
+    When advancing the momentum equation, the code computes the Rossby prefactor as `Pm/E`. The `d_Ro` parameter is retained for backwards compatibility but is not used during timestepping.
+
+---
 
 ## Time Integration
 
-| Field | Meaning |
-| --- | --- |
-| `ts_scheme` | `:cnab2`, `:eab2`, or `:erk2`. |
-| `d_timestep` | Base Δt. Adjusts CFL and ETD caches. |
-| `d_time` | Initial simulation clock. |
-| `d_implicit` | θ parameter for CNAB2 implicit solve (θ = 0.5 → Crank–Nicolson). |
-| `d_dterr` | Error tolerance for adaptive stepping (future use). |
-| `d_courant` | CFL safety factor used by `compute_cfl_timestep!`. |
-| `i_etd_m`, `d_krylov_tol` | Arnoldi dimension and residual tolerance for ETD/EAB2/ERK2 Krylov actions. |
+| Parameter | Description |
+|:----------|:------------|
+| `ts_scheme` | Time integration scheme: `:cnab2`, `:eab2`, or `:erk2` |
+| `d_timestep` | Base Δt — affects CFL and ETD cache sizing |
+| `d_time` | Initial simulation clock value |
+| `d_implicit` | θ parameter for CNAB2 (θ = 0.5 → Crank–Nicolson) |
+| `d_dterr` | Error tolerance for adaptive stepping (future use) |
+| `d_courant` | CFL safety factor for `compute_cfl_timestep!` |
+| `i_etd_m` | Arnoldi basis dimension for ETD/EAB2/ERK2 Krylov actions |
+| `d_krylov_tol` | Residual tolerance for Krylov solvers |
 
-See [Time Integration](timestepping.md) for scheme-specific details and recommended values.
+!!! tip "Scheme Selection"
+    | Scheme | Best For |
+    |:-------|:---------|
+    | **CNAB2** | Production dynamo runs, moderate timesteps |
+    | **EAB2** | Strongly diffusive regimes (low E, Pm) |
+    | **ERK2** | Wave propagation, accuracy-critical applications |
+
+See [Time Integration](timestepping.md) for detailed scheme documentation.
+
+---
 
 ## Boundary Conditions
 
-Boundary options are set through the integer selectors in `GeoDynamoParameters` and, optionally, via external files loaded through the `bcs` module.
+### Built-in Boundary Options
 
-| Field | Meaning | Built-in options |
-| --- | --- | --- |
-| `i_vel_bc` | Velocity boundary type | `1` no-slip (default), `2` stress-free. |
-| `i_tmp_bc` | Temperature BC | `1` fixed temperature. Flux/mixed profiles can be supplied via boundary files. |
-| `i_cmp_bc` | Composition BC | `1` fixed composition. |
-| `i_poloidal_stress_iters` | Extra iterations enforcing stress-free poloidal constraints | Increase when using `i_vel_bc = 2`. |
+| Parameter | Field | Options |
+|:----------|:------|:--------|
+| `i_vel_bc` | Velocity | `1` = no-slip (default), `2` = stress-free |
+| `i_tmp_bc` | Temperature | `1` = fixed temperature |
+| `i_cmp_bc` | Composition | `1` = fixed composition |
+| `i_poloidal_stress_iters` | Velocity | Extra iterations for stress-free poloidal constraints |
 
-When a boundary file is present under `config/boundaries/<field>_boundary.nc` (or a custom path passed to `bcs.load_boundary_conditions!`), those data override the analytic defaults. Each file provides spherical-harmonic coefficients for the inner and outer surfaces together with a `type` flag per mode (`DIRICHLET`, `NEUMANN`, `ROBIN`). See the docstrings in `src/bcs/` for field-specific formats.
+!!! note "Custom Boundary Data"
+    When a boundary file exists at `config/boundaries/<field>_boundary.nc`, those data override the analytic defaults. Each file provides spherical-harmonic coefficients with type flags (`DIRICHLET`, `NEUMANN`, `ROBIN`).
 
-### Boundary Topography Parameters
+### Loading Custom Boundaries
 
-For non-spherical boundaries, the following parameters control topography coupling (see [Boundary Topography](topography.md) for full theory):
+```julia
+using GeoDynamo
 
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
+GeoDynamo.bcs.load_boundary_conditions!(
+    velocity = "config/boundaries/velocity_default.nc",
+    temperature = "config/boundaries/thermal_flux.nc",
+)
+```
+
+Call this **before** creating the simulation state so coefficients are cached in spectral space.
+
+---
+
+## Boundary Topography
+
+For non-spherical boundaries, these parameters control topography coupling. See [Boundary Topography](topography.md) for full theory.
+
+### Master Controls
+
+| Parameter | Type | Default | Description |
+|:----------|:-----|:--------|:------------|
 | `b_topography_enabled` | Bool | `false` | Master switch for topography coupling |
 | `d_topo_epsilon` | Float64 | `0.01` | Topography amplitude parameter ε |
-| `i_topo_lmax` | Int | `-1` | Max spherical harmonic degree for topography (-1 = auto) |
+| `i_topo_lmax` | Int | `-1` | Max spherical harmonic degree (-1 = auto) |
+
+### Field-Specific Switches
+
+| Parameter | Type | Default | Description |
+|:----------|:-----|:--------|:------------|
 | `b_topo_velocity` | Bool | `true` | Enable velocity BC corrections |
 | `b_topo_magnetic` | Bool | `true` | Enable magnetic BC corrections |
 | `b_topo_thermal` | Bool | `true` | Enable thermal BC corrections |
 | `b_topo_slope_terms` | Bool | `true` | Include ∇h slope coupling terms |
 | `b_topo_shift_terms` | Bool | `true` | Include h shift terms |
+
+### Stefan Condition (Phase Change)
+
+| Parameter | Type | Default | Description |
+|:----------|:-----|:--------|:------------|
 | `b_stefan_enabled` | Bool | `false` | Enable Stefan condition for ICB evolution |
 | `d_stefan_number` | Float64 | `1.0` | Stefan number St = c_p ΔT / L |
-| `s_topo_icb_file` | String | `""` | Path to ICB topography NetCDF file |
-| `s_topo_cmb_file` | String | `""` | Path to CMB topography NetCDF file |
 
-Example configuration:
+### Topography Data Files
+
+| Parameter | Type | Description |
+|:----------|:-----|:------------|
+| `s_topo_icb_file` | String | Path to ICB topography NetCDF file |
+| `s_topo_cmb_file` | String | Path to CMB topography NetCDF file |
+
+### Example Configuration
+
+**Via constructor:**
 
 ```julia
 params = GeoDynamoParameters(
@@ -112,74 +193,111 @@ params = GeoDynamoParameters(
 )
 ```
 
-Or enable at runtime:
+**At runtime:**
 
 ```julia
 enable_topography!(epsilon = 0.02, velocity = true, magnetic = true)
 ```
 
-After loading parameters, call:
-
-```julia
-using GeoDynamo
-GeoDynamo.bcs.load_boundary_conditions!(
-    velocity = "config/boundaries/velocity_default.nc",
-    temperature = "config/boundaries/thermal_flux.nc",
-)
-```
-
-before creating the simulation state so the coefficients are cached in spectral space.
+---
 
 ## Initial Conditions & Restarts
 
-The `InitialConditions` module offers high-level helpers:
+The `InitialConditions` module provides high-level setup helpers:
+
+### Available Functions
 
 | Function | Purpose |
-| --- | --- |
-| `set_velocity_initial_conditions!` | Deterministic poloidal/toroidal seeds (solid-body, dipole, etc.). |
-| `randomize_vector_field!` | Add random divergence-free perturbations. |
-| `set_temperature_ic!`, `set_composition_ic!` | Conductive, mixed, or user-defined radial profiles. |
-| `randomize_scalar_field!` | Thermal/compositional noise with configurable amplitude. |
-| `load_initial_conditions!`, `save_initial_conditions` | Work with saved snapshots in NetCDF/HDF5. |
+|:---------|:--------|
+| `set_velocity_initial_conditions!` | Deterministic poloidal/toroidal seeds (solid-body, dipole, etc.) |
+| `randomize_vector_field!` | Add random divergence-free perturbations |
+| `set_temperature_ic!` | Conductive, mixed, or user-defined radial profiles |
+| `set_composition_ic!` | Composition initialization |
+| `randomize_scalar_field!` | Thermal/compositional noise with configurable amplitude |
+| `load_initial_conditions!` | Load from saved snapshots (NetCDF/HDF5) |
+| `save_initial_conditions` | Save current state to file |
 
-A typical recipe is:
+### Typical Setup
 
 ```julia
 state = initialize_simulation(Float64)
+
+# Temperature: conductive profile + perturbations
 set_temperature_ic!(state.temperature; profile = :conductive)
 randomize_scalar_field!(state.temperature; amplitude = 1e-3)
+
+# Velocity: start at rest with small perturbations
 set_velocity_initial_conditions!(state.velocity; kind = :rest)
+
+# Magnetic: small random seed
 randomize_magnetic_field!(state.magnetic; amplitude = 1e-5)
 ```
 
-For reproducible continuation runs use `write_restart!` and `read_restart!`, which store the full spectral state together with time metadata.
+### Restarts
 
-## Output & Restart
+For reproducible continuation runs:
 
-| Field | Meaning |
-| --- | --- |
-| `output_precision` | `:float32` or `:float64` for NetCDF data. |
-| `independent_output_files` | When `true` each MPI rank writes its own (rank-indexed) files without synchronisation. |
-| `i_save_rate2` | Output cadence in steps (legacy). Prefer `outputs_writer` tracker for fine control. |
+```julia
+# Save state
+write_restart!(state, tracker, metadata, config)
 
-Set `output_precision = :float32` to halve disk usage; diagnostics remain in `Float64` where accuracy is required.
+# Resume later
+read_restart!("output/geodynamo_shell_rank_0000_restart_1.nc")
+```
+
+---
+
+## Output Configuration
+
+| Parameter | Type | Description |
+|:----------|:-----|:------------|
+| `output_precision` | Symbol | `:float32` or `:float64` for NetCDF data |
+| `independent_output_files` | Bool | Each MPI rank writes its own files (no synchronization) |
+| `i_save_rate2` | Int | Output cadence in steps (legacy; prefer `outputs_writer` tracker) |
+
+!!! tip "Storage Optimization"
+    Use `output_precision = :float32` to halve disk usage. Diagnostics remain in `Float64` where accuracy is required.
+
+See [Data Output & Restart Files](io.md) for complete I/O configuration.
+
+---
 
 ## Managing Parameters
 
+### Creating and Setting
+
 ```julia
-julia> params = GeoDynamoParameters(i_N = 96, i_L = 47, d_E = 3e-5);
+# Create with specific values
+params = GeoDynamoParameters(
+    i_N = 96,
+    i_L = 47,
+    d_E = 3e-5
+)
 
-julia> set_parameters!(params);          # updates global state
-
-julia> save_parameters(params, "config/run_highres.jl")
-
-julia> params2 = load_parameters("config/run_highres.jl");
+# Push to global state
+set_parameters!(params)
 ```
 
-All configuration files under `config/` are plain Julia scripts assigning constants. They are parsed by `load_parameters` and can be version-controlled per experiment.
+### Saving and Loading
+
+```julia
+# Save to file
+save_parameters(params, "config/run_highres.jl")
+
+# Load from file
+params = load_parameters("config/run_highres.jl")
+```
+
+!!! note
+    Configuration files under `config/` are plain Julia scripts assigning constants. They can be version-controlled per experiment.
+
+---
 
 ## Next Steps
 
-- [Time Integration](timestepping.md) – understand how the selected scheme uses the parameters above.
-- [Data Output & Restart Files](io.md) – tailor precision and I/O strategy to your cluster. 
-- [Developer Guide](developer.md) – customise domain decompositions or add new physics modules.
+| Goal | Resource |
+|:-----|:---------|
+| Understand time integration schemes | [Time Integration](timestepping.md) |
+| Configure output and restarts | [Data Output & Restart Files](io.md) |
+| Customize boundary conditions | [Boundary Topography](topography.md) |
+| Contribute to development | [Developer Guide](developer.md) |
