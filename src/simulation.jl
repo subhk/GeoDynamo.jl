@@ -855,9 +855,9 @@ function predictor_step!(state::SimulationState{T}) where T
     # Velocity (toroidal component)
     rhs_tor = similar(state.velocity.toroidal)
     apply_explicit_operator!(rhs_tor, state.velocity.toroidal,
-                             state.velocity.nl_toroidal, state.oc_domain,
+                             state.velocity.nlᵀ, state.oc_domain,
                              d_Pm, state.timestep_state.dt;
-                             nl_prev=state.velocity.prev_nl_toroidal,
+                             nl_prev=state.velocity.prev_nlᵀ,
                              matrices=state.implicit_matrices[:velocity])
     solve_implicit_step!(state.velocity.toroidal, rhs_tor, 
                         state.implicit_matrices[:velocity])
@@ -865,9 +865,9 @@ function predictor_step!(state::SimulationState{T}) where T
     # Velocity (poloidal component)
     rhs_pol = similar(state.velocity.poloidal)
     apply_explicit_operator!(rhs_pol, state.velocity.poloidal,
-                             state.velocity.nl_poloidal, state.oc_domain,
+                             state.velocity.nlᴾ, state.oc_domain,
                              d_Pm, state.timestep_state.dt;
-                             nl_prev=state.velocity.prev_nl_poloidal,
+                             nl_prev=state.velocity.prev_nlᴾ,
                              matrices=state.implicit_matrices[:velocity])
     solve_implicit_step!(state.velocity.poloidal, rhs_pol,
                         state.implicit_matrices[:velocity])
@@ -882,9 +882,9 @@ function predictor_step!(state::SimulationState{T}) where T
     # Magnetic field (toroidal)
     rhs_mag_tor = similar(state.magnetic.toroidal)
     apply_explicit_operator!(rhs_mag_tor, state.magnetic.toroidal,
-                             state.magnetic.nl_toroidal, state.oc_domain,
+                             state.magnetic.nlᵀ, state.oc_domain,
                              1.0, state.timestep_state.dt;
-                             nl_prev=state.magnetic.prev_nl_toroidal,
+                             nl_prev=state.magnetic.prev_nlᵀ,
                              matrices=state.implicit_matrices[:magnetic])
     solve_implicit_step!(state.magnetic.toroidal, rhs_mag_tor, 
                         state.implicit_matrices[:magnetic])
@@ -892,9 +892,9 @@ function predictor_step!(state::SimulationState{T}) where T
     # Magnetic field (poloidal)
     rhs_mag_pol = similar(state.magnetic.poloidal)
     apply_explicit_operator!(rhs_mag_pol, state.magnetic.poloidal,
-                             state.magnetic.nl_poloidal, state.oc_domain,
+                             state.magnetic.nlᴾ, state.oc_domain,
                              1.0, state.timestep_state.dt;
-                             nl_prev=state.magnetic.prev_nl_poloidal,
+                             nl_prev=state.magnetic.prev_nlᴾ,
                              matrices=state.implicit_matrices[:magnetic])
     solve_implicit_step!(state.magnetic.poloidal, rhs_mag_pol, 
                         state.implicit_matrices[:magnetic])
@@ -1008,9 +1008,9 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
                         state.implicit_matrices[:temperature], dt)
     
     # Velocity
-    solve_implicit_step!(state.velocity.toroidal, state.velocity.nl_toroidal,
+    solve_implicit_step!(state.velocity.toroidal, state.velocity.nlᵀ,
                         state.implicit_matrices[:velocity], dt)
-    solve_implicit_step!(state.velocity.poloidal, state.velocity.nl_poloidal,
+    solve_implicit_step!(state.velocity.poloidal, state.velocity.nlᴾ,
                         state.implicit_matrices[:velocity], dt)
 
     # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
@@ -1022,9 +1022,9 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
 
     # Magnetic (if enabled)
     if i_B == 1
-        solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
+        solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nlᵀ,
                             state.implicit_matrices[:magnetic], dt)
-        solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
+        solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nlᴾ,
                             state.implicit_matrices[:magnetic], dt)
     end
     
@@ -1435,14 +1435,14 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
 
     vel_tor_cache = get_erk2_cache!(state.erk2_caches, :velocity_toroidal, d_Pm, T,
                                     state.shtns_config, state.oc_domain, dt; use_krylov=false)
-    vel_tor_buffers = ERK2FieldBuffers(state.velocity.toroidal, state.velocity.nl_toroidal, vel_tor_cache)
-    erk2_prepare_field!(vel_tor_buffers, state.velocity.toroidal, state.velocity.nl_toroidal,
+    vel_tor_buffers = ERK2FieldBuffers(state.velocity.toroidal, state.velocity.nlᵀ, vel_tor_cache)
+    erk2_prepare_field!(vel_tor_buffers, state.velocity.toroidal, state.velocity.nlᵀ,
                         vel_tor_cache, state.shtns_config, dt)
 
     vel_pol_cache = get_erk2_cache!(state.erk2_caches, :velocity_poloidal, d_Pm, T,
                                     state.shtns_config, state.oc_domain, dt; use_krylov=false)
-    vel_pol_buffers = ERK2FieldBuffers(state.velocity.poloidal, state.velocity.nl_poloidal, vel_pol_cache)
-    erk2_prepare_field!(vel_pol_buffers, state.velocity.poloidal, state.velocity.nl_poloidal,
+    vel_pol_buffers = ERK2FieldBuffers(state.velocity.poloidal, state.velocity.nlᴾ, vel_pol_cache)
+    erk2_prepare_field!(vel_pol_buffers, state.velocity.poloidal, state.velocity.nlᴾ,
                         vel_pol_cache, state.shtns_config, dt)
 
     mag_tor_buffers = nothing
@@ -1452,14 +1452,14 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
     if i_B == 1 && state.magnetic !== nothing
         mag_tor_cache = get_erk2_cache!(state.erk2_caches, :magnetic_toroidal, 1.0, T,
                                         state.shtns_config, state.oc_domain, dt; use_krylov=false)
-        mag_tor_buffers = ERK2FieldBuffers(state.magnetic.toroidal, state.magnetic.nl_toroidal, mag_tor_cache)
-        erk2_prepare_field!(mag_tor_buffers, state.magnetic.toroidal, state.magnetic.nl_toroidal,
+        mag_tor_buffers = ERK2FieldBuffers(state.magnetic.toroidal, state.magnetic.nlᵀ, mag_tor_cache)
+        erk2_prepare_field!(mag_tor_buffers, state.magnetic.toroidal, state.magnetic.nlᵀ,
                             mag_tor_cache, state.shtns_config, dt)
 
         mag_pol_cache = get_erk2_cache!(state.erk2_caches, :magnetic_poloidal, 1.0, T,
                                         state.shtns_config, state.oc_domain, dt; use_krylov=false)
-        mag_pol_buffers = ERK2FieldBuffers(state.magnetic.poloidal, state.magnetic.nl_poloidal, mag_pol_cache)
-        erk2_prepare_field!(mag_pol_buffers, state.magnetic.poloidal, state.magnetic.nl_poloidal,
+        mag_pol_buffers = ERK2FieldBuffers(state.magnetic.poloidal, state.magnetic.nlᴾ, mag_pol_cache)
+        erk2_prepare_field!(mag_pol_buffers, state.magnetic.poloidal, state.magnetic.nlᴾ,
                             mag_pol_cache, state.shtns_config, dt)
     end
 
@@ -1503,14 +1503,14 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
     # Store stage nonlinearities for later correction
     erk2_store_stage_nonlinear!(temp_buffers, state.temperature.nonlinear)
     maybe_log_erk2_stage_residual!(:temperature, temp_buffers, state.timestep_state.step)
-    erk2_store_stage_nonlinear!(vel_tor_buffers, state.velocity.nl_toroidal)
+    erk2_store_stage_nonlinear!(vel_tor_buffers, state.velocity.nlᵀ)
     maybe_log_erk2_stage_residual!(:velocity_toroidal, vel_tor_buffers, state.timestep_state.step)
-    erk2_store_stage_nonlinear!(vel_pol_buffers, state.velocity.nl_poloidal)
+    erk2_store_stage_nonlinear!(vel_pol_buffers, state.velocity.nlᴾ)
     maybe_log_erk2_stage_residual!(:velocity_poloidal, vel_pol_buffers, state.timestep_state.step)
     if mag_tor_buffers !== nothing
-        erk2_store_stage_nonlinear!(mag_tor_buffers, state.magnetic.nl_toroidal)
+        erk2_store_stage_nonlinear!(mag_tor_buffers, state.magnetic.nlᵀ)
         maybe_log_erk2_stage_residual!(:magnetic_toroidal, mag_tor_buffers, state.timestep_state.step)
-        erk2_store_stage_nonlinear!(mag_pol_buffers, state.magnetic.nl_poloidal)
+        erk2_store_stage_nonlinear!(mag_pol_buffers, state.magnetic.nlᴾ)
         maybe_log_erk2_stage_residual!(:magnetic_poloidal, mag_pol_buffers, state.timestep_state.step)
     end
     if comp_buffers !== nothing
@@ -1577,15 +1577,15 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     if (ts_scheme === :cnab2 || ts_scheme === :erk2) && state.timestep_state.step == 0
         parent(state.temperature.prev_nonlinear.data_real) .= parent(state.temperature.nonlinear.data_real)
         parent(state.temperature.prev_nonlinear.data_imag) .= parent(state.temperature.nonlinear.data_imag)
-        parent(state.velocity.prev_nl_toroidal.data_real) .= parent(state.velocity.nl_toroidal.data_real)
-        parent(state.velocity.prev_nl_toroidal.data_imag) .= parent(state.velocity.nl_toroidal.data_imag)
-        parent(state.velocity.prev_nl_poloidal.data_real) .= parent(state.velocity.nl_poloidal.data_real)
-        parent(state.velocity.prev_nl_poloidal.data_imag) .= parent(state.velocity.nl_poloidal.data_imag)
+        parent(state.velocity.prev_nlᵀ.data_real) .= parent(state.velocity.nlᵀ.data_real)
+        parent(state.velocity.prev_nlᵀ.data_imag) .= parent(state.velocity.nlᵀ.data_imag)
+        parent(state.velocity.prev_nlᴾ.data_real) .= parent(state.velocity.nlᴾ.data_real)
+        parent(state.velocity.prev_nlᴾ.data_imag) .= parent(state.velocity.nlᴾ.data_imag)
         if i_B == 1
-            parent(state.magnetic.prev_nl_toroidal.data_real) .= parent(state.magnetic.nl_toroidal.data_real)
-            parent(state.magnetic.prev_nl_toroidal.data_imag) .= parent(state.magnetic.nl_toroidal.data_imag)
-            parent(state.magnetic.prev_nl_poloidal.data_real) .= parent(state.magnetic.nl_poloidal.data_real)
-            parent(state.magnetic.prev_nl_poloidal.data_imag) .= parent(state.magnetic.nl_poloidal.data_imag)
+            parent(state.magnetic.prev_nlᵀ.data_real) .= parent(state.magnetic.nlᵀ.data_real)
+            parent(state.magnetic.prev_nlᵀ.data_imag) .= parent(state.magnetic.nlᵀ.data_imag)
+            parent(state.magnetic.prev_nlᴾ.data_real) .= parent(state.magnetic.nlᴾ.data_real)
+            parent(state.magnetic.prev_nlᴾ.data_imag) .= parent(state.magnetic.nlᴾ.data_imag)
         end
         if state.composition !== nothing
             parent(state.composition.prev_nonlinear.data_real) .= parent(state.composition.nonlinear.data_real)
@@ -1636,18 +1636,18 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     vel_tor_task = add_task!(task_graph, () -> begin
         if ts_scheme === :cnab2
             build_rhs_cnab2!(state.velocity.work_tor, state.velocity.toroidal,
-                             state.velocity.nl_toroidal, state.velocity.prev_nl_toroidal,
+                             state.velocity.nlᵀ, state.velocity.prev_nlᵀ,
                              dt, state.implicit_matrices[:velocity])
             solve_implicit_step!(state.velocity.toroidal, state.velocity.work_tor,
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
             # Velocity diffusivity = Pm (viscous diffusion coefficient)
             alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_toroidal, d_Pm, T, state.oc_domain)
-            eab2_update_krylov_cached!(state.velocity.toroidal, state.velocity.nl_toroidal,
-                                       state.velocity.prev_nl_toroidal, alu_map, state.oc_domain, d_Pm,
+            eab2_update_krylov_cached!(state.velocity.toroidal, state.velocity.nlᵀ,
+                                       state.velocity.prev_nlᵀ, alu_map, state.oc_domain, d_Pm,
                                        state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
         else
-            solve_implicit_step!(state.velocity.toroidal, state.velocity.nl_toroidal,
+            solve_implicit_step!(state.velocity.toroidal, state.velocity.nlᵀ,
                                  state.implicit_matrices[:velocity])
         end
     end)
@@ -1655,18 +1655,18 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     vel_pol_task = add_task!(task_graph, () -> begin
         if ts_scheme === :cnab2
             build_rhs_cnab2!(state.velocity.work_pol, state.velocity.poloidal,
-                             state.velocity.nl_poloidal, state.velocity.prev_nl_poloidal,
+                             state.velocity.nlᴾ, state.velocity.prev_nlᴾ,
                              dt, state.implicit_matrices[:velocity])
             solve_implicit_step!(state.velocity.poloidal, state.velocity.work_pol,
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
             # Velocity diffusivity = Pm (viscous diffusion coefficient)
             alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_poloidal, d_Pm, T, state.oc_domain)
-            eab2_update_krylov_cached!(state.velocity.poloidal, state.velocity.nl_poloidal,
-                                       state.velocity.prev_nl_poloidal, alu_map, state.oc_domain, d_Pm,
+            eab2_update_krylov_cached!(state.velocity.poloidal, state.velocity.nlᴾ,
+                                       state.velocity.prev_nlᴾ, alu_map, state.oc_domain, d_Pm,
                                        state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
         else
-            solve_implicit_step!(state.velocity.poloidal, state.velocity.nl_poloidal,
+            solve_implicit_step!(state.velocity.poloidal, state.velocity.nlᴾ,
                                  state.implicit_matrices[:velocity])
         end
     end)
@@ -1680,36 +1680,36 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         add_task!(task_graph, () -> begin
             if ts_scheme === :cnab2
                 build_rhs_cnab2!(state.magnetic.work_tor, state.magnetic.toroidal,
-                                 state.magnetic.nl_toroidal, state.magnetic.prev_nl_toroidal,
+                                 state.magnetic.nlᵀ, state.magnetic.prev_nlᵀ,
                                  dt, state.implicit_matrices[:magnetic])
                 solve_implicit_step!(state.magnetic.toroidal, state.magnetic.work_tor,
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
                 # Magnetic diffusivity = 1.0 (magnetic diffusion time scaling)
                 alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_toroidal, 1.0, T, state.oc_domain)
-                eab2_update_krylov_cached!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
-                                           state.magnetic.prev_nl_toroidal, alu_map, state.oc_domain, 1.0,
+                eab2_update_krylov_cached!(state.magnetic.toroidal, state.magnetic.nlᵀ,
+                                           state.magnetic.prev_nlᵀ, alu_map, state.oc_domain, 1.0,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
-                solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nl_toroidal,
+                solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nlᵀ,
                                      state.implicit_matrices[:magnetic])
             end
         end)
         add_task!(task_graph, () -> begin
             if ts_scheme === :cnab2
                 build_rhs_cnab2!(state.magnetic.work_pol, state.magnetic.poloidal,
-                                 state.magnetic.nl_poloidal, state.magnetic.prev_nl_poloidal,
+                                 state.magnetic.nlᴾ, state.magnetic.prev_nlᴾ,
                                  dt, state.implicit_matrices[:magnetic])
                 solve_implicit_step!(state.magnetic.poloidal, state.magnetic.work_pol,
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
                 # Magnetic diffusivity = 1.0 (magnetic diffusion time scaling)
                 alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_poloidal, 1.0, T, state.oc_domain)
-                eab2_update_krylov_cached!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
-                                           state.magnetic.prev_nl_poloidal, alu_map, state.oc_domain, 1.0,
+                eab2_update_krylov_cached!(state.magnetic.poloidal, state.magnetic.nlᴾ,
+                                           state.magnetic.prev_nlᴾ, alu_map, state.oc_domain, 1.0,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
-                solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nl_poloidal,
+                solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nlᴾ,
                                      state.implicit_matrices[:magnetic])
             end
         end)
@@ -1762,15 +1762,15 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     if ts_scheme === :cnab2 || ts_scheme === :eab2 || ts_scheme === :erk2
         parent(state.temperature.prev_nonlinear.data_real) .= parent(state.temperature.nonlinear.data_real)
         parent(state.temperature.prev_nonlinear.data_imag) .= parent(state.temperature.nonlinear.data_imag)
-        parent(state.velocity.prev_nl_toroidal.data_real) .= parent(state.velocity.nl_toroidal.data_real)
-        parent(state.velocity.prev_nl_toroidal.data_imag) .= parent(state.velocity.nl_toroidal.data_imag)
-        parent(state.velocity.prev_nl_poloidal.data_real) .= parent(state.velocity.nl_poloidal.data_real)
-        parent(state.velocity.prev_nl_poloidal.data_imag) .= parent(state.velocity.nl_poloidal.data_imag)
+        parent(state.velocity.prev_nlᵀ.data_real) .= parent(state.velocity.nlᵀ.data_real)
+        parent(state.velocity.prev_nlᵀ.data_imag) .= parent(state.velocity.nlᵀ.data_imag)
+        parent(state.velocity.prev_nlᴾ.data_real) .= parent(state.velocity.nlᴾ.data_real)
+        parent(state.velocity.prev_nlᴾ.data_imag) .= parent(state.velocity.nlᴾ.data_imag)
         if i_B == 1
-            parent(state.magnetic.prev_nl_toroidal.data_real) .= parent(state.magnetic.nl_toroidal.data_real)
-            parent(state.magnetic.prev_nl_toroidal.data_imag) .= parent(state.magnetic.nl_toroidal.data_imag)
-            parent(state.magnetic.prev_nl_poloidal.data_real) .= parent(state.magnetic.nl_poloidal.data_real)
-            parent(state.magnetic.prev_nl_poloidal.data_imag) .= parent(state.magnetic.nl_poloidal.data_imag)
+            parent(state.magnetic.prev_nlᵀ.data_real) .= parent(state.magnetic.nlᵀ.data_real)
+            parent(state.magnetic.prev_nlᵀ.data_imag) .= parent(state.magnetic.nlᵀ.data_imag)
+            parent(state.magnetic.prev_nlᴾ.data_real) .= parent(state.magnetic.nlᴾ.data_real)
+            parent(state.magnetic.prev_nlᴾ.data_imag) .= parent(state.magnetic.nlᴾ.data_imag)
         end
         if state.composition !== nothing
             parent(state.composition.prev_nonlinear.data_real) .= parent(state.composition.nonlinear.data_real)

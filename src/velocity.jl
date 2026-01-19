@@ -145,14 +145,14 @@ mutable struct SHTnsVelocityFields{T}
     poloidal::SHTnsSpectralField{T}
     
     # Vorticity in spectral space (for efficient curl computation)
-    vort_toroidal::SHTnsSpectralField{T}
-    vort_poloidal::SHTnsSpectralField{T}
+    ζᵀ::SHTnsSpectralField{T}
+    ζᴾ::SHTnsSpectralField{T}
     
     # Nonlinear terms
-    nl_toroidal::SHTnsSpectralField{T}
-    nl_poloidal::SHTnsSpectralField{T}
-    prev_nl_toroidal::SHTnsSpectralField{T}
-    prev_nl_poloidal::SHTnsSpectralField{T}
+    nlᵀ::SHTnsSpectralField{T}
+    nlᴾ::SHTnsSpectralField{T}
+    prev_nlᵀ::SHTnsSpectralField{T}
+    prev_nlᴾ::SHTnsSpectralField{T}
     
     # Work arrays for efficient computation
     work_tor::SHTnsSpectralField{T}
@@ -1010,10 +1010,10 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     uᵀ_imag = parent(fields.toroidal.data_imag)
     uᴾ_real = parent(fields.poloidal.data_real)
     uᴾ_imag = parent(fields.poloidal.data_imag)
-    ζᵀ_real = parent(fields.vort_toroidal.data_real)
-    ζᵀ_imag = parent(fields.vort_toroidal.data_imag)
-    ζᴾ_real = parent(fields.vort_poloidal.data_real)
-    ζᴾ_imag = parent(fields.vort_poloidal.data_imag)
+    ζᵀ_real = parent(fields.ζᵀ.data_real)
+    ζᵀ_imag = parent(fields.ζᵀ.data_imag)
+    ζᴾ_real = parent(fields.ζᴾ.data_real)
+    ζᴾ_imag = parent(fields.ζᴾ.data_imag)
 
     config = fields.toroidal.config
     lm_range = get_local_range(fields.toroidal.pencil, 1)
@@ -1110,12 +1110,12 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     # Spectral fields
     toroidal         = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     poloidal         = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    vort_toroidal    = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    vort_poloidal    = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    nl_toroidal      = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    nl_poloidal      = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    prev_nl_toroidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
-    prev_nl_poloidal = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    ζᵀ    = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    ζᴾ    = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    nlᵀ      = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    nlᴾ      = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    prev_nlᵀ = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    prev_nlᴾ = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     
     # Work arrays
     work_tor           = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
@@ -1146,8 +1146,8 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     boundary_time_index = Ref{Int}(1)
 
     return SHTnsVelocityFields{T}(velocity, vorticity, toroidal, poloidal,
-                                  vort_toroidal, vort_poloidal,
-                                  nl_toroidal, nl_poloidal, prev_nl_toroidal, prev_nl_poloidal,
+                                  ζᵀ, ζᴾ,
+                                  nlᵀ, nlᴾ, prev_nlᵀ, prev_nlᴾ,
                                   work_tor, work_pol, work_physical,
                                   advection_physical,
                                   ℓ_factors, coriolis_factors,
@@ -1175,16 +1175,16 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
     compute_vorticity_spectral_full!(fields, oc_domain)
 
     # Step 3: Transform vorticity to physical space with batched operations
-    shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity; domain=oc_domain)
+    shtnskit_vector_synthesis!(fields.ζᵀ, fields.ζᴾ, fields.vorticity; domain=oc_domain)
 
     # Step 4: Compute all nonlinear terms with enhanced memory access patterns
     compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, oc_domain)
 
     # Step 5: Use enhanced vector analysis with efficient data layout
     if geometry === :ball
-        ball_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
+        ball_vector_analysis!(fields.advection_physical, fields.nlᵀ, fields.nlᴾ)
     else
-        shtnskit_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
+        shtnskit_vector_analysis!(fields.advection_physical, fields.nlᵀ, fields.nlᴾ)
     end
 end
 
@@ -1239,10 +1239,10 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     uᴾ_real = parent(fields.poloidal.data_real)
     uᴾ_imag = parent(fields.poloidal.data_imag)
     
-    ζᵀ_real = parent(fields.vort_toroidal.data_real)
-    ζᵀ_imag = parent(fields.vort_toroidal.data_imag)
-    ζᴾ_real = parent(fields.vort_poloidal.data_real)
-    ζᴾ_imag = parent(fields.vort_poloidal.data_imag)
+    ζᵀ_real = parent(fields.ζᵀ.data_real)
+    ζᵀ_imag = parent(fields.ζᵀ.data_imag)
+    ζᴾ_real = parent(fields.ζᴾ.data_real)
+    ζᴾ_imag = parent(fields.ζᴾ.data_imag)
     
     # Use enhanced range functions from pencil decomposition
     config = fields.toroidal.config
@@ -1941,10 +1941,10 @@ function zero_velocity_work_arrays!(fields::SHTnsVelocityFields{T}) where T
         parent(fields.advection_physical.r_component.data),
         parent(fields.advection_physical.θ_component.data),
         parent(fields.advection_physical.φ_component.data),
-        parent(fields.vort_toroidal.data_real),
-        parent(fields.vort_toroidal.data_imag),
-        parent(fields.vort_poloidal.data_real),
-        parent(fields.vort_poloidal.data_imag)
+        parent(fields.ζᵀ.data_real),
+        parent(fields.ζᵀ.data_imag),
+        parent(fields.ζᴾ.data_real),
+        parent(fields.ζᴾ.data_imag)
     ]
         fill!(arr, zero(T))
     end
@@ -1976,7 +1976,7 @@ Perform batched transforms for better cache efficiency using shtnskit_transforms
 """
 function batch_velocity_transforms!(fields::SHTnsVelocityFields{T}) where T
     # Use batched operations from shtnskit_transforms.jl for better performance
-    specs = [fields.toroidal, fields.poloidal, fields.vort_toroidal, fields.vort_poloidal]
+    specs = [fields.toroidal, fields.poloidal, fields.ζᵀ, fields.ζᴾ]
     physs = [fields.work_physical.r_component, fields.work_physical.θ_component, 
              fields.work_physical.φ_component, fields.velocity.r_component]
     

@@ -147,10 +147,10 @@ mutable struct SHTnsMagneticFields{T}
     ic_poloidal::SHTnsSpectralField{T}
 
     # Nonlinear terms (induction)
-    NLᵀoidal::SHTnsSpectralField{T}
-    NLᴾoidal::SHTnsSpectralField{T}
-    prev_NLᵀoidal::SHTnsSpectralField{T}
-    prev_NLᴾoidal::SHTnsSpectralField{T}
+    nlᵀ::SHTnsSpectralField{T}
+    nlᴾ::SHTnsSpectralField{T}
+    prev_nlᵀ::SHTnsSpectralField{T}
+    prev_nlᴾ::SHTnsSpectralField{T}
 
     # Work arrays
     work_tor::SHTnsSpectralField{T}
@@ -206,10 +206,10 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     ic_poloidal = create_shtns_spectral_field(T, config, domain_ic, pencil_spec)
     
     # Nonlinear terms
-    NLᵀoidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
-    NLᴾoidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
-    prev_NLᵀoidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
-    prev_NLᴾoidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
+    nlᵀ = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
+    nlᴾ = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
+    prev_nlᵀ = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
+    prev_nlᴾ = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
     
     # Work arrays
     work_tor = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
@@ -235,7 +235,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     return SHTnsMagneticFields{T}(magnetic, current,
                                 toroidal, poloidal,
                                 ic_toroidal, ic_poloidal,
-                                NLᵀoidal, NLᴾoidal, prev_NLᵀoidal, prev_NLᴾoidal,
+                                nlᵀ, nlᴾ, prev_nlᵀ, prev_nlᴾ,
                                 work_tor, work_pol, work_physical,
                                 induction_physical,
                                 ℓ_factors,
@@ -278,7 +278,7 @@ function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T},
         add_inner_core_rotation!(mag_fields, rotation_rate)
     end
     
-    # Note: The nonlinear terms are now in mag_fields.NLᵀoidal/poloidal
+    # Note: The nonlinear terms are now in mag_fields.nlᵀ/poloidal
 end
 
 """
@@ -611,9 +611,9 @@ function compute_velocity_cross_magnetic!(mag_fields::SHTnsMagneticFields{T}, ve
     Bφ = parent(mag_fields.magnetic.φ_component.data)
     
     # Output: u × B
-    u×Bᵣ = parent(mag_fields.induction_physical.r_component.data)
-    u×Bθ = parent(mag_fields.induction_physical.θ_component.data)
-    u×Bφ = parent(mag_fields.induction_physical.φ_component.data)
+    uBᵣ = parent(mag_fields.induction_physical.r_component.data)
+    uBθ = parent(mag_fields.induction_physical.θ_component.data)
+    uBφ = parent(mag_fields.induction_physical.φ_component.data)
     
     # Get configuration for enhanced access patterns
     config = mag_fields.magnetic.r_component.config
@@ -622,9 +622,9 @@ function compute_velocity_cross_magnetic!(mag_fields::SHTnsMagneticFields{T}, ve
     @inbounds @simd for idx in eachindex(uᵣ)
         if idx <= length(Bᵣ)
             # u × B = (uθ Bφ - uφ Bθ, uφ Bᵣ - uᵣ Bφ, uᵣ Bθ - uθ Bᵣ)
-            u×Bᵣ[idx] = uθ[idx] * Bφ[idx] - uφ[idx] * Bθ[idx]
-            u×Bθ[idx] = uφ[idx] * Bᵣ[idx] - uᵣ[idx] * Bφ[idx]
-            u×Bφ[idx] = uᵣ[idx] * Bθ[idx] - uθ[idx] * Bᵣ[idx]
+            uBᵣ[idx] = uθ[idx] * Bφ[idx] - uφ[idx] * Bθ[idx]
+            uBθ[idx] = uφ[idx] * Bᵣ[idx] - uᵣ[idx] * Bφ[idx]
+            uBφ[idx] = uᵣ[idx] * Bθ[idx] - uθ[idx] * Bᵣ[idx]
         end
     end
 end
@@ -641,15 +641,15 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
     # This matches the vorticity and current density computations.
 
     # Get local data views
-    u×Bᵀ_real = parent(mag_fields.work_tor.data_real)
-    u×Bᵀ_imag = parent(mag_fields.work_tor.data_imag)
-    u×Bᴾ_real = parent(mag_fields.work_pol.data_real)
-    u×Bᴾ_imag = parent(mag_fields.work_pol.data_imag)
+    uBᵀ_real = parent(mag_fields.work_tor.data_real)
+    uBᵀ_imag = parent(mag_fields.work_tor.data_imag)
+    uBᴾ_real = parent(mag_fields.work_pol.data_real)
+    uBᴾ_imag = parent(mag_fields.work_pol.data_imag)
 
-    NLᵀ_real = parent(mag_fields.NLᵀoidal.data_real)
-    NLᵀ_imag = parent(mag_fields.NLᵀoidal.data_imag)
-    NLᴾ_real = parent(mag_fields.NLᴾoidal.data_real)
-    NLᴾ_imag = parent(mag_fields.NLᴾoidal.data_imag)
+    NLᵀ_real = parent(mag_fields.nlᵀ.data_real)
+    NLᵀ_imag = parent(mag_fields.nlᵀ.data_imag)
+    NLᴾ_real = parent(mag_fields.nlᴾ.data_real)
+    NLᴾ_imag = parent(mag_fields.nlᴾ.data_imag)
 
     # Get local ranges using config-aware pencil topology
     # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
@@ -698,9 +698,9 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
                 local_lm = lm_idx - first(lm_range) + 1
                 for r_idx in r_range
                     local_r = r_idx - first(r_range) + 1
-                    if local_r <= size(u×Bᴾ_real, 3)
-                        Pᴾ_profile_real[r_idx] = u×Bᴾ_real[local_lm, 1, local_r]
-                        Pᴾ_profile_imag[r_idx] = u×Bᴾ_imag[local_lm, 1, local_r]
+                    if local_r <= size(uBᴾ_real, 3)
+                        Pᴾ_profile_real[r_idx] = uBᴾ_real[local_lm, 1, local_r]
+                        Pᴾ_profile_imag[r_idx] = uBᴾ_imag[local_lm, 1, local_r]
                     end
                 end
             end
@@ -740,8 +740,8 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
                             NLᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_imag[r_idx]
                                                                  - d²ᴾ_dr²_imag[r_idx]
                                                                  - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
-                            NLᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * u×Bᵀ_real[local_lm, 1, local_r]
-                            NLᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * u×Bᵀ_imag[local_lm, 1, local_r]
+                            NLᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_real[local_lm, 1, local_r]
+                            NLᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_imag[local_lm, 1, local_r]
                         end
                     end
                 end
@@ -759,9 +759,9 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
                 fill!(Pᴾ_profile_imag, zero(T))
                 for r_idx in r_range
                     local_r = r_idx - first(r_range) + 1
-                    if local_r <= size(u×Bᴾ_real, 3)
-                        Pᴾ_profile_real[r_idx] = u×Bᴾ_real[local_lm, 1, local_r]
-                        Pᴾ_profile_imag[r_idx] = u×Bᴾ_imag[local_lm, 1, local_r]
+                    if local_r <= size(uBᴾ_real, 3)
+                        Pᴾ_profile_real[r_idx] = uBᴾ_real[local_lm, 1, local_r]
+                        Pᴾ_profile_imag[r_idx] = uBᴾ_imag[local_lm, 1, local_r]
                     end
                 end
 
@@ -798,8 +798,8 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
                             NLᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_imag[r_idx]
                                                                  - d²ᴾ_dr²_imag[r_idx]
                                                                  - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
-                            NLᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * u×Bᵀ_real[local_lm, 1, local_r]
-                            NLᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * u×Bᵀ_imag[local_lm, 1, local_r]
+                            NLᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_real[local_lm, 1, local_r]
+                            NLᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_imag[local_lm, 1, local_r]
                         end
                     end
                 end
@@ -822,10 +822,10 @@ function add_inner_core_rotation!(mag_fields::SHTnsMagneticFields{T}, Ω::Float6
     ic_pol_real = parent(mag_fields.ic_poloidal.data_real)
     ic_pol_imag = parent(mag_fields.ic_poloidal.data_imag)
     
-    NLᵀ_real = parent(mag_fields.NLᵀoidal.data_real)
-    NLᵀ_imag = parent(mag_fields.NLᵀoidal.data_imag)
-    NLᴾ_real = parent(mag_fields.NLᴾoidal.data_real)
-    NLᴾ_imag = parent(mag_fields.NLᴾoidal.data_imag)
+    NLᵀ_real = parent(mag_fields.nlᵀ.data_real)
+    NLᵀ_imag = parent(mag_fields.nlᵀ.data_imag)
+    NLᴾ_real = parent(mag_fields.nlᴾ.data_real)
+    NLᴾ_imag = parent(mag_fields.nlᴾ.data_imag)
     
     # Get local ranges
     lm_range = get_local_range(mag_fields.ic_toroidal.pencil, 1)
