@@ -178,20 +178,20 @@ function check_simulation_state_for_nan(state, step::Int;
 
     # Check velocity fields
     has_nan, has_inf, _, _ = check_spectral_field_for_nan(
-        state.velocity.toroidal, "velocity_toroidal", config, step)
+        state.velocity.𝒯, "velocity_toroidal", config, step)
     any_issue |= (has_nan || has_inf)
 
     has_nan, has_inf, _, _ = check_spectral_field_for_nan(
-        state.velocity.poloidal, "velocity_poloidal", config, step)
+        state.velocity.𝒫, "velocity_poloidal", config, step)
     any_issue |= (has_nan || has_inf)
 
     # Check magnetic fields
     has_nan, has_inf, _, _ = check_spectral_field_for_nan(
-        state.magnetic.toroidal, "magnetic_toroidal", config, step)
+        state.magnetic.𝒯, "magnetic_toroidal", config, step)
     any_issue |= (has_nan || has_inf)
 
     has_nan, has_inf, _, _ = check_spectral_field_for_nan(
-        state.magnetic.poloidal, "magnetic_poloidal", config, step)
+        state.magnetic.𝒫, "magnetic_poloidal", config, step)
     any_issue |= (has_nan || has_inf)
 
     # Check temperature

@@ -327,8 +327,8 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
             fields = GeoDynamo.create_shtns_velocity_fields(Float64, gcfg, domain, pencils, pencil_spec)
 
             # Load spectral coefficients (single-rank layout)
-            spec_tor_r = parent(fields.toroidal.data_real); spec_tor_i = parent(fields.toroidal.data_imag)
-            spec_pol_r = parent(fields.poloidal.data_real); spec_pol_i = parent(fields.poloidal.data_imag)
+            spec_tor_r = parent(fields.𝒯.data_real); spec_tor_i = parent(fields.𝒯.data_imag)
+            spec_pol_r = parent(fields.𝒫.data_real); spec_pol_i = parent(fields.𝒫.data_imag)
             nlm_local = min(size(spec_tor_r,1), size(vtor_r,1))
             for i2 in 1:nlm_local, k2 in 1:nr
                 spec_tor_r[i2,1,k2] = Float64(vtor_r[i2,k2])
@@ -338,7 +338,7 @@ function time_average_helicity(dir::String, t0::Float64, t1::Float64, prefix::St
             end
 
             GeoDynamo.compute_vorticity_spectral_full!(fields, domain)
-            GeoDynamo.shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity)
+            GeoDynamo.shtnskit_vector_synthesis!(fields.𝒯, fields.𝒫, fields.velocity)
             GeoDynamo.shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity)
 
             u_r = parent(fields.velocity.r_component.data)

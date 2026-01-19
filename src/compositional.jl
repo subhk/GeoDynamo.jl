@@ -90,9 +90,9 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     advection_physical::SHTnsPhysField{T}
 
     # Gradient spectral components for efficiency
-    grad_theta_spec::SHTnsSpecField{T}
-    grad_phi_spec::SHTnsSpecField{T}
-    grad_r_spec::SHTnsSpecField{T}
+    ∇θ_spec::SHTnsSpecField{T}
+    ∇φ_spec::SHTnsSpecField{T}
+    ∇ᵣ_spec::SHTnsSpecField{T}
 
     # Sources and boundary conditions
     internal_sources::Vector{T}        # Radial profile of compositional sources
@@ -193,9 +193,9 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     advection_physical = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
 
     # Gradient spectral components
-    grad_theta_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    grad_phi_spec   = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    grad_r_spec     = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    ∇θ_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    ∇φ_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    ∇ᵣ_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
 
     # Sources and boundary conditions
     internal_sources = zeros(T, 𝒟ᵒᶜ.N)
@@ -223,7 +223,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     return SHTnsCompositionField{T}(
         composition, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
-        grad_theta_spec, grad_phi_spec, grad_r_spec,
+        ∇θ_spec, ∇φ_spec, ∇ᵣ_spec,
         internal_sources, boundary_values,
         bc_type_inner, bc_type_outer,
         nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields

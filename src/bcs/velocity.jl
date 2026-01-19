@@ -435,12 +435,12 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
     # but in QST decomposition: "poloidal" → Q (radial), "toroidal" → T (tangential toroidal)
 
     # Q component (radial) - stored in "poloidal" field for backward compatibility
-    velocity_field.poloidal.boundary_values[1, :] .= inner_Q  # Inner boundary (radial component)
-    velocity_field.poloidal.boundary_values[2, :] .= outer_Q  # Outer boundary (radial component)
+    velocity_field.𝒫.boundary_values[1, :] .= inner_Q  # Inner boundary (radial component)
+    velocity_field.𝒫.boundary_values[2, :] .= outer_Q  # Outer boundary (radial component)
 
     # T component (tangential toroidal) - stored in "toroidal" field
-    velocity_field.toroidal.boundary_values[1, :] .= inner_T  # Inner boundary (toroidal component)
-    velocity_field.toroidal.boundary_values[2, :] .= outer_T  # Outer boundary (toroidal component)
+    velocity_field.𝒯.boundary_values[1, :] .= inner_T  # Inner boundary (toroidal component)
+    velocity_field.𝒯.boundary_values[2, :] .= outer_T  # Outer boundary (toroidal component)
 
     # Update boundary condition type metadata based on pattern descriptions
     # For stress-free: radial (poloidal/Q) is Dirichlet, tangential (toroidal/T) is Neumann
@@ -450,21 +450,21 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
 
     # Set BC types for poloidal (radial) component
     if occursin("stress-free", inner_desc) || occursin("stress free", inner_desc)
-        fill!(velocity_field.poloidal.bc_type_inner, Int(DIRICHLET))  # v_r = 0 (Dirichlet)
-        fill!(velocity_field.toroidal.bc_type_inner, Int(NEUMANN))     # ∂v_tangential/∂r (Neumann)
+        fill!(velocity_field.𝒫.bc_type_inner, Int(DIRICHLET))  # v_r = 0 (Dirichlet)
+        fill!(velocity_field.𝒯.bc_type_inner, Int(NEUMANN))     # ∂v_tangential/∂r (Neumann)
     else
         inner_bc_type = infer_velocity_bc_type(boundary_set.inner_boundary)
-        fill!(velocity_field.poloidal.bc_type_inner, inner_bc_type)
-        fill!(velocity_field.toroidal.bc_type_inner, inner_bc_type)
+        fill!(velocity_field.𝒫.bc_type_inner, inner_bc_type)
+        fill!(velocity_field.𝒯.bc_type_inner, inner_bc_type)
     end
 
     if occursin("stress-free", outer_desc) || occursin("stress free", outer_desc)
-        fill!(velocity_field.poloidal.bc_type_outer, Int(DIRICHLET))  # v_r = 0 (Dirichlet)
-        fill!(velocity_field.toroidal.bc_type_outer, Int(NEUMANN))     # ∂v_tangential/∂r (Neumann)
+        fill!(velocity_field.𝒫.bc_type_outer, Int(DIRICHLET))  # v_r = 0 (Dirichlet)
+        fill!(velocity_field.𝒯.bc_type_outer, Int(NEUMANN))     # ∂v_tangential/∂r (Neumann)
     else
         outer_bc_type = infer_velocity_bc_type(boundary_set.outer_boundary)
-        fill!(velocity_field.poloidal.bc_type_outer, outer_bc_type)
-        fill!(velocity_field.toroidal.bc_type_outer, outer_bc_type)
+        fill!(velocity_field.𝒫.bc_type_outer, outer_bc_type)
+        fill!(velocity_field.𝒯.bc_type_outer, outer_bc_type)
     end
 
     # S component (tangential spheroidal/curl-free) handling:
@@ -555,10 +555,10 @@ function get_current_velocity_boundaries(velocity_field)
     outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
     
     # Get spectral coefficients
-    innerᵀ_spectral = velocity_field.toroidal.boundary_values[1, :]
-    outerᵀ_spectral = velocity_field.toroidal.boundary_values[2, :]
-    innerᴾ_spectral = velocity_field.poloidal.boundary_values[1, :]
-    outerᴾ_spectral = velocity_field.poloidal.boundary_values[2, :]
+    innerᵀ_spectral = velocity_field.𝒯.boundary_values[1, :]
+    outerᵀ_spectral = velocity_field.𝒯.boundary_values[2, :]
+    innerᴾ_spectral = velocity_field.𝒫.boundary_values[1, :]
+    outerᴾ_spectral = velocity_field.𝒫.boundary_values[2, :]
     
     return Dict(
         :inner_physical => inner_physical,
@@ -826,8 +826,8 @@ load_velocity_boundary_conditions!() instead.
 - Impermeable: v_r = 0 → Q = 0 at boundaries (Dirichlet), T unconstrained
 
 # Field naming convention:
-- velocity_field.poloidal actually stores Q (radial component)
-- velocity_field.toroidal actually stores T (tangential toroidal component)
+- velocity_field.𝒫 actually stores Q (radial component)
+- velocity_field.𝒯 actually stores T (tangential toroidal component)
 - S component (spheroidal) is zero for solenoidal flows
 """
 function enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=:no_slip)
@@ -836,34 +836,34 @@ function enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=
         # No-slip: all velocity components = 0 at boundaries
         # Q = T = 0 with Dirichlet BCs
 
-        if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
-            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0 (radial)
-            fill!(velocity_field.poloidal.bc_type_inner, Int(DIRICHLET))
-            fill!(velocity_field.poloidal.bc_type_outer, Int(DIRICHLET))
+        if hasfield(typeof(velocity_field), :𝒫) && hasfield(typeof(velocity_field.𝒫), :boundary_values)
+            fill!(velocity_field.𝒫.boundary_values, 0.0)  # Q = 0 (radial)
+            fill!(velocity_field.𝒫.bc_type_inner, Int(DIRICHLET))
+            fill!(velocity_field.𝒫.bc_type_outer, Int(DIRICHLET))
         end
 
-        if hasfield(typeof(velocity_field), :toroidal) && hasfield(typeof(velocity_field.toroidal), :boundary_values)
-            fill!(velocity_field.toroidal.boundary_values, 0.0)  # T = 0 (toroidal)
-            fill!(velocity_field.toroidal.bc_type_inner, Int(DIRICHLET))
-            fill!(velocity_field.toroidal.bc_type_outer, Int(DIRICHLET))
+        if hasfield(typeof(velocity_field), :𝒯) && hasfield(typeof(velocity_field.𝒯), :boundary_values)
+            fill!(velocity_field.𝒯.boundary_values, 0.0)  # T = 0 (toroidal)
+            fill!(velocity_field.𝒯.bc_type_inner, Int(DIRICHLET))
+            fill!(velocity_field.𝒯.bc_type_outer, Int(DIRICHLET))
         end
 
     elseif bc_type == :stress_free
         # Stress-free: v_r = 0 (Dirichlet), zero tangential stress (Neumann)
         # Q = 0 (Dirichlet), ∂T/∂r = T/r (Neumann, enforced by apply_velocity_flux_bc_spectral!)
 
-        if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
-            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0 (radial)
-            fill!(velocity_field.poloidal.bc_type_inner, Int(DIRICHLET))
-            fill!(velocity_field.poloidal.bc_type_outer, Int(DIRICHLET))
+        if hasfield(typeof(velocity_field), :𝒫) && hasfield(typeof(velocity_field.𝒫), :boundary_values)
+            fill!(velocity_field.𝒫.boundary_values, 0.0)  # Q = 0 (radial)
+            fill!(velocity_field.𝒫.bc_type_inner, Int(DIRICHLET))
+            fill!(velocity_field.𝒫.bc_type_outer, Int(DIRICHLET))
         end
 
-        if hasfield(typeof(velocity_field), :toroidal)
+        if hasfield(typeof(velocity_field), :𝒯)
             # Toroidal component uses Neumann BC (tangential stress = 0)
             # Boundary values are not enforced for Neumann BCs
-            if hasfield(typeof(velocity_field.toroidal), :bc_type_inner)
-                fill!(velocity_field.toroidal.bc_type_inner, Int(NEUMANN))
-                fill!(velocity_field.toroidal.bc_type_outer, Int(NEUMANN))
+            if hasfield(typeof(velocity_field.𝒯), :bc_type_inner)
+                fill!(velocity_field.𝒯.bc_type_inner, Int(NEUMANN))
+                fill!(velocity_field.𝒯.bc_type_outer, Int(NEUMANN))
             end
         end
 
@@ -871,10 +871,10 @@ function enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=
         # Impermeable: v_r = 0 only (Dirichlet), tangential components unconstrained
         # Q = 0 (Dirichlet), T unconstrained
 
-        if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
-            fill!(velocity_field.poloidal.boundary_values, 0.0)  # Q = 0 (radial)
-            fill!(velocity_field.poloidal.bc_type_inner, Int(DIRICHLET))
-            fill!(velocity_field.poloidal.bc_type_outer, Int(DIRICHLET))
+        if hasfield(typeof(velocity_field), :𝒫) && hasfield(typeof(velocity_field.𝒫), :boundary_values)
+            fill!(velocity_field.𝒫.boundary_values, 0.0)  # Q = 0 (radial)
+            fill!(velocity_field.𝒫.bc_type_inner, Int(DIRICHLET))
+            fill!(velocity_field.𝒫.bc_type_outer, Int(DIRICHLET))
         end
         # Toroidal component BC types remain unchanged (solver determines values)
 

@@ -148,8 +148,8 @@ generate_random_initial_conditions!(magnetic_field, :magnetic,
                                    seed=123)
 
 # Check the results
-mag_tor_max = maximum(abs.(magnetic_field.toroidal.data))
-mag_pol_max = maximum(abs.(magnetic_field.poloidal.data))
+mag_tor_max = maximum(abs.(magnetic_field.𝒯.data))
+mag_pol_max = maximum(abs.(magnetic_field.𝒫.data))
 println("  Toroidal max: $(round(mag_tor_max, digits=4))")
 println("  Poloidal max: $(round(mag_pol_max, digits=4))")
 
@@ -158,8 +158,8 @@ generate_random_initial_conditions!(velocity_field, :velocity,
                                    amplitude=0.001,
                                    modes_range=1:20)
 
-vel_tor_max = maximum(abs.(velocity_field.toroidal.data))
-vel_pol_max = maximum(abs.(velocity_field.poloidal.data))
+vel_tor_max = maximum(abs.(velocity_field.𝒯.data))
+vel_pol_max = maximum(abs.(velocity_field.𝒫.data))
 println("  Toroidal max: $(round(vel_tor_max, digits=6))")
 println("  Poloidal max: $(round(vel_pol_max, digits=6))")
 
@@ -183,10 +183,10 @@ println("="^70)
 
 # Reset fields
 fill!(temp_field.spectral.data, 0.0)
-fill!(magnetic_field.toroidal.data, 0.0)
-fill!(magnetic_field.poloidal.data, 0.0)
-fill!(velocity_field.toroidal.data, 0.0)
-fill!(velocity_field.poloidal.data, 0.0)
+fill!(magnetic_field.𝒯.data, 0.0)
+fill!(magnetic_field.𝒫.data, 0.0)
+fill!(velocity_field.𝒯.data, 0.0)
+fill!(velocity_field.𝒫.data, 0.0)
 fill!(composition_field.spectral.data, 0.0)
 
 println("\n2.1 Conductive Temperature Profile")
@@ -210,24 +210,24 @@ println("\n2.3 Dipolar Magnetic Field")
 set_analytical_initial_conditions!(magnetic_field, :magnetic, :dipole,
                                   amplitude=1.0)
 
-dipole_strength = magnetic_field.poloidal.data[nr÷2, 3]  # l=1, m=0 mode
+dipole_strength = magnetic_field.𝒫.data[nr÷2, 3]  # l=1, m=0 mode
 println("  Dipole strength (l=1,m=0): $(round(dipole_strength, digits=3))")
 
 println("\n2.4 Uniform Magnetic Field")
 # Reset and set uniform field
-fill!(magnetic_field.poloidal.data, 0.0)
+fill!(magnetic_field.𝒫.data, 0.0)
 set_analytical_initial_conditions!(magnetic_field, :magnetic, :uniform_field,
                                   amplitude=0.5, direction=:z)
 
-uniform_strength = magnetic_field.poloidal.data[nr÷2, 1]  # l=0, m=0 mode
+uniform_strength = magnetic_field.𝒫.data[nr÷2, 1]  # l=0, m=0 mode
 println("  Uniform field strength: $(round(uniform_strength, digits=3))")
 
 println("\n2.5 Small Convective Velocities")
 set_analytical_initial_conditions!(velocity_field, :velocity, :convective,
                                   amplitude=0.01)
 
-conv_tor = maximum(abs.(velocity_field.toroidal.data[nr÷2, 2:10]))
-conv_pol = maximum(abs.(velocity_field.poloidal.data[nr÷2, 2:10]))
+conv_tor = maximum(abs.(velocity_field.𝒯.data[nr÷2, 2:10]))
+conv_pol = maximum(abs.(velocity_field.𝒫.data[nr÷2, 2:10]))
 println("  Max convective toroidal: $(round(conv_tor, digits=6))")
 println("  Max convective poloidal: $(round(conv_pol, digits=6))")
 
@@ -290,8 +290,8 @@ println("\nField Energy Summary:")
 
 # Calculate simple energy measures
 temp_energy = sum(abs2.(temp_field.spectral.data))
-mag_energy = sum(abs2.(magnetic_field.toroidal.data)) + sum(abs2.(magnetic_field.poloidal.data))
-vel_energy = sum(abs2.(velocity_field.toroidal.data)) + sum(abs2.(velocity_field.poloidal.data))
+mag_energy = sum(abs2.(magnetic_field.𝒯.data)) + sum(abs2.(magnetic_field.𝒫.data))
+vel_energy = sum(abs2.(velocity_field.𝒯.data)) + sum(abs2.(velocity_field.𝒫.data))
 comp_energy = sum(abs2.(composition_field.spectral.data))
 
 println("  Temperature energy: $(round(temp_energy, digits=6))")
@@ -314,8 +314,8 @@ function analyze_spectral_content(data, name)
 end
 
 analyze_spectral_content(temp_field.spectral.data, "Temperature")
-analyze_spectral_content(magnetic_field.poloidal.data, "Magnetic (poloidal)")
-analyze_spectral_content(velocity_field.toroidal.data, "Velocity (toroidal)")
+analyze_spectral_content(magnetic_field.𝒫.data, "Magnetic (poloidal)")
+analyze_spectral_content(velocity_field.𝒯.data, "Velocity (toroidal)")
 analyze_spectral_content(composition_field.spectral.data, "Composition")
 
 # ============================================================================

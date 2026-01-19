@@ -319,8 +319,8 @@ function run_shtns_simulation!(state)
         state.timestep_state.converged = false
         
         # Store previous state for error computation
-        prev_velocity = deepcopy(state.velocity.toroidal)
-        prev_magnetic = deepcopy(state.magnetic.toroidal)
+        prev_velocity = deepcopy(state.velocity.𝒯)
+        prev_magnetic = deepcopy(state.magnetic.𝒯)
         prev_temperature = deepcopy(state.temperature.spectral)
         prev_composition = state.composition !== nothing ? deepcopy(state.composition.spectral) : nothing
         
@@ -338,8 +338,8 @@ function run_shtns_simulation!(state)
             end
             
             # Compute convergence error
-            error_vel  = compute_timestep_error(state.velocity.toroidal, prev_velocity)
-            error_mag  = compute_timestep_error(state.magnetic.toroidal, prev_magnetic)
+            error_vel  = compute_timestep_error(state.velocity.𝒯, prev_velocity)
+            error_mag  = compute_timestep_error(state.magnetic.𝒯, prev_magnetic)
             error_temp = compute_timestep_error(state.temperature.spectral, prev_temperature)
             
             error_comp = 0.0
@@ -355,8 +355,8 @@ function run_shtns_simulation!(state)
             end
             
             # Update previous state
-            prev_velocity    .= state.velocity.toroidal
-            prev_magnetic    .= state.magnetic.toroidal
+            prev_velocity    .= state.velocity.𝒯
+            prev_magnetic    .= state.magnetic.𝒯
             prev_temperature .= state.temperature.spectral
             
             if state.composition !== nothing && prev_composition !== nothing
@@ -777,20 +777,20 @@ function initialize_fields!(state::SimulationState{T}) where T
     end
     
     # Velocity: start with zero
-    fill!(parent(state.velocity.toroidal.data_real), zero(T))
-    fill!(parent(state.velocity.toroidal.data_imag), zero(T))
-    fill!(parent(state.velocity.poloidal.data_real), zero(T))
-    fill!(parent(state.velocity.poloidal.data_imag), zero(T))
+    fill!(parent(state.velocity.𝒯.data_real), zero(T))
+    fill!(parent(state.velocity.𝒯.data_imag), zero(T))
+    fill!(parent(state.velocity.𝒫.data_real), zero(T))
+    fill!(parent(state.velocity.𝒫.data_imag), zero(T))
     
     # Magnetic field: dipole + small perturbation
-    mag_tor_real = parent(state.magnetic.toroidal.data_real)
-    mag_tor_imag = parent(state.magnetic.toroidal.data_imag)
-    mag_pol_real = parent(state.magnetic.poloidal.data_real)
-    mag_pol_imag = parent(state.magnetic.poloidal.data_imag)
+    mag_tor_real = parent(state.magnetic.𝒯.data_real)
+    mag_tor_imag = parent(state.magnetic.𝒯.data_imag)
+    mag_pol_real = parent(state.magnetic.𝒫.data_real)
+    mag_pol_imag = parent(state.magnetic.𝒫.data_imag)
     
-    for lm_idx in 1:state.magnetic.toroidal.nlm
-        l = state.magnetic.toroidal.config.l_values[lm_idx]
-        m = state.magnetic.toroidal.config.m_values[lm_idx]
+    for lm_idx in 1:state.magnetic.𝒯.nlm
+        l = state.magnetic.𝒯.config.l_values[lm_idx]
+        m = state.magnetic.𝒯.config.m_values[lm_idx]
         
         for r_idx in axes(mag_tor_real, 3)
             if l == 1 && m == 0
@@ -853,23 +853,23 @@ function predictor_step!(state::SimulationState{T}) where T
     # Predictor step for all fields using SHTns matrices
     
     # Velocity (toroidal component)
-    rhs_tor = similar(state.velocity.toroidal)
-    apply_explicit_operator!(rhs_tor, state.velocity.toroidal,
+    rhs_tor = similar(state.velocity.𝒯)
+    apply_explicit_operator!(rhs_tor, state.velocity.𝒯,
                              state.velocity.nlᵀ, state.𝒟ᵒᶜ,
                              d_Pm, state.timestep_state.dt;
                              nl_prev=state.velocity.prev_nlᵀ,
                              matrices=state.implicit_matrices[:velocity])
-    solve_implicit_step!(state.velocity.toroidal, rhs_tor, 
+    solve_implicit_step!(state.velocity.𝒯, rhs_tor, 
                         state.implicit_matrices[:velocity])
     
     # Velocity (poloidal component)
-    rhs_pol = similar(state.velocity.poloidal)
-    apply_explicit_operator!(rhs_pol, state.velocity.poloidal,
+    rhs_pol = similar(state.velocity.𝒫)
+    apply_explicit_operator!(rhs_pol, state.velocity.𝒫,
                              state.velocity.nlᴾ, state.𝒟ᵒᶜ,
                              d_Pm, state.timestep_state.dt;
                              nl_prev=state.velocity.prev_nlᴾ,
                              matrices=state.implicit_matrices[:velocity])
-    solve_implicit_step!(state.velocity.poloidal, rhs_pol,
+    solve_implicit_step!(state.velocity.𝒫, rhs_pol,
                         state.implicit_matrices[:velocity])
 
     # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
@@ -880,23 +880,23 @@ function predictor_step!(state::SimulationState{T}) where T
     enforce_velocity_boundary_values!(state.velocity)
 
     # Magnetic field (toroidal)
-    rhs_mag_tor = similar(state.magnetic.toroidal)
-    apply_explicit_operator!(rhs_mag_tor, state.magnetic.toroidal,
+    rhs_mag_tor = similar(state.magnetic.𝒯)
+    apply_explicit_operator!(rhs_mag_tor, state.magnetic.𝒯,
                              state.magnetic.nlᵀ, state.𝒟ᵒᶜ,
                              1.0, state.timestep_state.dt;
                              nl_prev=state.magnetic.prev_nlᵀ,
                              matrices=state.implicit_matrices[:magnetic])
-    solve_implicit_step!(state.magnetic.toroidal, rhs_mag_tor, 
+    solve_implicit_step!(state.magnetic.𝒯, rhs_mag_tor, 
                         state.implicit_matrices[:magnetic])
     
     # Magnetic field (poloidal)
-    rhs_mag_pol = similar(state.magnetic.poloidal)
-    apply_explicit_operator!(rhs_mag_pol, state.magnetic.poloidal,
+    rhs_mag_pol = similar(state.magnetic.𝒫)
+    apply_explicit_operator!(rhs_mag_pol, state.magnetic.𝒫,
                              state.magnetic.nlᴾ, state.𝒟ᵒᶜ,
                              1.0, state.timestep_state.dt;
                              nl_prev=state.magnetic.prev_nlᴾ,
                              matrices=state.implicit_matrices[:magnetic])
-    solve_implicit_step!(state.magnetic.poloidal, rhs_mag_pol, 
+    solve_implicit_step!(state.magnetic.𝒫, rhs_mag_pol, 
                         state.implicit_matrices[:magnetic])
     
     # Temperature
@@ -932,7 +932,7 @@ function compute_cfl_timestep!(state::SimulationState{T}) where T
     # Compute CFL-limited timestep based on velocity magnitudes
 
     # Convert velocity to physical space for analysis
-    shtnskit_vector_synthesis!(state.velocity.toroidal, state.velocity.poloidal, state.velocity.velocity; domain=state.𝒟ᵒᶜ)
+    shtnskit_vector_synthesis!(state.velocity.𝒯, state.velocity.𝒫, state.velocity.velocity; domain=state.𝒟ᵒᶜ)
     
     max_velocity = zero(Float64)
     
@@ -1008,9 +1008,9 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
                         state.implicit_matrices[:temperature], dt)
     
     # Velocity
-    solve_implicit_step!(state.velocity.toroidal, state.velocity.nlᵀ,
+    solve_implicit_step!(state.velocity.𝒯, state.velocity.nlᵀ,
                         state.implicit_matrices[:velocity], dt)
-    solve_implicit_step!(state.velocity.poloidal, state.velocity.nlᴾ,
+    solve_implicit_step!(state.velocity.𝒫, state.velocity.nlᴾ,
                         state.implicit_matrices[:velocity], dt)
 
     # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
@@ -1022,9 +1022,9 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
 
     # Magnetic (if enabled)
     if i_B == 1
-        solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nlᵀ,
+        solve_implicit_step!(state.magnetic.𝒯, state.magnetic.nlᵀ,
                             state.implicit_matrices[:magnetic], dt)
-        solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nlᴾ,
+        solve_implicit_step!(state.magnetic.𝒫, state.magnetic.nlᴾ,
                             state.implicit_matrices[:magnetic], dt)
     end
     
@@ -1343,14 +1343,14 @@ function check_solenoidal_constraint!(state::SimulationState{T}) where T
 
     # Check velocity solenoidal constraint
     vel_l2, vel_linf = compute_divergence_spectral(
-        state.velocity.toroidal, state.velocity.poloidal, state.𝒟ᵒᶜ
+        state.velocity.𝒯, state.velocity.𝒫, state.𝒟ᵒᶜ
     )
 
     # Check magnetic solenoidal constraint if present
     mag_l2, mag_linf = 0.0, 0.0
     if state.magnetic !== nothing
         mag_l2, mag_linf = compute_divergence_spectral(
-            state.magnetic.toroidal, state.magnetic.poloidal, state.𝒟ᵒᶜ
+            state.magnetic.𝒯, state.magnetic.𝒫, state.𝒟ᵒᶜ
         )
     end
 
@@ -1435,14 +1435,14 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
 
     vel_tor_cache = get_erk2_cache!(state.erk2_caches, :velocity_toroidal, d_Pm, T,
                                     state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
-    vel_tor_buffers = ERK2FieldBuffers(state.velocity.toroidal, state.velocity.nlᵀ, vel_tor_cache)
-    erk2_prepare_field!(vel_tor_buffers, state.velocity.toroidal, state.velocity.nlᵀ,
+    vel_tor_buffers = ERK2FieldBuffers(state.velocity.𝒯, state.velocity.nlᵀ, vel_tor_cache)
+    erk2_prepare_field!(vel_tor_buffers, state.velocity.𝒯, state.velocity.nlᵀ,
                         vel_tor_cache, state.shtns_config, dt)
 
     vel_pol_cache = get_erk2_cache!(state.erk2_caches, :velocity_poloidal, d_Pm, T,
                                     state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
-    vel_pol_buffers = ERK2FieldBuffers(state.velocity.poloidal, state.velocity.nlᴾ, vel_pol_cache)
-    erk2_prepare_field!(vel_pol_buffers, state.velocity.poloidal, state.velocity.nlᴾ,
+    vel_pol_buffers = ERK2FieldBuffers(state.velocity.𝒫, state.velocity.nlᴾ, vel_pol_cache)
+    erk2_prepare_field!(vel_pol_buffers, state.velocity.𝒫, state.velocity.nlᴾ,
                         vel_pol_cache, state.shtns_config, dt)
 
     mag_tor_buffers = nothing
@@ -1452,14 +1452,14 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
     if i_B == 1 && state.magnetic !== nothing
         mag_tor_cache = get_erk2_cache!(state.erk2_caches, :magnetic_toroidal, 1.0, T,
                                         state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
-        mag_tor_buffers = ERK2FieldBuffers(state.magnetic.toroidal, state.magnetic.nlᵀ, mag_tor_cache)
-        erk2_prepare_field!(mag_tor_buffers, state.magnetic.toroidal, state.magnetic.nlᵀ,
+        mag_tor_buffers = ERK2FieldBuffers(state.magnetic.𝒯, state.magnetic.nlᵀ, mag_tor_cache)
+        erk2_prepare_field!(mag_tor_buffers, state.magnetic.𝒯, state.magnetic.nlᵀ,
                             mag_tor_cache, state.shtns_config, dt)
 
         mag_pol_cache = get_erk2_cache!(state.erk2_caches, :magnetic_poloidal, 1.0, T,
                                         state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
-        mag_pol_buffers = ERK2FieldBuffers(state.magnetic.poloidal, state.magnetic.nlᴾ, mag_pol_cache)
-        erk2_prepare_field!(mag_pol_buffers, state.magnetic.poloidal, state.magnetic.nlᴾ,
+        mag_pol_buffers = ERK2FieldBuffers(state.magnetic.𝒫, state.magnetic.nlᴾ, mag_pol_cache)
+        erk2_prepare_field!(mag_pol_buffers, state.magnetic.𝒫, state.magnetic.nlᴾ,
                             mag_pol_cache, state.shtns_config, dt)
     end
 
@@ -1475,11 +1475,11 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
 
     # Apply stage solution to all fields
     erk2_apply_stage!(temp_buffers, state.temperature.spectral)
-    erk2_apply_stage!(vel_tor_buffers, state.velocity.toroidal)
-    erk2_apply_stage!(vel_pol_buffers, state.velocity.poloidal)
+    erk2_apply_stage!(vel_tor_buffers, state.velocity.𝒯)
+    erk2_apply_stage!(vel_pol_buffers, state.velocity.𝒫)
     if mag_tor_buffers !== nothing
-        erk2_apply_stage!(mag_tor_buffers, state.magnetic.toroidal)
-        erk2_apply_stage!(mag_pol_buffers, state.magnetic.poloidal)
+        erk2_apply_stage!(mag_tor_buffers, state.magnetic.𝒯)
+        erk2_apply_stage!(mag_pol_buffers, state.magnetic.𝒫)
     end
     if comp_buffers !== nothing
         erk2_apply_stage!(comp_buffers, state.composition.spectral)
@@ -1520,11 +1520,11 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
 
     # Finalize each field using stage data
     erk2_finalize_field!(temp_buffers, state.temperature.spectral, temp_cache, state.shtns_config, dt)
-    erk2_finalize_field!(vel_tor_buffers, state.velocity.toroidal, vel_tor_cache, state.shtns_config, dt)
-    erk2_finalize_field!(vel_pol_buffers, state.velocity.poloidal, vel_pol_cache, state.shtns_config, dt)
+    erk2_finalize_field!(vel_tor_buffers, state.velocity.𝒯, vel_tor_cache, state.shtns_config, dt)
+    erk2_finalize_field!(vel_pol_buffers, state.velocity.𝒫, vel_pol_cache, state.shtns_config, dt)
     if mag_tor_buffers !== nothing
-        erk2_finalize_field!(mag_tor_buffers, state.magnetic.toroidal, mag_tor_cache, state.shtns_config, dt)
-        erk2_finalize_field!(mag_pol_buffers, state.magnetic.poloidal, mag_pol_cache, state.shtns_config, dt)
+        erk2_finalize_field!(mag_tor_buffers, state.magnetic.𝒯, mag_tor_cache, state.shtns_config, dt)
+        erk2_finalize_field!(mag_pol_buffers, state.magnetic.𝒫, mag_pol_cache, state.shtns_config, dt)
     end
     if comp_buffers !== nothing
         erk2_finalize_field!(comp_buffers, state.composition.spectral, comp_cache, state.shtns_config, dt)
@@ -1635,38 +1635,38 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     # -----------------------------------------------------------------
     vel_tor_task = add_task!(task_graph, () -> begin
         if ts_scheme === :cnab2
-            build_rhs_cnab2!(state.velocity.work_tor, state.velocity.toroidal,
+            build_rhs_cnab2!(state.velocity.work_tor, state.velocity.𝒯,
                              state.velocity.nlᵀ, state.velocity.prev_nlᵀ,
                              dt, state.implicit_matrices[:velocity])
-            solve_implicit_step!(state.velocity.toroidal, state.velocity.work_tor,
+            solve_implicit_step!(state.velocity.𝒯, state.velocity.work_tor,
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
             # Velocity diffusivity = Pm (viscous diffusion coefficient)
             alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_toroidal, d_Pm, T, state.𝒟ᵒᶜ)
-            eab2_update_krylov_cached!(state.velocity.toroidal, state.velocity.nlᵀ,
+            eab2_update_krylov_cached!(state.velocity.𝒯, state.velocity.nlᵀ,
                                        state.velocity.prev_nlᵀ, alu_map, state.𝒟ᵒᶜ, d_Pm,
                                        state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
         else
-            solve_implicit_step!(state.velocity.toroidal, state.velocity.nlᵀ,
+            solve_implicit_step!(state.velocity.𝒯, state.velocity.nlᵀ,
                                  state.implicit_matrices[:velocity])
         end
     end)
 
     vel_pol_task = add_task!(task_graph, () -> begin
         if ts_scheme === :cnab2
-            build_rhs_cnab2!(state.velocity.work_pol, state.velocity.poloidal,
+            build_rhs_cnab2!(state.velocity.work_pol, state.velocity.𝒫,
                              state.velocity.nlᴾ, state.velocity.prev_nlᴾ,
                              dt, state.implicit_matrices[:velocity])
-            solve_implicit_step!(state.velocity.poloidal, state.velocity.work_pol,
+            solve_implicit_step!(state.velocity.𝒫, state.velocity.work_pol,
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
             # Velocity diffusivity = Pm (viscous diffusion coefficient)
             alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_poloidal, d_Pm, T, state.𝒟ᵒᶜ)
-            eab2_update_krylov_cached!(state.velocity.poloidal, state.velocity.nlᴾ,
+            eab2_update_krylov_cached!(state.velocity.𝒫, state.velocity.nlᴾ,
                                        state.velocity.prev_nlᴾ, alu_map, state.𝒟ᵒᶜ, d_Pm,
                                        state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
         else
-            solve_implicit_step!(state.velocity.poloidal, state.velocity.nlᴾ,
+            solve_implicit_step!(state.velocity.𝒫, state.velocity.nlᴾ,
                                  state.implicit_matrices[:velocity])
         end
     end)
@@ -1679,37 +1679,37 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     if i_B == 1
         add_task!(task_graph, () -> begin
             if ts_scheme === :cnab2
-                build_rhs_cnab2!(state.magnetic.work_tor, state.magnetic.toroidal,
+                build_rhs_cnab2!(state.magnetic.work_tor, state.magnetic.𝒯,
                                  state.magnetic.nlᵀ, state.magnetic.prev_nlᵀ,
                                  dt, state.implicit_matrices[:magnetic])
-                solve_implicit_step!(state.magnetic.toroidal, state.magnetic.work_tor,
+                solve_implicit_step!(state.magnetic.𝒯, state.magnetic.work_tor,
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
                 # Magnetic diffusivity = 1.0 (magnetic diffusion time scaling)
                 alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_toroidal, 1.0, T, state.𝒟ᵒᶜ)
-                eab2_update_krylov_cached!(state.magnetic.toroidal, state.magnetic.nlᵀ,
+                eab2_update_krylov_cached!(state.magnetic.𝒯, state.magnetic.nlᵀ,
                                            state.magnetic.prev_nlᵀ, alu_map, state.𝒟ᵒᶜ, 1.0,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
-                solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nlᵀ,
+                solve_implicit_step!(state.magnetic.𝒯, state.magnetic.nlᵀ,
                                      state.implicit_matrices[:magnetic])
             end
         end)
         add_task!(task_graph, () -> begin
             if ts_scheme === :cnab2
-                build_rhs_cnab2!(state.magnetic.work_pol, state.magnetic.poloidal,
+                build_rhs_cnab2!(state.magnetic.work_pol, state.magnetic.𝒫,
                                  state.magnetic.nlᴾ, state.magnetic.prev_nlᴾ,
                                  dt, state.implicit_matrices[:magnetic])
-                solve_implicit_step!(state.magnetic.poloidal, state.magnetic.work_pol,
+                solve_implicit_step!(state.magnetic.𝒫, state.magnetic.work_pol,
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
                 # Magnetic diffusivity = 1.0 (magnetic diffusion time scaling)
                 alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_poloidal, 1.0, T, state.𝒟ᵒᶜ)
-                eab2_update_krylov_cached!(state.magnetic.poloidal, state.magnetic.nlᴾ,
+                eab2_update_krylov_cached!(state.magnetic.𝒫, state.magnetic.nlᴾ,
                                            state.magnetic.prev_nlᴾ, alu_map, state.𝒟ᵒᶜ, 1.0,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
-                solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nlᴾ,
+                solve_implicit_step!(state.magnetic.𝒫, state.magnetic.nlᴾ,
                                      state.implicit_matrices[:magnetic])
             end
         end)

@@ -325,13 +325,13 @@ function load_spectral_data!(converter::SpectralToPhysicalConverter{T}, filename
             
             # Load spectral coefficients
             load_spectral_coefficients!(
-                converter.velocity_fields.toroidal,
+                converter.velocity_fields.𝒯,
                 nc_file, "velocity_toroidal_real_global", "velocity_toroidal_imag_global",
                 l_values, m_values, r_spectral
             )
             
             load_spectral_coefficients!(
-                converter.velocity_fields.poloidal,
+                converter.velocity_fields.𝒫,
                 nc_file, "velocity_poloidal_real_global", "velocity_poloidal_imag_global",
                 l_values, m_values, r_spectral
             )
@@ -351,13 +351,13 @@ function load_spectral_data!(converter::SpectralToPhysicalConverter{T}, filename
             
             # Load spectral coefficients
             load_spectral_coefficients!(
-                converter.magnetic_fields.toroidal,
+                converter.magnetic_fields.𝒯,
                 nc_file, "magnetic_toroidal_real_global", "magnetic_toroidal_imag_global",
                 l_values, m_values, r_spectral
             )
             
             load_spectral_coefficients!(
-                converter.magnetic_fields.poloidal,
+                converter.magnetic_fields.𝒫,
                 nc_file, "magnetic_poloidal_real_global", "magnetic_poloidal_imag_global",
                 l_values, m_values, r_spectral
             )
@@ -484,8 +484,8 @@ function convert_to_physical!(converter::SpectralToPhysicalConverter{T}) where T
         
         # Use SHTnsKit vector synthesis to convert toroidal/poloidal to (v_r, v_θ, v_φ)
         shtnskit_vector_synthesis!(
-            converter.velocity_fields.toroidal,
-            converter.velocity_fields.poloidal, 
+            converter.velocity_fields.𝒯,
+            converter.velocity_fields.𝒫, 
             converter.velocity_fields.velocity
         )
         
@@ -502,8 +502,8 @@ function convert_to_physical!(converter::SpectralToPhysicalConverter{T}) where T
         
         # Use SHTnsKit vector synthesis to convert toroidal/poloidal to (B_r, B_θ, B_φ)
         shtnskit_vector_synthesis!(
-            converter.magnetic_fields.toroidal,
-            converter.magnetic_fields.poloidal, 
+            converter.magnetic_fields.𝒯,
+            converter.magnetic_fields.𝒫, 
             converter.magnetic_fields.magnetic
         )
         

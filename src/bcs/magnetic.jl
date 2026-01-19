@@ -575,16 +575,16 @@ function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
 
         # Map to toroidal-poloidal structure:
         # For magnetic fields: toroidal ~ T (purely tangential), poloidal ~ Q + S (radial + potential)
-        magnetic_field.toroidal.boundary_values[1, :] = T_inner   # Inner toroidal
-        magnetic_field.toroidal.boundary_values[2, :] = T_outer   # Outer toroidal
+        magnetic_field.𝒯.boundary_values[1, :] = T_inner   # Inner toroidal
+        magnetic_field.𝒯.boundary_values[2, :] = T_outer   # Outer toroidal
 
         # Combine Q and S for poloidal
         # For solenoidal fields (∇·B = 0), the decomposition is:
         # - Q: radial component (Bᵣ)
         # - S: should be zero for purely solenoidal fields
         # - T: tangential toroidal component
-        magnetic_field.poloidal.boundary_values[1, :] = Q_inner  # Inner poloidal (radial)
-        magnetic_field.poloidal.boundary_values[2, :] = Q_outer  # Outer poloidal (radial)
+        magnetic_field.𝒫.boundary_values[1, :] = Q_inner  # Inner poloidal (radial)
+        magnetic_field.𝒫.boundary_values[2, :] = Q_outer  # Outer poloidal (radial)
 
         # Check S component magnitude to verify solenoidal assumption
         S_norm_inner = sqrt(sum(abs2, S_inner))
@@ -769,10 +769,10 @@ function get_current_magnetic_boundaries(magnetic_field)
     outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
     
     # Get spectral coefficients
-    innerᵀ_spectral = magnetic_field.toroidal.boundary_values[1, :]
-    outerᵀ_spectral = magnetic_field.toroidal.boundary_values[2, :]
-    innerᴾ_spectral = magnetic_field.poloidal.boundary_values[1, :]
-    outerᴾ_spectral = magnetic_field.poloidal.boundary_values[2, :]
+    innerᵀ_spectral = magnetic_field.𝒯.boundary_values[1, :]
+    outerᵀ_spectral = magnetic_field.𝒯.boundary_values[2, :]
+    innerᴾ_spectral = magnetic_field.𝒫.boundary_values[1, :]
+    outerᴾ_spectral = magnetic_field.𝒫.boundary_values[2, :]
     
     return Dict(
         :inner_physical => inner_physical,
@@ -1140,10 +1140,10 @@ function enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
         # calculation in apply_magnetic_boundary_conditions!
 
         # Both components use Dirichlet BC (matching potential field)
-        fill!(magnetic_field.toroidal.bc_type_inner, Int(DIRICHLET))
-        fill!(magnetic_field.toroidal.bc_type_outer, Int(DIRICHLET))
-        fill!(magnetic_field.poloidal.bc_type_inner, Int(DIRICHLET))
-        fill!(magnetic_field.poloidal.bc_type_outer, Int(DIRICHLET))
+        fill!(magnetic_field.𝒯.bc_type_inner, Int(DIRICHLET))
+        fill!(magnetic_field.𝒯.bc_type_outer, Int(DIRICHLET))
+        fill!(magnetic_field.𝒫.bc_type_inner, Int(DIRICHLET))
+        fill!(magnetic_field.𝒫.bc_type_outer, Int(DIRICHLET))
 
     elseif bc_type == :perfect_conductor
         # Perfect conductor: B_tangential = 0 at boundary
@@ -1152,23 +1152,23 @@ function enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
         # Radial component (poloidal/Q) is non-zero and determined by ∇·B = 0
 
         # Set toroidal components to zero (tangential field = 0)
-        fill!(magnetic_field.toroidal.boundary_values, 0.0)
-        fill!(magnetic_field.toroidal.bc_type_inner, Int(DIRICHLET))  # T = 0 enforced
-        fill!(magnetic_field.toroidal.bc_type_outer, Int(DIRICHLET))  # T = 0 enforced
+        fill!(magnetic_field.𝒯.boundary_values, 0.0)
+        fill!(magnetic_field.𝒯.bc_type_inner, Int(DIRICHLET))  # T = 0 enforced
+        fill!(magnetic_field.𝒯.bc_type_outer, Int(DIRICHLET))  # T = 0 enforced
 
         # Poloidal/radial component uses Dirichlet BC from computed values
         # (determined by ∇·B = 0 and matching conditions)
-        fill!(magnetic_field.poloidal.bc_type_inner, Int(DIRICHLET))
-        fill!(magnetic_field.poloidal.bc_type_outer, Int(DIRICHLET))
+        fill!(magnetic_field.𝒫.bc_type_inner, Int(DIRICHLET))
+        fill!(magnetic_field.𝒫.bc_type_outer, Int(DIRICHLET))
 
     elseif bc_type == :potential_field
         # Potential field boundary: match external field
         # Both components use computed boundary values as Dirichlet BC
 
-        fill!(magnetic_field.toroidal.bc_type_inner, Int(DIRICHLET))
-        fill!(magnetic_field.toroidal.bc_type_outer, Int(DIRICHLET))
-        fill!(magnetic_field.poloidal.bc_type_inner, Int(DIRICHLET))
-        fill!(magnetic_field.poloidal.bc_type_outer, Int(DIRICHLET))
+        fill!(magnetic_field.𝒯.bc_type_inner, Int(DIRICHLET))
+        fill!(magnetic_field.𝒯.bc_type_outer, Int(DIRICHLET))
+        fill!(magnetic_field.𝒫.bc_type_inner, Int(DIRICHLET))
+        fill!(magnetic_field.𝒫.bc_type_outer, Int(DIRICHLET))
 
     elseif bc_type == :custom
         # Custom boundary conditions - leave arrays as set by user

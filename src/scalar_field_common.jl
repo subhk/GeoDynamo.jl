@@ -208,8 +208,8 @@ This is generic and works for any scalar field.
 function compute_theta_gradient_spectral!(field::AbstractScalarField{T}) where T
     spec_real   = parent(field.spectral.data_real)
     spec_imag   = parent(field.spectral.data_imag)
-    ∇θ_real = parent(field.grad_theta_spec.data_real) 
-    ∇θ_imag = parent(field.grad_theta_spec.data_imag)
+    ∇θ_real = parent(field.∇θ_spec.data_real) 
+    ∇θ_imag = parent(field.∇θ_spec.data_imag)
     
     lm_range = range_local(field.config.pencils.spec, 1)
     r_range  = range_local(field.config.pencils.spec, 3)
@@ -276,8 +276,8 @@ This is generic and works for any scalar field.
 function compute_phi_gradient_spectral!(field::AbstractScalarField{T}) where T
     spec_real   = parent(field.spectral.data_real)
     spec_imag   = parent(field.spectral.data_imag)
-    ∇φ_real = parent(field.grad_phi_spec.data_real)
-    ∇φ_imag = parent(field.grad_phi_spec.data_imag)
+    ∇φ_real = parent(field.∇φ_spec.data_real)
+    ∇φ_imag = parent(field.∇φ_spec.data_imag)
     
     lm_range = range_local(field.config.pencils.spec, 1)
     r_range  = range_local(field.config.pencils.spec, 3)
@@ -367,10 +367,10 @@ Apply geometric factors (1/r, 1/(r sin θ)) in spectral space.
 For gradients in spherical coordinates. This is generic.
 """
 function apply_geometric_factors_spectral!(field::AbstractScalarField{T}, domain::RadialDomain) where T
-    ∇θ_real = parent(field.grad_theta_spec.data_real)
-    ∇θ_imag = parent(field.grad_theta_spec.data_imag)
-    ∇φ_real = parent(field.grad_phi_spec.data_real)
-    ∇φ_imag = parent(field.grad_phi_spec.data_imag)
+    ∇θ_real = parent(field.∇θ_spec.data_real)
+    ∇θ_imag = parent(field.∇θ_spec.data_imag)
+    ∇φ_real = parent(field.∇φ_spec.data_real)
+    ∇φ_imag = parent(field.∇φ_spec.data_imag)
     
     r_range  = range_local(field.config.pencils.spec, 3)
     lm_range = range_local(field.config.pencils.spec, 1)
@@ -441,8 +441,8 @@ in a single batched operation to minimize communication.
 function transform_field_and_gradients_to_physical!(field::AbstractScalarField{T}) where T
     # Create arrays of fields to transform
     spectral_fields = [field.spectral,
-                       field.grad_theta_spec,
-                       field.grad_phi_spec,
+                       field.∇θ_spec,
+                       field.∇φ_spec,
                        field.∇ᵣ_spec]
     
     # Determine physical field based on field type
@@ -606,10 +606,10 @@ function zero_scalar_work_arrays!(field::AbstractScalarField{T}) where T
     fill!(parent(field.work_spectral.data_imag), zero(T))
     fill!(parent(field.work_physical.data), zero(T))
     fill!(parent(field.advection_physical.data), zero(T))
-    fill!(parent(field.grad_theta_spec.data_real), zero(T))
-    fill!(parent(field.grad_theta_spec.data_imag), zero(T))
-    fill!(parent(field.grad_phi_spec.data_real), zero(T))
-    fill!(parent(field.grad_phi_spec.data_imag), zero(T))
+    fill!(parent(field.∇θ_spec.data_real), zero(T))
+    fill!(parent(field.∇θ_spec.data_imag), zero(T))
+    fill!(parent(field.∇φ_spec.data_real), zero(T))
+    fill!(parent(field.∇φ_spec.data_imag), zero(T))
     fill!(parent(field.∇ᵣ_spec.data_real), zero(T))
     fill!(parent(field.∇ᵣ_spec.data_imag), zero(T))
     fill!(parent(field.nonlinear.data_real), zero(T))

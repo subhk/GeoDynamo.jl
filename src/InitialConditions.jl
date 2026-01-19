@@ -22,7 +22,7 @@ end
 
 function _maybe_enforce_ball_vector!(field, domain)
     if domain !== nothing && domain.r[1, 4] == 0.0
-        enforce_ball_vector_regularity!(field.toroidal, field.poloidal)
+        enforce_ball_vector_regularity!(field.𝒯, field.𝒫)
     end
     return field
 end
@@ -67,7 +67,7 @@ Populate velocity-like toroidal/poloidal fields with random perturbations up to 
 """
 function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain=nothing)
     amp = Float64(amplitude)
-    for spectral in (field.toroidal, field.poloidal)
+    for spectral in (field.𝒯, field.𝒫)
         real = parent(spectral.data_real)
         imag = parent(spectral.data_imag)
         fill!(real, zero(eltype(real)))
@@ -100,7 +100,7 @@ Populate magnetic toroidal/poloidal fields with random perturbations.
 """
 function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain=nothing)
     amp = Float64(amplitude)
-    for spectral in (field.toroidal, field.poloidal)
+    for spectral in (field.𝒯, field.𝒫)
         real = parent(spectral.data_real)
         imag = parent(spectral.data_imag)
         fill!(real, zero(eltype(real)))
@@ -227,9 +227,9 @@ function load_magnetic_initial_conditions!(mag_field, file_path::String)
 
     @warn "NetCDF loading not implemented, using test pattern"
 
-    T = eltype(mag_field.toroidal.data)
-    nr_tor, nlm_tor = size(mag_field.toroidal.data)
-    nr_pol, nlm_pol = size(mag_field.poloidal.data)
+    T = eltype(mag_field.𝒯.data)
+    nr_tor, nlm_tor = size(mag_field.𝒯.data)
+    nr_pol, nlm_pol = size(mag_field.𝒫.data)
 
     # Simple dipolar field with small perturbations
     for r_idx in 1:nr_tor
@@ -237,11 +237,11 @@ function load_magnetic_initial_conditions!(mag_field, file_path::String)
 
         for lm in 1:nlm_tor
             if lm == 3  # l=1, m=0 dipole mode for toroidal
-                mag_field.toroidal.data[r_idx, lm] = T(0.1 * sin(π * r_frac))
+                mag_field.𝒯.data[r_idx, lm] = T(0.1 * sin(π * r_frac))
             elseif lm <= 6  # Small perturbations
-                mag_field.toroidal.data[r_idx, lm] = T(0.001 * (rand() - 0.5))
+                mag_field.𝒯.data[r_idx, lm] = T(0.001 * (rand() - 0.5))
             else
-                mag_field.toroidal.data[r_idx, lm] = T(0.0)
+                mag_field.𝒯.data[r_idx, lm] = T(0.0)
             end
         end
     end
@@ -251,11 +251,11 @@ function load_magnetic_initial_conditions!(mag_field, file_path::String)
 
         for lm in 1:nlm_pol
             if lm == 3  # l=1, m=0 dipole mode for poloidal
-                mag_field.poloidal.data[r_idx, lm] = T(1.0 * sin(π * r_frac))
+                mag_field.𝒫.data[r_idx, lm] = T(1.0 * sin(π * r_frac))
             elseif lm <= 6  # Small perturbations
-                mag_field.poloidal.data[r_idx, lm] = T(0.01 * (rand() - 0.5))
+                mag_field.𝒫.data[r_idx, lm] = T(0.01 * (rand() - 0.5))
             else
-                mag_field.poloidal.data[r_idx, lm] = T(0.0)
+                mag_field.𝒫.data[r_idx, lm] = T(0.0)
             end
         end
     end
@@ -272,9 +272,9 @@ function load_velocity_initial_conditions!(vel_field, file_path::String)
 
     @warn "NetCDF loading not implemented, using test pattern"
 
-    T = eltype(vel_field.toroidal.data)
-    nr_tor, nlm_tor = size(vel_field.toroidal.data)
-    nr_pol, nlm_pol = size(vel_field.poloidal.data)
+    T = eltype(vel_field.𝒯.data)
+    nr_tor, nlm_tor = size(vel_field.𝒯.data)
+    nr_pol, nlm_pol = size(vel_field.𝒫.data)
 
     # Simple convective pattern with small velocities
     for r_idx in 1:nr_tor
@@ -282,9 +282,9 @@ function load_velocity_initial_conditions!(vel_field, file_path::String)
 
         for lm in 1:nlm_tor
             if lm <= 10  # Convective modes
-                vel_field.toroidal.data[r_idx, lm] = T(0.01 * sin(2π * r_frac) * (rand() - 0.5))
+                vel_field.𝒯.data[r_idx, lm] = T(0.01 * sin(2π * r_frac) * (rand() - 0.5))
             else
-                vel_field.toroidal.data[r_idx, lm] = T(0.0)
+                vel_field.𝒯.data[r_idx, lm] = T(0.0)
             end
         end
     end
@@ -294,9 +294,9 @@ function load_velocity_initial_conditions!(vel_field, file_path::String)
 
         for lm in 1:nlm_pol
             if lm <= 10  # Convective modes
-                vel_field.poloidal.data[r_idx, lm] = T(0.01 * sin(π * r_frac) * (rand() - 0.5))
+                vel_field.𝒫.data[r_idx, lm] = T(0.01 * sin(π * r_frac) * (rand() - 0.5))
             else
-                vel_field.poloidal.data[r_idx, lm] = T(0.0)
+                vel_field.𝒫.data[r_idx, lm] = T(0.0)
             end
         end
     end
@@ -434,13 +434,13 @@ Generate random magnetic initial conditions.
 """
 function generate_random_magnetic!(mag_field, amplitude, modes_range)
 
-    T = eltype(mag_field.toroidal.data)
-    nr_tor, nlm_tor = size(mag_field.toroidal.data)
-    nr_pol, nlm_pol = size(mag_field.poloidal.data)
+    T = eltype(mag_field.𝒯.data)
+    nr_tor, nlm_tor = size(mag_field.𝒯.data)
+    nr_pol, nlm_pol = size(mag_field.𝒫.data)
 
     # Clear fields first
-    fill!(mag_field.toroidal.data, T(0))
-    fill!(mag_field.poloidal.data, T(0))
+    fill!(mag_field.𝒯.data, T(0))
+    fill!(mag_field.𝒫.data, T(0))
 
     # Toroidal field
     for r_idx in 1:nr_tor
@@ -449,7 +449,7 @@ function generate_random_magnetic!(mag_field, amplitude, modes_range)
 
         for lm in modes_range
             if lm <= nlm_tor
-                mag_field.toroidal.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
+                mag_field.𝒯.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
             end
         end
     end
@@ -462,9 +462,9 @@ function generate_random_magnetic!(mag_field, amplitude, modes_range)
         for lm in modes_range
             if lm <= nlm_pol
                 if lm == 3  # l=1, m=0 dipole mode
-                    mag_field.poloidal.data[r_idx, lm] = T(5.0 * amplitude * radial_factor)
+                    mag_field.𝒫.data[r_idx, lm] = T(5.0 * amplitude * radial_factor)
                 else
-                    mag_field.poloidal.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
+                    mag_field.𝒫.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
                 end
             end
         end
@@ -480,13 +480,13 @@ Generate random velocity initial conditions.
 """
 function generate_random_velocity!(vel_field, amplitude, modes_range)
 
-    T = eltype(vel_field.toroidal.data)
-    nr_tor, nlm_tor = size(vel_field.toroidal.data)
-    nr_pol, nlm_pol = size(vel_field.poloidal.data)
+    T = eltype(vel_field.𝒯.data)
+    nr_tor, nlm_tor = size(vel_field.𝒯.data)
+    nr_pol, nlm_pol = size(vel_field.𝒫.data)
 
     # Clear fields first
-    fill!(vel_field.toroidal.data, T(0))
-    fill!(vel_field.poloidal.data, T(0))
+    fill!(vel_field.𝒯.data, T(0))
+    fill!(vel_field.𝒫.data, T(0))
 
     # Generate small random velocities
     for r_idx in 1:nr_tor
@@ -495,7 +495,7 @@ function generate_random_velocity!(vel_field, amplitude, modes_range)
 
         for lm in modes_range
             if lm <= nlm_tor
-                vel_field.toroidal.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
+                vel_field.𝒯.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
             end
         end
     end
@@ -506,7 +506,7 @@ function generate_random_velocity!(vel_field, amplitude, modes_range)
 
         for lm in modes_range
             if lm <= nlm_pol
-                vel_field.poloidal.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
+                vel_field.𝒫.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
             end
         end
     end
@@ -649,12 +649,12 @@ Set analytical magnetic field patterns.
 """
 function set_analytical_magnetic!(mag_field, pattern::Symbol, amplitude; parameters...)
 
-    T = eltype(mag_field.toroidal.data)
-    nr_tor, nlm_tor = size(mag_field.toroidal.data)
-    nr_pol, nlm_pol = size(mag_field.poloidal.data)
+    T = eltype(mag_field.𝒯.data)
+    nr_tor, nlm_tor = size(mag_field.𝒯.data)
+    nr_pol, nlm_pol = size(mag_field.𝒫.data)
 
-    fill!(mag_field.toroidal.data, T(0))
-    fill!(mag_field.poloidal.data, T(0))
+    fill!(mag_field.𝒯.data, T(0))
+    fill!(mag_field.𝒫.data, T(0))
 
     if pattern == :dipole
         # Earth-like dipolar field
@@ -663,7 +663,7 @@ function set_analytical_magnetic!(mag_field, pattern::Symbol, amplitude; paramet
 
             # Dipole field: l=1, m=0 mode
             if nlm_pol >= 3
-                mag_field.poloidal.data[r_idx, 3] = T(amplitude * sin(π * r_frac))
+                mag_field.𝒫.data[r_idx, 3] = T(amplitude * sin(π * r_frac))
             end
         end
 
@@ -671,7 +671,7 @@ function set_analytical_magnetic!(mag_field, pattern::Symbol, amplitude; paramet
         for r_idx in 1:nr_tor
             r_frac = (r_idx - 1) / (nr_tor - 1)
             if nlm_tor >= 3
-                mag_field.toroidal.data[r_idx, 3] = T(0.1 * amplitude * sin(π * r_frac))
+                mag_field.𝒯.data[r_idx, 3] = T(0.1 * amplitude * sin(π * r_frac))
             end
         end
 
@@ -681,9 +681,9 @@ function set_analytical_magnetic!(mag_field, pattern::Symbol, amplitude; paramet
 
         for r_idx in 1:nr_pol
             if direction == :z && nlm_pol >= 1
-                mag_field.poloidal.data[r_idx, 1] = T(amplitude)  # l=0, m=0 mode
+                mag_field.𝒫.data[r_idx, 1] = T(amplitude)  # l=0, m=0 mode
             elseif direction == :x && nlm_pol >= 3
-                mag_field.poloidal.data[r_idx, 3] = T(amplitude)  # l=1, m=0 mode
+                mag_field.𝒫.data[r_idx, 3] = T(amplitude)  # l=1, m=0 mode
             end
         end
 
@@ -701,12 +701,12 @@ Set analytical velocity patterns.
 """
 function set_analytical_velocity!(vel_field, pattern::Symbol, amplitude; parameters...)
 
-    T = eltype(vel_field.toroidal.data)
-    nr_tor, nlm_tor = size(vel_field.toroidal.data)
-    nr_pol, nlm_pol = size(vel_field.poloidal.data)
+    T = eltype(vel_field.𝒯.data)
+    nr_tor, nlm_tor = size(vel_field.𝒯.data)
+    nr_pol, nlm_pol = size(vel_field.𝒫.data)
 
-    fill!(vel_field.toroidal.data, T(0))
-    fill!(vel_field.poloidal.data, T(0))
+    fill!(vel_field.𝒯.data, T(0))
+    fill!(vel_field.𝒫.data, T(0))
 
     if pattern == :convective
         # Small convective perturbations
@@ -716,8 +716,8 @@ function set_analytical_velocity!(vel_field, pattern::Symbol, amplitude; paramet
 
             # Add small perturbations in low-order modes
             for lm in 2:min(10, nlm_tor, nlm_pol)
-                vel_field.toroidal.data[r_idx, lm] = T(amplitude * radial_factor * 0.1)
-                vel_field.poloidal.data[r_idx, lm] = T(amplitude * radial_factor * 0.1)
+                vel_field.𝒯.data[r_idx, lm] = T(amplitude * radial_factor * 0.1)
+                vel_field.𝒫.data[r_idx, lm] = T(amplitude * radial_factor * 0.1)
             end
         end
 

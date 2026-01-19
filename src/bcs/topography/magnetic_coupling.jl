@@ -51,9 +51,9 @@ function apply_magnetic_topography_correction!(magnetic_field, topography::Topog
     end
 
     # Get poloidal and toroidal components
-    if hasfield(typeof(magnetic_field), :poloidal)
-        poloidal = magnetic_field.poloidal
-        toroidal = magnetic_field.toroidal
+    if hasfield(typeof(magnetic_field), :𝒫)
+        poloidal = magnetic_field.𝒫
+        toroidal = magnetic_field.𝒯
     elseif hasfield(typeof(magnetic_field), :P)
         poloidal = magnetic_field.P
         toroidal = magnetic_field.T

@@ -44,8 +44,8 @@
 #    
 #    # Access combined fields
 #    if combiner.global_velocity !== nothing
-#        v_tor_real = combiner.global_velocity.toroidal.data_real
-#        v_pol_real = combiner.global_velocity.poloidal.data_real
+#        v_tor_real = combiner.global_velocity.𝒯.data_real
+#        v_pol_real = combiner.global_velocity.𝒫.data_real
 #    end
 #    
 #    # Compute diagnostics
@@ -490,10 +490,10 @@ Combine velocity spectral coefficients from all distributed files.
 function combine_velocity_spectral!(combiner::FieldCombiner{T}, lm_mapping::Dict) where T
     
     # Get local data arrays from the field structure
-    tor_real = parent(combiner.global_velocity.toroidal.data_real)
-    tor_imag = parent(combiner.global_velocity.toroidal.data_imag)
-    pol_real = parent(combiner.global_velocity.poloidal.data_real)
-    pol_imag = parent(combiner.global_velocity.poloidal.data_imag)
+    tor_real = parent(combiner.global_velocity.𝒯.data_real)
+    tor_imag = parent(combiner.global_velocity.𝒯.data_imag)
+    pol_real = parent(combiner.global_velocity.𝒫.data_real)
+    pol_imag = parent(combiner.global_velocity.𝒫.data_imag)
     
     # Zero arrays initially
     fill!(tor_real, zero(T))
@@ -537,10 +537,10 @@ Combine magnetic spectral coefficients from all distributed files.
 function combine_magnetic_spectral!(combiner::FieldCombiner{T}, lm_mapping::Dict) where T
     
     # Get local data arrays from the field structure
-    tor_real = parent(combiner.global_magnetic.toroidal.data_real)
-    tor_imag = parent(combiner.global_magnetic.toroidal.data_imag)
-    pol_real = parent(combiner.global_magnetic.poloidal.data_real)
-    pol_imag = parent(combiner.global_magnetic.poloidal.data_imag)
+    tor_real = parent(combiner.global_magnetic.𝒯.data_real)
+    tor_imag = parent(combiner.global_magnetic.𝒯.data_imag)
+    pol_real = parent(combiner.global_magnetic.𝒫.data_real)
+    pol_imag = parent(combiner.global_magnetic.𝒫.data_imag)
     
     # Zero arrays initially
     fill!(tor_real, zero(T))
@@ -664,12 +664,12 @@ function load_single_file!(combiner::FieldCombiner{T}, filename::String) where T
         # Load velocity data
         if combiner.global_velocity !== nothing && NetCDF.varid(nc_file, "velocity_toroidal_real") != -1
             load_single_spectral_field!(
-                combiner.global_velocity.toroidal,
+                combiner.global_velocity.𝒯,
                 nc_file, "velocity_toroidal_real", "velocity_toroidal_imag"
             )
             
             load_single_spectral_field!(
-                combiner.global_velocity.poloidal,
+                combiner.global_velocity.𝒫,
                 nc_file, "velocity_poloidal_real", "velocity_poloidal_imag"
             )
         end
@@ -677,12 +677,12 @@ function load_single_file!(combiner::FieldCombiner{T}, filename::String) where T
         # Load magnetic data
         if combiner.global_magnetic !== nothing && NetCDF.varid(nc_file, "magnetic_toroidal_real") != -1
             load_single_spectral_field!(
-                combiner.global_magnetic.toroidal,
+                combiner.global_magnetic.𝒯,
                 nc_file, "magnetic_toroidal_real", "magnetic_toroidal_imag"
             )
             
             load_single_spectral_field!(
-                combiner.global_magnetic.poloidal,
+                combiner.global_magnetic.𝒫,
                 nc_file, "magnetic_poloidal_real", "magnetic_poloidal_imag"
             )
         end
@@ -786,13 +786,13 @@ function save_combined_fields(combiner::FieldCombiner{T}, output_filename::Strin
     fields = Dict{String, Any}()
     
     if combiner.global_velocity !== nothing
-        fields["velocity_toroidal"] = combiner.global_velocity.toroidal
-        fields["velocity_poloidal"] = combiner.global_velocity.poloidal
+        fields["velocity_toroidal"] = combiner.global_velocity.𝒯
+        fields["velocity_poloidal"] = combiner.global_velocity.𝒫
     end
     
     if combiner.global_magnetic !== nothing
-        fields["magnetic_toroidal"] = combiner.global_magnetic.toroidal
-        fields["magnetic_poloidal"] = combiner.global_magnetic.poloidal
+        fields["magnetic_toroidal"] = combiner.global_magnetic.𝒯
+        fields["magnetic_poloidal"] = combiner.global_magnetic.𝒫
     end
     
     if combiner.global_temperature !== nothing

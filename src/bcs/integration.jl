@@ -58,31 +58,31 @@ function initialize_boundary_conditions!(field, field_type::FieldType)
 
     elseif field_type == VELOCITY || field_type == MAGNETIC
         # Vector fields - validate toroidal and poloidal components
-        if !hasfield(typeof(field), :toroidal)
+        if !hasfield(typeof(field), :𝒯)
             throw(ArgumentError("Vector field must have toroidal component"))
         end
 
-        if !hasfield(typeof(field), :poloidal)
+        if !hasfield(typeof(field), :𝒫)
             throw(ArgumentError("Vector field must have poloidal component"))
         end
 
         # Validate and initialize toroidal component
-        if !hasfield(typeof(field.toroidal), :bc_type_inner)
+        if !hasfield(typeof(field.𝒯), :bc_type_inner)
             throw(ArgumentError("Toroidal component must have bc_type_inner, bc_type_outer, boundary_values fields"))
         end
 
-        fill!(field.toroidal.bc_type_inner, Int(DIRICHLET))
-        fill!(field.toroidal.bc_type_outer, Int(DIRICHLET))
-        fill!(field.toroidal.boundary_values, zero(eltype(field.toroidal.boundary_values)))
+        fill!(field.𝒯.bc_type_inner, Int(DIRICHLET))
+        fill!(field.𝒯.bc_type_outer, Int(DIRICHLET))
+        fill!(field.𝒯.boundary_values, zero(eltype(field.𝒯.boundary_values)))
 
         # Validate and initialize poloidal component
-        if !hasfield(typeof(field.poloidal), :bc_type_inner)
+        if !hasfield(typeof(field.𝒫), :bc_type_inner)
             throw(ArgumentError("Poloidal component must have bc_type_inner, bc_type_outer, boundary_values fields"))
         end
 
-        fill!(field.poloidal.bc_type_inner, Int(DIRICHLET))
-        fill!(field.poloidal.bc_type_outer, Int(DIRICHLET))
-        fill!(field.poloidal.boundary_values, zero(eltype(field.poloidal.boundary_values)))
+        fill!(field.𝒫.bc_type_inner, Int(DIRICHLET))
+        fill!(field.𝒫.bc_type_outer, Int(DIRICHLET))
+        fill!(field.𝒫.boundary_values, zero(eltype(field.𝒫.boundary_values)))
     end
 
     return field
@@ -187,7 +187,7 @@ function validate_field_boundary_compatibility(field, field_type::FieldType, bou
     # Field-specific validation
     if field_type == VELOCITY || field_type == MAGNETIC
         # Vector fields must have toroidal and poloidal components
-        if !hasfield(typeof(field), :toroidal) || !hasfield(typeof(field), :poloidal)
+        if !hasfield(typeof(field), :𝒯) || !hasfield(typeof(field), :𝒫)
             push!(errors, "Vector field must have toroidal and poloidal components")
         end
         
@@ -263,22 +263,22 @@ function copy_boundary_conditions!(dest_field, src_field, field_type::FieldType)
 
     elseif field_type == VELOCITY || field_type == MAGNETIC
         # Copy toroidal boundary conditions
-        if hasfield(typeof(src_field), :toroidal) && hasfield(typeof(dest_field), :toroidal)
-            if hasfield(typeof(src_field.toroidal), :boundary_values) &&
-               hasfield(typeof(dest_field.toroidal), :boundary_values)
-                dest_field.toroidal.boundary_values .= src_field.toroidal.boundary_values
-                dest_field.toroidal.bc_type_inner .= src_field.toroidal.bc_type_inner
-                dest_field.toroidal.bc_type_outer .= src_field.toroidal.bc_type_outer
+        if hasfield(typeof(src_field), :𝒯) && hasfield(typeof(dest_field), :𝒯)
+            if hasfield(typeof(src_field.𝒯), :boundary_values) &&
+               hasfield(typeof(dest_field.𝒯), :boundary_values)
+                dest_field.𝒯.boundary_values .= src_field.𝒯.boundary_values
+                dest_field.𝒯.bc_type_inner .= src_field.𝒯.bc_type_inner
+                dest_field.𝒯.bc_type_outer .= src_field.𝒯.bc_type_outer
             end
         end
 
         # Copy poloidal boundary conditions
-        if hasfield(typeof(src_field), :poloidal) && hasfield(typeof(dest_field), :poloidal)
-            if hasfield(typeof(src_field.poloidal), :boundary_values) &&
-               hasfield(typeof(dest_field.poloidal), :boundary_values)
-                dest_field.poloidal.boundary_values .= src_field.poloidal.boundary_values
-                dest_field.poloidal.bc_type_inner .= src_field.poloidal.bc_type_inner
-                dest_field.poloidal.bc_type_outer .= src_field.poloidal.bc_type_outer
+        if hasfield(typeof(src_field), :𝒫) && hasfield(typeof(dest_field), :𝒫)
+            if hasfield(typeof(src_field.𝒫), :boundary_values) &&
+               hasfield(typeof(dest_field.𝒫), :boundary_values)
+                dest_field.𝒫.boundary_values .= src_field.𝒫.boundary_values
+                dest_field.𝒫.bc_type_inner .= src_field.𝒫.bc_type_inner
+                dest_field.𝒫.bc_type_outer .= src_field.𝒫.bc_type_outer
             end
         end
     end
@@ -316,13 +316,13 @@ function reset_boundary_conditions!(field, field_type::FieldType)
 
     elseif field_type == VELOCITY || field_type == MAGNETIC
         # Reset toroidal boundary conditions
-        if hasfield(typeof(field), :toroidal) && hasfield(typeof(field.toroidal), :boundary_values)
-            fill!(field.toroidal.boundary_values, zero(eltype(field.toroidal.boundary_values)))
+        if hasfield(typeof(field), :𝒯) && hasfield(typeof(field.𝒯), :boundary_values)
+            fill!(field.𝒯.boundary_values, zero(eltype(field.𝒯.boundary_values)))
         end
 
         # Reset poloidal boundary conditions
-        if hasfield(typeof(field), :poloidal) && hasfield(typeof(field.poloidal), :boundary_values)
-            fill!(field.poloidal.boundary_values, zero(eltype(field.poloidal.boundary_values)))
+        if hasfield(typeof(field), :𝒫) && hasfield(typeof(field.𝒫), :boundary_values)
+            fill!(field.𝒫.boundary_values, zero(eltype(field.𝒫.boundary_values)))
         end
     end
 
@@ -405,19 +405,19 @@ function get_boundary_condition_summary(field, field_type::FieldType)
         elseif field_type == VELOCITY || field_type == MAGNETIC
             summary["boundary_spectral_coefficients"] = Dict{String, Any}()
 
-            if hasfield(typeof(field), :toroidal) && hasfield(typeof(field.toroidal), :boundary_values)
+            if hasfield(typeof(field), :𝒯) && hasfield(typeof(field.𝒯), :boundary_values)
                 summary["boundary_spectral_coefficients"]["toroidal"] = Dict(
-                    "inner_nonzero" => count(!iszero, field.toroidal.boundary_values[1, :]),
-                    "outer_nonzero" => count(!iszero, field.toroidal.boundary_values[2, :]),
-                    "total_modes" => size(field.toroidal.boundary_values, 2)
+                    "inner_nonzero" => count(!iszero, field.𝒯.boundary_values[1, :]),
+                    "outer_nonzero" => count(!iszero, field.𝒯.boundary_values[2, :]),
+                    "total_modes" => size(field.𝒯.boundary_values, 2)
                 )
             end
 
-            if hasfield(typeof(field), :poloidal) && hasfield(typeof(field.poloidal), :boundary_values)
+            if hasfield(typeof(field), :𝒫) && hasfield(typeof(field.𝒫), :boundary_values)
                 summary["boundary_spectral_coefficients"]["poloidal"] = Dict(
-                    "inner_nonzero" => count(!iszero, field.poloidal.boundary_values[1, :]),
-                    "outer_nonzero" => count(!iszero, field.poloidal.boundary_values[2, :]),
-                    "total_modes" => size(field.poloidal.boundary_values, 2)
+                    "inner_nonzero" => count(!iszero, field.𝒫.boundary_values[1, :]),
+                    "outer_nonzero" => count(!iszero, field.𝒫.boundary_values[2, :]),
+                    "total_modes" => size(field.𝒫.boundary_values, 2)
                 )
             end
         end

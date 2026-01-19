@@ -71,9 +71,9 @@ function apply_velocity_topography_correction!(velocity_field, topography::Topog
 
     # Get poloidal and toroidal components
     # Support different field structure conventions
-    if hasfield(typeof(velocity_field), :poloidal)
-        poloidal = velocity_field.poloidal
-        toroidal = velocity_field.toroidal
+    if hasfield(typeof(velocity_field), :𝒫)
+        poloidal = velocity_field.𝒫
+        toroidal = velocity_field.𝒯
     elseif hasfield(typeof(velocity_field), :P)
         poloidal = velocity_field.P
         toroidal = velocity_field.T
