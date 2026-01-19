@@ -20,17 +20,17 @@ function main()
     initialize_fields!(state)
 
     # Warm-up
-    GeoDynamo.compute_vorticity_spectral_full!(state.velocity, state.Dᵒᶜ)
-    GeoDynamo.compute_all_nonlinear_terms!(state.velocity, state.temperature, nothing, state.magnetic, state.Dᵒᶜ)
+    GeoDynamo.compute_vorticity_spectral_full!(state.velocity, state.𝒟ᵒᶜ)
+    GeoDynamo.compute_all_nonlinear_terms!(state.velocity, state.temperature, nothing, state.magnetic, state.𝒟ᵒᶜ)
 
     # Measure vorticity
     t0 = time()
-    GeoDynamo.compute_vorticity_spectral_full!(state.velocity, state.Dᵒᶜ)
+    GeoDynamo.compute_vorticity_spectral_full!(state.velocity, state.𝒟ᵒᶜ)
     t1 = time()
 
     # Measure nonlinear terms
     t2 = time()
-    GeoDynamo.compute_all_nonlinear_terms!(state.velocity, state.temperature, nothing, state.magnetic, state.Dᵒᶜ)
+    GeoDynamo.compute_all_nonlinear_terms!(state.velocity, state.temperature, nothing, state.magnetic, state.𝒟ᵒᶜ)
     t3 = time()
 
     @printf("Vorticity step time: %.3f ms\n", 1e3*(t1-t0))

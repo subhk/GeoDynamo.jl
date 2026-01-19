@@ -88,7 +88,7 @@
 #            low_modes = extract_spectral_subset(combiner.global_velocity, l_max=5)
 #            
 #            # Compute specific diagnostics
-#            ke = compute_kinetic_energy(combiner.global_velocity, combiner.Dᵒᶜ)
+#            ke = compute_kinetic_energy(combiner.global_velocity, combiner.𝒟ᵒᶜ)
 #            println("Time $time_val: KE = $ke")
 #        end
 #    end
@@ -155,7 +155,7 @@ consistent field structures and parameter system.
 struct FieldCombiner{T}
     # Configuration
     shtns_config::SHTnsKitConfig
-    Dᵒᶜ::RadialDomain
+    𝒟ᵒᶜ::RadialDomain
     
     # Input file information
     input_files::Vector{String}
@@ -276,13 +276,13 @@ function create_field_combiner(output_dir::String, time::Float64;
     
     # Create radial domain
     nr = get(metadata, "nr_global", params.i_N)
-    Dᵒᶜ = create_radial_domain(nr)
+    𝒟ᵒᶜ = create_radial_domain(nr)
     
     # Get time and step information
     step_val = get(metadata, "step", 0)
     
     return FieldCombiner{T}(
-        shtns_config, Dᵒᶜ, input_files, nprocs_original, time, step_val,
+        shtns_config, 𝒟ᵒᶜ, input_files, nprocs_original, time, step_val,
         nothing, nothing, nothing,  # Fields will be populated during combination
         metadata, Dict{String, Float64}()
     )
@@ -390,20 +390,20 @@ function load_distributed_fields!(combiner::FieldCombiner{T}) where T
     # Create global field structures with proper sizes
     if combiner.metadata["has_velocity"]
         combiner.global_velocity = create_shtns_velocity_fields(
-            T, combiner.shtns_config, combiner.Dᵒᶜ, pencils, pencil_spec
+            T, combiner.shtns_config, combiner.𝒟ᵒᶜ, pencils, pencil_spec
         )
     end
     
     if combiner.metadata["has_magnetic"]
         combiner.global_magnetic = create_shtns_magnetic_fields(
-            T, combiner.shtns_config, combiner.Dᵒᶜ, combiner.Dᵒᶜ, 
+            T, combiner.shtns_config, combiner.𝒟ᵒᶜ, combiner.𝒟ᵒᶜ, 
             pencils, pencil_spec
         )
     end
     
     if combiner.metadata["has_temperature"]
         combiner.global_temperature = create_shtns_temperature_field(
-            T, combiner.shtns_config, combiner.Dᵒᶜ, pencils, pencil_spec
+            T, combiner.shtns_config, combiner.𝒟ᵒᶜ, pencils, pencil_spec
         )
     end
 end
@@ -741,7 +741,7 @@ function compute_global_diagnostics(combiner::FieldCombiner{T}) where T
     
     # Velocity diagnostics
     if combiner.global_velocity !== nothing
-        ke = compute_kinetic_energy(combiner.global_velocity, combiner.Dᵒᶜ)
+        ke = compute_kinetic_energy(combiner.global_velocity, combiner.𝒟ᵒᶜ)
         diagnostics["kinetic_energy"] = ke
         
         # Reynolds stress
@@ -759,7 +759,7 @@ function compute_global_diagnostics(combiner::FieldCombiner{T}) where T
         diagnostics["temperature_max"] = maximum(temp_data)
         
         # Nusselt number
-        nu = compute_nusselt_number(combiner.global_temperature, combiner.Dᵒᶜ)
+        nu = compute_nusselt_number(combiner.global_temperature, combiner.𝒟ᵒᶜ)
         diagnostics["nusselt_number"] = nu
         
         # Thermal energy
@@ -858,7 +858,7 @@ function combine_distributed_time(output_dir::String, time::Float64;
     if config.verbose
         @info "Found $(combiner.nprocs_original) distributed files to combine"
         @info "Configuration: lmax=$(combiner.shtns_config.lmax), " *
-              "nlat=$(combiner.shtns_config.nlat), nr=$(combiner.Dᵒᶜ.N)"
+              "nlat=$(combiner.shtns_config.nlat), nr=$(combiner.𝒟ᵒᶜ.N)"
     end
     
     # Load distributed field data

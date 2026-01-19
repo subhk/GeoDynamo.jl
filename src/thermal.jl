@@ -121,7 +121,7 @@ end
 get_main_physical_field(field::SHTnsTemperatureField{T}) where T = field.temperature
 
 function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
-                                        Dᵒᶜ::RadialDomain,
+                                        𝒟ᵒᶜ::RadialDomain,
                                         pencils=nothing, pencil_spec=nothing) where T
     # Use config's pencils by default (consistent with velocity/magnetic creators)
     if pencils === nothing
@@ -132,29 +132,29 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     end
     
     # Temperature field in r-pencil for efficient radial operations
-    temperature = create_shtns_physical_field(T, config, Dᵒᶜ, pencils.r)
+    temperature = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
     
     # Gradient components
-    gradient = create_shtns_vector_field(T, config, Dᵒᶜ, 
+    gradient = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, 
                                         (pencils.θ, pencils.φ, pencils.r))
     
     # Spectral representation using spectral pencil
-    spectral  = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    nonlinear = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    prev_nonlinear = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
+    spectral  = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    nonlinear = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    prev_nonlinear = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
 
     # Work arrays
-    work_spectral      = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    work_physical      = create_shtns_physical_field(T, config, Dᵒᶜ, pencils.r)
-    advection_physical = create_shtns_physical_field(T, config, Dᵒᶜ, pencils.r)
+    work_spectral      = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    work_physical      = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
+    advection_physical = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
 
     # Gradient spectral components
-    grad_theta_spec = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    grad_phi_spec   = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    ∇ᵣ_spec     = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
+    grad_theta_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    grad_phi_spec   = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    ∇ᵣ_spec     = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
     
     # Sources and boundary conditions
-    internal_sources = zeros(T, Dᵒᶜ.N)
+    internal_sources = zeros(T, 𝒟ᵒᶜ.N)
     boundary_values  = zeros(T, 2, config.nlm)
     
     # Default BC types (DIRICHLET = fixed temperature, NEUMANN = fixed flux)
@@ -170,8 +170,8 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     # Transform manager removed in SHTnsKit migration
     
     # Create radial derivative matrices
-    ∂r  = create_derivative_matrix(1, Dᵒᶜ)
-    ∂²r = create_derivative_matrix(2, Dᵒᶜ)
+    ∂r  = create_derivative_matrix(1, 𝒟ᵒᶜ)
+    ∂²r = create_derivative_matrix(2, 𝒟ᵒᶜ)
     
     # Pre-compute spectral derivative operators
     theta_derivative_matrix = build_theta_derivative_matrix(T, config)
@@ -188,7 +188,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
         ∂r, ∂²r,
         theta_derivative_matrix, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),
-        Dᵒᶜ
+        𝒟ᵒᶜ
     )
 end
 
@@ -261,7 +261,7 @@ end
 # Main nonlinear computation with full spectral optimization
 # ================================================================================
 function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
-                                        vel_fields, Dᵒᶜ::RadialDomain; 
+                                        vel_fields, 𝒟ᵒᶜ::RadialDomain; 
                                         geometry::Symbol = get_parameters().geometry) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
     
@@ -270,7 +270,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     
     # Step 1: Compute ALL gradients in spectral space (NO COMMUNICATION!)
     t_spectral = MPI.Wtime()
-    compute_all_gradients_spectral!(temp_field, Dᵒᶜ)
+    compute_all_gradients_spectral!(temp_field, 𝒟ᵒᶜ)
     temp_field.spectral_time[] += MPI.Wtime() - t_spectral
     
     # Step 2: Single batched transform of temperature and gradients to physical
@@ -284,7 +284,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     end
     
     # Step 4: Add internal heat sources (local operation)
-    add_internal_sources_local!(temp_field, Dᵒᶜ)
+    add_internal_sources_local!(temp_field, 𝒟ᵒᶜ)
     
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
@@ -297,7 +297,7 @@ function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T},
     
     # Step 6: Apply boundary conditions in spectral space
     apply_temperature_boundary_conditions!(temp_field)
-    apply_temperature_boundary_conditions_spectral!(temp_field, Dᵒᶜ)
+    apply_temperature_boundary_conditions_spectral!(temp_field, 𝒟ᵒᶜ)
     
     if ENABLE_TIMING[]
         temp_field.computation_time[] += MPI.Wtime() - t_start

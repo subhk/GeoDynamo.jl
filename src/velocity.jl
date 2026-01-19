@@ -1090,7 +1090,7 @@ end
 
 
 function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig, 
-                                      Dᵒᶜ::RadialDomain, 
+                                      𝒟ᵒᶜ::RadialDomain, 
                                       pencils=nothing, pencil_spec=nothing) where T
     # Use pencils from config by default (they already encode the correct nr)
     if pencils === nothing
@@ -1104,24 +1104,24 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     end
     
     # Create vector fields
-    velocity  = create_shtns_vector_field(T, config, Dᵒᶜ, pencils)
-    vorticity = create_shtns_vector_field(T, config, Dᵒᶜ, pencils)
+    velocity  = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, pencils)
+    vorticity = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, pencils)
     
     # Spectral fields
-    𝒯        = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    𝒫        = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    ζᵀ       = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    ζᴾ       = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    nlᵀ      = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    nlᴾ      = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    prev_nlᵀ = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    prev_nlᴾ = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
+    𝒯        = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    𝒫        = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    ζᵀ       = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    ζᴾ       = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    nlᵀ      = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    nlᴾ      = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    prev_nlᵀ = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    prev_nlᴾ = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
     
     # Work arrays
-    work_tor           = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    work_pol           = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
-    work_physical      = create_shtns_vector_field(T, config, Dᵒᶜ, pencils)
-    advection_physical = create_shtns_vector_field(T, config, Dᵒᶜ, pencils)
+    work_tor           = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    work_pol           = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    work_physical      = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, pencils)
+    advection_physical = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, pencils)
     
     # Pre-compute l(l+1) factors
     ℓ_factors = Float64[l * (l + 1) for l in config.l_values]
@@ -1134,9 +1134,9 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     end
     
     # Create radial derivative matrices
-    ∂r        = create_derivative_matrix(1, Dᵒᶜ)
-    ∂²r       = create_derivative_matrix(2, Dᵒᶜ)
-    laplacian_matrix = create_radial_laplacian(Dᵒᶜ)
+    ∂r        = create_derivative_matrix(1, 𝒟ᵒᶜ)
+    ∂²r       = create_derivative_matrix(2, 𝒟ᵒᶜ)
+    laplacian_matrix = create_radial_laplacian(𝒟ᵒᶜ)
     
     # Create transpose plans for efficient data movement
     transpose_plans = create_transpose_plans(pencils)
@@ -1153,7 +1153,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
                                   ℓ_factors, coriolis_factors,
                                   ∂r, ∂²r, laplacian_matrix,
                                   config,
-                                  Dᵒᶜ,
+                                  𝒟ᵒᶜ,
                                   boundary_condition_set, boundary_cache, boundary_time_index)
 end
 
@@ -1163,22 +1163,22 @@ end
 # =============================
 function compute_velocity_nonlinear!(𝒰::SHTnsVelocityFields{T},
                                     temp_field, comp_field, mag_field,
-                                    Dᵒᶜ::RadialDomain;
+                                    𝒟ᵒᶜ::RadialDomain;
                                     geometry::Symbol = get_parameters().geometry) where T
     # Zero work arrays once
     zero_velocity_work_arrays!(𝒰)
 
     # Step 1: Use enhanced vector synthesis with automatic transpose handling
-    shtnskit_vector_synthesis!(𝒰.𝒯, 𝒰.𝒫, 𝒰.velocity; domain=Dᵒᶜ)
+    shtnskit_vector_synthesis!(𝒰.𝒯, 𝒰.𝒫, 𝒰.velocity; domain=𝒟ᵒᶜ)
 
     # Step 2: Compute vorticity in spectral space with enhanced derivative computation
-    compute_vorticity_spectral_full!(𝒰, Dᵒᶜ)
+    compute_vorticity_spectral_full!(𝒰, 𝒟ᵒᶜ)
 
     # Step 3: Transform vorticity to physical space with batched operations
-    shtnskit_vector_synthesis!(𝒰.ζᵀ, 𝒰.ζᴾ, 𝒰.vorticity; domain=Dᵒᶜ)
+    shtnskit_vector_synthesis!(𝒰.ζᵀ, 𝒰.ζᴾ, 𝒰.vorticity; domain=𝒟ᵒᶜ)
 
     # Step 4: Compute all nonlinear terms with enhanced memory access patterns
-    compute_all_nonlinear_terms!(𝒰, temp_field, comp_field, mag_field, Dᵒᶜ)
+    compute_all_nonlinear_terms!(𝒰, temp_field, comp_field, mag_field, 𝒟ᵒᶜ)
 
     # Step 5: Use enhanced vector analysis with efficient data layout
     if geometry === :ball
@@ -1706,7 +1706,7 @@ end
 #     # Solve (∇²_r - l(l+1)/r²) u = source
 #     # This is a simplified solver - in practice would use more sophisticated methods
     
-#     N = Dᵒᶜ.N
+#     N = 𝒟ᵒᶜ.N
 #     solution = zeros(T, N)
     
 #     # Build full operator for this l value
@@ -1720,7 +1720,7 @@ end
 #                 operator[i, j] = laplacian.data[band_row, j]
 #                 if i == j
 #                     # Add -l(l+1)/r² term to diagonal
-#                     r⁻² = Dᵒᶜ.r[i, 2]
+#                     r⁻² = 𝒟ᵒᶜ.r[i, 2]
 #                     operator[i, j] -= ℓ_factor * r⁻²
 #                 end
 #             end
@@ -1739,7 +1739,7 @@ end
 # =====================================================
 # Diagnostic functions using transform infrastructure
 # =====================================================
-function compute_kinetic_energy(𝒰::SHTnsVelocityFields{T}, Dᵒᶜ::RadialDomain) where T
+function compute_kinetic_energy(𝒰::SHTnsVelocityFields{T}, 𝒟ᵒᶜ::RadialDomain) where T
     # Compute kinetic energy with configuration-aware integration
 
     tor_real = parent(𝒰.𝒯.data_real)
@@ -1768,8 +1768,8 @@ function compute_kinetic_energy(𝒰::SHTnsVelocityFields{T}, Dᵒᶜ::RadialDom
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(tor_real, 3)
                     # Include radial weight for spherical integration
-                    r = Dᵒᶜ.r[r_idx, 4]
-                    r_weight = r^2 * Dᵒᶜ.integration_weights[r_idx]
+                    r = 𝒟ᵒᶜ.r[r_idx, 4]
+                    r_weight = r^2 * 𝒟ᵒᶜ.integration_weights[r_idx]
                     
                     local_energy += weight * r_weight * (
                         tor_real[local_lm, 1, local_r]^2 + 

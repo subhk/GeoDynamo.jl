@@ -531,11 +531,11 @@ end
 # ================================================================================
 
 """
-    compute_scalar_rms(field::AbstractScalarField{T}, Dᵒᶜ::RadialDomain) where T
+    compute_scalar_rms(field::AbstractScalarField{T}, 𝒟ᵒᶜ::RadialDomain) where T
 
 Compute RMS value of scalar field.
 """
-function compute_scalar_rms(field::AbstractScalarField{T}, Dᵒᶜ::RadialDomain) where T
+function compute_scalar_rms(field::AbstractScalarField{T}, 𝒟ᵒᶜ::RadialDomain) where T
     spec_real = parent(field.spectral.data_real)
     spec_imag = parent(field.spectral.data_imag)
     
@@ -554,15 +554,15 @@ function compute_scalar_rms(field::AbstractScalarField{T}, Dᵒᶜ::RadialDomain
     comm = get_comm()
     global_sum = Allreduce(local_sum, MPI.SUM, comm)
     
-    return sqrt(global_sum / (Dᵒᶜ.N * field.config.nlm))
+    return sqrt(global_sum / (𝒟ᵒᶜ.N * field.config.nlm))
 end
 
 """
-    compute_scalar_energy(field::AbstractScalarField{T}, Dᵒᶜ::RadialDomain) where T
+    compute_scalar_energy(field::AbstractScalarField{T}, 𝒟ᵒᶜ::RadialDomain) where T
 
 Compute energy ∫ field² dV
 """
-function compute_scalar_energy(field::AbstractScalarField{T}, Dᵒᶜ::RadialDomain) where T
+function compute_scalar_energy(field::AbstractScalarField{T}, 𝒟ᵒᶜ::RadialDomain) where T
     spec_real = parent(field.spectral.data_real)
     spec_imag = parent(field.spectral.data_imag)
     
@@ -571,9 +571,9 @@ function compute_scalar_energy(field::AbstractScalarField{T}, Dᵒᶜ::RadialDom
     
     for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
-        if local_r <= size(spec_real, 3) && r_idx <= Dᵒᶜ.N
+        if local_r <= size(spec_real, 3) && r_idx <= 𝒟ᵒᶜ.N
             # Volume element for this radius
-            vol_element = Dᵒᶜ.r[r_idx, 2]  # 4π r² dr weight
+            vol_element = 𝒟ᵒᶜ.r[r_idx, 2]  # 4π r² dr weight
             
             for lm_idx in axes(spec_real, 1)
                 if lm_idx <= field.config.nlm
@@ -589,7 +589,7 @@ function compute_scalar_energy(field::AbstractScalarField{T}, Dᵒᶜ::RadialDom
     comm = get_comm()
     global_energy = Allreduce(local_energy, MPI.SUM, comm)
     
-    return global_energy / (field.config.nlat * field.config.nlon * Dᵒᶜ.N)
+    return global_energy / (field.config.nlat * field.config.nlon * 𝒟ᵒᶜ.N)
 end
 
 # ================================================================================
@@ -1027,21 +1027,21 @@ end
 # ================================================================================
 
 """
-    compute_influence_functions_flux(Dᵒᶜ::RadialDomain)
+    compute_influence_functions_flux(𝒟ᵒᶜ::RadialDomain)
 
 Compute influence functions for flux BCs.
 These are solutions to the homogeneous equation with specific BCs.
 """
-function compute_influence_functions_flux(Dᵒᶜ::RadialDomain)
-    nr = Dᵒᶜ.N
-    ri = Dᵒᶜ.r[1, 4]
-    ro = Dᵒᶜ.r[nr, 4]
+function compute_influence_functions_flux(𝒟ᵒᶜ::RadialDomain)
+    nr = 𝒟ᵒᶜ.N
+    ri = 𝒟ᵒᶜ.r[1, 4]
+    ro = 𝒟ᵒᶜ.r[nr, 4]
     
     G_inner = zeros(nr)
     G_outer = zeros(nr)
     
     for i in 1:nr
-        r = Dᵒᶜ.r[i, 4]
+        r = 𝒟ᵒᶜ.r[i, 4]
         ξ = (r - ri) / (ro - ri)
         
         # Inner influence: strong at inner, weak at outer
@@ -1052,8 +1052,8 @@ function compute_influence_functions_flux(Dᵒᶜ::RadialDomain)
     end
     
     # Normalize to have unit flux contribution
-    normalize_influence_function!(G_inner, Dᵒᶜ, 1)
-    normalize_influence_function!(G_outer, Dᵒᶜ, 2)
+    normalize_influence_function!(G_inner, 𝒟ᵒᶜ, 1)
+    normalize_influence_function!(G_outer, 𝒟ᵒᶜ, 2)
     
     return G_inner, G_outer
 end

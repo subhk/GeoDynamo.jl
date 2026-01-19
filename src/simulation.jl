@@ -75,8 +75,8 @@ struct SimulationState{T}
 
     # Geometric data
     shtns_config::SHTnsKitConfig
-    Dᵒᶜ::RadialDomain
-    Dⁱᶜ::RadialDomain
+    𝒟ᵒᶜ::RadialDomain
+    𝒟ⁱᶜ::RadialDomain
 
     # Unified master parallelization system
     master_parallelizer::MasterParallelizer{T}
@@ -141,15 +141,15 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
     
     geom = get_parameters().geometry
     if geom === :ball
-        Dᵒᶜ = create_ball_radial_domain(i_N)
-        Dⁱᶜ = Dᵒᶜ
+        𝒟ᵒᶜ = create_ball_radial_domain(i_N)
+        𝒟ⁱᶜ = 𝒟ᵒᶜ
         velocity = create_ball_velocity_fields(T, shtns_config; nr=i_N)
         magnetic = create_ball_magnetic_fields(T, shtns_config; nr=i_N)
         temperature = create_ball_temperature_field(T, shtns_config; nr=i_N)
         composition = include_composition ? create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
     else
-        Dᵒᶜ = create_shell_radial_domain(i_N)
-        Dⁱᶜ = create_shell_radial_domain(i_Nic)
+        𝒟ᵒᶜ = create_shell_radial_domain(i_N)
+        𝒟ⁱᶜ = create_shell_radial_domain(i_Nic)
         velocity = create_shell_velocity_fields(T, shtns_config; nr=i_N)
         magnetic = create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
         temperature = create_shell_temperature_field(T, shtns_config; nr=i_N)
@@ -165,17 +165,17 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
     
     # Create implicit matrices for each equation
     implicit_matrices = Dict{Symbol, SHTnsImplicitMatrices{T}}()
-    implicit_matrices[:velocity] = create_shtns_timestepping_matrices(shtns_config, Dᵒᶜ, d_Pm, d_timestep)
-    implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(shtns_config, Dᵒᶜ, 1.0, d_timestep)
-    implicit_matrices[:temperature] = create_shtns_timestepping_matrices(shtns_config, Dᵒᶜ, d_Pm/d_Pr, d_timestep)
+    implicit_matrices[:velocity] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm, d_timestep)
+    implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
+    implicit_matrices[:temperature] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Pr, d_timestep)
     
     if include_composition
-        implicit_matrices[:composition] = create_shtns_timestepping_matrices(shtns_config, Dᵒᶜ, d_Pm/d_Sc, d_timestep)
+        implicit_matrices[:composition] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Sc, d_timestep)
     end
     
     return SimulationState{T}(
         velocity, magnetic, temperature, composition,
-        shtns_config, Dᵒᶜ, Dⁱᶜ,
+        shtns_config, 𝒟ᵒᶜ, 𝒟ⁱᶜ,
         hybrid_parallelizer, performance_monitor,
         timestep_state, implicit_matrices,
         0, auto_optimize, geom
@@ -226,15 +226,15 @@ function initialize_simulation(::Type{T}=Float64;
     
     geom = get_parameters().geometry
     if geom === :ball
-        Dᵒᶜ = create_ball_radial_domain(i_N)
-        Dⁱᶜ = Dᵒᶜ
+        𝒟ᵒᶜ = create_ball_radial_domain(i_N)
+        𝒟ⁱᶜ = 𝒟ᵒᶜ
         velocity = create_ball_velocity_fields(T, shtns_config; nr=i_N)
         magnetic = create_ball_magnetic_fields(T, shtns_config; nr=i_N)
         temperature = create_ball_temperature_field(T, shtns_config; nr=i_N)
         composition = include_composition ? create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
     else
-        Dᵒᶜ = create_shell_radial_domain(i_N)
-        Dⁱᶜ = create_shell_radial_domain(i_Nic)
+        𝒟ᵒᶜ = create_shell_radial_domain(i_N)
+        𝒟ⁱᶜ = create_shell_radial_domain(i_Nic)
         velocity = create_shell_velocity_fields(T, shtns_config; nr=i_N)
         magnetic = create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
         temperature = create_shell_temperature_field(T, shtns_config; nr=i_N)
@@ -268,17 +268,17 @@ function initialize_simulation(::Type{T}=Float64;
     
     # Create implicit matrices for each equation
     implicit_matrices = Dict{Symbol, SHTnsImplicitMatrices{T}}()
-    implicit_matrices[:velocity] = create_shtns_timestepping_matrices(shtns_config, Dᵒᶜ, d_Pm, d_timestep)
-    implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(shtns_config, Dᵒᶜ, 1.0, d_timestep)
-    implicit_matrices[:temperature] = create_shtns_timestepping_matrices(shtns_config, Dᵒᶜ, d_Pm/d_Pr, d_timestep)
+    implicit_matrices[:velocity] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm, d_timestep)
+    implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
+    implicit_matrices[:temperature] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Pr, d_timestep)
     
     if include_composition
-        implicit_matrices[:composition] = create_shtns_timestepping_matrices(shtns_config, Dᵒᶜ, d_Pm/d_Sc, d_timestep)
+        implicit_matrices[:composition] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Sc, d_timestep)
     end
     
     return SimulationState{T}(
         velocity, magnetic, temperature, composition,
-        shtns_config, Dᵒᶜ, Dⁱᶜ,
+        shtns_config, 𝒟ᵒᶜ, 𝒟ⁱᶜ,
         master_parallelizer,
         timestep_state, implicit_matrices,
         Dict{Symbol, EAB2ALUCacheEntry{T}}(),  # Type-stable etd_caches
@@ -300,7 +300,7 @@ function run_shtns_simulation!(state)
 
     if rank == 0
         println("Starting geodynamo simulation with SHTnsKit...")
-        println("SHTns Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(state.Dᵒᶜ.N)")
+        println("SHTns Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(state.𝒟ᵒᶜ.N)")
         println("Spectral modes: $(state.shtns_config.nlm)")
         println("lmax: $(state.shtns_config.lmax), mmax: $(state.shtns_config.mmax)")
         println("Geometry: $(state.geometry)")
@@ -443,21 +443,21 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
         
         # Temperature evolution with all optimizations
         hybrid_compute_nonlinear!(state.hybrid_parallelizer, state.temperature, 
-                                 state.velocity, state.Dᵒᶜ)
+                                 state.velocity, state.𝒟ᵒᶜ)
         
         # Velocity evolution
         if state.velocity !== nothing
-            compute_velocity_nonlinear!(state.velocity, state.magnetic, state.temperature, state.Dᵒᶜ)
+            compute_velocity_nonlinear!(state.velocity, state.magnetic, state.temperature, state.𝒟ᵒᶜ)
         end
         
         # Magnetic field evolution  
         if i_B == 1 && state.magnetic !== nothing
-            compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.Dᵒᶜ, state.Dⁱᶜ)
+            compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.𝒟ᵒᶜ, state.𝒟ⁱᶜ)
         end
         
         # Compositional evolution (if enabled)
         if state.composition !== nothing
-            compute_composition_nonlinear!(state.composition, state.velocity, state.Dᵒᶜ)
+            compute_composition_nonlinear!(state.composition, state.velocity, state.𝒟ᵒᶜ)
         end
         
         compute_time = Wtime() - compute_start
@@ -597,21 +597,21 @@ function run_simulation!(state::SimulationState{T}) where T
         
         # Temperature evolution with maximum CPU optimizations
         compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, state.temperature, 
-                                   state.velocity, state.Dᵒᶜ)
+                                   state.velocity, state.𝒟ᵒᶜ)
         
         # Velocity evolution with task-based parallelism
         if state.velocity !== nothing
-            compute_velocity_nonlinear_master!(state, state.magnetic, state.temperature, state.Dᵒᶜ)
+            compute_velocity_nonlinear_master!(state, state.magnetic, state.temperature, state.𝒟ᵒᶜ)
         end
         
         # Magnetic field evolution with SIMD optimization
         if i_B == 1 && state.magnetic !== nothing
-            compute_magnetic_nonlinear_master!(state, state.velocity, state.Dᵒᶜ, state.Dⁱᶜ)
+            compute_magnetic_nonlinear_master!(state, state.velocity, state.𝒟ᵒᶜ, state.𝒟ⁱᶜ)
         end
         
         # Compositional evolution (if enabled) with memory optimization
         if state.composition !== nothing
-            compute_composition_nonlinear_master!(state, state.velocity, state.Dᵒᶜ)
+            compute_composition_nonlinear_master!(state, state.velocity, state.𝒟ᵒᶜ)
         end
         
         compute_time = Wtime() - compute_start
@@ -764,7 +764,7 @@ function initialize_fields!(state::SimulationState{T}) where T
         for r_idx in axes(temp_real, 3)
             if l == 0 && m == 0
                 # Conductive profile
-                r = state.Dᵒᶜ.r[r_idx, 4]
+                r = state.𝒟ᵒᶜ.r[r_idx, 4]
                 temp_real[lm_idx, 1, r_idx] = 1.0 - r
             elseif l <= 4 && l >= 1
                 # Small perturbation
@@ -795,7 +795,7 @@ function initialize_fields!(state::SimulationState{T}) where T
         for r_idx in axes(mag_tor_real, 3)
             if l == 1 && m == 0
                 # Dipole field
-                r = state.Dᵒᶜ.r[r_idx, 4]
+                r = state.𝒟ᵒᶜ.r[r_idx, 4]
                 mag_pol_real[lm_idx, 1, r_idx] = r^2 * (1.0 - r)
             elseif l <= 3 && l >= 1
                 # Small perturbation
@@ -837,15 +837,15 @@ end
 function compute_all_nonlinear_terms!(state::SimulationState{T}) where T
     # Compute nonlinear terms for all equations using SHTns transforms
     compute_velocity_nonlinear!(state.velocity, state.temperature, 
-                                state.composition, state.magnetic, state.Dᵒᶜ)
+                                state.composition, state.magnetic, state.𝒟ᵒᶜ)
     
-    compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.Dᵒᶜ, state.Dⁱᶜ, 0.0)  # No inner core rotation for now
+    compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.𝒟ᵒᶜ, state.𝒟ⁱᶜ, 0.0)  # No inner core rotation for now
     
-    compute_temperature_nonlinear!(state.temperature, state.velocity, state.Dᵒᶜ)
+    compute_temperature_nonlinear!(state.temperature, state.velocity, state.𝒟ᵒᶜ)
     
     # Compute compositional advection if composition is present
     if state.composition !== nothing
-        compute_composition_nonlinear!(state.composition, state.velocity, state.Dᵒᶜ)
+        compute_composition_nonlinear!(state.composition, state.velocity, state.𝒟ᵒᶜ)
     end
 end
 
@@ -855,7 +855,7 @@ function predictor_step!(state::SimulationState{T}) where T
     # Velocity (toroidal component)
     rhs_tor = similar(state.velocity.toroidal)
     apply_explicit_operator!(rhs_tor, state.velocity.toroidal,
-                             state.velocity.nlᵀ, state.Dᵒᶜ,
+                             state.velocity.nlᵀ, state.𝒟ᵒᶜ,
                              d_Pm, state.timestep_state.dt;
                              nl_prev=state.velocity.prev_nlᵀ,
                              matrices=state.implicit_matrices[:velocity])
@@ -865,7 +865,7 @@ function predictor_step!(state::SimulationState{T}) where T
     # Velocity (poloidal component)
     rhs_pol = similar(state.velocity.poloidal)
     apply_explicit_operator!(rhs_pol, state.velocity.poloidal,
-                             state.velocity.nlᴾ, state.Dᵒᶜ,
+                             state.velocity.nlᴾ, state.𝒟ᵒᶜ,
                              d_Pm, state.timestep_state.dt;
                              nl_prev=state.velocity.prev_nlᴾ,
                              matrices=state.implicit_matrices[:velocity])
@@ -874,7 +874,7 @@ function predictor_step!(state::SimulationState{T}) where T
 
     # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
     # Using :tau method for high-order accurate enforcement of ∂T/∂r = T/r
-    apply_velocity_flux_bc_spectral!(state.velocity, state.Dᵒᶜ; method=:tau)
+    apply_velocity_flux_bc_spectral!(state.velocity, state.𝒟ᵒᶜ; method=:tau)
 
     # Enforce Dirichlet boundary conditions for velocity
     enforce_velocity_boundary_values!(state.velocity)
@@ -882,7 +882,7 @@ function predictor_step!(state::SimulationState{T}) where T
     # Magnetic field (toroidal)
     rhs_mag_tor = similar(state.magnetic.toroidal)
     apply_explicit_operator!(rhs_mag_tor, state.magnetic.toroidal,
-                             state.magnetic.nlᵀ, state.Dᵒᶜ,
+                             state.magnetic.nlᵀ, state.𝒟ᵒᶜ,
                              1.0, state.timestep_state.dt;
                              nl_prev=state.magnetic.prev_nlᵀ,
                              matrices=state.implicit_matrices[:magnetic])
@@ -892,7 +892,7 @@ function predictor_step!(state::SimulationState{T}) where T
     # Magnetic field (poloidal)
     rhs_mag_pol = similar(state.magnetic.poloidal)
     apply_explicit_operator!(rhs_mag_pol, state.magnetic.poloidal,
-                             state.magnetic.nlᴾ, state.Dᵒᶜ,
+                             state.magnetic.nlᴾ, state.𝒟ᵒᶜ,
                              1.0, state.timestep_state.dt;
                              nl_prev=state.magnetic.prev_nlᴾ,
                              matrices=state.implicit_matrices[:magnetic])
@@ -902,7 +902,7 @@ function predictor_step!(state::SimulationState{T}) where T
     # Temperature
     rhs_temp = similar(state.temperature.spectral)
     apply_explicit_operator!(rhs_temp, state.temperature.spectral,
-                             state.temperature.nonlinear, state.Dᵒᶜ,
+                             state.temperature.nonlinear, state.𝒟ᵒᶜ,
                              d_Pm/d_Pr, state.timestep_state.dt;
                              nl_prev=state.temperature.prev_nonlinear,
                              matrices=state.implicit_matrices[:temperature])
@@ -913,7 +913,7 @@ function predictor_step!(state::SimulationState{T}) where T
     if state.composition !== nothing
         rhs_comp = similar(state.composition.spectral)
         apply_explicit_operator!(rhs_comp, state.composition.spectral,
-                                 state.composition.nonlinear, state.Dᵒᶜ,
+                                 state.composition.nonlinear, state.𝒟ᵒᶜ,
                                  d_Pm/d_Sc, state.timestep_state.dt;
                                  nl_prev=state.composition.prev_nonlinear,
                                  matrices=state.implicit_matrices[:composition])
@@ -932,7 +932,7 @@ function compute_cfl_timestep!(state::SimulationState{T}) where T
     # Compute CFL-limited timestep based on velocity magnitudes
 
     # Convert velocity to physical space for analysis
-    shtnskit_vector_synthesis!(state.velocity.toroidal, state.velocity.poloidal, state.velocity.velocity; domain=state.Dᵒᶜ)
+    shtnskit_vector_synthesis!(state.velocity.toroidal, state.velocity.poloidal, state.velocity.velocity; domain=state.𝒟ᵒᶜ)
     
     max_velocity = zero(Float64)
     
@@ -960,7 +960,7 @@ function compute_cfl_timestep!(state::SimulationState{T}) where T
     global_max_vel = MPI.Allreduce(max_velocity, MPI.MAX, comm)
     
     # Compute grid spacing (approximate)
-    dr_min = minimum(diff(state.Dᵒᶜ.r[:, 4]))
+    dr_min = minimum(diff(state.𝒟ᵒᶜ.r[:, 4]))
     dtheta_min = π / state.shtns_config.nlat
     dphi_min = 2π / state.shtns_config.nlon
     dx_min = min(dr_min, dtheta_min, dphi_min)
@@ -977,16 +977,16 @@ function update_implicit_matrices!(state::SimulationState{T}) where T
     dt = state.timestep_state.dt
     
     state.implicit_matrices[:velocity] = create_shtns_timestepping_matrices(
-        state.shtns_config, state.Dᵒᶜ, d_Pm, dt)
+        state.shtns_config, state.𝒟ᵒᶜ, d_Pm, dt)
     state.implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(
-        state.shtns_config, state.Dᵒᶜ, 1.0, dt)
+        state.shtns_config, state.𝒟ᵒᶜ, 1.0, dt)
     state.implicit_matrices[:temperature] = create_shtns_timestepping_matrices(
-        state.shtns_config, state.Dᵒᶜ, d_Pm/d_Pr, dt)
+        state.shtns_config, state.𝒟ᵒᶜ, d_Pm/d_Pr, dt)
     
     # Update compositional matrix if composition is present
     if state.composition !== nothing
         state.implicit_matrices[:composition] = create_shtns_timestepping_matrices(
-            state.shtns_config, state.Dᵒᶜ, d_Pm/d_Sc, dt)
+            state.shtns_config, state.𝒟ᵒᶜ, d_Pm/d_Sc, dt)
     end
 end
 
@@ -1015,7 +1015,7 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
 
     # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
     # Using :tau method for high-order accurate enforcement of ∂T/∂r = T/r
-    apply_velocity_flux_bc_spectral!(state.velocity, state.Dᵒᶜ; method=:tau)
+    apply_velocity_flux_bc_spectral!(state.velocity, state.𝒟ᵒᶜ; method=:tau)
 
     # Enforce Dirichlet boundary conditions for velocity
     enforce_velocity_boundary_values!(state.velocity)
@@ -1090,9 +1090,9 @@ function compute_velocity_nonlinear_master!(state, magnetic, temperature, domain
     compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, temperature, state.velocity, domain)
 end
 
-function compute_magnetic_nonlinear_master!(state, velocity, Dᵒᶜ, Dⁱᶜ)
+function compute_magnetic_nonlinear_master!(state, velocity, 𝒟ᵒᶜ, 𝒟ⁱᶜ)
     # Use SIMD magnetic field computation
-    compute_magnetic_nonlinear!(state.magnetic, velocity, Dᵒᶜ, Dⁱᶜ)
+    compute_magnetic_nonlinear!(state.magnetic, velocity, 𝒟ᵒᶜ, 𝒟ⁱᶜ)
 end
 
 function compute_composition_nonlinear_master!(state, velocity, domain)
@@ -1343,14 +1343,14 @@ function check_solenoidal_constraint!(state::SimulationState{T}) where T
 
     # Check velocity solenoidal constraint
     vel_l2, vel_linf = compute_divergence_spectral(
-        state.velocity.toroidal, state.velocity.poloidal, state.Dᵒᶜ
+        state.velocity.toroidal, state.velocity.poloidal, state.𝒟ᵒᶜ
     )
 
     # Check magnetic solenoidal constraint if present
     mag_l2, mag_linf = 0.0, 0.0
     if state.magnetic !== nothing
         mag_l2, mag_linf = compute_divergence_spectral(
-            state.magnetic.toroidal, state.magnetic.poloidal, state.Dᵒᶜ
+            state.magnetic.toroidal, state.magnetic.poloidal, state.𝒟ᵒᶜ
         )
     end
 
@@ -1428,19 +1428,19 @@ end
 function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where T
     # Prepare caches and stage buffers for all active fields
     temp_cache = get_erk2_cache!(state.erk2_caches, :temperature, d_Pm/d_Pr, T,
-                                 state.shtns_config, state.Dᵒᶜ, dt; use_krylov=false)
+                                 state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
     temp_buffers = ERK2FieldBuffers(state.temperature.spectral, state.temperature.nonlinear, temp_cache)
     erk2_prepare_field!(temp_buffers, state.temperature.spectral, state.temperature.nonlinear,
                         temp_cache, state.shtns_config, dt)
 
     vel_tor_cache = get_erk2_cache!(state.erk2_caches, :velocity_toroidal, d_Pm, T,
-                                    state.shtns_config, state.Dᵒᶜ, dt; use_krylov=false)
+                                    state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
     vel_tor_buffers = ERK2FieldBuffers(state.velocity.toroidal, state.velocity.nlᵀ, vel_tor_cache)
     erk2_prepare_field!(vel_tor_buffers, state.velocity.toroidal, state.velocity.nlᵀ,
                         vel_tor_cache, state.shtns_config, dt)
 
     vel_pol_cache = get_erk2_cache!(state.erk2_caches, :velocity_poloidal, d_Pm, T,
-                                    state.shtns_config, state.Dᵒᶜ, dt; use_krylov=false)
+                                    state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
     vel_pol_buffers = ERK2FieldBuffers(state.velocity.poloidal, state.velocity.nlᴾ, vel_pol_cache)
     erk2_prepare_field!(vel_pol_buffers, state.velocity.poloidal, state.velocity.nlᴾ,
                         vel_pol_cache, state.shtns_config, dt)
@@ -1451,13 +1451,13 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
     mag_pol_cache = nothing
     if i_B == 1 && state.magnetic !== nothing
         mag_tor_cache = get_erk2_cache!(state.erk2_caches, :magnetic_toroidal, 1.0, T,
-                                        state.shtns_config, state.Dᵒᶜ, dt; use_krylov=false)
+                                        state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
         mag_tor_buffers = ERK2FieldBuffers(state.magnetic.toroidal, state.magnetic.nlᵀ, mag_tor_cache)
         erk2_prepare_field!(mag_tor_buffers, state.magnetic.toroidal, state.magnetic.nlᵀ,
                             mag_tor_cache, state.shtns_config, dt)
 
         mag_pol_cache = get_erk2_cache!(state.erk2_caches, :magnetic_poloidal, 1.0, T,
-                                        state.shtns_config, state.Dᵒᶜ, dt; use_krylov=false)
+                                        state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
         mag_pol_buffers = ERK2FieldBuffers(state.magnetic.poloidal, state.magnetic.nlᴾ, mag_pol_cache)
         erk2_prepare_field!(mag_pol_buffers, state.magnetic.poloidal, state.magnetic.nlᴾ,
                             mag_pol_cache, state.shtns_config, dt)
@@ -1467,7 +1467,7 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
     comp_cache = nothing
     if state.composition !== nothing
         comp_cache = get_erk2_cache!(state.erk2_caches, :composition, d_Pm/d_Sc, T,
-                                     state.shtns_config, state.Dᵒᶜ, dt; use_krylov=false)
+                                     state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
         comp_buffers = ERK2FieldBuffers(state.composition.spectral, state.composition.nonlinear, comp_cache)
         erk2_prepare_field!(comp_buffers, state.composition.spectral, state.composition.nonlinear,
                             comp_cache, state.shtns_config, dt)
@@ -1617,7 +1617,7 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             etd = haskey(state.etd_caches, :temperature) ? state.etd_caches[:temperature] : nothing
             if etd === nothing || etd.dt != dt
                 # Temperature diffusivity = Pm/Pr (thermal diffusion coefficient)
-                etd = create_etd_cache(Float64, state.shtns_config, state.Dᵒᶜ, d_Pm/d_Pr, dt)
+                etd = create_etd_cache(Float64, state.shtns_config, state.𝒟ᵒᶜ, d_Pm/d_Pr, dt)
                 state.etd_caches[:temperature] = etd
             end
             eab2_update!(state.temperature.spectral, state.temperature.nonlinear,
@@ -1642,9 +1642,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
             # Velocity diffusivity = Pm (viscous diffusion coefficient)
-            alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_toroidal, d_Pm, T, state.Dᵒᶜ)
+            alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_toroidal, d_Pm, T, state.𝒟ᵒᶜ)
             eab2_update_krylov_cached!(state.velocity.toroidal, state.velocity.nlᵀ,
-                                       state.velocity.prev_nlᵀ, alu_map, state.Dᵒᶜ, d_Pm,
+                                       state.velocity.prev_nlᵀ, alu_map, state.𝒟ᵒᶜ, d_Pm,
                                        state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
         else
             solve_implicit_step!(state.velocity.toroidal, state.velocity.nlᵀ,
@@ -1661,9 +1661,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                  state.implicit_matrices[:velocity])
         elseif ts_scheme === :eab2
             # Velocity diffusivity = Pm (viscous diffusion coefficient)
-            alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_poloidal, d_Pm, T, state.Dᵒᶜ)
+            alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_poloidal, d_Pm, T, state.𝒟ᵒᶜ)
             eab2_update_krylov_cached!(state.velocity.poloidal, state.velocity.nlᴾ,
-                                       state.velocity.prev_nlᴾ, alu_map, state.Dᵒᶜ, d_Pm,
+                                       state.velocity.prev_nlᴾ, alu_map, state.𝒟ᵒᶜ, d_Pm,
                                        state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
         else
             solve_implicit_step!(state.velocity.poloidal, state.velocity.nlᴾ,
@@ -1686,9 +1686,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
                 # Magnetic diffusivity = 1.0 (magnetic diffusion time scaling)
-                alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_toroidal, 1.0, T, state.Dᵒᶜ)
+                alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_toroidal, 1.0, T, state.𝒟ᵒᶜ)
                 eab2_update_krylov_cached!(state.magnetic.toroidal, state.magnetic.nlᵀ,
-                                           state.magnetic.prev_nlᵀ, alu_map, state.Dᵒᶜ, 1.0,
+                                           state.magnetic.prev_nlᵀ, alu_map, state.𝒟ᵒᶜ, 1.0,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
                 solve_implicit_step!(state.magnetic.toroidal, state.magnetic.nlᵀ,
@@ -1704,9 +1704,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                      state.implicit_matrices[:magnetic])
             elseif ts_scheme === :eab2
                 # Magnetic diffusivity = 1.0 (magnetic diffusion time scaling)
-                alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_poloidal, 1.0, T, state.Dᵒᶜ)
+                alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_poloidal, 1.0, T, state.𝒟ᵒᶜ)
                 eab2_update_krylov_cached!(state.magnetic.poloidal, state.magnetic.nlᴾ,
-                                           state.magnetic.prev_nlᴾ, alu_map, state.Dᵒᶜ, 1.0,
+                                           state.magnetic.prev_nlᴾ, alu_map, state.𝒟ᵒᶜ, 1.0,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
                 solve_implicit_step!(state.magnetic.poloidal, state.magnetic.nlᴾ,
@@ -1730,9 +1730,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                      state.implicit_matrices[:composition])
             elseif ts_scheme === :eab2
                 # Composition diffusivity = Pm/Sc (chemical diffusion coefficient)
-                alu_map = get_eab2_alu_cache!(state.etd_caches, :composition, d_Pm/d_Sc, T, state.Dᵒᶜ)
+                alu_map = get_eab2_alu_cache!(state.etd_caches, :composition, d_Pm/d_Sc, T, state.𝒟ᵒᶜ)
                 eab2_update_krylov_cached!(state.composition.spectral, state.composition.nonlinear,
-                                           state.composition.prev_nonlinear, alu_map, state.Dᵒᶜ, d_Pm/d_Sc,
+                                           state.composition.prev_nonlinear, alu_map, state.𝒟ᵒᶜ, d_Pm/d_Sc,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
                 solve_implicit_step!(state.composition.spectral, state.composition.nonlinear,
@@ -1747,7 +1747,7 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
 
     # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
     # Using :tau method for high-order accurate enforcement of ∂T/∂r = T/r
-    apply_velocity_flux_bc_spectral!(state.velocity, state.Dᵒᶜ; method=:tau)
+    apply_velocity_flux_bc_spectral!(state.velocity, state.𝒟ᵒᶜ; method=:tau)
 
     # Apply Dirichlet boundary conditions for velocity
     apply_velocity_boundary_conditions!(state.velocity)
