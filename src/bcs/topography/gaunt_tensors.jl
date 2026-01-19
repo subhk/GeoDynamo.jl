@@ -30,7 +30,7 @@ mutable struct GauntTensorCache{T<:AbstractFloat}
     lmax::Int
     lmax_topo::Int
     G::Dict{NTuple{6,Int}, T}           # (ℓ,m,ℓ',m',L,M) -> value
-    G_grad::Dict{NTuple{6,Int}, T}      # Gradient Gaunt
+    G_∇::Dict{NTuple{6,Int}, T}      # Gradient Gaunt
     G_cross::Dict{NTuple{6,Int}, T}     # Cross Gaunt
     sht_config::Any                      # SHTnsKit configuration
     nlat::Int                            # Number of latitude points
@@ -90,7 +90,7 @@ G_{\\ell m, \\ell' m', LM} = \\int Y_\\ell^{m*} Y_{\\ell'}^{m'} Y_L^{M} d\\Omega
 
 This cache stores three types of Gaunt tensors:
 - **G**: Basic Gaunt integrals for shift terms
-- **G_grad**: Gradient Gaunt integrals G^{(∇)} for slope terms
+- **G_∇**: Gradient Gaunt integrals G^{(∇)} for slope terms
 - **G_cross**: Cross Gaunt integrals G^{(×)} for tangential coupling
 
 # Arguments
@@ -218,7 +218,7 @@ end
 
 Evaluate ∇_H Y_l^m on the Gauss-Legendre × uniform φ grid using SHTnsKit.
 
-Returns (grad_theta, grad_phi) matrices of complex values.
+Returns (∇θ, ∇φ) matrices of complex values.
 """
 function evaluate_spherical_harmonic_gradient_grid(l::Int, m::Int, cache::GauntTensorCache{T}) where T
     if l > cache.lmax + cache.lmax_topo || abs(m) > l || l == 0
@@ -235,14 +235,14 @@ function evaluate_spherical_harmonic_gradient_grid(l::Int, m::Int, cache::GauntT
 
     # Use SHTnsKit's gradient function if available
     try
-        grad_theta, grad_phi = SHTnsKit.SH_to_grad_spat(cache.sht_config, coeffs; real_output=false)
-        grad_theta_t = Complex{T}.(grad_theta)
-        grad_phi_t = Complex{T}.(grad_phi)
+        ∇θ, ∇φ = SHTnsKit.SH_to_grad_spat(cache.sht_config, coeffs; real_output=false)
+        ∇θ_t = Complex{T}.(∇θ)
+        ∇φ_t = Complex{T}.(∇φ)
         if m < 0
             phase = iseven(mabs) ? one(T) : -one(T)
-            return (phase .* conj.(grad_theta_t), phase .* conj.(grad_phi_t))
+            return (phase .* conj.(∇θ_t), phase .* conj.(∇φ_t))
         end
-        return (grad_theta_t, grad_phi_t)
+        return (∇θ_t, ∇φ_t)
     catch e
         # Fallback: compute gradient numerically
         return _compute_gradient_fallback(l, m, cache)
@@ -261,17 +261,17 @@ function _compute_gradient_fallback(l::Int, m::Int, cache::GauntTensorCache{T}) 
     theta = cache.theta
     dphi = 2π / nlon
 
-    grad_theta = zeros(Complex{T}, nlat, nlon)
-    grad_phi = zeros(Complex{T}, nlat, nlon)
+    ∇θ = zeros(Complex{T}, nlat, nlon)
+    ∇φ = zeros(Complex{T}, nlat, nlon)
 
     # ∂Y/∂θ using central differences
     for j in 1:nlon
         for i in 2:nlat-1
-            grad_theta[i, j] = (ylm[i+1, j] - ylm[i-1, j]) / (theta[i+1] - theta[i-1])
+            ∇θ[i, j] = (ylm[i+1, j] - ylm[i-1, j]) / (theta[i+1] - theta[i-1])
         end
         # One-sided at boundaries
-        grad_theta[1, j] = (ylm[2, j] - ylm[1, j]) / (theta[2] - theta[1])
-        grad_theta[nlat, j] = (ylm[nlat, j] - ylm[nlat-1, j]) / (theta[nlat] - theta[nlat-1])
+        ∇θ[1, j] = (ylm[2, j] - ylm[1, j]) / (theta[2] - theta[1])
+        ∇θ[nlat, j] = (ylm[nlat, j] - ylm[nlat-1, j]) / (theta[nlat] - theta[nlat-1])
     end
 
     # (1/sin θ) ∂Y/∂φ using central differences with periodic boundary
@@ -283,11 +283,11 @@ function _compute_gradient_fallback(l::Int, m::Int, cache::GauntTensorCache{T}) 
         for j in 1:nlon
             jp1 = j == nlon ? 1 : j + 1
             jm1 = j == 1 ? nlon : j - 1
-            grad_phi[i, j] = (ylm[i, jp1] - ylm[i, jm1]) / (2 * dphi * sin_theta)
+            ∇φ[i, j] = (ylm[i, jp1] - ylm[i, jm1]) / (2 * dphi * sin_theta)
         end
     end
 
-    return (grad_theta, grad_phi)
+    return (∇θ, ∇φ)
 end
 
 # ================================================================================
@@ -577,9 +577,9 @@ function precompute_gaunt_tensors!(cache::GauntTensorCache{T};
                             # Gradient Gaunt from identity (always use analytic)
                             if l2 > 0 && L > 0
                                 factor = T(0.5) * (l2 * (l2 + 1) + L * (L + 1) - l1 * (l1 + 1))
-                                G_grad_val = factor * G_val
-                                if abs(G_grad_val) > 1e-14
-                                    cache.G_grad[(l1, m1, l2, m2, L, M)] = G_grad_val
+                                G_∇_val = factor * G_val
+                                if abs(G_∇_val) > 1e-14
+                                    cache.G_∇[(l1, m1, l2, m2, L, M)] = G_∇_val
                                     count_grad += 1
                                 end
                             end
@@ -602,7 +602,7 @@ function precompute_gaunt_tensors!(cache::GauntTensorCache{T};
     cache.is_precomputed = true
 
     if verbose && get_rank() == 0
-        @info "Gaunt tensors precomputed" G_nonzero=count_G G_grad_nonzero=count_grad G_cross_nonzero=count_cross
+        @info "Gaunt tensors precomputed" G_nonzero=count_G G_∇_nonzero=count_grad G_cross_nonzero=count_cross
     end
 
     return cache
@@ -630,7 +630,7 @@ Get the gradient Gaunt tensor G^{(∇)}_{l1,m1,l2,m2,L,M} from cache.
 """
 function get_gradient_gaunt(cache::GauntTensorCache{T}, l1::Int, m1::Int,
                             l2::Int, m2::Int, L::Int, M::Int) where T
-    return get(cache.G_grad, (l1, m1, l2, m2, L, M), zero(T))
+    return get(cache.G_∇, (l1, m1, l2, m2, L, M), zero(T))
 end
 
 """
