@@ -1255,122 +1255,13 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
 
     nr = domain.N
 
-    # Check if we need MPI communication (radial dimension distributed)
-    comm = get_comm()
-    nprocs = MPI.Comm_size(comm)
-    radial_distributed = length(r_range) < nr
-
-    # When radial dimension is distributed across MPI processes, we need to gather
-    # complete radial profiles before computing derivatives (stencil needs neighbors).
-    # Threading is disabled in this case to avoid MPI deadlocks.
-    if radial_distributed && nprocs > 1
-        # Sequential version with MPI communication for correctness
-        # CRITICAL: Pass total_nlm so all processes loop over ALL modes for synchronization
-        total_nlm = config.nlm
-        _compute_vorticity_spectral_mpi!(fields, domain, uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
-                                         ζᵀ_real, ζᵀ_imag, ζᴾ_real, ζᴾ_imag,
-                                         lm_range, r_range, nr, total_nlm, comm)
-    else
-        # Threaded version for local radial data (no MPI needed)
-        _compute_vorticity_spectral_threaded!(fields, domain, uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
-                                               ζᵀ_real, ζᵀ_imag, ζᴾ_real, ζᴾ_imag,
-                                               lm_range, r_range, nr)
-    end
+    # Radial data is always local (not MPI distributed), use threaded version
+    _compute_vorticity_spectral_threaded!(fields, domain, uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
+                                           ζᵀ_real, ζᵀ_imag, ζᴾ_real, ζᴾ_imag,
+                                           lm_range, r_range, nr)
 end
 
-# MPI version: Sequential loop with Allreduce for complete radial profiles
-# CRITICAL MPI SYNCHRONIZATION:
-# When radial dimension is distributed, ALL processes must call Allreduce
-# for the SAME lm mode at the SAME time. Different processes may own different
-# lm_range, so we must loop over ALL lm modes to ensure synchronization.
-# Processes that don't own a mode contribute zeros.
-#
-# OPTIMIZATION: Only poloidal data is gathered (requires radial derivatives).
-# Toroidal uses direct local access since ζᴾ = -l(l+1)/r² × uᵀ is point-wise.
-# This reduces MPI communication by 50% (2 Allreduce vs 4).
-function _compute_vorticity_spectral_mpi!(fields::SHTnsVelocityFields{T}, domain::RadialDomain,
-                                          uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
-                                          ζᵀ_real, ζᵀ_imag, ζᴾ_real, ζᴾ_imag,
-                                          lm_range, r_range, nr, total_nlm, comm) where T
-    # Pre-allocate work arrays for poloidal (needs gathering for derivatives)
-    # Toroidal does NOT need gathering - point-wise operation uses local data
-    Pᴾ_profile_real  = zeros(T, nr)
-    Pᴾ_profile_imag  = zeros(T, nr)
-    pol_gathered_real = zeros(T, nr)
-    pol_gathered_imag = zeros(T, nr)
-    dᴾ_dr_real      = zeros(T, nr)
-    dᴾ_dr_imag      = zeros(T, nr)
-    d²ᴾ_dr²_real    = zeros(T, nr)
-    d²ᴾ_dr²_imag    = zeros(T, nr)
-
-    # ALL processes loop over ALL lm modes for proper MPI synchronization
-    @inbounds for lm_idx in 1:total_nlm
-        i_own_this_mode = lm_idx in lm_range
-        ℓ_factor = fields.ℓ_factors[lm_idx]
-
-        # Extract poloidal radial profile (owners contribute data, non-owners contribute zeros)
-        # Toroidal is NOT extracted here - we use direct local access later
-        fill!(Pᴾ_profile_real, zero(T))
-        fill!(Pᴾ_profile_imag, zero(T))
-        if i_own_this_mode
-            local_lm = lm_idx - first(lm_range) + 1
-            for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
-                if local_r <= size(uᴾ_real, 3)
-                    Pᴾ_profile_real[r_idx] = uᴾ_real[local_lm, 1, local_r]
-                    Pᴾ_profile_imag[r_idx] = uᴾ_imag[local_lm, 1, local_r]
-                end
-            end
-        end
-
-        # ALL processes call Allreduce together for this lm mode (poloidal only)
-        # Toroidal gathering removed - not needed for point-wise ζᴾ computation
-        MPI.Allreduce!(Pᴾ_profile_real, pol_gathered_real, MPI.SUM, comm)
-        MPI.Allreduce!(Pᴾ_profile_imag, pol_gathered_imag, MPI.SUM, comm)
-
-        # Only mode owners compute derivatives and store results
-        if i_own_this_mode
-            local_lm = lm_idx - first(lm_range) + 1
-
-            # Compute radial derivatives using complete poloidal profile
-            apply_∂r!(dᴾ_dr_real,   fields.∂r,  pol_gathered_real)
-            apply_∂r!(dᴾ_dr_imag,   fields.∂r,  pol_gathered_imag)
-            apply_∂r!(d²ᴾ_dr²_real, fields.∂²r, pol_gathered_real)
-            apply_∂r!(d²ᴾ_dr²_imag, fields.∂²r, pol_gathered_imag)
-
-            # Compute vorticity components (only for local r indices)
-            r_first = first(r_range)
-            r_last = min(last(r_range), nr)
-            @simd for r_idx in r_first:r_last
-                local_r = r_idx - r_first + 1
-                if local_r <= size(ζᵀ_real, 3)
-                    r = domain.r[r_idx, 4]
-                    if r == 0.0
-                        ζᵀ_real[local_lm, 1, local_r] = zero(T)
-                        ζᵀ_imag[local_lm, 1, local_r] = zero(T)
-                        ζᴾ_real[local_lm, 1, local_r] = zero(T)
-                        ζᴾ_imag[local_lm, 1, local_r] = zero(T)
-                    else
-                        r⁻¹ = domain.r[r_idx, 3]
-                        r⁻² = domain.r[r_idx, 2]
-                        # ζᵀ uses gathered poloidal (needs derivatives)
-                        ζᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * pol_gathered_real[r_idx]
-                                                            - d²ᴾ_dr²_real[r_idx]
-                                                            - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
-                        ζᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * pol_gathered_imag[r_idx]
-                                                            - d²ᴾ_dr²_imag[r_idx]
-                                                            - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
-                        # ζᴾ uses LOCAL toroidal (point-wise, no derivatives needed)
-                        ζᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uᵀ_real[local_lm, 1, local_r]
-                        ζᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uᵀ_imag[local_lm, 1, local_r]
-                    end
-                end
-            end
-        end
-    end
-end
-
-# Threaded version: For when radial data is local (no MPI communication needed)
+# Threaded version: Radial data is local (no MPI communication needed)
 function _compute_vorticity_spectral_threaded!(fields::SHTnsVelocityFields{T}, domain::RadialDomain,
                                                 uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
                                                 ζᵀ_real, ζᵀ_imag, ζᴾ_real, ζᴾ_imag,

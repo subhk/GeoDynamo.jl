@@ -410,143 +410,64 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
     d²_matrix = mag_fields.∂²r  # Second derivative d²/dr²
 
     # Pre-allocate work arrays for radial profiles
+    # Note: Radial data is always local (not MPI distributed)
     nr = Dᵒᶜ.N
     Pᴾ_profile_real = zeros(T, nr)
     Pᴾ_profile_imag = zeros(T, nr)
-    Pᴾ_gathered_real = zeros(T, nr)
-    Pᴾ_gathered_imag = zeros(T, nr)
-    dᴾ_dr_real    = zeros(T, nr)
-    dᴾ_dr_imag    = zeros(T, nr)
-    d²ᴾ_dr²_real  = zeros(T, nr)
-    d²ᴾ_dr²_imag  = zeros(T, nr)
+    dᴾ_dr_real      = zeros(T, nr)
+    dᴾ_dr_imag      = zeros(T, nr)
+    d²ᴾ_dr²_real    = zeros(T, nr)
+    d²ᴾ_dr²_imag    = zeros(T, nr)
 
-    # Check if we need MPI communication (radial dimension distributed)
-    comm = get_comm()
-    nprocs = MPI.Comm_size(comm)
-    radial_distributed = length(r_range) < nr
-
-    # CRITICAL MPI SYNCHRONIZATION:
-    # When radial dimension is distributed, ALL processes must call Allreduce
-    # for the SAME lm mode at the SAME time. Different processes may own different
-    # lm_range, so we must loop over ALL lm modes to ensure synchronization.
-    # Processes that don't own a mode contribute zeros.
-    if radial_distributed && nprocs > 1
-        # MPI path: All processes loop over ALL lm modes for proper synchronization
-        @inbounds for lm_idx in 1:total_nlm
-            i_own_this_mode = lm_idx in lm_range
+    # Process each (l,m) mode - only owned modes (radial data is local)
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= length(mag_fields.ℓ_factors)
+            local_lm = lm_idx - first(lm_range) + 1
             ℓ_factor = mag_fields.ℓ_factors[lm_idx]
 
-            # Extract radial profile (owners contribute data, non-owners contribute zeros)
+            # Extract radial profile (all radial data is local)
             fill!(Pᴾ_profile_real, zero(T))
             fill!(Pᴾ_profile_imag, zero(T))
-            if i_own_this_mode
-                local_lm = lm_idx - first(lm_range) + 1
-                for r_idx in r_range
-                    local_r = r_idx - first(r_range) + 1
-                    if local_r <= size(Bᴾ_real, 3)
-                        Pᴾ_profile_real[r_idx] = Bᴾ_real[local_lm, 1, local_r]
-                        Pᴾ_profile_imag[r_idx] = Bᴾ_imag[local_lm, 1, local_r]
-                    end
+            for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(Bᴾ_real, 3)
+                    Pᴾ_profile_real[r_idx] = Bᴾ_real[local_lm, 1, local_r]
+                    Pᴾ_profile_imag[r_idx] = Bᴾ_imag[local_lm, 1, local_r]
                 end
             end
 
-            # ALL processes call Allreduce together for this lm mode
-            MPI.Allreduce!(Pᴾ_profile_real, Pᴾ_gathered_real, MPI.SUM, comm)
-            MPI.Allreduce!(Pᴾ_profile_imag, Pᴾ_gathered_imag, MPI.SUM, comm)
+            # Compute radial derivatives
+            apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_profile_real)
+            apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_profile_imag)
+            apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_profile_real)
+            apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_profile_imag)
 
-            # Only mode owners compute derivatives and store results
-            if i_own_this_mode
-                local_lm = lm_idx - first(lm_range) + 1
-
-                # Compute radial derivatives using complete profile
-                apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
-                apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
-                apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
-                apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
-
-                # Compute current density components
-                r_first = first(r_range)
-                r_last = min(last(r_range), nr)
-                @simd for r_idx in r_first:r_last
-                    local_r = r_idx - r_first + 1
-                    if local_r <= size(jᵀ_real, 3)
-                        r_val = Dᵒᶜ.r[r_idx, 4]
-                        if r_val == 0.0
-                            jᵀ_real[local_lm, 1, local_r] = zero(T)
-                            jᵀ_imag[local_lm, 1, local_r] = zero(T)
-                            jᴾ_real[local_lm, 1, local_r] = zero(T)
-                            jᴾ_imag[local_lm, 1, local_r] = zero(T)
-                        else
-                            r⁻¹ = Dᵒᶜ.r[r_idx, 3]
-                            r⁻² = Dᵒᶜ.r[r_idx, 2]
-                            jᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_real[r_idx]
-                                                                - d²ᴾ_dr²_real[r_idx]
-                                                                - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
-                            jᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_imag[r_idx]
-                                                                - d²ᴾ_dr²_imag[r_idx]
-                                                                - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
-                            jᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Bᵀ_real[local_lm, 1, local_r]
-                            jᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Bᵀ_imag[local_lm, 1, local_r]
-                        end
-                    end
-                end
+            # Compute current density components
+            r_first = first(r_range)
+            r_last = min(last(r_range), nr)
+            if r_last < r_first
+                continue
             end
-        end
-    else
-        # Serial/local-radial path: Only process owned modes (no MPI communication needed)
-        @inbounds for lm_idx in lm_range
-            if lm_idx <= length(mag_fields.ℓ_factors)
-                local_lm = lm_idx - first(lm_range) + 1
-                ℓ_factor = mag_fields.ℓ_factors[lm_idx]
-
-                # Extract radial profile (all radial data is local)
-                fill!(Pᴾ_profile_real, zero(T))
-                fill!(Pᴾ_profile_imag, zero(T))
-                for r_idx in r_range
-                    local_r = r_idx - first(r_range) + 1
-                    if local_r <= size(Bᴾ_real, 3)
-                        Pᴾ_profile_real[r_idx] = Bᴾ_real[local_lm, 1, local_r]
-                        Pᴾ_profile_imag[r_idx] = Bᴾ_imag[local_lm, 1, local_r]
-                    end
-                end
-
-                # No MPI needed - use profile directly
-                copyto!(Pᴾ_gathered_real, Pᴾ_profile_real)
-                copyto!(Pᴾ_gathered_imag, Pᴾ_profile_imag)
-
-                # Compute radial derivatives
-                apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
-                apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
-                apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
-                apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
-
-                # Compute current density components
-                r_first = first(r_range)
-                r_last = min(last(r_range), nr)
-                if r_last < r_first
-                    continue
-                end
-                @simd for r_idx in r_first:r_last
-                    local_r = r_idx - r_first + 1
-                    if local_r <= size(jᵀ_real, 3)
-                        r_val = Dᵒᶜ.r[r_idx, 4]
-                        if r_val == 0.0
-                            jᵀ_real[local_lm, 1, local_r] = zero(T)
-                            jᵀ_imag[local_lm, 1, local_r] = zero(T)
-                            jᴾ_real[local_lm, 1, local_r] = zero(T)
-                            jᴾ_imag[local_lm, 1, local_r] = zero(T)
-                        else
-                            r⁻¹ = Dᵒᶜ.r[r_idx, 3]
-                            r⁻² = Dᵒᶜ.r[r_idx, 2]
-                            jᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_real[r_idx]
-                                                                - d²ᴾ_dr²_real[r_idx]
-                                                                - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
-                            jᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_imag[r_idx]
-                                                                - d²ᴾ_dr²_imag[r_idx]
-                                                                - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
-                            jᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Bᵀ_real[local_lm, 1, local_r]
-                            jᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Bᵀ_imag[local_lm, 1, local_r]
-                        end
+            @simd for r_idx in r_first:r_last
+                local_r = r_idx - r_first + 1
+                if local_r <= size(jᵀ_real, 3)
+                    r_val = Dᵒᶜ.r[r_idx, 4]
+                    if r_val == 0.0
+                        jᵀ_real[local_lm, 1, local_r] = zero(T)
+                        jᵀ_imag[local_lm, 1, local_r] = zero(T)
+                        jᴾ_real[local_lm, 1, local_r] = zero(T)
+                        jᴾ_imag[local_lm, 1, local_r] = zero(T)
+                    else
+                        r⁻¹ = Dᵒᶜ.r[r_idx, 3]
+                        r⁻² = Dᵒᶜ.r[r_idx, 2]
+                        jᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx]
+                                                            - d²ᴾ_dr²_real[r_idx]
+                                                            - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
+                        jᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx]
+                                                            - d²ᴾ_dr²_imag[r_idx]
+                                                            - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
+                        jᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Bᵀ_real[local_lm, 1, local_r]
+                        jᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Bᵀ_imag[local_lm, 1, local_r]
                     end
                 end
             end
@@ -667,140 +588,63 @@ function compute_curl_of_induction!(mag_fields::SHTnsMagneticFields{T}) where T
     d²_matrix = mag_fields.∂²r  # Second derivative d²/dr²
 
     # Pre-allocate work arrays for radial profiles
+    # Note: Radial data is always local (not MPI distributed)
     Pᴾ_profile_real = zeros(T, nr)
     Pᴾ_profile_imag = zeros(T, nr)
-    Pᴾ_gathered_real = zeros(T, nr)
-    Pᴾ_gathered_imag = zeros(T, nr)
     dᴾ_dr_real     = zeros(T, nr)
     dᴾ_dr_imag     = zeros(T, nr)
     d²ᴾ_dr²_real   = zeros(T, nr)
     d²ᴾ_dr²_imag   = zeros(T, nr)
 
-    # Check if we need MPI communication (radial dimension distributed)
-    comm = get_comm()
-    nprocs = MPI.Comm_size(comm)
-    radial_distributed = length(r_range) < nr
-
-    # CRITICAL MPI SYNCHRONIZATION:
-    # When radial dimension is distributed, ALL processes must call Allreduce
-    # for the SAME lm mode at the SAME time. Different processes may own different
-    # lm_range, so we must loop over ALL lm modes to ensure synchronization.
-    if radial_distributed && nprocs > 1
-        # MPI path: All processes loop over ALL lm modes for proper synchronization
-        @inbounds for lm_idx in 1:total_nlm
-            i_own_this_mode = lm_idx in lm_range
+    # Process each (l,m) mode
+    @inbounds for lm_idx in lm_range
+        if lm_idx <= length(mag_fields.ℓ_factors)
+            local_lm = lm_idx - first(lm_range) + 1
             ℓ_factor = mag_fields.ℓ_factors[lm_idx]
 
-            # Extract radial profile (owners contribute data, non-owners contribute zeros)
+            # Extract radial profile (all radial data is local)
             fill!(Pᴾ_profile_real, zero(T))
             fill!(Pᴾ_profile_imag, zero(T))
-            if i_own_this_mode
-                local_lm = lm_idx - first(lm_range) + 1
-                for r_idx in r_range
-                    local_r = r_idx - first(r_range) + 1
-                    if local_r <= size(uBᴾ_real, 3)
-                        Pᴾ_profile_real[r_idx] = uBᴾ_real[local_lm, 1, local_r]
-                        Pᴾ_profile_imag[r_idx] = uBᴾ_imag[local_lm, 1, local_r]
-                    end
+            for r_idx in r_range
+                local_r = r_idx - first(r_range) + 1
+                if local_r <= size(uBᴾ_real, 3)
+                    Pᴾ_profile_real[r_idx] = uBᴾ_real[local_lm, 1, local_r]
+                    Pᴾ_profile_imag[r_idx] = uBᴾ_imag[local_lm, 1, local_r]
                 end
             end
 
-            # ALL processes call Allreduce together for this lm mode
-            MPI.Allreduce!(Pᴾ_profile_real, Pᴾ_gathered_real, MPI.SUM, comm)
-            MPI.Allreduce!(Pᴾ_profile_imag, Pᴾ_gathered_imag, MPI.SUM, comm)
+            # Compute radial derivatives
+            apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_profile_real)
+            apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_profile_imag)
+            apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_profile_real)
+            apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_profile_imag)
 
-            # Only mode owners compute derivatives and store results
-            if i_own_this_mode
-                local_lm = lm_idx - first(lm_range) + 1
-
-                # Compute radial derivatives using complete profile
-                apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
-                apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
-                apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
-                apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
-
-                # Compute curl components
-                r_first = first(r_range)
-                r_last = min(last(r_range), nr)
-                @simd for r_idx in r_first:r_last
-                    local_r = r_idx - r_first + 1
-                    if local_r <= size(NLᵀ_real, 3)
-                        r_val = domain.r[r_idx, 4]
-                        if r_val == 0.0
-                            NLᵀ_real[local_lm, 1, local_r] = zero(T)
-                            NLᵀ_imag[local_lm, 1, local_r] = zero(T)
-                            NLᴾ_real[local_lm, 1, local_r] = zero(T)
-                            NLᴾ_imag[local_lm, 1, local_r] = zero(T)
-                        else
-                            r⁻¹ = domain.r[r_idx, 3]
-                            r⁻² = domain.r[r_idx, 2]
-                            NLᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_real[r_idx]
-                                                                 - d²ᴾ_dr²_real[r_idx]
-                                                                 - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
-                            NLᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_imag[r_idx]
-                                                                 - d²ᴾ_dr²_imag[r_idx]
-                                                                 - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
-                            NLᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_real[local_lm, 1, local_r]
-                            NLᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_imag[local_lm, 1, local_r]
-                        end
-                    end
-                end
+            # Compute curl components
+            r_first = first(r_range)
+            r_last = min(last(r_range), nr)
+            if r_last < r_first
+                continue
             end
-        end
-    else
-        # Serial/local-radial path: Only process owned modes
-        @inbounds for lm_idx in lm_range
-            if lm_idx <= length(mag_fields.ℓ_factors)
-                local_lm = lm_idx - first(lm_range) + 1
-                ℓ_factor = mag_fields.ℓ_factors[lm_idx]
-
-                # Extract radial profile (all radial data is local)
-                fill!(Pᴾ_profile_real, zero(T))
-                fill!(Pᴾ_profile_imag, zero(T))
-                for r_idx in r_range
-                    local_r = r_idx - first(r_range) + 1
-                    if local_r <= size(uBᴾ_real, 3)
-                        Pᴾ_profile_real[r_idx] = uBᴾ_real[local_lm, 1, local_r]
-                        Pᴾ_profile_imag[r_idx] = uBᴾ_imag[local_lm, 1, local_r]
-                    end
-                end
-
-                copyto!(Pᴾ_gathered_real, Pᴾ_profile_real)
-                copyto!(Pᴾ_gathered_imag, Pᴾ_profile_imag)
-
-                # Compute radial derivatives
-                apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_gathered_real)
-                apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_gathered_imag)
-                apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_gathered_real)
-                apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_gathered_imag)
-
-                # Compute curl components
-                r_first = first(r_range)
-                r_last = min(last(r_range), nr)
-                if r_last < r_first
-                    continue
-                end
-                @simd for r_idx in r_first:r_last
-                    local_r = r_idx - r_first + 1
-                    if local_r <= size(NLᵀ_real, 3)
-                        r_val = domain.r[r_idx, 4]
-                        if r_val == 0.0
-                            NLᵀ_real[local_lm, 1, local_r] = zero(T)
-                            NLᵀ_imag[local_lm, 1, local_r] = zero(T)
-                            NLᴾ_real[local_lm, 1, local_r] = zero(T)
-                            NLᴾ_imag[local_lm, 1, local_r] = zero(T)
-                        else
-                            r⁻¹ = domain.r[r_idx, 3]
-                            r⁻² = domain.r[r_idx, 2]
-                            NLᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_real[r_idx]
-                                                                 - d²ᴾ_dr²_real[r_idx]
-                                                                 - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
-                            NLᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_imag[r_idx]
-                                                                 - d²ᴾ_dr²_imag[r_idx]
-                                                                 - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
-                            NLᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_real[local_lm, 1, local_r]
-                            NLᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_imag[local_lm, 1, local_r]
-                        end
+            @simd for r_idx in r_first:r_last
+                local_r = r_idx - r_first + 1
+                if local_r <= size(NLᵀ_real, 3)
+                    r_val = domain.r[r_idx, 4]
+                    if r_val == 0.0
+                        NLᵀ_real[local_lm, 1, local_r] = zero(T)
+                        NLᵀ_imag[local_lm, 1, local_r] = zero(T)
+                        NLᴾ_real[local_lm, 1, local_r] = zero(T)
+                        NLᴾ_imag[local_lm, 1, local_r] = zero(T)
+                    else
+                        r⁻¹ = domain.r[r_idx, 3]
+                        r⁻² = domain.r[r_idx, 2]
+                        NLᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx]
+                                                             - d²ᴾ_dr²_real[r_idx]
+                                                             - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
+                        NLᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx]
+                                                             - d²ᴾ_dr²_imag[r_idx]
+                                                             - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
+                        NLᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_real[local_lm, 1, local_r]
+                        NLᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_imag[local_lm, 1, local_r]
                     end
                 end
             end
