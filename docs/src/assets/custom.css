@@ -1,0 +1,573 @@
+/* ============================================================================
+   GeoDynamo.jl Documentation - Custom Styles
+   ============================================================================ */
+
+/* ----------------------------------------------------------------------------
+   Root Variables - Color Palette
+   ---------------------------------------------------------------------------- */
+:root {
+    --geodynamo-primary: #2563eb;
+    --geodynamo-primary-light: #3b82f6;
+    --geodynamo-primary-dark: #1d4ed8;
+    --geodynamo-accent: #8b5cf6;
+    --geodynamo-success: #10b981;
+    --geodynamo-warning: #f59e0b;
+    --geodynamo-danger: #ef4444;
+    --geodynamo-info: #06b6d4;
+
+    /* Spacing */
+    --spacing-xs: 0.25rem;
+    --spacing-sm: 0.5rem;
+    --spacing-md: 1rem;
+    --spacing-lg: 1.5rem;
+    --spacing-xl: 2rem;
+
+    /* Border radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+}
+
+/* ----------------------------------------------------------------------------
+   Typography Enhancements
+   ---------------------------------------------------------------------------- */
+
+/* Main headings */
+article h1 {
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    padding-bottom: var(--spacing-md);
+    border-bottom: 3px solid var(--geodynamo-primary);
+    margin-bottom: var(--spacing-xl);
+}
+
+article h2 {
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin-top: var(--spacing-xl);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 2px solid #e5e7eb;
+}
+
+article h3 {
+    font-weight: 600;
+    color: #374151;
+    margin-top: var(--spacing-lg);
+}
+
+/* Better paragraph spacing */
+article p {
+    line-height: 1.75;
+    margin-bottom: var(--spacing-md);
+}
+
+/* ----------------------------------------------------------------------------
+   Code Blocks
+   ---------------------------------------------------------------------------- */
+
+/* Inline code */
+article code:not(pre code) {
+    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    padding: 0.15em 0.4em;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+    font-weight: 500;
+    border: 1px solid #d1d5db;
+}
+
+/* Code blocks */
+article pre {
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    border: 1px solid #e5e7eb;
+    margin: var(--spacing-lg) 0;
+}
+
+article pre code {
+    font-size: 0.875rem;
+    line-height: 1.6;
+}
+
+/* ASCII art code blocks - monospace perfection */
+article pre code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+}
+
+/* ----------------------------------------------------------------------------
+   Tables
+   ---------------------------------------------------------------------------- */
+
+article table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    margin: var(--spacing-lg) 0;
+    border: 1px solid #e5e7eb;
+}
+
+article table thead {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+article table th {
+    font-weight: 600;
+    text-align: left;
+    padding: var(--spacing-md);
+    border-bottom: 2px solid #e5e7eb;
+    color: #374151;
+    font-size: 0.875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+article table td {
+    padding: var(--spacing-md);
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: top;
+}
+
+article table tbody tr:hover {
+    background-color: #f8fafc;
+}
+
+article table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* ----------------------------------------------------------------------------
+   Admonitions (Tip, Note, Warning, etc.)
+   ---------------------------------------------------------------------------- */
+
+article .admonition {
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    margin: var(--spacing-lg) 0;
+    border: none;
+    border-left: 4px solid;
+    overflow: hidden;
+}
+
+article .admonition-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: var(--spacing-md) var(--spacing-lg);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+article .admonition-title::before {
+    font-size: 1.1rem;
+}
+
+article .admonition > p,
+article .admonition > ul,
+article .admonition > ol,
+article .admonition > pre,
+article .admonition > table {
+    padding: 0 var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
+}
+
+article .admonition > :last-child {
+    padding-bottom: var(--spacing-md);
+}
+
+/* Tip */
+article .admonition.is-tip,
+article .admonition.tip {
+    border-left-color: var(--geodynamo-success);
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+}
+
+article .admonition.is-tip .admonition-title,
+article .admonition.tip .admonition-title {
+    background: rgba(16, 185, 129, 0.15);
+    color: #065f46;
+}
+
+/* Note / Info */
+article .admonition.is-info,
+article .admonition.info,
+article .admonition.is-note,
+article .admonition.note {
+    border-left-color: var(--geodynamo-info);
+    background: linear-gradient(135deg, #ecfeff 0%, #cffafe 100%);
+}
+
+article .admonition.is-info .admonition-title,
+article .admonition.info .admonition-title,
+article .admonition.is-note .admonition-title,
+article .admonition.note .admonition-title {
+    background: rgba(6, 182, 212, 0.15);
+    color: #155e75;
+}
+
+/* Warning */
+article .admonition.is-warning,
+article .admonition.warning {
+    border-left-color: var(--geodynamo-warning);
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+}
+
+article .admonition.is-warning .admonition-title,
+article .admonition.warning .admonition-title {
+    background: rgba(245, 158, 11, 0.15);
+    color: #92400e;
+}
+
+/* Danger */
+article .admonition.is-danger,
+article .admonition.danger {
+    border-left-color: var(--geodynamo-danger);
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+}
+
+article .admonition.is-danger .admonition-title,
+article .admonition.danger .admonition-title {
+    background: rgba(239, 68, 68, 0.15);
+    color: #991b1b;
+}
+
+/* Success */
+article .admonition.is-success,
+article .admonition.success {
+    border-left-color: var(--geodynamo-success);
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+}
+
+article .admonition.is-success .admonition-title,
+article .admonition.success .admonition-title {
+    background: rgba(16, 185, 129, 0.15);
+    color: #065f46;
+}
+
+/* Example */
+article .admonition.is-example,
+article .admonition.example {
+    border-left-color: var(--geodynamo-accent);
+    background: linear-gradient(135deg, #faf5ff 0%, #ede9fe 100%);
+}
+
+article .admonition.is-example .admonition-title,
+article .admonition.example .admonition-title {
+    background: rgba(139, 92, 246, 0.15);
+    color: #5b21b6;
+}
+
+/* ----------------------------------------------------------------------------
+   Links
+   ---------------------------------------------------------------------------- */
+
+article a {
+    color: var(--geodynamo-primary);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s ease, text-decoration 0.2s ease;
+}
+
+article a:hover {
+    color: var(--geodynamo-primary-dark);
+    text-decoration: underline;
+}
+
+/* ----------------------------------------------------------------------------
+   Horizontal Rules
+   ---------------------------------------------------------------------------- */
+
+article hr {
+    border: none;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%);
+    margin: var(--spacing-xl) 0;
+}
+
+/* ----------------------------------------------------------------------------
+   Lists
+   ---------------------------------------------------------------------------- */
+
+article ul,
+article ol {
+    margin: var(--spacing-md) 0;
+    padding-left: var(--spacing-lg);
+}
+
+article li {
+    margin-bottom: var(--spacing-sm);
+    line-height: 1.6;
+}
+
+article li::marker {
+    color: var(--geodynamo-primary);
+}
+
+/* Nested lists */
+article li ul,
+article li ol {
+    margin-top: var(--spacing-sm);
+    margin-bottom: 0;
+}
+
+/* ----------------------------------------------------------------------------
+   Blockquotes
+   ---------------------------------------------------------------------------- */
+
+article blockquote {
+    border-left: 4px solid var(--geodynamo-primary);
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    padding: var(--spacing-md) var(--spacing-lg);
+    margin: var(--spacing-lg) 0;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    font-style: italic;
+    color: #374151;
+}
+
+/* ----------------------------------------------------------------------------
+   Math Blocks
+   ---------------------------------------------------------------------------- */
+
+article .MathJax,
+article mjx-container {
+    margin: var(--spacing-md) 0;
+    padding: var(--spacing-md);
+    overflow-x: auto;
+}
+
+/* Centered math display */
+article mjx-container[display="true"] {
+    background: #f8fafc;
+    border-radius: var(--radius-md);
+    border: 1px solid #e5e7eb;
+}
+
+/* ----------------------------------------------------------------------------
+   Sidebar Navigation
+   ---------------------------------------------------------------------------- */
+
+.docs-sidebar .docs-menu {
+    padding: var(--spacing-md);
+}
+
+.docs-sidebar .docs-menu a {
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    transition: all 0.2s ease;
+}
+
+.docs-sidebar .docs-menu a:hover {
+    background-color: #f3f4f6;
+}
+
+.docs-sidebar .docs-menu a.is-active {
+    background: linear-gradient(135deg, var(--geodynamo-primary) 0%, var(--geodynamo-primary-light) 100%);
+    color: white;
+    font-weight: 600;
+}
+
+/* ----------------------------------------------------------------------------
+   Search
+   ---------------------------------------------------------------------------- */
+
+.docs-search input {
+    border-radius: var(--radius-md);
+    border: 2px solid #e5e7eb;
+    padding: var(--spacing-sm) var(--spacing-md);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.docs-search input:focus {
+    border-color: var(--geodynamo-primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    outline: none;
+}
+
+/* ----------------------------------------------------------------------------
+   Docstrings
+   ---------------------------------------------------------------------------- */
+
+article .docstring {
+    border: 1px solid #e5e7eb;
+    border-radius: var(--radius-md);
+    margin: var(--spacing-lg) 0;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+
+article .docstring header {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    padding: var(--spacing-md);
+    border-bottom: 1px solid #e5e7eb;
+}
+
+article .docstring section {
+    padding: var(--spacing-md);
+}
+
+/* ----------------------------------------------------------------------------
+   ASCII Art Diagrams - Enhanced visibility
+   ---------------------------------------------------------------------------- */
+
+/* Make ASCII diagrams stand out */
+article pre:has(code:not([class*="language-"])) {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    color: #e2e8f0;
+}
+
+article pre:has(code:not([class*="language-"])) code {
+    color: #e2e8f0;
+}
+
+/* Julia code blocks */
+article pre:has(code.language-julia),
+article pre.language-julia {
+    background: linear-gradient(135deg, #1a1b26 0%, #16161e 100%);
+}
+
+/* Bash code blocks */
+article pre:has(code.language-bash),
+article pre.language-bash {
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+}
+
+/* ----------------------------------------------------------------------------
+   Responsive Adjustments
+   ---------------------------------------------------------------------------- */
+
+@media (max-width: 768px) {
+    article h1 {
+        font-size: 1.75rem;
+    }
+
+    article h2 {
+        font-size: 1.5rem;
+    }
+
+    article table {
+        font-size: 0.875rem;
+    }
+
+    article pre {
+        font-size: 0.8rem;
+    }
+
+    article .admonition {
+        margin: var(--spacing-md) 0;
+    }
+}
+
+/* ----------------------------------------------------------------------------
+   Print Styles
+   ---------------------------------------------------------------------------- */
+
+@media print {
+    article .admonition {
+        border: 1px solid #ccc;
+        box-shadow: none;
+    }
+
+    article pre {
+        box-shadow: none;
+        border: 1px solid #ccc;
+    }
+
+    article a {
+        color: inherit;
+        text-decoration: underline;
+    }
+}
+
+/* ----------------------------------------------------------------------------
+   Dark Mode Adjustments (if using dark theme)
+   ---------------------------------------------------------------------------- */
+
+html[data-theme="dark"] {
+    --geodynamo-primary: #60a5fa;
+    --geodynamo-primary-light: #93c5fd;
+    --geodynamo-primary-dark: #3b82f6;
+}
+
+html[data-theme="dark"] article code:not(pre code) {
+    background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+    border-color: #4b5563;
+    color: #f3f4f6;
+}
+
+html[data-theme="dark"] article table {
+    border-color: #374151;
+}
+
+html[data-theme="dark"] article table thead {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+}
+
+html[data-theme="dark"] article table th {
+    color: #f3f4f6;
+    border-bottom-color: #374151;
+}
+
+html[data-theme="dark"] article table td {
+    border-bottom-color: #1f2937;
+}
+
+html[data-theme="dark"] article table tbody tr:hover {
+    background-color: #1f2937;
+}
+
+html[data-theme="dark"] article h2 {
+    border-bottom-color: #374151;
+}
+
+html[data-theme="dark"] article h3 {
+    color: #e5e7eb;
+}
+
+html[data-theme="dark"] article hr {
+    background: linear-gradient(90deg, transparent 0%, #374151 20%, #374151 80%, transparent 100%);
+}
+
+/* Dark mode admonitions */
+html[data-theme="dark"] article .admonition.is-tip,
+html[data-theme="dark"] article .admonition.tip {
+    background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+}
+
+html[data-theme="dark"] article .admonition.is-info,
+html[data-theme="dark"] article .admonition.info,
+html[data-theme="dark"] article .admonition.is-note,
+html[data-theme="dark"] article .admonition.note {
+    background: linear-gradient(135deg, #164e63 0%, #155e75 100%);
+}
+
+html[data-theme="dark"] article .admonition.is-warning,
+html[data-theme="dark"] article .admonition.warning {
+    background: linear-gradient(135deg, #78350f 0%, #92400e 100%);
+}
+
+html[data-theme="dark"] article .admonition.is-danger,
+html[data-theme="dark"] article .admonition.danger {
+    background: linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%);
+}
+
+html[data-theme="dark"] article .admonition.is-success,
+html[data-theme="dark"] article .admonition.success {
+    background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+}
+
+html[data-theme="dark"] article .admonition.is-example,
+html[data-theme="dark"] article .admonition.example {
+    background: linear-gradient(135deg, #4c1d95 0%, #5b21b6 100%);
+}
+
+html[data-theme="dark"] article .admonition-title {
+    background: rgba(0, 0, 0, 0.2) !important;
+    color: #f3f4f6 !important;
+}
