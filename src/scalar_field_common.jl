@@ -208,15 +208,15 @@ This is generic and works for any scalar field.
 function compute_theta_gradient_spectral!(field::AbstractScalarField{T}) where T
     spec_real   = parent(field.spectral.data_real)
     spec_imag   = parent(field.spectral.data_imag)
-    grad_θ_real = parent(field.grad_theta_spec.data_real) 
-    grad_θ_imag = parent(field.grad_theta_spec.data_imag)
+    ∇θ_real = parent(field.grad_theta_spec.data_real) 
+    ∇θ_imag = parent(field.grad_theta_spec.data_imag)
     
     lm_range = range_local(field.config.pencils.spec, 1)
     r_range  = range_local(field.config.pencils.spec, 3)
     
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
-        if local_r <= size(grad_θ_real, 3)
+        if local_r <= size(∇θ_real, 3)
             
             for lm_idx in lm_range
                 if lm_idx <= field.config.nlm
@@ -224,7 +224,7 @@ function compute_theta_gradient_spectral!(field::AbstractScalarField{T}) where T
                     
                     l, m = field.config.lm_mapping[lm_idx]
                     
-                    if local_lm <= size(grad_θ_real, 1)
+                    if local_lm <= size(∇θ_real, 1)
                         # Initialize gradient to zero
                         dtheta_real = zero(T)
                         dtheta_imag = zero(T)
@@ -258,8 +258,8 @@ function compute_theta_gradient_spectral!(field::AbstractScalarField{T}) where T
                             end
                         end
                         
-                        grad_θ_real[local_lm, 1, local_r] = dtheta_real
-                        grad_θ_imag[local_lm, 1, local_r] = dtheta_imag
+                        ∇θ_real[local_lm, 1, local_r] = dtheta_real
+                        ∇θ_imag[local_lm, 1, local_r] = dtheta_imag
                     end
                 end
             end
@@ -276,15 +276,15 @@ This is generic and works for any scalar field.
 function compute_phi_gradient_spectral!(field::AbstractScalarField{T}) where T
     spec_real   = parent(field.spectral.data_real)
     spec_imag   = parent(field.spectral.data_imag)
-    grad_φ_real = parent(field.grad_phi_spec.data_real)
-    grad_φ_imag = parent(field.grad_phi_spec.data_imag)
+    ∇φ_real = parent(field.grad_phi_spec.data_real)
+    ∇φ_imag = parent(field.grad_phi_spec.data_imag)
     
     lm_range = range_local(field.config.pencils.spec, 1)
     r_range  = range_local(field.config.pencils.spec, 3)
     
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
-        if local_r <= size(grad_φ_real, 3)
+        if local_r <= size(∇φ_real, 3)
             
             for lm_idx in lm_range
                 if lm_idx <= field.config.nlm
@@ -292,14 +292,14 @@ function compute_phi_gradient_spectral!(field::AbstractScalarField{T}) where T
                     
                     l, m = field.config.lm_mapping[lm_idx]
                     
-                    if local_lm <= size(grad_φ_real, 1)
+                    if local_lm <= size(∇φ_real, 1)
                         # ∂Y_l^m/∂φ = im * m * Y_l^m
                         # For real/imag decomposition: 
                         # ∂(Real)/∂φ = -m * Imag
                         # ∂(Imag)/∂φ = m * Real
                         
-                        grad_φ_real[local_lm, 1, local_r] = -T(m) * spec_imag[local_lm, 1, local_r]
-                        grad_φ_imag[local_lm, 1, local_r] =  T(m) * spec_real[local_lm, 1, local_r]
+                        ∇φ_real[local_lm, 1, local_r] = -T(m) * spec_imag[local_lm, 1, local_r]
+                        ∇φ_imag[local_lm, 1, local_r] =  T(m) * spec_real[local_lm, 1, local_r]
                     end
                 end
             end
@@ -320,8 +320,8 @@ correct stencil computation at process boundaries.
 function compute_radial_gradient_spectral!(field::AbstractScalarField{T}, domain::RadialDomain) where T
     spec_real   = parent(field.spectral.data_real)
     spec_imag   = parent(field.spectral.data_imag)
-    grad_r_real = parent(field.grad_r_spec.data_real)
-    grad_r_imag = parent(field.grad_r_spec.data_imag)
+    ∇ᵣ_real = parent(field.∇ᵣ_spec.data_real)
+    ∇ᵣ_imag = parent(field.∇ᵣ_spec.data_imag)
 
     lm_range = range_local(field.config.pencils.spec, 1)
     r_range  = range_local(field.config.pencils.spec, 3)
@@ -342,19 +342,19 @@ function compute_radial_gradient_spectral!(field::AbstractScalarField{T}, domain
         # Different processes may own different lm_range, so we must loop over ALL
         # lm modes to ensure synchronization. Processes that don't own a mode contribute zeros.
         _compute_radial_gradient_mpi!(field, domain, spec_real, spec_imag,
-                                       grad_r_real, grad_r_imag,
+                                       ∇ᵣ_real, ∇ᵣ_imag,
                                        lm_range, r_range, nr, total_nlm, comm)
     else
         # Local path: All radial data is local, no MPI communication needed
         _compute_radial_gradient_local!(field, domain, spec_real, spec_imag,
-                                         grad_r_real, grad_r_imag,
+                                         ∇ᵣ_real, ∇ᵣ_imag,
                                          lm_range, r_range, nr)
     end
 end
 
 # MPI version: Sequential loop with Allreduce for complete radial profiles
 function _compute_radial_gradient_mpi!(field::AbstractScalarField{T}, domain::RadialDomain,
-                                        spec_real, spec_imag, grad_r_real, grad_r_imag,
+                                        spec_real, spec_imag, ∇ᵣ_real, ∇ᵣ_imag,
                                         lm_range, r_range, nr, total_nlm, comm) where T
     # Pre-allocate work arrays for radial profiles
     profile_real  = zeros(T, nr)
@@ -399,9 +399,9 @@ function _compute_radial_gradient_mpi!(field::AbstractScalarField{T}, domain::Ra
             r_last = min(last(r_range), nr)
             @simd for r_idx in r_first:r_last
                 local_r = r_idx - r_first + 1
-                if local_r <= size(grad_r_real, 3)
-                    grad_r_real[local_lm, 1, local_r] = deriv_real[r_idx]
-                    grad_r_imag[local_lm, 1, local_r] = deriv_imag[r_idx]
+                if local_r <= size(∇ᵣ_real, 3)
+                    ∇ᵣ_real[local_lm, 1, local_r] = deriv_real[r_idx]
+                    ∇ᵣ_imag[local_lm, 1, local_r] = deriv_imag[r_idx]
                 end
             end
         end
@@ -410,7 +410,7 @@ end
 
 # Local version: For when radial data is local (no MPI communication needed)
 function _compute_radial_gradient_local!(field::AbstractScalarField{T}, domain::RadialDomain,
-                                          spec_real, spec_imag, grad_r_real, grad_r_imag,
+                                          spec_real, spec_imag, ∇ᵣ_real, ∇ᵣ_imag,
                                           lm_range, r_range, nr) where T
     bandwidth = field.dr_matrix.bandwidth
 
@@ -421,7 +421,7 @@ function _compute_radial_gradient_local!(field::AbstractScalarField{T}, domain::
             # Apply banded matrix to radial profile
             for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
-                if local_r <= size(grad_r_real, 3)
+                if local_r <= size(∇ᵣ_real, 3)
 
                     dr_real = zero(T)
                     dr_imag = zero(T)
@@ -439,8 +439,8 @@ function _compute_radial_gradient_local!(field::AbstractScalarField{T}, domain::
                         end
                     end
 
-                    grad_r_real[local_lm, 1, local_r] = dr_real
-                    grad_r_imag[local_lm, 1, local_r] = dr_imag
+                    ∇ᵣ_real[local_lm, 1, local_r] = dr_real
+                    ∇ᵣ_imag[local_lm, 1, local_r] = dr_imag
                 end
             end
         end
@@ -454,10 +454,10 @@ Apply geometric factors (1/r, 1/(r sin θ)) in spectral space.
 For gradients in spherical coordinates. This is generic.
 """
 function apply_geometric_factors_spectral!(field::AbstractScalarField{T}, domain::RadialDomain) where T
-    grad_θ_real = parent(field.grad_theta_spec.data_real)
-    grad_θ_imag = parent(field.grad_theta_spec.data_imag)
-    grad_φ_real = parent(field.grad_phi_spec.data_real)
-    grad_φ_imag = parent(field.grad_phi_spec.data_imag)
+    ∇θ_real = parent(field.grad_theta_spec.data_real)
+    ∇θ_imag = parent(field.grad_theta_spec.data_imag)
+    ∇φ_real = parent(field.grad_phi_spec.data_real)
+    ∇φ_imag = parent(field.grad_phi_spec.data_imag)
     
     r_range  = range_local(field.config.pencils.spec, 3)
     lm_range = range_local(field.config.pencils.spec, 1)
@@ -472,24 +472,24 @@ function apply_geometric_factors_spectral!(field::AbstractScalarField{T}, domain
             if r_val == 0.0
                 @simd for lm_idx in lm_range
                     local_lm = lm_idx - first(lm_range) + 1
-                    if local_lm <= size(grad_θ_real, 1) && local_r <= size(grad_θ_real, 3)
-                        grad_θ_real[local_lm, 1, local_r] = 0
-                        grad_θ_imag[local_lm, 1, local_r] = 0
-                        grad_φ_real[local_lm, 1, local_r] = 0
-                        grad_φ_imag[local_lm, 1, local_r] = 0
+                    if local_lm <= size(∇θ_real, 1) && local_r <= size(∇θ_real, 3)
+                        ∇θ_real[local_lm, 1, local_r] = 0
+                        ∇θ_imag[local_lm, 1, local_r] = 0
+                        ∇φ_real[local_lm, 1, local_r] = 0
+                        ∇φ_imag[local_lm, 1, local_r] = 0
                     end
                 end
             else
-                r_inv = domain.r[r_idx, 3]  # 1/r
+                r⁻¹ = domain.r[r_idx, 3]  # 1/r
                 @simd for lm_idx in lm_range
                     local_lm = lm_idx - first(lm_range) + 1
-                    if local_lm <= size(grad_θ_real, 1) && local_r <= size(grad_θ_real, 3)
+                    if local_lm <= size(∇θ_real, 1) && local_r <= size(∇θ_real, 3)
                         # ∇_θ field = (1/r) ∂field/∂θ
-                        grad_θ_real[local_lm, 1, local_r] *= r_inv
-                        grad_θ_imag[local_lm, 1, local_r] *= r_inv
+                        ∇θ_real[local_lm, 1, local_r] *= r⁻¹
+                        ∇θ_imag[local_lm, 1, local_r] *= r⁻¹
                         # ∇_φ field = (1/(r sin θ)) ∂field/∂φ; sinθ handled by SH basis
-                        grad_φ_real[local_lm, 1, local_r] *= r_inv
-                        grad_φ_imag[local_lm, 1, local_r] *= r_inv
+                        ∇φ_real[local_lm, 1, local_r] *= r⁻¹
+                        ∇φ_imag[local_lm, 1, local_r] *= r⁻¹
                     end
                 end
             end
@@ -530,7 +530,7 @@ function transform_field_and_gradients_to_physical!(field::AbstractScalarField{T
     spectral_fields = [field.spectral,
                        field.grad_theta_spec,
                        field.grad_phi_spec,
-                       field.grad_r_spec]
+                       field.∇ᵣ_spec]
     
     # Determine physical field based on field type
     main_physical_field = get_main_physical_field(field)
@@ -563,17 +563,17 @@ function compute_scalar_advection_local!(field::AbstractScalarField{T}, vel_fiel
     u_θ = parent(vel_fields.velocity.θ_component.data)
     u_φ = parent(vel_fields.velocity.φ_component.data)
     
-    grad_r = parent(field.gradient.r_component.data)
-    grad_θ = parent(field.gradient.θ_component.data)
-    grad_φ = parent(field.gradient.φ_component.data)
+    ∇ᵣ = parent(field.gradient.r_component.data)
+    ∇θ = parent(field.gradient.θ_component.data)
+    ∇φ = parent(field.gradient.φ_component.data)
     
     advection = parent(field.advection_physical.data)
     
     @inbounds @simd for idx in eachindex(advection)
-        if idx <= length(u_r) && idx <= length(grad_r)
-            advection[idx] = -(u_r[idx] * grad_r[idx] + 
-                              u_θ[idx] * grad_θ[idx] + 
-                              u_φ[idx] * grad_φ[idx])
+        if idx <= length(u_r) && idx <= length(∇ᵣ)
+            advection[idx] = -(u_r[idx] * ∇ᵣ[idx] + 
+                              u_θ[idx] * ∇θ[idx] + 
+                              u_φ[idx] * ∇φ[idx])
         end
     end
 end
@@ -697,8 +697,8 @@ function zero_scalar_work_arrays!(field::AbstractScalarField{T}) where T
     fill!(parent(field.grad_theta_spec.data_imag), zero(T))
     fill!(parent(field.grad_phi_spec.data_real), zero(T))
     fill!(parent(field.grad_phi_spec.data_imag), zero(T))
-    fill!(parent(field.grad_r_spec.data_real), zero(T))
-    fill!(parent(field.grad_r_spec.data_imag), zero(T))
+    fill!(parent(field.∇ᵣ_spec.data_real), zero(T))
+    fill!(parent(field.∇ᵣ_spec.data_imag), zero(T))
     fill!(parent(field.nonlinear.data_real), zero(T))
     fill!(parent(field.nonlinear.data_imag), zero(T))
 end

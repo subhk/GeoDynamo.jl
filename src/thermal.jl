@@ -80,7 +80,7 @@ mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
     # Gradient spectral components for efficiency
     grad_theta_spec::SHTnsSpectralField{T}
     grad_phi_spec::SHTnsSpectralField{T}
-    grad_r_spec::SHTnsSpectralField{T}
+    ∇ᵣ_spec::SHTnsSpectralField{T}
 
     # Sources and boundary conditions
     internal_sources::Vector{T}        # Radial profile of heating
@@ -94,14 +94,14 @@ mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
     boundary_time_index::Ref{Int}                                    # Current time index for time-dependent BCs
     
     # Pre-computed coefficients
-    l_factors::Vector{Float64}         # l(l+1) values
+    ℓ_factors::Vector{Float64}         # l(l+1) values
     
     # Configuration (SHTnsKit)
     config::SHTnsKitConfig
     
     # Radial derivative matrices
     dr_matrix::BandedMatrix{T}
-    d2r_matrix::BandedMatrix{T}
+    d²r_matrix::BandedMatrix{T}
     
     # Spectral derivative operators
     theta_derivative_matrix::SparseMatrixCSC{T,Int}  # Pre-computed θ-derivative
@@ -120,10 +120,16 @@ end
 # Specialization for temperature field (moved after struct definition)
 get_main_physical_field(field::SHTnsTemperatureField{T}) where T = field.temperature
 
-function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig, 
-                                        oc_domain::RadialDomain) where T
-    # Use config's pencils directly
-    pencils = config.pencils
+function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
+                                        oc_domain::RadialDomain,
+                                        pencils=nothing, pencil_spec=nothing) where T
+    # Use config's pencils by default (consistent with velocity/magnetic creators)
+    if pencils === nothing
+        pencils = config.pencils
+    end
+    if pencil_spec === nothing
+        pencil_spec = pencils.spec
+    end
     
     # Temperature field in r-pencil for efficient radial operations
     temperature = create_shtns_physical_field(T, config, oc_domain, pencils.r)
@@ -133,19 +139,19 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
                                         (pencils.θ, pencils.φ, pencils.r))
     
     # Spectral representation using spectral pencil
-    spectral  = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    nonlinear = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    prev_nonlinear = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    
+    spectral  = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    nonlinear = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    prev_nonlinear = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+
     # Work arrays
-    work_spectral      = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+    work_spectral      = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     work_physical      = create_shtns_physical_field(T, config, oc_domain, pencils.r)
     advection_physical = create_shtns_physical_field(T, config, oc_domain, pencils.r)
-    
+
     # Gradient spectral components
-    grad_theta_spec = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    grad_phi_spec   = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    grad_r_spec     = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+    grad_theta_spec = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    grad_phi_spec   = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    ∇ᵣ_spec     = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     
     # Sources and boundary conditions
     internal_sources = zeros(T, oc_domain.N)
@@ -159,13 +165,13 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     boundary_data_cache = Dict{String, Any}()
     
     # Pre-compute l(l+1) factors
-    l_factors = Float64[l * (l + 1) for l in config.l_values]
+    ℓ_factors = Float64[l * (l + 1) for l in config.l_values]
     
     # Transform manager removed in SHTnsKit migration
     
     # Create radial derivative matrices
     dr_matrix  = create_derivative_matrix(1, oc_domain)
-    d2r_matrix = create_derivative_matrix(2, oc_domain)
+    d²r_matrix = create_derivative_matrix(2, oc_domain)
     
     # Pre-compute spectral derivative operators
     theta_derivative_matrix = build_theta_derivative_matrix(T, config)
@@ -174,12 +180,12 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     return SHTnsTemperatureField{T}(
         temperature, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
-        grad_theta_spec, grad_phi_spec, grad_r_spec,
+        grad_theta_spec, grad_phi_spec, ∇ᵣ_spec,
         internal_sources, boundary_values,
         bc_type_inner, bc_type_outer,
         nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
-        l_factors, config,
-        dr_matrix, d2r_matrix,
+        ℓ_factors, config,
+        dr_matrix, d²r_matrix,
         theta_derivative_matrix, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),
         oc_domain
@@ -324,28 +330,28 @@ function compute_temperature_advection_local!(temp_field::SHTnsTemperatureField{
     #   ∂T/∂t + u·∇T = (Pm/Pr) ∇²T
     #
     # In spherical coordinates:
-    #   u·∇T = u_r ∂T/∂r + (u_θ/r) ∂T/∂θ + (u_φ/(r sin θ)) ∂T/∂φ
+    #   u·∇T = uᵣ ∂T/∂r + (uθ/r) ∂T/∂θ + (uφ/(r sin θ)) ∂T/∂φ
     #
     # The gradients (∂T/∂r, ∂T/∂θ, ∂T/∂φ) are pre-computed in spectral space
     # and transformed to physical space before this function is called.
     #
     # This operation is COMPLETELY LOCAL - no MPI communication needed.
     # =========================================================================
-    u_r = parent(vel_fields.velocity.r_component.data)
-    u_θ = parent(vel_fields.velocity.θ_component.data)
-    u_φ = parent(vel_fields.velocity.φ_component.data)
+    uᵣ = parent(vel_fields.velocity.r_component.data)
+    uθ = parent(vel_fields.velocity.θ_component.data)
+    uφ = parent(vel_fields.velocity.φ_component.data)
     
-    grad_r = parent(temp_field.gradient.r_component.data)
-    grad_θ = parent(temp_field.gradient.θ_component.data)
-    grad_φ = parent(temp_field.gradient.φ_component.data)
+    ∇ᵣ = parent(temp_field.gradient.r_component.data)
+    ∇θ = parent(temp_field.gradient.θ_component.data)
+    ∇φ = parent(temp_field.gradient.φ_component.data)
     
     advection = parent(temp_field.advection_physical.data)
     
     @inbounds @simd for idx in eachindex(advection)
-        if idx <= length(u_r) && idx <= length(grad_r)
-            advection[idx] = -(u_r[idx] * grad_r[idx] + 
-                              u_θ[idx] * grad_θ[idx] + 
-                              u_φ[idx] * grad_φ[idx])
+        if idx <= length(uᵣ) && idx <= length(∇ᵣ)
+            advection[idx] = -(uᵣ[idx] * ∇ᵣ[idx] + 
+                              uθ[idx] * ∇θ[idx] + 
+                              uφ[idx] * ∇φ[idx])
         end
     end
 end
@@ -524,11 +530,11 @@ function compute_nusselt_number(temp_field::SHTnsTemperatureField{T},
     Compute Nusselt number from heat flux at boundaries
     """
     # Compute heat flux from radial gradient
-    grad_r = temp_field.gradient.r_component
+    ∇ᵣ = temp_field.gradient.r_component
 
     # Get flux at boundaries (requires communication)
-    flux_inner = compute_surface_flux(grad_r, 1, temp_field.config)
-    flux_outer = compute_surface_flux(grad_r, domain.N, temp_field.config)
+    flux_inner = compute_surface_flux(∇ᵣ, 1, temp_field.config)
+    flux_outer = compute_surface_flux(∇ᵣ, domain.N, temp_field.config)
 
     # Nusselt number
     conductive_flux = 4π * domain.r[1, 4]^2
@@ -661,8 +667,8 @@ function zero_temperature_work_arrays!(temp_field::SHTnsTemperatureField{T}) whe
     fill!(parent(temp_field.grad_theta_spec.data_imag), zero(T))
     fill!(parent(temp_field.grad_phi_spec.data_real), zero(T))
     fill!(parent(temp_field.grad_phi_spec.data_imag), zero(T))
-    fill!(parent(temp_field.grad_r_spec.data_real), zero(T))
-    fill!(parent(temp_field.grad_r_spec.data_imag), zero(T))
+    fill!(parent(temp_field.∇ᵣ_spec.data_real), zero(T))
+    fill!(parent(temp_field.∇ᵣ_spec.data_imag), zero(T))
 end
 
 function set_temperature_ic!(temp_field::SHTnsTemperatureField{T}, 

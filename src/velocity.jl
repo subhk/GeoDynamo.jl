@@ -115,14 +115,14 @@ import .bcs: BoundaryType, DIRICHLET, NEUMANN
 # Optional shared workspace support (defined before velocity_bc.jl needs it)
 # ---------------------------------
 struct VelocityWorkspace{T}
-    pol_profile_real::Vector{Vector{T}}
-    pol_profile_imag::Vector{Vector{T}}
-    tor_profile_real::Vector{Vector{T}}
-    tor_profile_imag::Vector{Vector{T}}
-    dpol_dr_real::Vector{Vector{T}}
-    dpol_dr_imag::Vector{Vector{T}}
-    d2pol_dr2_real::Vector{Vector{T}}
-    d2pol_dr2_imag::Vector{Vector{T}}
+    Pᴾ_profile_real::Vector{Vector{T}}
+    Pᴾ_profile_imag::Vector{Vector{T}}
+    Tᵀ_profile_real::Vector{Vector{T}}
+    Tᵀ_profile_imag::Vector{Vector{T}}
+    dᴾ_dr_real::Vector{Vector{T}}
+    dᴾ_dr_imag::Vector{Vector{T}}
+    d²ᴾ_dr²_real::Vector{Vector{T}}
+    d²ᴾ_dr²_imag::Vector{Vector{T}}
     # Pre-allocated buffers for BC operations (avoid allocations per mode)
     bc_profile_real::Vector{Vector{T}}
     bc_profile_imag::Vector{Vector{T}}
@@ -161,12 +161,12 @@ mutable struct SHTnsVelocityFields{T}
     advection_physical::SHTnsVectorField{T}
     
     # Pre-computed coefficients
-    l_factors::Vector{Float64}          # l(l+1) values
+    ℓ_factors::Vector{Float64}          # l(l+1) values
     coriolis_factors::Matrix{Float64}   # Pre-computed Coriolis terms
     
     # Radial derivative matrices
     dr_matrix::BandedMatrix{T}          # First derivative
-    d2r_matrix::BandedMatrix{T}         # Second derivative
+    d²r_matrix::BandedMatrix{T}         # Second derivative
     laplacian_matrix::BandedMatrix{T}   # Radial Laplacian operator
     
     # Transform manager removed; SHTnsKit transforms are used directly
@@ -908,7 +908,7 @@ function compute_tau_correction_outer_boundary(flux_correction::T,
 end
 
 """
-    validate_stress_free_boundary(v_r, v_theta, v_phi, r_val, theta, phi; tolerance=0.05)
+    validate_stress_free_boundary(v_r, v_theta, v_phi, r, theta, phi; tolerance=0.05)
 
 Validate that velocity field satisfies stress-free boundary condition.
 
@@ -918,7 +918,7 @@ For stress-free boundaries with v_r = 0, the condition is:
 
 # Arguments
 - `v_r, v_theta, v_phi`: Velocity components at boundary [nlat, nlon]
-- `r_val`: Radial position of boundary
+- `r`: Radial position of boundary
 - `theta, phi`: Coordinate arrays
 - `tolerance`: Maximum allowed |stress| / |v|
 
@@ -926,7 +926,7 @@ For stress-free boundaries with v_r = 0, the condition is:
 - `is_valid`: Boolean indicating if condition is satisfied
 - `max_violation`: Maximum relative stress violation
 """
-function validate_stress_free_boundary(v_r, v_theta, v_phi, r_val, theta, phi; tolerance=0.05)
+function validate_stress_free_boundary(v_r, v_theta, v_phi, r, theta, phi; tolerance=0.05)
     nlat, nlon = size(v_theta)
 
     # Compute radial derivatives using finite differences
@@ -973,7 +973,7 @@ function validate_stress_free_boundary(v_r, v_theta, v_phi, r_val, theta, phi; t
 end
 
 """
-    compute_tangential_stress_components(v_theta, v_phi, dv_theta_dr, dv_phi_dr, r_val)
+    compute_tangential_stress_components(v_theta, v_phi, dv_theta_dr, dv_phi_dr, r)
 
 Compute tangential stress components from velocity and derivatives.
 
@@ -984,16 +984,16 @@ For incompressible flow with v_r = 0:
 # Arguments
 - `v_theta, v_phi`: Tangential velocity components [nlat, nlon]
 - `dv_theta_dr, dv_phi_dr`: Radial derivatives [nlat, nlon]
-- `r_val`: Radial position
+- `r`: Radial position
 
 # Returns
 - `tau_theta, tau_phi`: Stress components [nlat, nlon] with μ = 1
 - `max_stress`: Maximum stress magnitude
 """
-function compute_tangential_stress_components(v_theta, v_phi, dv_theta_dr, dv_phi_dr, r_val)
+function compute_tangential_stress_components(v_theta, v_phi, dv_theta_dr, dv_phi_dr, r)
     # Compute stress (with μ = 1)
-    tau_theta = dv_theta_dr .- v_theta ./ r_val
-    tau_phi = dv_phi_dr .- v_phi ./ r_val
+    tau_theta = dv_theta_dr .- v_theta ./ r
+    tau_phi = dv_phi_dr .- v_phi ./ r
 
     # Total stress magnitude
     stress_magnitude = sqrt.(tau_theta.^2 .+ tau_phi.^2)
@@ -1006,14 +1006,14 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
                                           domain::RadialDomain,
                                           ws::VelocityWorkspace{T}) where T
     # Same as the threaded version but using provided workspace buffers
-    u_tor_real = parent(fields.toroidal.data_real)
-    u_tor_imag = parent(fields.toroidal.data_imag)
-    u_pol_real = parent(fields.poloidal.data_real)
-    u_pol_imag = parent(fields.poloidal.data_imag)
-    ω_tor_real = parent(fields.vort_toroidal.data_real)
-    ω_tor_imag = parent(fields.vort_toroidal.data_imag)
-    ω_pol_real = parent(fields.vort_poloidal.data_real)
-    ω_pol_imag = parent(fields.vort_poloidal.data_imag)
+    uᵀ_real = parent(fields.toroidal.data_real)
+    uᵀ_imag = parent(fields.toroidal.data_imag)
+    uᴾ_real = parent(fields.poloidal.data_real)
+    uᴾ_imag = parent(fields.poloidal.data_imag)
+    ζᵀ_real = parent(fields.vort_toroidal.data_real)
+    ζᵀ_imag = parent(fields.vort_toroidal.data_imag)
+    ζᴾ_real = parent(fields.vort_poloidal.data_real)
+    ζᴾ_imag = parent(fields.vort_poloidal.data_imag)
 
     config = fields.toroidal.config
     lm_range = get_local_range(fields.toroidal.pencil, 1)
@@ -1021,37 +1021,37 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     nr = domain.N
 
     Threads.@threads for lm_idx in lm_range
-        if lm_idx <= length(fields.l_factors)
+        if lm_idx <= length(fields.ℓ_factors)
             local_lm = lm_idx - first(lm_range) + 1
-            l_factor = fields.l_factors[lm_idx]
+            ℓ_factor = fields.ℓ_factors[lm_idx]
             tid = Threads.threadid()
 
             # Thread safety: ensure thread ID is within workspace bounds
-            if tid > length(ws.pol_profile_real)
-                error("Thread ID $tid exceeds workspace size $(length(ws.pol_profile_real)). " *
+            if tid > length(ws.Pᴾ_profile_real)
+                error("Thread ID $tid exceeds workspace size $(length(ws.Pᴾ_profile_real)). " *
                       "This indicates the workspace was created for fewer threads than are currently active. " *
-                      "Workspace threads: $(length(ws.pol_profile_real)), Active threads: $(Threads.nthreads()). " *
+                      "Workspace threads: $(length(ws.Pᴾ_profile_real)), Active threads: $(Threads.nthreads()). " *
                       "Recreate the workspace with the correct thread count.")
             end
 
-            pol_profile_real = ws.pol_profile_real[tid]
-            pol_profile_imag = ws.pol_profile_imag[tid]
-            tor_profile_real = ws.tor_profile_real[tid]
-            tor_profile_imag = ws.tor_profile_imag[tid]
-            dpol_dr_real     = ws.dpol_dr_real[tid]
-            dpol_dr_imag     = ws.dpol_dr_imag[tid]
-            d2pol_dr2_real   = ws.d2pol_dr2_real[tid]
-            d2pol_dr2_imag   = ws.d2pol_dr2_imag[tid]
+            Pᴾ_profile_real = ws.Pᴾ_profile_real[tid]
+            Pᴾ_profile_imag = ws.Pᴾ_profile_imag[tid]
+            Tᵀ_profile_real = ws.Tᵀ_profile_real[tid]
+            Tᵀ_profile_imag = ws.Tᵀ_profile_imag[tid]
+            dᴾ_dr_real     = ws.dᴾ_dr_real[tid]
+            dᴾ_dr_imag     = ws.dᴾ_dr_imag[tid]
+            d²ᴾ_dr²_real   = ws.d²ᴾ_dr²_real[tid]
+            d²ᴾ_dr²_imag   = ws.d²ᴾ_dr²_imag[tid]
 
-            extract_local_radial_profile!(pol_profile_real, u_pol_real, local_lm, nr, r_range)
-            extract_local_radial_profile!(pol_profile_imag, u_pol_imag, local_lm, nr, r_range)
-            extract_local_radial_profile!(tor_profile_real, u_tor_real, local_lm, nr, r_range)
-            extract_local_radial_profile!(tor_profile_imag, u_tor_imag, local_lm, nr, r_range)
+            extract_local_radial_profile!(Pᴾ_profile_real, uᴾ_real, local_lm, nr, r_range)
+            extract_local_radial_profile!(Pᴾ_profile_imag, uᴾ_imag, local_lm, nr, r_range)
+            extract_local_radial_profile!(Tᵀ_profile_real, uᵀ_real, local_lm, nr, r_range)
+            extract_local_radial_profile!(Tᵀ_profile_imag, uᵀ_imag, local_lm, nr, r_range)
 
-            apply_derivative_matrix!(dpol_dr_real,   fields.dr_matrix,  pol_profile_real)
-            apply_derivative_matrix!(dpol_dr_imag,   fields.dr_matrix,  pol_profile_imag)
-            apply_derivative_matrix!(d2pol_dr2_real, fields.d2r_matrix, pol_profile_real)
-            apply_derivative_matrix!(d2pol_dr2_imag, fields.d2r_matrix, pol_profile_imag)
+            apply_derivative_matrix!(dᴾ_dr_real,   fields.dr_matrix,  Pᴾ_profile_real)
+            apply_derivative_matrix!(dᴾ_dr_imag,   fields.dr_matrix,  Pᴾ_profile_imag)
+            apply_derivative_matrix!(d²ᴾ_dr²_real, fields.d²r_matrix, Pᴾ_profile_real)
+            apply_derivative_matrix!(d²ᴾ_dr²_imag, fields.d²r_matrix, Pᴾ_profile_imag)
 
             r_first = first(r_range)
             r_last = min(last(r_range), nr)
@@ -1060,27 +1060,27 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
             end
             @inbounds @simd for r_idx in r_first:r_last
                 local_r = r_idx - r_first + 1
-                if local_r <= size(ω_tor_real, 3) && r_idx <= size(domain.r, 1)
-                    r_val = domain.r[r_idx, 4]
-                    if r_val == 0.0
-                        ω_tor_real[local_lm, 1, local_r] = 0
-                        ω_tor_imag[local_lm, 1, local_r] = 0
-                        ω_pol_real[local_lm, 1, local_r] = 0
-                        ω_pol_imag[local_lm, 1, local_r] = 0
+                if local_r <= size(ζᵀ_real, 3) && r_idx <= size(domain.r, 1)
+                    r = domain.r[r_idx, 4]
+                    if r == 0.0
+                        ζᵀ_real[local_lm, 1, local_r] = 0
+                        ζᵀ_imag[local_lm, 1, local_r] = 0
+                        ζᴾ_real[local_lm, 1, local_r] = 0
+                        ζᴾ_imag[local_lm, 1, local_r] = 0
                     else
-                        r_inv  = domain.r[r_idx, 3]
-                        r_inv2 = domain.r[r_idx, 2]
-                        ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx]
-                                                            - d2pol_dr2_real[r_idx]
-                                                            - 2.0 * r_inv * dpol_dr_real[r_idx])
+                        r⁻¹  = domain.r[r_idx, 3]
+                        r⁻² = domain.r[r_idx, 2]
+                        ζᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx]
+                                                            - d²ᴾ_dr²_real[r_idx]
+                                                            - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
 
-                        ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx]
-                                                            - d2pol_dr2_imag[r_idx]
-                                                            - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                        ζᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx]
+                                                            - d²ᴾ_dr²_imag[r_idx]
+                                                            - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
 
-                        ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_real[r_idx]
+                        ζᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Tᵀ_profile_real[r_idx]
                         
-                        ω_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_imag[r_idx]
+                        ζᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Tᵀ_profile_imag[r_idx]
                     end
                 end
             end
@@ -1124,7 +1124,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     advection_physical = create_shtns_vector_field(T, config, oc_domain, pencils)
     
     # Pre-compute l(l+1) factors
-    l_factors = Float64[l * (l + 1) for l in config.l_values]
+    ℓ_factors = Float64[l * (l + 1) for l in config.l_values]
     
     # Pre-compute Coriolis factors (sin(θ) and cos(θ))
     coriolis_factors = zeros(Float64, 2, config.nlat)
@@ -1135,7 +1135,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     
     # Create radial derivative matrices
     dr_matrix        = create_derivative_matrix(1, oc_domain)
-    d2r_matrix       = create_derivative_matrix(2, oc_domain)
+    d²r_matrix       = create_derivative_matrix(2, oc_domain)
     laplacian_matrix = create_radial_laplacian(oc_domain)
     
     # Create transpose plans for efficient data movement
@@ -1150,8 +1150,8 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
                                   nl_toroidal, nl_poloidal, prev_nl_toroidal, prev_nl_poloidal,
                                   work_tor, work_pol, work_physical,
                                   advection_physical,
-                                  l_factors, coriolis_factors,
-                                  dr_matrix, d2r_matrix, laplacian_matrix,
+                                  ℓ_factors, coriolis_factors,
+                                  dr_matrix, d²r_matrix, laplacian_matrix,
                                   config,
                                   oc_domain,
                                   boundary_condition_set, boundary_cache, boundary_time_index)
@@ -1161,12 +1161,13 @@ end
 # =============================
 # Main nonlinear computation
 # =============================
-function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T}, 
+function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
                                     temp_field, comp_field, mag_field,
-                                    oc_domain::RadialDomain) where T
+                                    oc_domain::RadialDomain;
+                                    geometry::Symbol = get_parameters().geometry) where T
     # Zero work arrays once
     zero_velocity_work_arrays!(fields)
-    
+
     # Step 1: Use enhanced vector synthesis with automatic transpose handling
     shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity; domain=oc_domain)
 
@@ -1175,12 +1176,16 @@ function compute_velocity_nonlinear!(fields::SHTnsVelocityFields{T},
 
     # Step 3: Transform vorticity to physical space with batched operations
     shtnskit_vector_synthesis!(fields.vort_toroidal, fields.vort_poloidal, fields.vorticity; domain=oc_domain)
-    
+
     # Step 4: Compute all nonlinear terms with enhanced memory access patterns
     compute_all_nonlinear_terms!(fields, temp_field, comp_field, mag_field, oc_domain)
-    
+
     # Step 5: Use enhanced vector analysis with efficient data layout
-    shtnskit_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
+    if geometry === :ball
+        ball_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
+    else
+        shtnskit_vector_analysis!(fields.advection_physical, fields.nl_toroidal, fields.nl_poloidal)
+    end
 end
 
 
@@ -1191,7 +1196,7 @@ end
 #
 # MATHEMATICAL BACKGROUND:
 # ========================
-# Vorticity ω = ∇×u is computed in spectral space using the curl operator
+# Vorticity ζ = ∇×u is computed in spectral space using the curl operator
 # for toroidal-poloidal decomposition.
 #
 # For a vector field V = ∇×(T r̂) + ∇×∇×(P r̂), the curl satisfies:
@@ -1200,7 +1205,7 @@ end
 #   (∇×V)_poloidal = -l(l+1)/r² V_toroidal
 #
 # This is the SAME formula used for:
-#   - Vorticity: ω = ∇×u (this function)
+#   - Vorticity: ζ = ∇×u (this function)
 #   - Current density: j = ∇×B (in magnetic.jl)
 #   - Induction curl: ∇×(u×B) (in magnetic.jl)
 #
@@ -1218,26 +1223,26 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
     end
 
     # =========================================================================
-    # Compute vorticity ω = ∇×u in spectral space
+    # Compute vorticity ζ = ∇×u in spectral space
     # =========================================================================
     # For toroidal-poloidal decomposition, the curl operator gives:
     #
-    #   ω_toroidal = [l(l+1)/r² - d²/dr² - (2/r)d/dr] u_poloidal
-    #   ω_poloidal = -l(l+1)/r² u_toroidal
+    #   ζᵀoidal = [l(l+1)/r² - d²/dr² - (2/r)d/dr] uᴾoidal
+    #   ζᴾoidal = -l(l+1)/r² uᵀoidal
     #
     # where l is the spherical harmonic degree.
     # =========================================================================
     
     # Get local data views with enhanced memory access
-    u_tor_real = parent(fields.toroidal.data_real)
-    u_tor_imag = parent(fields.toroidal.data_imag)
-    u_pol_real = parent(fields.poloidal.data_real)
-    u_pol_imag = parent(fields.poloidal.data_imag)
+    uᵀ_real = parent(fields.toroidal.data_real)
+    uᵀ_imag = parent(fields.toroidal.data_imag)
+    uᴾ_real = parent(fields.poloidal.data_real)
+    uᴾ_imag = parent(fields.poloidal.data_imag)
     
-    ω_tor_real = parent(fields.vort_toroidal.data_real)
-    ω_tor_imag = parent(fields.vort_toroidal.data_imag)
-    ω_pol_real = parent(fields.vort_poloidal.data_real)
-    ω_pol_imag = parent(fields.vort_poloidal.data_imag)
+    ζᵀ_real = parent(fields.vort_toroidal.data_real)
+    ζᵀ_imag = parent(fields.vort_toroidal.data_imag)
+    ζᴾ_real = parent(fields.vort_poloidal.data_real)
+    ζᴾ_imag = parent(fields.vort_poloidal.data_imag)
     
     # Use enhanced range functions from pencil decomposition
     config = fields.toroidal.config
@@ -1262,13 +1267,13 @@ function compute_vorticity_spectral_full!(fields::SHTnsVelocityFields{T},
         # Sequential version with MPI communication for correctness
         # CRITICAL: Pass total_nlm so all processes loop over ALL modes for synchronization
         total_nlm = config.nlm
-        _compute_vorticity_spectral_mpi!(fields, domain, u_tor_real, u_tor_imag, u_pol_real, u_pol_imag,
-                                         ω_tor_real, ω_tor_imag, ω_pol_real, ω_pol_imag,
+        _compute_vorticity_spectral_mpi!(fields, domain, uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
+                                         ζᵀ_real, ζᵀ_imag, ζᴾ_real, ζᴾ_imag,
                                          lm_range, r_range, nr, total_nlm, comm)
     else
         # Threaded version for local radial data (no MPI needed)
-        _compute_vorticity_spectral_threaded!(fields, domain, u_tor_real, u_tor_imag, u_pol_real, u_pol_imag,
-                                               ω_tor_real, ω_tor_imag, ω_pol_real, ω_pol_imag,
+        _compute_vorticity_spectral_threaded!(fields, domain, uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
+                                               ζᵀ_real, ζᵀ_imag, ζᴾ_real, ζᴾ_imag,
                                                lm_range, r_range, nr)
     end
 end
@@ -1281,83 +1286,83 @@ end
 # Processes that don't own a mode contribute zeros.
 #
 # OPTIMIZATION: Only poloidal data is gathered (requires radial derivatives).
-# Toroidal uses direct local access since ω_pol = -l(l+1)/r² × u_tor is point-wise.
+# Toroidal uses direct local access since ζᴾ = -l(l+1)/r² × uᵀ is point-wise.
 # This reduces MPI communication by 50% (2 Allreduce vs 4).
 function _compute_vorticity_spectral_mpi!(fields::SHTnsVelocityFields{T}, domain::RadialDomain,
-                                          u_tor_real, u_tor_imag, u_pol_real, u_pol_imag,
-                                          ω_tor_real, ω_tor_imag, ω_pol_real, ω_pol_imag,
+                                          uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
+                                          ζᵀ_real, ζᵀ_imag, ζᴾ_real, ζᴾ_imag,
                                           lm_range, r_range, nr, total_nlm, comm) where T
     # Pre-allocate work arrays for poloidal (needs gathering for derivatives)
     # Toroidal does NOT need gathering - point-wise operation uses local data
-    pol_profile_real  = zeros(T, nr)
-    pol_profile_imag  = zeros(T, nr)
+    Pᴾ_profile_real  = zeros(T, nr)
+    Pᴾ_profile_imag  = zeros(T, nr)
     pol_gathered_real = zeros(T, nr)
     pol_gathered_imag = zeros(T, nr)
-    dpol_dr_real      = zeros(T, nr)
-    dpol_dr_imag      = zeros(T, nr)
-    d2pol_dr2_real    = zeros(T, nr)
-    d2pol_dr2_imag    = zeros(T, nr)
+    dᴾ_dr_real      = zeros(T, nr)
+    dᴾ_dr_imag      = zeros(T, nr)
+    d²ᴾ_dr²_real    = zeros(T, nr)
+    d²ᴾ_dr²_imag    = zeros(T, nr)
 
     # ALL processes loop over ALL lm modes for proper MPI synchronization
     @inbounds for lm_idx in 1:total_nlm
         i_own_this_mode = lm_idx in lm_range
-        l_factor = fields.l_factors[lm_idx]
+        ℓ_factor = fields.ℓ_factors[lm_idx]
 
         # Extract poloidal radial profile (owners contribute data, non-owners contribute zeros)
         # Toroidal is NOT extracted here - we use direct local access later
-        fill!(pol_profile_real, zero(T))
-        fill!(pol_profile_imag, zero(T))
+        fill!(Pᴾ_profile_real, zero(T))
+        fill!(Pᴾ_profile_imag, zero(T))
         if i_own_this_mode
             local_lm = lm_idx - first(lm_range) + 1
             for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
-                if local_r <= size(u_pol_real, 3)
-                    pol_profile_real[r_idx] = u_pol_real[local_lm, 1, local_r]
-                    pol_profile_imag[r_idx] = u_pol_imag[local_lm, 1, local_r]
+                if local_r <= size(uᴾ_real, 3)
+                    Pᴾ_profile_real[r_idx] = uᴾ_real[local_lm, 1, local_r]
+                    Pᴾ_profile_imag[r_idx] = uᴾ_imag[local_lm, 1, local_r]
                 end
             end
         end
 
         # ALL processes call Allreduce together for this lm mode (poloidal only)
-        # Toroidal gathering removed - not needed for point-wise ω_pol computation
-        MPI.Allreduce!(pol_profile_real, pol_gathered_real, MPI.SUM, comm)
-        MPI.Allreduce!(pol_profile_imag, pol_gathered_imag, MPI.SUM, comm)
+        # Toroidal gathering removed - not needed for point-wise ζᴾ computation
+        MPI.Allreduce!(Pᴾ_profile_real, pol_gathered_real, MPI.SUM, comm)
+        MPI.Allreduce!(Pᴾ_profile_imag, pol_gathered_imag, MPI.SUM, comm)
 
         # Only mode owners compute derivatives and store results
         if i_own_this_mode
             local_lm = lm_idx - first(lm_range) + 1
 
             # Compute radial derivatives using complete poloidal profile
-            apply_derivative_matrix!(dpol_dr_real,   fields.dr_matrix,  pol_gathered_real)
-            apply_derivative_matrix!(dpol_dr_imag,   fields.dr_matrix,  pol_gathered_imag)
-            apply_derivative_matrix!(d2pol_dr2_real, fields.d2r_matrix, pol_gathered_real)
-            apply_derivative_matrix!(d2pol_dr2_imag, fields.d2r_matrix, pol_gathered_imag)
+            apply_derivative_matrix!(dᴾ_dr_real,   fields.dr_matrix,  pol_gathered_real)
+            apply_derivative_matrix!(dᴾ_dr_imag,   fields.dr_matrix,  pol_gathered_imag)
+            apply_derivative_matrix!(d²ᴾ_dr²_real, fields.d²r_matrix, pol_gathered_real)
+            apply_derivative_matrix!(d²ᴾ_dr²_imag, fields.d²r_matrix, pol_gathered_imag)
 
             # Compute vorticity components (only for local r indices)
             r_first = first(r_range)
             r_last = min(last(r_range), nr)
             @simd for r_idx in r_first:r_last
                 local_r = r_idx - r_first + 1
-                if local_r <= size(ω_tor_real, 3)
-                    r_val = domain.r[r_idx, 4]
-                    if r_val == 0.0
-                        ω_tor_real[local_lm, 1, local_r] = zero(T)
-                        ω_tor_imag[local_lm, 1, local_r] = zero(T)
-                        ω_pol_real[local_lm, 1, local_r] = zero(T)
-                        ω_pol_imag[local_lm, 1, local_r] = zero(T)
+                if local_r <= size(ζᵀ_real, 3)
+                    r = domain.r[r_idx, 4]
+                    if r == 0.0
+                        ζᵀ_real[local_lm, 1, local_r] = zero(T)
+                        ζᵀ_imag[local_lm, 1, local_r] = zero(T)
+                        ζᴾ_real[local_lm, 1, local_r] = zero(T)
+                        ζᴾ_imag[local_lm, 1, local_r] = zero(T)
                     else
-                        r_inv = domain.r[r_idx, 3]
-                        r_inv2 = domain.r[r_idx, 2]
-                        # ω_tor uses gathered poloidal (needs derivatives)
-                        ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_real[r_idx]
-                                                            - d2pol_dr2_real[r_idx]
-                                                            - 2.0 * r_inv * dpol_dr_real[r_idx])
-                        ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_gathered_imag[r_idx]
-                                                            - d2pol_dr2_imag[r_idx]
-                                                            - 2.0 * r_inv * dpol_dr_imag[r_idx])
-                        # ω_pol uses LOCAL toroidal (point-wise, no derivatives needed)
-                        ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * u_tor_real[local_lm, 1, local_r]
-                        ω_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * u_tor_imag[local_lm, 1, local_r]
+                        r⁻¹ = domain.r[r_idx, 3]
+                        r⁻² = domain.r[r_idx, 2]
+                        # ζᵀ uses gathered poloidal (needs derivatives)
+                        ζᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * pol_gathered_real[r_idx]
+                                                            - d²ᴾ_dr²_real[r_idx]
+                                                            - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
+                        ζᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * pol_gathered_imag[r_idx]
+                                                            - d²ᴾ_dr²_imag[r_idx]
+                                                            - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
+                        # ζᴾ uses LOCAL toroidal (point-wise, no derivatives needed)
+                        ζᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uᵀ_real[local_lm, 1, local_r]
+                        ζᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uᵀ_imag[local_lm, 1, local_r]
                     end
                 end
             end
@@ -1367,25 +1372,25 @@ end
 
 # Threaded version: For when radial data is local (no MPI communication needed)
 function _compute_vorticity_spectral_threaded!(fields::SHTnsVelocityFields{T}, domain::RadialDomain,
-                                                u_tor_real, u_tor_imag, u_pol_real, u_pol_imag,
-                                                ω_tor_real, ω_tor_imag, ω_pol_real, ω_pol_imag,
+                                                uᵀ_real, uᵀ_imag, uᴾ_real, uᴾ_imag,
+                                                ζᵀ_real, ζᵀ_imag, ζᴾ_real, ζᴾ_imag,
                                                 lm_range, r_range, nr) where T
     # Thread-local scratch buffers reused across modes to avoid allocations
     nT = max(1, Threads.nthreads())
-    pol_profile_real_bufs = [zeros(T, nr) for _ in 1:nT]
-    pol_profile_imag_bufs = [zeros(T, nr) for _ in 1:nT]
-    tor_profile_real_bufs = [zeros(T, nr) for _ in 1:nT]
-    tor_profile_imag_bufs = [zeros(T, nr) for _ in 1:nT]
-    dpol_dr_real_bufs     = [zeros(T, nr) for _ in 1:nT]
-    dpol_dr_imag_bufs     = [zeros(T, nr) for _ in 1:nT]
-    d2pol_dr2_real_bufs   = [zeros(T, nr) for _ in 1:nT]
-    d2pol_dr2_imag_bufs   = [zeros(T, nr) for _ in 1:nT]
+    Pᴾ_profile_real_bufs = [zeros(T, nr) for _ in 1:nT]
+    Pᴾ_profile_imag_bufs = [zeros(T, nr) for _ in 1:nT]
+    Tᵀ_profile_real_bufs = [zeros(T, nr) for _ in 1:nT]
+    Tᵀ_profile_imag_bufs = [zeros(T, nr) for _ in 1:nT]
+    dᴾ_dr_real_bufs     = [zeros(T, nr) for _ in 1:nT]
+    dᴾ_dr_imag_bufs     = [zeros(T, nr) for _ in 1:nT]
+    d²ᴾ_dr²_real_bufs   = [zeros(T, nr) for _ in 1:nT]
+    d²ᴾ_dr²_imag_bufs   = [zeros(T, nr) for _ in 1:nT]
 
     # Process each (l,m) mode (parallel over lm)
     @inbounds Threads.@threads for lm_idx in lm_range
-        if lm_idx <= length(fields.l_factors)
+        if lm_idx <= length(fields.ℓ_factors)
             local_lm = lm_idx - first(lm_range) + 1
-            l_factor = fields.l_factors[lm_idx]
+            ℓ_factor = fields.ℓ_factors[lm_idx]
 
             # Select thread-local buffers with proper bounds checking
             tid = Threads.threadid()
@@ -1395,26 +1400,26 @@ function _compute_vorticity_spectral_threaded!(fields::SHTnsVelocityFields{T}, d
                       "This indicates a thread count mismatch. " *
                       "The clamping approach (min(tid, nT)) was removed because it causes data races.")
             end
-            pol_profile_real = pol_profile_real_bufs[tid]
-            pol_profile_imag = pol_profile_imag_bufs[tid]
-            tor_profile_real = tor_profile_real_bufs[tid]
-            tor_profile_imag = tor_profile_imag_bufs[tid]
-            dpol_dr_real     = dpol_dr_real_bufs[tid]
-            dpol_dr_imag     = dpol_dr_imag_bufs[tid]
-            d2pol_dr2_real   = d2pol_dr2_real_bufs[tid]
-            d2pol_dr2_imag   = d2pol_dr2_imag_bufs[tid]
+            Pᴾ_profile_real = Pᴾ_profile_real_bufs[tid]
+            Pᴾ_profile_imag = Pᴾ_profile_imag_bufs[tid]
+            Tᵀ_profile_real = Tᵀ_profile_real_bufs[tid]
+            Tᵀ_profile_imag = Tᵀ_profile_imag_bufs[tid]
+            dᴾ_dr_real     = dᴾ_dr_real_bufs[tid]
+            dᴾ_dr_imag     = dᴾ_dr_imag_bufs[tid]
+            d²ᴾ_dr²_real   = d²ᴾ_dr²_real_bufs[tid]
+            d²ᴾ_dr²_imag   = d²ᴾ_dr²_imag_bufs[tid]
 
             # Extract radial profiles (in-place)
-            extract_local_radial_profile!(pol_profile_real, u_pol_real, local_lm, nr, r_range)
-            extract_local_radial_profile!(pol_profile_imag, u_pol_imag, local_lm, nr, r_range)
-            extract_local_radial_profile!(tor_profile_real, u_tor_real, local_lm, nr, r_range)
-            extract_local_radial_profile!(tor_profile_imag, u_tor_imag, local_lm, nr, r_range)
+            extract_local_radial_profile!(Pᴾ_profile_real, uᴾ_real, local_lm, nr, r_range)
+            extract_local_radial_profile!(Pᴾ_profile_imag, uᴾ_imag, local_lm, nr, r_range)
+            extract_local_radial_profile!(Tᵀ_profile_real, uᵀ_real, local_lm, nr, r_range)
+            extract_local_radial_profile!(Tᵀ_profile_imag, uᵀ_imag, local_lm, nr, r_range)
 
             # Compute radial derivatives for poloidal component (in-place, reuse buffers)
-            apply_derivative_matrix!(dpol_dr_real,   fields.dr_matrix,  pol_profile_real)
-            apply_derivative_matrix!(dpol_dr_imag,   fields.dr_matrix,  pol_profile_imag)
-            apply_derivative_matrix!(d2pol_dr2_real, fields.d2r_matrix, pol_profile_real)
-            apply_derivative_matrix!(d2pol_dr2_imag, fields.d2r_matrix, pol_profile_imag)
+            apply_derivative_matrix!(dᴾ_dr_real,   fields.dr_matrix,  Pᴾ_profile_real)
+            apply_derivative_matrix!(dᴾ_dr_imag,   fields.dr_matrix,  Pᴾ_profile_imag)
+            apply_derivative_matrix!(d²ᴾ_dr²_real, fields.d²r_matrix, Pᴾ_profile_real)
+            apply_derivative_matrix!(d²ᴾ_dr²_imag, fields.d²r_matrix, Pᴾ_profile_imag)
 
             # Compute vorticity components
             r_first = first(r_range)
@@ -1424,27 +1429,27 @@ function _compute_vorticity_spectral_threaded!(fields::SHTnsVelocityFields{T}, d
             end
             @simd for r_idx in r_first:r_last
                 local_r = r_idx - r_first + 1
-                if local_r <= size(ω_tor_real, 3)
-                    r_val = domain.r[r_idx, 4]
-                    if r_val == 0.0
+                if local_r <= size(ζᵀ_real, 3)
+                    r = domain.r[r_idx, 4]
+                    if r == 0.0
                         # At r=0 (ball geometry), regularity implies finite values → set to 0 safely
-                        ω_tor_real[local_lm, 1, local_r] = 0
-                        ω_tor_imag[local_lm, 1, local_r] = 0
-                        ω_pol_real[local_lm, 1, local_r] = 0
-                        ω_pol_imag[local_lm, 1, local_r] = 0
+                        ζᵀ_real[local_lm, 1, local_r] = 0
+                        ζᵀ_imag[local_lm, 1, local_r] = 0
+                        ζᴾ_real[local_lm, 1, local_r] = 0
+                        ζᴾ_imag[local_lm, 1, local_r] = 0
                     else
-                        r_inv = domain.r[r_idx, 3]   # 1/r
-                        r_inv2 = domain.r[r_idx, 2]  # 1/r²
+                        r⁻¹ = domain.r[r_idx, 3]   # 1/r
+                        r⁻² = domain.r[r_idx, 2]  # 1/r²
                         # Toroidal vorticity from poloidal velocity (with full derivatives)
-                        ω_tor_real[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_real[r_idx]
-                                                            - d2pol_dr2_real[r_idx]
-                                                            - 2.0 * r_inv * dpol_dr_real[r_idx])
-                        ω_tor_imag[local_lm, 1, local_r] = (l_factor * r_inv2 * pol_profile_imag[r_idx]
-                                                            - d2pol_dr2_imag[r_idx]
-                                                            - 2.0 * r_inv * dpol_dr_imag[r_idx])
+                        ζᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx]
+                                                            - d²ᴾ_dr²_real[r_idx]
+                                                            - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
+                        ζᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx]
+                                                            - d²ᴾ_dr²_imag[r_idx]
+                                                            - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
                         # Poloidal vorticity from toroidal velocity
-                        ω_pol_real[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_real[r_idx]
-                        ω_pol_imag[local_lm, 1, local_r] = -l_factor * r_inv2 * tor_profile_imag[r_idx]
+                        ζᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Tᵀ_profile_real[r_idx]
+                        ζᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Tᵀ_profile_imag[r_idx]
                     end
                 end
             end
@@ -1469,7 +1474,7 @@ In a rotating reference frame with angular velocity Ω:
 ∂u/∂t = -u×ω - ∇p/ρ + 2Ω(ẑ×u) + ν∇²u + (αg/ρ)T·r̂ + (Δρg/ρ)C·r̂ + (1/μ₀ρ)(∇×B)×B
 
 where:
-- u: velocity, ω = ∇×u: vorticity
+- u: velocity, ζ = ∇×u: vorticity
 - Ω: rotation rate, ẑ: rotation axis
 - ν: kinematic viscosity
 - α: thermal expansion coefficient, g: gravity
@@ -1524,13 +1529,13 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     rossby_factor = d_Pm / d_E
     
     # Get all data views
-    vel_r = parent(fields.velocity.r_component.data)
-    vel_θ = parent(fields.velocity.θ_component.data)
-    vel_φ = parent(fields.velocity.φ_component.data)
+    vᵣ = parent(fields.velocity.r_component.data)
+    vθ = parent(fields.velocity.θ_component.data)
+    vφ = parent(fields.velocity.φ_component.data)
     
-    vort_r = parent(fields.vorticity.r_component.data)
-    vort_θ = parent(fields.vorticity.θ_component.data)
-    vort_φ = parent(fields.vorticity.φ_component.data)
+    ζᵣ = parent(fields.vorticity.r_component.data)
+    ζθ = parent(fields.vorticity.θ_component.data)
+    ζφ = parent(fields.vorticity.φ_component.data)
     
     adv_r = parent(fields.advection_physical.r_component.data)
     adv_θ = parent(fields.advection_physical.θ_component.data)
@@ -1538,7 +1543,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
     
     # Get dimensions from config for better performance
     config = fields.velocity.r_component.config
-    local_size = size(vel_r)
+    local_size = size(vᵣ)
     nlat = config.nlat
     nlon = config.nlon
     
@@ -1553,10 +1558,10 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
         r_idx = k + first(r_range) - 1
         if r_idx <= domain.N
             r = domain.r[r_idx, 4]
-            r_inv = domain.r[r_idx, 3]
+            r⁻¹ = domain.r[r_idx, 3]
         else
             r = 1.0
-            r_inv = 1.0
+            r⁻¹ = 1.0
         end
         
         for j in 1:local_size[2]
@@ -1568,18 +1573,18 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
             @simd for i in 1:local_size[1]
                 linear_idx = i + (j-1)*local_size[1] + (k-1)*local_size[1]*local_size[2]
                 
-                if linear_idx <= length(vel_r)
+                if linear_idx <= length(vᵣ)
                     # Load velocity and vorticity components
-                    u_r = vel_r[linear_idx]
-                    u_θ = vel_θ[linear_idx]
-                    u_φ = vel_φ[linear_idx]
+                    u_r = vᵣ[linear_idx]
+                    u_θ = vθ[linear_idx]
+                    u_φ = vφ[linear_idx]
                     
-                    ω_r = vort_r[linear_idx]
-                    ω_θ = vort_θ[linear_idx]
-                    ω_φ = vort_φ[linear_idx]
+                    ω_r = ζᵣ[linear_idx]
+                    ω_θ = ζθ[linear_idx]
+                    ω_φ = ζφ[linear_idx]
                     
-                    # Advection: (Pm/E) u × ω = -(Pm/E)(∇×u) × u
-                    adv_r_val = adv_coeff * (u_θ * ω_φ - u_φ * ω_θ)
+                    # Advection: (Pm/E) u × ζ = -(Pm/E)(∇×u) × u
+                    adv_r = adv_coeff * (u_θ * ω_φ - u_φ * ω_θ)
                     adv_θ_val = adv_coeff * (u_φ * ω_r - u_r * ω_φ)
                     adv_φ_val = adv_coeff * (u_r * ω_θ - u_θ * ω_r)
                     
@@ -1592,7 +1597,7 @@ function compute_all_nonlinear_terms!(fields::SHTnsVelocityFields{T},
                     cor_φ = -rossby_factor * zhat_cross_φ
                     
                     # Store combined result
-                    adv_r[linear_idx] = adv_r_val + cor_r
+                    adv_r[linear_idx] = adv_r + cor_r
                     adv_θ[linear_idx] = adv_θ_val + cor_θ
                     adv_φ[linear_idx] = adv_φ_val + cor_φ
                 end
@@ -1806,7 +1811,7 @@ end
 
 
 # function solve_helmholtz_equation(laplacian::BandedMatrix{T}, source::Vector{T},
-#                                  l_factor::Float64, domain::RadialDomain) where T
+#                                  ℓ_factor::Float64, domain::RadialDomain) where T
 #     # Solve (∇²_r - l(l+1)/r²) u = source
 #     # This is a simplified solver - in practice would use more sophisticated methods
     
@@ -1824,8 +1829,8 @@ end
 #                 operator[i, j] = laplacian.data[band_row, j]
 #                 if i == j
 #                     # Add -l(l+1)/r² term to diagonal
-#                     r_inv2 = oc_domain.r[i, 2]
-#                     operator[i, j] -= l_factor * r_inv2
+#                     r⁻² = oc_domain.r[i, 2]
+#                     operator[i, j] -= ℓ_factor * r⁻²
 #                 end
 #             end
 #         end
@@ -1863,10 +1868,10 @@ function compute_kinetic_energy(fields::SHTnsVelocityFields{T}, oc_domain::Radia
     @inbounds for lm_idx in lm_range
         if lm_idx <= fields.toroidal.nlm
             local_lm = lm_idx - first(lm_range) + 1
-            l_factor = fields.l_factors[lm_idx]
+            ℓ_factor = fields.ℓ_factors[lm_idx]
             
             # Weight by l(l+1) for proper spectral integration
-            weight = 1.0 / max(l_factor, 1.0)
+            weight = 1.0 / max(ℓ_factor, 1.0)
             
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
@@ -1895,17 +1900,17 @@ function compute_reynolds_stress(fields::SHTnsVelocityFields{T}) where T
     # Compute Reynolds stress tensor <u_i u_j>
     # This requires transforming to physical space and computing products
     
-    vel_r = parent(fields.velocity.r_component.data)
-    vel_θ = parent(fields.velocity.θ_component.data)
-    vel_φ = parent(fields.velocity.φ_component.data)
+    vᵣ = parent(fields.velocity.r_component.data)
+    vθ = parent(fields.velocity.θ_component.data)
+    vφ = parent(fields.velocity.φ_component.data)
     
     # Compute all 6 independent components
-    R_rr = mean(vel_r .* vel_r)
-    R_θθ = mean(vel_θ .* vel_θ)
-    R_φφ = mean(vel_φ .* vel_φ)
-    R_rθ = mean(vel_r .* vel_θ)
-    R_rφ = mean(vel_r .* vel_φ)
-    R_θφ = mean(vel_θ .* vel_φ)
+    R_rr = mean(vᵣ .* vᵣ)
+    R_θθ = mean(vθ .* vθ)
+    R_φφ = mean(vφ .* vφ)
+    R_rθ = mean(vᵣ .* vθ)
+    R_rφ = mean(vᵣ .* vφ)
+    R_θφ = mean(vθ .* vφ)
     
     # Global averages
     R_rr = MPI.Allreduce(R_rr, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
@@ -2016,9 +2021,9 @@ function validate_velocity_configuration(fields::SHTnsVelocityFields{T}, config:
         push!(errors, "Toroidal field size mismatch with config.nlm")
     end
     
-    # Check that l_factors are consistent
-    if length(fields.l_factors) != config.nlm
-        push!(errors, "l_factors length mismatch with config.nlm")
+    # Check that ℓ_factors are consistent
+    if length(fields.ℓ_factors) != config.nlm
+        push!(errors, "ℓ_factors length mismatch with config.nlm")
     end
     
     # Validate pencil topology consistency

@@ -1,14 +1,65 @@
 # ================================================================================
-# Composition field components with enhanced SHTns transforms
+# Composition Field Module with SHTns
 # ================================================================================
-# For no-flux boundary conditions (typical for composition):
-# bc_type_inner = fill(2, nlm)  # No-flux at inner boundary  
-# bc_type_outer = fill(2, nlm)  # No-flux at outer boundary
-# apply_composition_boundary_conditions_spectral!(comp_field, domain)
+#
+# This module implements the composition field evolution for geodynamo simulations
+# using spherical harmonic transforms (SHTnsKit).
+#
+# REFERENCE: Sreenivasan & Kar (2018), Phys. Rev. Fluids 3, 093801
+#            Equation: Composition evolution (analogous to thermal)
+#
 # ================================================================================
-
+# GOVERNING EQUATION
 # ================================================================================
-# Compositional field components with full spectral optimization
+#
+# The non-dimensional composition equation in magnetic diffusion time scaling:
+#
+#   ∂C/∂t + u·∇C = (Pm/Sc) ∇²C
+#
+# where:
+#   C            : Composition (light element concentration perturbation)
+#   u            : Velocity field
+#   Pm = ν/η     : Magnetic Prandtl number
+#   Sc = ν/κ_c   : Schmidt number (viscous/compositional diffusivity)
+#   Pm/Sc = κ_c/η: Ratio of compositional to magnetic diffusivity
+#
+# PHYSICAL INTERPRETATION:
+# ========================
+# - Left side: Time rate of change + advection by flow
+# - Right side: Compositional diffusion
+#
+# The advection term -u·∇C represents light element transport by the convecting
+# fluid. This is the EXPLICIT part computed in physical space.
+#
+# The diffusion term (Pm/Sc)∇²C is treated IMPLICITLY for numerical stability.
+# The diffusivity coefficient passed to the time-stepper is (Pm/Sc) = d_Pm/d_Sc.
+#
+# ================================================================================
+# BOUNDARY CONDITIONS
+# ================================================================================
+#
+# Common configurations for compositional convection:
+#   - No-flux (Neumann): ∂C/∂r = 0 at both boundaries (default)
+#     This represents impermeable boundaries with no mass flux
+#   - Fixed composition (Dirichlet): C = C_boundary at r = r_i, r_o
+#   - Mixed: Different types at inner/outer boundaries
+#
+# For typical inner core boundary evolution:
+#   bc_type_inner[1] = NEUMANN   # No-flux for l=0, m=0 at ICB
+#   bc_type_outer[1] = NEUMANN   # No-flux for l=0, m=0 at CMB
+#   (All modes typically use no-flux with zero boundary values)
+#
+# ================================================================================
+# MPI PARALLELIZATION
+# ================================================================================
+#
+# Data distribution follows the same pattern as thermal field:
+#   - Spectral data: distributed over (l,m) modes via lm_range
+#   - Radial data: distributed over radial points via r_range
+#   - Physical data: distributed using pencil decomposition
+#
+# See scalar_field_common.jl for shared utility functions and MPI patterns.
+#
 # ================================================================================
 
 using PencilArrays
@@ -55,14 +106,14 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     boundary_time_index::Ref{Int}
 
     # Pre-computed coefficients
-    l_factors::Vector{Float64}         # l(l+1) values for diffusion
+    ℓ_factors::Vector{Float64}         # l(l+1) values for diffusion
 
     # Configuration (SHTnsKit)
     config::SHTnsKitConfig
 
     # Radial derivative matrices
     dr_matrix::BandedMatrix{T}         # First derivative d/dr
-    d2r_matrix::BandedMatrix{T}        # Second derivative d²/dr²
+    d²r_matrix::BandedMatrix{T}        # Second derivative d²/dr²
 
     # Spectral derivative operators (matching thermal.jl types)
     theta_derivative_matrix::SparseMatrixCSC{T,Int}  # Pre-computed θ-derivative
@@ -82,14 +133,47 @@ end
 get_main_physical_field(field::SHTnsCompositionField{T}) where T = field.composition
 
 # ================================================================================
-# Main nonlinear computation with full spectral optimization  
+# Field Creation
 # ================================================================================
-# NOTE: Pre-computation functions moved to scalar_field_common.jl
 
+"""
+    create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
+                                   oc_domain::RadialDomain,
+                                   pencils=nothing, pencil_spec=nothing) where T
+
+Create a composition field structure with all necessary arrays for spectral computation.
+
+# Arguments
+- `T`: Numeric type (e.g., Float64)
+- `config`: SHTnsKitConfig with transform parameters (lmax, mmax, nlat, nlon)
+- `oc_domain`: Radial domain information for outer core
+- `pencils`: Optional pencil decomposition (defaults to config.pencils)
+- `pencil_spec`: Optional spectral pencil (defaults to pencils.spec)
+
+# Returns
+- `SHTnsCompositionField{T}`: Fully initialized composition field structure
+
+# Example
+```julia
+config = create_shtns_config(lmax=32, mmax=32, nlat=64, nlon=128)
+domain = create_radial_domain(nr=64, ri=0.35, ro=1.0)
+comp_field = create_shtns_composition_field(Float64, config, domain)
+```
+
+# Notes
+Default boundary conditions are no-flux (NEUMANN) at both boundaries,
+appropriate for typical compositional convection problems.
+"""
 function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
-                                        oc_domain::RadialDomain) where T
-    # Use config's pencils directly
-    pencils = config.pencils
+                                        oc_domain::RadialDomain,
+                                        pencils=nothing, pencil_spec=nothing) where T
+    # Use config's pencils by default (consistent with velocity/magnetic creators)
+    if pencils === nothing
+        pencils = config.pencils
+    end
+    if pencil_spec === nothing
+        pencil_spec = pencils.spec
+    end
 
     # Composition field in r-pencil for efficient radial operations
     composition = create_shtns_physical_field(T, config, oc_domain, pencils.r)
@@ -99,19 +183,19 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
                                         (pencils.θ, pencils.φ, pencils.r))
 
     # Spectral representation using spectral pencil
-    spectral       = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    nonlinear      = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    prev_nonlinear = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+    spectral       = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    nonlinear      = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    prev_nonlinear = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
 
     # Work arrays
-    work_spectral      = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+    work_spectral      = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
     work_physical      = create_shtns_physical_field(T, config, oc_domain, pencils.r)
     advection_physical = create_shtns_physical_field(T, config, oc_domain, pencils.r)
 
     # Gradient spectral components
-    grad_theta_spec = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    grad_phi_spec   = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
-    grad_r_spec     = create_shtns_spectral_field(T, config, oc_domain, pencils.spec)
+    grad_theta_spec = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    grad_phi_spec   = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
+    grad_r_spec     = create_shtns_spectral_field(T, config, oc_domain, pencil_spec)
 
     # Sources and boundary conditions
     internal_sources = zeros(T, oc_domain.N)
@@ -126,11 +210,11 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     boundary_data_cache = Dict{String, Any}()
 
     # Pre-compute l(l+1) factors (matching thermal.jl pattern)
-    l_factors = Float64[l * (l + 1) for l in config.l_values]
+    ℓ_factors = Float64[l * (l + 1) for l in config.l_values]
 
     # Create radial derivative matrices
     dr_matrix  = create_derivative_matrix(1, oc_domain)
-    d2r_matrix = create_derivative_matrix(2, oc_domain)
+    d²r_matrix = create_derivative_matrix(2, oc_domain)
 
     # Pre-compute spectral derivative operators
     theta_derivative_matrix = build_theta_derivative_matrix(T, config)
@@ -143,8 +227,8 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
         internal_sources, boundary_values,
         bc_type_inner, bc_type_outer,
         nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
-        l_factors, config,
-        dr_matrix, d2r_matrix,
+        ℓ_factors, config,
+        dr_matrix, d²r_matrix,
         theta_derivative_matrix, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),
         oc_domain
@@ -218,14 +302,43 @@ function apply_composition_boundary_conditions!(field::SHTnsCompositionField{T};
 end
 
 # ================================================================================
-# Main nonlinear computation with full spectral optimization
+# Main Nonlinear Computation
 # ================================================================================
-# This follows the same efficient pattern as thermal.jl:
-# 1. Compute gradients in spectral space (no communication)
-# 2. Single batched transform of field + gradients to physical
-# 3. Compute advection locally
-# 4. Transform result back to spectral
-# ================================================================================
+
+"""
+    compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
+                                   vel_fields, oc_domain::RadialDomain;
+                                   geometry::Symbol = get_parameters().geometry) where T
+
+Compute the nonlinear advection term -u·∇C for the composition equation.
+
+This function implements the EXPLICIT part of the composition equation:
+    ∂C/∂t + u·∇C = (Pm/Sc) ∇²C
+
+The advection term -u·∇C is computed using the following optimized workflow:
+1. Compute ∇C in spectral space (no MPI communication required)
+2. Batched transform of C and ∇C to physical space
+3. Compute advection -u·∇C locally in physical space
+4. Add internal compositional sources
+5. Transform result back to spectral space
+6. Apply boundary conditions
+
+# Arguments
+- `comp_field`: Composition field structure to update
+- `vel_fields`: Velocity field structure (provides u for advection)
+- `oc_domain`: Radial domain information
+- `geometry`: Geometry type (:shell or :ball) for transform selection
+
+# Side Effects
+- Updates `comp_field.nonlinear` with the computed advection term
+- Updates `comp_field.gradient` with ∇C in physical space
+- Applies boundary conditions to spectral representation
+
+# Performance Notes
+- Gradients computed in spectral space avoid MPI communication
+- Batched transforms minimize data transfer overhead
+- Physical space operations are embarrassingly parallel
+"""
 function compute_composition_nonlinear!(comp_field::SHTnsCompositionField{T},
                                         vel_fields, oc_domain::RadialDomain;
                                         geometry::Symbol = get_parameters().geometry) where T
