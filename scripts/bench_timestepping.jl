@@ -5,13 +5,13 @@ using Printf
 
 function step_once!(state)
     # Compute nonlinear terms
-    compute_temperature_nonlinear!(state.temperature, state.velocity, state.oc_domain)
-    compute_velocity_nonlinear!(state.velocity, state.temperature, state.composition, state.magnetic, state.oc_domain)
+    compute_temperature_nonlinear!(state.temperature, state.velocity, state.Dᵒᶜ)
+    compute_velocity_nonlinear!(state.velocity, state.temperature, state.composition, state.magnetic, state.Dᵒᶜ)
     if GeoDynamo.i_B == 1 && state.magnetic !== nothing
-        compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.oc_domain, state.ic_domain)
+        compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.Dᵒᶜ, state.Dⁱᶜ)
     end
     if state.composition !== nothing
-        compute_composition_nonlinear!(state.composition, state.velocity, state.oc_domain)
+        compute_composition_nonlinear!(state.composition, state.velocity, state.Dᵒᶜ)
     end
     # Implicit solve
     apply_master_implicit_step!(state, GeoDynamo.d_timestep)

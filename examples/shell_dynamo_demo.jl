@@ -57,9 +57,9 @@ set_boundary_conditions!(state.temperature;
 
 # 4) Set initial conditions with random perturbations
 Random.seed!(1234 + rank)
-randomize_scalar_field!(state.temperature; amplitude=0.01, lmax=8, domain=state.oc_domain)
-randomize_vector_field!(state.velocity; amplitude=1e-5, lmax=6, domain=state.oc_domain)
-randomize_magnetic_field!(state.magnetic; amplitude=1e-4, lmax=4, domain=state.oc_domain)
+randomize_scalar_field!(state.temperature; amplitude=0.01, lmax=8, domain=state.Dᵒᶜ)
+randomize_vector_field!(state.velocity; amplitude=1e-5, lmax=6, domain=state.Dᵒᶜ)
+randomize_magnetic_field!(state.magnetic; amplitude=1e-4, lmax=4, domain=state.Dᵒᶜ)
 
 apply_velocity_boundary_conditions!(state.velocity)
 apply_magnetic_boundary_conditions!(state.magnetic)

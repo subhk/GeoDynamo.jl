@@ -178,8 +178,8 @@ end
 
 
 function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig, 
-                                      domain_oc::RadialDomain, 
-                                      domain_ic::RadialDomain, 
+                                      Dᵒᶜ::RadialDomain, 
+                                      Dⁱᶜ::RadialDomain, 
                                       pencils=nothing, pencil_spec=nothing) where T
 
     # Use enhanced pencil topology from config if not provided
@@ -194,35 +194,35 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     end
     
     # Physical space fields
-    magnetic = create_shtns_vector_field(T, config, domain_oc, pencils)
-    current  = create_shtns_vector_field(T, config, domain_oc, pencils)
+    magnetic = create_shtns_vector_field(T, config, Dᵒᶜ, pencils)
+    current  = create_shtns_vector_field(T, config, Dᵒᶜ, pencils)
     
     # Spectral fields
-    toroidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
-    poloidal = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
+    toroidal = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
+    poloidal = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
     
     # Inner core fields (different domain)
-    ic_toroidal = create_shtns_spectral_field(T, config, domain_ic, pencil_spec)
-    ic_poloidal = create_shtns_spectral_field(T, config, domain_ic, pencil_spec)
+    ic_toroidal = create_shtns_spectral_field(T, config, Dⁱᶜ, pencil_spec)
+    ic_poloidal = create_shtns_spectral_field(T, config, Dⁱᶜ, pencil_spec)
     
     # Nonlinear terms
-    nlᵀ = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
-    nlᴾ = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
-    prev_nlᵀ = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
-    prev_nlᴾ = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
+    nlᵀ = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
+    nlᴾ = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
+    prev_nlᵀ = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
+    prev_nlᴾ = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
     
     # Work arrays
-    work_tor = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
-    work_pol = create_shtns_spectral_field(T, config, domain_oc, pencil_spec)
-    work_physical = create_shtns_vector_field(T, config, domain_oc, pencils)
-    induction_physical = create_shtns_vector_field(T, config, domain_oc, pencils)
+    work_tor = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
+    work_pol = create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec)
+    work_physical = create_shtns_vector_field(T, config, Dᵒᶜ, pencils)
+    induction_physical = create_shtns_vector_field(T, config, Dᵒᶜ, pencils)
     
     # Pre-compute l(l+1) factors
     ℓ_factors = Float64[l * (l + 1) for l in config.l_values]
 
     # Create radial derivative matrices (cached for performance)
-    dr_matrix  = create_derivative_matrix(1, domain_oc)
-    d²r_matrix = create_derivative_matrix(2, domain_oc)
+    dr_matrix  = create_derivative_matrix(1, Dᵒᶜ)
+    d²r_matrix = create_derivative_matrix(2, Dᵒᶜ)
 
     # Create transpose plans for efficient data movement
     transpose_plans = create_transpose_plans(pencils)
@@ -242,7 +242,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
                                 dr_matrix, d²r_matrix,
                                 imposed_field,
                                 config,
-                                domain_oc,
+                                Dᵒᶜ,
                                 boundary_condition_set, boundary_cache, boundary_time_index)
 end
 
@@ -251,7 +251,7 @@ end
 # Main nonlinear computation using enhanced transforms
 # ========================================================
 function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T},
-                                    vel_fields, oc_domain::RadialDomain, ic_domain::RadialDomain,
+                                    vel_fields, Dᵒᶜ::RadialDomain, Dⁱᶜ::RadialDomain,
                                     rotation_rate::Float64=0.0;
                                     geometry::Symbol = get_parameters().geometry) where T
     # Zero work arrays
@@ -259,14 +259,14 @@ function compute_magnetic_nonlinear!(mag_fields::SHTnsMagneticFields{T},
     
     # Step 1: Convert spectral B to physical space using enhanced transforms
     shtnskit_vector_synthesis!(mag_fields.toroidal, mag_fields.poloidal,
-                               mag_fields.magnetic; domain=oc_domain)
+                               mag_fields.magnetic; domain=Dᵒᶜ)
 
     # Step 2: Compute current density j = ∇ × B in spectral space
-    compute_current_density_spectral!(mag_fields, oc_domain)
+    compute_current_density_spectral!(mag_fields, Dᵒᶜ)
 
     # Step 3: Transform current to physical space
     shtnskit_vector_synthesis!(mag_fields.work_tor, mag_fields.work_pol,
-                               mag_fields.current; domain=oc_domain)
+                               mag_fields.current; domain=Dᵒᶜ)
     
     # Step 4: Compute induction equation: ∂B/∂t = ∇ × (u × B) + η∇²B
     if vel_fields !== nothing
@@ -375,7 +375,7 @@ end
 # Current density computation in spectral space
 # ========================================================
 function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T}, 
-                                          oc_domain::RadialDomain) where T
+                                          Dᵒᶜ::RadialDomain) where T
     # Compute j = ∇ × B using spectral relationships with full radial derivatives
     # For toroidal-poloidal decomposition:
     # B = Bᵀ + Bᴾ where:
@@ -410,7 +410,7 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
     d²_matrix = mag_fields.d²r_matrix  # Second derivative d²/dr²
 
     # Pre-allocate work arrays for radial profiles
-    nr = oc_domain.N
+    nr = Dᵒᶜ.N
     Pᴾ_profile_real = zeros(T, nr)
     Pᴾ_profile_imag = zeros(T, nr)
     Pᴾ_gathered_real = zeros(T, nr)
@@ -470,15 +470,15 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
                 @simd for r_idx in r_first:r_last
                     local_r = r_idx - r_first + 1
                     if local_r <= size(jᵀ_real, 3)
-                        r_val = oc_domain.r[r_idx, 4]
+                        r_val = Dᵒᶜ.r[r_idx, 4]
                         if r_val == 0.0
                             jᵀ_real[local_lm, 1, local_r] = zero(T)
                             jᵀ_imag[local_lm, 1, local_r] = zero(T)
                             jᴾ_real[local_lm, 1, local_r] = zero(T)
                             jᴾ_imag[local_lm, 1, local_r] = zero(T)
                         else
-                            r⁻¹ = oc_domain.r[r_idx, 3]
-                            r⁻² = oc_domain.r[r_idx, 2]
+                            r⁻¹ = Dᵒᶜ.r[r_idx, 3]
+                            r⁻² = Dᵒᶜ.r[r_idx, 2]
                             jᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_real[r_idx]
                                                                 - d²ᴾ_dr²_real[r_idx]
                                                                 - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
@@ -529,15 +529,15 @@ function compute_current_density_spectral!(mag_fields::SHTnsMagneticFields{T},
                 @simd for r_idx in r_first:r_last
                     local_r = r_idx - r_first + 1
                     if local_r <= size(jᵀ_real, 3)
-                        r_val = oc_domain.r[r_idx, 4]
+                        r_val = Dᵒᶜ.r[r_idx, 4]
                         if r_val == 0.0
                             jᵀ_real[local_lm, 1, local_r] = zero(T)
                             jᵀ_imag[local_lm, 1, local_r] = zero(T)
                             jᴾ_real[local_lm, 1, local_r] = zero(T)
                             jᴾ_imag[local_lm, 1, local_r] = zero(T)
                         else
-                            r⁻¹ = oc_domain.r[r_idx, 3]
-                            r⁻² = oc_domain.r[r_idx, 2]
+                            r⁻¹ = Dᵒᶜ.r[r_idx, 3]
+                            r⁻² = Dᵒᶜ.r[r_idx, 2]
                             jᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_gathered_real[r_idx]
                                                                 - d²ᴾ_dr²_real[r_idx]
                                                                 - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])

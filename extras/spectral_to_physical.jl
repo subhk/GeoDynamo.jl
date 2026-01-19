@@ -139,7 +139,7 @@ GeoDynamo.jl infrastructure (PencilArrays + SHTns).
 struct SpectralToPhysicalConverter{T}
     # Configuration
     shtns_config::SHTnsKitConfig
-    oc_domain::RadialDomain
+    Dᵒᶜ::RadialDomain
     
     # Pencil decomposition  
     pencils::Tuple{Pencil{3}, Pencil{3}, Pencil{3}}  # θ, φ, r pencils
@@ -197,7 +197,7 @@ function create_spectral_converter(filename::String; precision::Type{T} = Float6
     
     # Create radial domain
     nr = get(metadata, "nr_global", params.i_N)
-    oc_domain = create_radial_domain(nr)
+    Dᵒᶜ = create_radial_domain(nr)
     
     # Initialize field containers (will be populated during conversion)
     velocity_fields = nothing
@@ -215,7 +215,7 @@ function create_spectral_converter(filename::String; precision::Type{T} = Float6
     end
     
     return SpectralToPhysicalConverter{T}(
-        shtns_config, oc_domain,
+        shtns_config, Dᵒᶜ,
         pencils, pencil_spec,
         velocity_fields, magnetic_fields, temperature_field,
         time, step, metadata
@@ -319,7 +319,7 @@ function load_spectral_data!(converter::SpectralToPhysicalConverter{T}, filename
             
             # Create velocity field structure
             converter.velocity_fields = create_shtns_velocity_fields(
-                T, converter.shtns_config, converter.oc_domain,
+                T, converter.shtns_config, converter.Dᵒᶜ,
                 converter.pencils, converter.pencil_spec
             )
             
@@ -345,7 +345,7 @@ function load_spectral_data!(converter::SpectralToPhysicalConverter{T}, filename
             
             # Create magnetic field structure
             converter.magnetic_fields = create_shtns_magnetic_fields(
-                T, converter.shtns_config, converter.oc_domain, converter.oc_domain,
+                T, converter.shtns_config, converter.Dᵒᶜ, converter.Dᵒᶜ,
                 converter.pencils, converter.pencil_spec
             )
             
@@ -371,7 +371,7 @@ function load_spectral_data!(converter::SpectralToPhysicalConverter{T}, filename
             
             # Create temperature field structure
             converter.temperature_field = create_shtns_temperature_field(
-                T, converter.shtns_config, converter.oc_domain
+                T, converter.shtns_config, converter.Dᵒᶜ
             )
             
             # Load physical space temperature data
@@ -535,7 +535,7 @@ function compute_global_diagnostics(converter::SpectralToPhysicalConverter{T}) w
     
     # Velocity diagnostics
     if converter.velocity_fields !== nothing
-        ke = compute_kinetic_energy(converter.velocity_fields, converter.oc_domain)
+        ke = compute_kinetic_energy(converter.velocity_fields, converter.Dᵒᶜ)
         diagnostics["kinetic_energy"] = MPI.Allreduce(ke, MPI.SUM, comm)
         
         # Get local velocity magnitude statistics
@@ -593,7 +593,7 @@ function compute_global_diagnostics(converter::SpectralToPhysicalConverter{T}) w
         diagnostics["temperature_max"] = MPI.Allreduce(temp_max_local, MPI.MAX, comm)
         
         # Nusselt number calculation
-        nu = compute_nusselt_number(converter.temperature_field, converter.oc_domain)
+        nu = compute_nusselt_number(converter.temperature_field, converter.Dᵒᶜ)
         diagnostics["nusselt_number"] = MPI.Allreduce(nu, MPI.SUM, comm)
     end
     

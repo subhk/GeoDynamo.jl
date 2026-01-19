@@ -181,14 +181,14 @@ end
 # ================================================================================
 
 """
-    create_shtns_spectral_field(T, config, oc_domain, pencil_spec) -> SHTnsSpectralField{T}
+    create_shtns_spectral_field(T, config, Dᵒᶜ, pencil_spec) -> SHTnsSpectralField{T}
 
 Create a new spectral field initialized to zero with default Dirichlet BCs.
 
 # Arguments
 - `T`: Element type (typically Float64)
 - `config`: SHTnsKit configuration providing nlm and other parameters
-- `oc_domain`: RadialDomain specifying the radial discretization
+- `Dᵒᶜ`: RadialDomain specifying the radial discretization
 - `pencil_spec`: PencilArrays Pencil defining the data distribution
 
 # Returns
@@ -198,7 +198,7 @@ A new SHTnsSpectralField with:
 - Zero boundary values
 """
 function create_shtns_spectral_field(::Type{T}, config::AbstractSHTnsConfig,
-                                    oc_domain::RadialDomain,
+                                    Dᵒᶜ::RadialDomain,
                                     pencil_spec::Pencil{3}) where T
     nlm = config.nlm
 
@@ -221,21 +221,21 @@ function create_shtns_spectral_field(::Type{T}, config::AbstractSHTnsConfig,
 end
 
 """
-    create_shtns_physical_field(T, config, oc_domain, pencil) -> SHTnsPhysicalField{T}
+    create_shtns_physical_field(T, config, Dᵒᶜ, pencil) -> SHTnsPhysicalField{T}
 
 Create a new physical space field initialized to zero.
 
 # Arguments
 - `T`: Element type (typically Float64)
 - `config`: SHTnsKit configuration providing grid dimensions
-- `oc_domain`: RadialDomain (for consistency with spectral field API)
+- `Dᵒᶜ`: RadialDomain (for consistency with spectral field API)
 - `pencil`: PencilArrays Pencil defining the data distribution
 
 # Returns
 A new SHTnsPhysicalField with all grid values initialized to zero.
 """
 function create_shtns_physical_field(::Type{T}, config::AbstractSHTnsConfig,
-                                    oc_domain::RadialDomain,
+                                    Dᵒᶜ::RadialDomain,
                                     pencil::Pencil{3}) where T
     nlat = config.nlat
     nlon = config.nlon
@@ -248,14 +248,14 @@ function create_shtns_physical_field(::Type{T}, config::AbstractSHTnsConfig,
 end
 
 """
-    create_shtns_vector_field(T, config, oc_domain, pencils) -> SHTnsVectorField{T}
+    create_shtns_vector_field(T, config, Dᵒᶜ, pencils) -> SHTnsVectorField{T}
 
 Create a new vector field with three physical space components.
 
 # Arguments
 - `T`: Element type
 - `config`: SHTnsKit configuration
-- `oc_domain`: RadialDomain specification
+- `Dᵒᶜ`: RadialDomain specification
 - `pencils`: Either a NamedTuple with :theta/:θ, :phi/:φ, :r keys,
              or a tuple (pencil_θ, pencil_φ, pencil_r)
 
@@ -265,7 +265,7 @@ Each component uses a potentially different pencil orientation for
 optimal computation of different operations.
 """
 function create_shtns_vector_field(::Type{T}, config::AbstractSHTnsConfig,
-                                    oc_domain::RadialDomain,
+                                    Dᵒᶜ::RadialDomain,
                                     pencils) where T
     # Handle both NamedTuple and plain tuple input for pencils
     if pencils isa NamedTuple
@@ -278,9 +278,9 @@ function create_shtns_vector_field(::Type{T}, config::AbstractSHTnsConfig,
     end
     
     # Create each component with the r-pencil (contiguous in r)
-    r_comp = create_shtns_physical_field(T, config, oc_domain, pencil_r)
-    θ_comp = create_shtns_physical_field(T, config, oc_domain, pencil_r)
-    φ_comp = create_shtns_physical_field(T, config, oc_domain, pencil_r)
+    r_comp = create_shtns_physical_field(T, config, Dᵒᶜ, pencil_r)
+    θ_comp = create_shtns_physical_field(T, config, Dᵒᶜ, pencil_r)
+    φ_comp = create_shtns_physical_field(T, config, Dᵒᶜ, pencil_r)
     
     return SHTnsVectorField{T}(r_comp, θ_comp, φ_comp)
 end
