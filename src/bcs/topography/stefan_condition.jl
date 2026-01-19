@@ -5,7 +5,7 @@
 # This file implements the Stefan condition at the inner-core boundary (ICB)
 # for modeling phase change and topography evolution:
 #
-#   k_ic ∂_n T_ic - k ∂_n T = ρ L (V_b - u_n)      (Eq. 21 from PDF)
+#   k_ic ∂_n T_ic - k ∂_n T = ρ L (V_b - uₙ)      (Eq. 21 from PDF)
 #
 # where:
 # - k_ic, k = thermal conductivities (inner core, outer core)
@@ -13,10 +13,10 @@
 # - ρ = density
 # - L = latent heat of fusion
 # - V_b = boundary velocity (= ε ∂_t h_i for moving boundary)
-# - u_n = normal fluid velocity
+# - uₙ = normal fluid velocity
 #
 # The implementable update for topography evolution is (Eq. 22):
-#   ε ∂_t h_i = u_n + (k_ic ∂_n T_ic - k ∂_n T) / (ρ L)
+#   ε ∂_t h_i = uₙ + (k_ic ∂_n T_ic - k ∂_n T) / (ρ L)
 #
 # In spectral form (Eq. 31):
 #   ε ∂_t h^i_{ℓm} = u_{n,ℓm} + (1/ρL) F_{ℓm}
@@ -43,7 +43,7 @@ mutable struct StefanState{T<:AbstractFloat}
     topography_rate::TopographyField{T}      # ∂_t h_i
     heat_flux_ic::Vector{Complex{T}}         # Inner core flux
     heat_flux_oc::Vector{Complex{T}}         # Outer core flux
-    normal_velocity::Vector{Complex{T}}      # u_n at ICB
+    normal_velocity::Vector{Complex{T}}      # uₙ at ICB
 
     # Configuration
     is_initialized::Bool
@@ -145,7 +145,7 @@ Initialize the Stefan state from current field values.
 - `state`: StefanState to initialize
 - `temperature_ic`: Inner core temperature field (or spectral coefficients)
 - `temperature_oc`: Outer core temperature field
-- `velocity_field`: Velocity field for computing u_n
+- `velocity_field`: Velocity field for computing uₙ
 - `gaunt_cache`: Optional pre-computed Gaunt tensors
 """
 function initialize_stefan_state!(state::StefanState{T}, temperature_ic, temperature_oc,
@@ -239,8 +239,8 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
        hasfield(typeof(temperature_ic), :domain)
         cache_ic = compute_boundary_derivative_cache(temperature_ic.spectral,
                                                      temperature_ic.dr_matrix,
-                                                     hasfield(typeof(temperature_ic), :d2r_matrix) ?
-                                                         temperature_ic.d2r_matrix : nothing,
+                                                     hasfield(typeof(temperature_ic), :d²r_matrix) ?
+                                                         temperature_ic.d²r_matrix : nothing,
                                                      temperature_ic.domain)
     elseif temperature_ic isa SHTnsSpectralField
         cache_ic = nothing
@@ -251,8 +251,8 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
        hasfield(typeof(temperature_oc), :domain)
         cache_oc = compute_boundary_derivative_cache(temperature_oc.spectral,
                                                      temperature_oc.dr_matrix,
-                                                     hasfield(typeof(temperature_oc), :d2r_matrix) ?
-                                                         temperature_oc.d2r_matrix : nothing,
+                                                     hasfield(typeof(temperature_oc), :d²r_matrix) ?
+                                                         temperature_oc.d²r_matrix : nothing,
                                                      temperature_oc.domain)
     elseif temperature_oc isa SHTnsSpectralField
         cache_oc = nothing
@@ -352,10 +352,10 @@ end
 Update the ICB topography based on the Stefan condition.
 
 From Eq. 22/40:
-ε ∂_t h_i = u_n + (k_ic ∂_n T_ic - k ∂_n T) / (ρ L)
+ε ∂_t h_i = uₙ + (k_ic ∂_n T_ic - k ∂_n T) / (ρ L)
 
 or equivalently with Stefan number:
-ε ∂_t h_i = u_n + (1/St) (λ ∂_n Θ_ic - ∂_n Θ)
+ε ∂_t h_i = uₙ + (1/St) (λ ∂_n Θ_ic - ∂_n Θ)
 
 # Arguments
 - `state`: StefanState to update
@@ -395,7 +395,7 @@ function update_icb_topography!(state::StefanState{T}, dt::T, velocity_field,
     # Get epsilon from config or use default
     ε = config !== nothing ? config.epsilon : T(0.01)
 
-    # Compute topography rate: ε ∂_t h = u_n + F/(ρL)
+    # Compute topography rate: ε ∂_t h = uₙ + F/(ρL)
     for i in 1:nlm
         dh_dt = (state.normal_velocity[i] + stefan_flux[i] / rho_L) / ε
         state.topography_rate.coeffs_real[i] = real(dh_dt)
@@ -424,7 +424,7 @@ Update ICB topography using a semi-implicit (θ-scheme) time integration.
 
 h^{n+1} = h^n + dt [θ RHS^{n+1} + (1-θ) RHS^n]
 
-where RHS = (1/ε) [u_n + F/(ρL)]
+where RHS = (1/ε) [uₙ + F/(ρL)]
 
 # Arguments
 - `theta::T=0.5`: Implicitness parameter (0.5 = Crank-Nicolson, 1.0 = backward Euler)
@@ -550,9 +550,9 @@ end
 
 Compute spectral coefficients of normal (radial) velocity at a boundary.
 
-u_n = u_r = ℓ(ℓ+1)/r² P at the boundary
+uₙ = uᵣ = ℓ(ℓ+1)/r² P at the boundary
 
-Returns vector of spectral coefficients for u_r.
+Returns vector of spectral coefficients for uᵣ.
 """
 function compute_normal_velocity_spectral(velocity_field, r::T,
                                           location::BoundaryLocation=OUTER_BOUNDARY) where T
@@ -568,7 +568,7 @@ function compute_normal_velocity_spectral(velocity_field, r::T,
     nlm = poloidal.nlm
     un = zeros(Complex{T}, nlm)
 
-    # u_r = ℓ(ℓ+1)/r² P
+    # uᵣ = ℓ(ℓ+1)/r² P
     for lm_idx in 1:nlm
         l, m = index_to_lm(lm_idx, poloidal.config.lmax)
 

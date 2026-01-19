@@ -555,18 +555,18 @@ function get_current_velocity_boundaries(velocity_field)
     outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
     
     # Get spectral coefficients
-    inner_toroidal_spectral = velocity_field.toroidal.boundary_values[1, :]
-    outer_toroidal_spectral = velocity_field.toroidal.boundary_values[2, :]
-    inner_poloidal_spectral = velocity_field.poloidal.boundary_values[1, :]
-    outer_poloidal_spectral = velocity_field.poloidal.boundary_values[2, :]
+    innerᵀ_spectral = velocity_field.toroidal.boundary_values[1, :]
+    outerᵀ_spectral = velocity_field.toroidal.boundary_values[2, :]
+    innerᴾ_spectral = velocity_field.poloidal.boundary_values[1, :]
+    outerᴾ_spectral = velocity_field.poloidal.boundary_values[2, :]
     
     return Dict(
         :inner_physical => inner_physical,
         :outer_physical => outer_physical,
-        :inner_toroidal_spectral => inner_toroidal_spectral,
-        :outer_toroidal_spectral => outer_toroidal_spectral,
-        :inner_poloidal_spectral => inner_poloidal_spectral,
-        :outer_poloidal_spectral => outer_poloidal_spectral,
+        :innerᵀ_spectral => innerᵀ_spectral,
+        :outerᵀ_spectral => outerᵀ_spectral,
+        :innerᴾ_spectral => innerᴾ_spectral,
+        :outerᴾ_spectral => outerᴾ_spectral,
         :time_index => time_index,
         :metadata => Dict(
             "field_name" => boundary_set.field_name,

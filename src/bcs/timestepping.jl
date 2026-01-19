@@ -285,10 +285,10 @@ function apply_velocity_bc_to_rhs!(rhs, velocity_field)
 
     # Apply boundary conditions to toroidal component
     if hasfield(typeof(velocity_field), :toroidal) && hasfield(typeof(velocity_field.toroidal), :boundary_values)
-        inner_tor = velocity_field.toroidal.boundary_values[1, :]
-        outer_tor = velocity_field.toroidal.boundary_values[2, :]
+        innerᵀ = velocity_field.toroidal.boundary_values[1, :]
+        outerᵀ = velocity_field.toroidal.boundary_values[2, :]
 
-        nlm = length(inner_tor)
+        nlm = length(innerᵀ)
         for lm in 1:nlm
             # Get boundary condition types
             bc_type_inner = hasfield(typeof(velocity_field.toroidal), :bc_type_inner) ?
@@ -317,10 +317,10 @@ function apply_velocity_bc_to_rhs!(rhs, velocity_field)
 
     # Apply boundary conditions to poloidal component
     if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
-        inner_pol = velocity_field.poloidal.boundary_values[1, :]
-        outer_pol = velocity_field.poloidal.boundary_values[2, :]
+        innerᴾ = velocity_field.poloidal.boundary_values[1, :]
+        outerᴾ = velocity_field.poloidal.boundary_values[2, :]
 
-        nlm = length(inner_pol)
+        nlm = length(innerᴾ)
         for lm in 1:nlm
             # Get boundary condition types
             bc_type_inner = hasfield(typeof(velocity_field.poloidal), :bc_type_inner) ?
@@ -366,22 +366,22 @@ function apply_magnetic_bc_to_rhs!(rhs, magnetic_field)
         toroidal = magnetic_field.toroidal
 
         if hasfield(typeof(toroidal), :bc_type_inner) && hasfield(typeof(toroidal), :bc_type_outer)
-            inner_tor = toroidal.boundary_values[1, :]
-            outer_tor = toroidal.boundary_values[2, :]
+            innerᵀ = toroidal.boundary_values[1, :]
+            outerᵀ = toroidal.boundary_values[2, :]
             bc_inner = toroidal.bc_type_inner
             bc_outer = toroidal.bc_type_outer
 
-            nlm = length(inner_tor)
+            nlm = length(innerᵀ)
             for lm in 1:nlm
                 # Apply boundary condition based on type:
                 # bc_type = 1: Dirichlet (fixed value)
                 # bc_type = 2: Neumann (fixed derivative)
 
                 # Inner boundary
-                if bc_inner[lm] == Int(DIRICHLET)  # Dirichlet: B_tor = prescribed value
+                if bc_inner[lm] == Int(DIRICHLET)  # Dirichlet: Bᵀ = prescribed value
                     # RHS modification for fixed boundary value
                     # (specific implementation depends on discretization)
-                elseif bc_inner[lm] == Int(NEUMANN)  # Neumann: ∂B_tor/∂r = 0 (insulating)
+                elseif bc_inner[lm] == Int(NEUMANN)  # Neumann: ∂Bᵀ/∂r = 0 (insulating)
                     # RHS modification for natural boundary condition
                 end
 
@@ -400,19 +400,19 @@ function apply_magnetic_bc_to_rhs!(rhs, magnetic_field)
         poloidal = magnetic_field.poloidal
 
         if hasfield(typeof(poloidal), :bc_type_inner) && hasfield(typeof(poloidal), :bc_type_outer)
-            inner_pol = poloidal.boundary_values[1, :]
-            outer_pol = poloidal.boundary_values[2, :]
+            innerᴾ = poloidal.boundary_values[1, :]
+            outerᴾ = poloidal.boundary_values[2, :]
             bc_inner = poloidal.bc_type_inner
             bc_outer = poloidal.bc_type_outer
 
-            nlm = length(inner_pol)
+            nlm = length(innerᴾ)
             for lm in 1:nlm
                 # Apply boundary conditions for poloidal component
                 # (radial magnetic field component)
 
-                if bc_inner[lm] == Int(DIRICHLET)  # Dirichlet: B_pol = prescribed value
+                if bc_inner[lm] == Int(DIRICHLET)  # Dirichlet: Bᴾ = prescribed value
                     # Apply fixed boundary value constraint
-                elseif bc_inner[lm] == Int(NEUMANN)  # Neumann: ∂B_pol/∂r = 0
+                elseif bc_inner[lm] == Int(NEUMANN)  # Neumann: ∂Bᴾ/∂r = 0
                     # Apply natural boundary condition
                 end
 
@@ -536,10 +536,10 @@ function enforce_velocity_bc_in_solution!(solution, velocity_field)
 
     # Toroidal component enforcement
     if hasfield(typeof(velocity_field), :toroidal) && hasfield(typeof(velocity_field.toroidal), :boundary_values)
-        inner_tor = velocity_field.toroidal.boundary_values[1, :]
-        outer_tor = velocity_field.toroidal.boundary_values[2, :]
+        innerᵀ = velocity_field.toroidal.boundary_values[1, :]
+        outerᵀ = velocity_field.toroidal.boundary_values[2, :]
 
-        nlm = length(inner_tor)
+        nlm = length(innerᵀ)
         for lm in 1:nlm
             # Get boundary condition types
             bc_type_inner = hasfield(typeof(velocity_field.toroidal), :bc_type_inner) ?
@@ -562,10 +562,10 @@ function enforce_velocity_bc_in_solution!(solution, velocity_field)
 
     # Poloidal component enforcement
     if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
-        inner_pol = velocity_field.poloidal.boundary_values[1, :]
-        outer_pol = velocity_field.poloidal.boundary_values[2, :]
+        innerᴾ = velocity_field.poloidal.boundary_values[1, :]
+        outerᴾ = velocity_field.poloidal.boundary_values[2, :]
 
-        nlm = length(inner_pol)
+        nlm = length(innerᴾ)
         for lm in 1:nlm
             # Get boundary condition types
             bc_type_inner = hasfield(typeof(velocity_field.poloidal), :bc_type_inner) ?
@@ -608,14 +608,14 @@ function enforce_magnetic_bc_in_solution!(solution, magnetic_field)
     
     # Toroidal component enforcement
     if hasfield(typeof(magnetic_field), :toroidal) && hasfield(typeof(magnetic_field.toroidal), :boundary_values)
-        # Insulating: ∂(rB_tor)/∂r = 0
-        # Perfect conductor: B_tor = 0
+        # Insulating: ∂(rBᵀ)/∂r = 0
+        # Perfect conductor: Bᵀ = 0
     end
     
     # Poloidal component enforcement
     if hasfield(typeof(magnetic_field), :poloidal) && hasfield(typeof(magnetic_field.poloidal), :boundary_values)
         # Insulating: match potential field
-        # Perfect conductor: ∂B_pol/∂r = 0
+        # Perfect conductor: ∂Bᴾ/∂r = 0
     end
     
     return solution

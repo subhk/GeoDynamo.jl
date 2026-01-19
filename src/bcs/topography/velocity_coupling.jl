@@ -5,13 +5,13 @@
 # This file implements topography corrections for velocity boundary conditions:
 #
 # 1. Impermeability (u·n̂ = 0):
-#    u_r - ε(∇_H h)·u_t + εh ∂_r u_r = 0
+#    uᵣ - ε(∇_H h)·u_t + εh ∂_r uᵣ = 0
 #
 # 2. No-slip (u_t = 0):
 #    u_t + εh ∂_r u_t = U_b,t (typically 0 at CMB, Ω_ic × r at ICB)
 #
 # 3. Stress-free (∂_r(u_t/r) = 0):
-#    ∂_r(u_t/r) = (ε/r_b)(∇_H h) ∂_r u_r
+#    ∂_r(u_t/r) = (ε/r_b)(∇_H h) ∂_r uᵣ
 #
 # In spectral (ℓ,m) space, the impermeability condition becomes:
 #    ℓ(ℓ+1)/r_b² P_{u,ℓm} + ε Σ h_{LM} [α ∂_r P + β T_u + γ P] = 0
@@ -85,11 +85,11 @@ function apply_velocity_topography_correction!(velocity_field, topography::Topog
     # Precompute boundary value/derivative caches once for this field
     p_cache = compute_boundary_derivative_cache(poloidal,
                                                 velocity_field.dr_matrix,
-                                                velocity_field.d2r_matrix,
+                                                velocity_field.d²r_matrix,
                                                 velocity_field.domain)
     t_cache = compute_boundary_derivative_cache(toroidal,
                                                 velocity_field.dr_matrix,
-                                                velocity_field.d2r_matrix,
+                                                velocity_field.d²r_matrix,
                                                 velocity_field.domain)
 
     # Apply corrections at ICB if topography defined
@@ -195,10 +195,10 @@ end
 
 Compute the topography correction to the impermeability condition for mode (l, m).
 
-The flat-sphere condition is: u_r = ℓ(ℓ+1)/r² P_{ℓm} = 0
+The flat-sphere condition is: uᵣ = ℓ(ℓ+1)/r² P_{ℓm} = 0
 
 With topography:
-u_r - ε(∇_H h)·u_t + εh ∂_r u_r = 0
+uᵣ - ε(∇_H h)·u_t + εh ∂_r uᵣ = 0
 
 In spectral space (schematic):
 ℓ(ℓ+1)/r² P_{ℓm} + ε Σ_{LM,ℓ'm'} h_{LM} [
@@ -248,7 +248,7 @@ function compute_impermeability_correction(l::Int, m::Int,
 
                     ll_factor = T(lp * (lp + 1))
 
-                    # Shift term: h · ∂_r u_r
+                    # Shift term: h · ∂_r uᵣ
                     if config.include_shift_terms && abs(G) > 1e-15
                         # ∂_r(ℓ'(ℓ'+1)/r² P) evaluated at r = rb
                         shift_contrib = G * ll_factor * (dP_dr / rb^2 - 2 * P_lpm / rb^3)
@@ -357,7 +357,7 @@ Compute topography correction to stress-free condition for mode (l, m).
 The flat-sphere condition is: ∂_r(u_t/r) = 0
 
 With topography:
-∂_r(u_t/r) = (ε/r_b)(∇_H h) ∂_r u_r
+∂_r(u_t/r) = (ε/r_b)(∇_H h) ∂_r uᵣ
 
 The RHS involves the slope of topography coupling with radial velocity gradient.
 """
@@ -396,16 +396,16 @@ function compute_stressfree_correction(l::Int, m::Int,
                         continue
                     end
 
-                    # Get ∂_r u_r at boundary
-                    # u_r = ℓ'(ℓ'+1)/r² P, so ∂_r u_r involves ∂_r P and P
+                    # Get ∂_r uᵣ at boundary
+                    # uᵣ = ℓ'(ℓ'+1)/r² P, so ∂_r uᵣ involves ∂_r P and P
                     dP_dr = get_cache_d1(p_cache, lp, mp, location)
                     P_val = get_cache_value(p_cache, lp, mp, location)
 
                     ll_factor = T(lp * (lp + 1))
-                    # ∂_r u_r = ∂_r[ℓ'(ℓ'+1)/r² P] = ℓ'(ℓ'+1)[∂_r P/r² - 2P/r³]
+                    # ∂_r uᵣ = ∂_r[ℓ'(ℓ'+1)/r² P] = ℓ'(ℓ'+1)[∂_r P/r² - 2P/r³]
                     dur_dr = ll_factor * (dP_dr / rb^2 - 2 * P_val / rb^3)
 
-                    # Stress-free correction: (1/r_b) ∇_H h · (∂_r u_r)
+                    # Stress-free correction: (1/r_b) ∇_H h · (∂_r uᵣ)
                     correction += h_LM * G_grad * dur_dr / (rb^2)
                 end
             end
