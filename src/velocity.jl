@@ -336,18 +336,18 @@ function apply_velocity_flux_bc_spectral!(fields::SHTnsVelocityFields{T},
                                           method::Symbol=:tau) where T
 
     # Apply flux BC to toroidal component (if Neumann BC is set)
-    apply_velocity_component_flux_bc!(fields.toroidal, domain, fields.∂r, method)
+    apply_velocity_flux_bc!(fields.toroidal, domain, fields.∂r, method)
 
     # Apply flux BC to poloidal component (if Neumann BC is set)
     # Note: For typical stress-free boundaries, poloidal uses Dirichlet (v_r = 0)
     # but this allows flexibility for other boundary conditions
-    apply_velocity_component_flux_bc!(fields.poloidal, domain, fields.∂r, method)
+    apply_velocity_flux_bc!(fields.poloidal, domain, fields.∂r, method)
 
     return fields
 end
 
 """
-    apply_velocity_component_flux_bc!(field::SHTnsSpecField{T},
+    apply_velocity_flux_bc!(field::SHTnsSpecField{T},
                                        domain::RadialDomain,
                                        ∂r::BandedMatrix{T},
                                        method::Symbol) where T
@@ -369,7 +369,7 @@ Otherwise allocates temporary arrays (slower).
 Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
 the same number of times, preventing deadlock with uneven lm distribution.
 """
-function apply_velocity_component_flux_bc!(field::SHTnsSpecField{T},
+function apply_velocity_flux_bc!(field::SHTnsSpecField{T},
                                            domain::RadialDomain,
                                            ∂r::BandedMatrix{T},
                                            method::Symbol) where T
