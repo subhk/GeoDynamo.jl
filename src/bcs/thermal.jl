@@ -6,12 +6,12 @@
 # All required types and functions are available within the module scope
 
 """
-    load_temperature_boundary_conditions!(temp_field, boundary_specs::Dict)
+    load_temperature_boundary_conditions!(𝒯, boundary_specs::Dict)
 
 Load temperature boundary conditions from various sources.
 
 # Arguments
-- `temp_field`: SHTnsTemperatureField structure
+- `𝒯`: SHTnsTemperatureField structure
 - `boundary_specs`: Dictionary specifying boundary sources
 
 # Examples
@@ -29,7 +29,7 @@ boundary_specs = Dict(
 )
 ```
 """
-function load_temperature_boundary_conditions!(temp_field, boundary_specs::Dict)
+function load_temperature_boundary_conditions!(𝒯, boundary_specs::Dict)
     
     if get_rank() == 0
         @info "Loading temperature boundary conditions..."
@@ -46,47 +46,47 @@ function load_temperature_boundary_conditions!(temp_field, boundary_specs::Dict)
     # Load or generate boundary data
     if isa(inner_spec, String) && isa(outer_spec, String)
         # Both from NetCDF files
-        boundary_set = load_temperature_boundaries_from_files(inner_spec, outer_spec, temp_field.config)
+        boundary_set = load_temperature_boundaries_from_files(inner_spec, outer_spec, 𝒯.config)
     elseif isa(inner_spec, String) && isa(outer_spec, Tuple)
         # Inner from file, outer programmatic
-        boundary_set = create_hybrid_temperature_boundaries(inner_spec, outer_spec, temp_field.config)
+        boundary_set = create_hybrid_temperature_boundaries(inner_spec, outer_spec, 𝒯.config)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, String)
         # Inner programmatic, outer from file
-        boundary_set = create_hybrid_temperature_boundaries(outer_spec, inner_spec, temp_field.config; swap_boundaries=true)
+        boundary_set = create_hybrid_temperature_boundaries(outer_spec, inner_spec, 𝒯.config; swap_boundaries=true)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, Tuple)
         # Both programmatic
-        boundary_set = create_programmatic_temperature_boundaries(inner_spec, outer_spec, temp_field.config)
+        boundary_set = create_programmatic_temperature_boundaries(inner_spec, outer_spec, 𝒯.config)
     else
         throw(ArgumentError("Invalid boundary specification format"))
     end
     
-    if hasfield(typeof(temp_field), :boundary_condition_set)
-        temp_field.boundary_condition_set = boundary_set
-        temp_field.boundary_time_index[] = 1
-        temp_field.boundary_interpolation_cache = create_temperature_interpolation_cache(boundary_set, temp_field.config)
+    if hasfield(typeof(𝒯), :boundary_condition_set)
+        𝒯.boundary_condition_set = boundary_set
+        𝒯.boundary_time_index[] = 1
+        𝒯.boundary_interpolation_cache = create_temperature_interpolation_cache(boundary_set, 𝒯.config)
     else
         # Legacy fallback for field structures without direct storage
         if !isdefined(@__MODULE__, :_temperature_boundary_cache)
             global _temperature_boundary_cache = Dict{UInt64, Any}()
         end
 
-        field_id = objectid(temp_field)
+        field_id = objectid(𝒯)
         _temperature_boundary_cache[field_id] = Dict(
             :boundary_set => boundary_set,
-            :interpolation_cache => create_temperature_interpolation_cache(boundary_set, temp_field.config),
+            :interpolation_cache => create_temperature_interpolation_cache(boundary_set, 𝒯.config),
             :time_index => 1
         )
     end
 
     # Apply initial boundary conditions (field-level storage preferred when available)
-    apply_temperature_boundary_conditions!(temp_field)
+    apply_temperature_boundary_conditions!(𝒯)
 
     if get_rank() == 0
         print_boundary_info(boundary_set)
         @info "Temperature boundary conditions loaded successfully"
     end
 
-    return temp_field
+    return 𝒯
 end
 
 """
@@ -263,17 +263,17 @@ function create_temperature_interpolation_cache(boundary_set::BoundaryConditionS
 end
 
 """
-    apply_temperature_boundary_conditions!(temp_field, time_index::Int=1)
+    apply_temperature_boundary_conditions!(𝒯, time_index::Int=1)
 
 Apply temperature boundary conditions to the field.
 """
-function apply_temperature_boundary_conditions!(temp_field, time_index::Int=1)
+function apply_temperature_boundary_conditions!(𝒯, time_index::Int=1)
     
     # Get boundary data (from field)
-    boundary_set, cache = get_temperature_boundary_data(temp_field)
+    boundary_set, cache = get_temperature_boundary_data(𝒯)
     if boundary_set === nothing
         @warn "No boundary conditions loaded for temperature field"
-        return temp_field
+        return 𝒯
     end
     
     # Interpolate boundary data to simulation grid
@@ -281,12 +281,12 @@ function apply_temperature_boundary_conditions!(temp_field, time_index::Int=1)
     outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
     
     # Transform to spectral space using SHTnsKit
-    inner_spectral = shtns_physical_to_spectral(inner_physical, temp_field.config)
-    outer_spectral = shtns_physical_to_spectral(outer_physical, temp_field.config)
+    inner_spectral = shtns_physical_to_spectral(inner_physical, 𝒯.config)
+    outer_spectral = shtns_physical_to_spectral(outer_physical, 𝒯.config)
 
     # Apply to boundary arrays
-    temp_field.boundary_values[1, :] = inner_spectral  # Inner boundary
-    temp_field.boundary_values[2, :] = outer_spectral  # Outer boundary
+    𝒯.boundary_values[1, :] = inner_spectral  # Inner boundary
+    𝒯.boundary_values[2, :] = outer_spectral  # Outer boundary
 
     # Set boundary condition types based on boundary specifications
     # Default to Dirichlet (fixed temperature), but check for flux BCs
@@ -299,13 +299,13 @@ function apply_temperature_boundary_conditions!(temp_field, time_index::Int=1)
         validate_temperature_flux_boundary(boundary_set.outer_boundary, outer_bc_type)
     end
 
-    fill!(temp_field.bc_type_inner, inner_bc_type)
-    fill!(temp_field.bc_type_outer, outer_bc_type)
+    fill!(𝒯.bc_type_inner, inner_bc_type)
+    fill!(𝒯.bc_type_outer, outer_bc_type)
 
     # Update time index
-    update_temperature_time_index!(temp_field, time_index)
+    update_temperature_time_index!(𝒯, time_index)
 
-    return temp_field
+    return 𝒯
 end
 
 """
@@ -331,36 +331,36 @@ function infer_temperature_bc_type(boundary::BoundaryData)
 end
 
 """
-    update_time_dependent_temperature_boundaries!(temp_field, current_time::Float64)
+    update_time_dependent_temperature_boundaries!(𝒯, current_time::Float64)
 
 Update time-dependent temperature boundary conditions.
 """
-function update_time_dependent_temperature_boundaries!(temp_field, current_time::Float64)
+function update_time_dependent_temperature_boundaries!(𝒯, current_time::Float64)
     
-    boundary_set, _ = get_temperature_boundary_data(temp_field)
+    boundary_set, _ = get_temperature_boundary_data(𝒯)
     if boundary_set === nothing
-        return temp_field
+        return 𝒯
     end
     
     # Check if boundaries are time-dependent
     if !boundary_set.inner_boundary.is_time_dependent && !boundary_set.outer_boundary.is_time_dependent
-        return temp_field  # Nothing to update
+        return 𝒯  # Nothing to update
     end
     
     # Find time index for current time
     time_index = find_temperature_boundary_time_index(boundary_set, current_time)
     
     # Only update if time index has changed
-    current_time_index = get_temperature_time_index(temp_field)
+    current_time_index = get_temperature_time_index(𝒯)
     if time_index != current_time_index
-        apply_temperature_boundary_conditions!(temp_field, time_index)
+        apply_temperature_boundary_conditions!(𝒯, time_index)
         
         if get_rank() == 0
             @info "Updated temperature boundaries to time index $time_index (t=$current_time)"
         end
     end
     
-    return temp_field
+    return 𝒯
 end
 
 """
@@ -402,14 +402,14 @@ end
 # Function moved to main bcs module to avoid duplication
 
 """
-    get_temperature_boundary_data(temp_field)
+    get_temperature_boundary_data(𝒯)
 
 Get boundary data from field or fallback cache.
 """
-function get_temperature_boundary_data(temp_field)
+function get_temperature_boundary_data(𝒯)
     # First check if we have data in the module-level cache
     if isdefined(@__MODULE__, :_temperature_boundary_cache)
-        field_id = objectid(temp_field)
+        field_id = objectid(𝒯)
         if haskey(_temperature_boundary_cache, field_id)
             data = _temperature_boundary_cache[field_id]
             return data[:boundary_set], data[:interpolation_cache]
@@ -417,47 +417,47 @@ function get_temperature_boundary_data(temp_field)
     end
 
     # Fallback to field storage (for legacy compatibility)
-    boundary_set = temp_field.boundary_condition_set
-    cache = temp_field.boundary_interpolation_cache
+    boundary_set = 𝒯.boundary_condition_set
+    cache = 𝒯.boundary_interpolation_cache
     return boundary_set, cache
 end
 
 """
-    get_temperature_time_index(temp_field)
+    get_temperature_time_index(𝒯)
 
 Get current time index from field or fallback cache.
 """
-function get_temperature_time_index(temp_field)
+function get_temperature_time_index(𝒯)
     # Check cache first
     if isdefined(@__MODULE__, :_temperature_boundary_cache)
-        field_id = objectid(temp_field)
+        field_id = objectid(𝒯)
         if haskey(_temperature_boundary_cache, field_id)
             return _temperature_boundary_cache[field_id][:time_index]
         end
     end
 
     # Fallback to field storage
-    return temp_field.boundary_time_index[]
+    return 𝒯.boundary_time_index[]
 end
 
 """
-    update_temperature_time_index!(temp_field, time_index::Int)
+    update_temperature_time_index!(𝒯, time_index::Int)
 
 Update time index in field or fallback cache.
 """
-function update_temperature_time_index!(temp_field, time_index::Int)
+function update_temperature_time_index!(𝒯, time_index::Int)
     # Update cache if it exists
     if isdefined(@__MODULE__, :_temperature_boundary_cache)
-        field_id = objectid(temp_field)
+        field_id = objectid(𝒯)
         if haskey(_temperature_boundary_cache, field_id)
             _temperature_boundary_cache[field_id][:time_index] = time_index
-            temp_field.boundary_time_index[] = time_index
+            𝒯.boundary_time_index[] = time_index
             return
         end
     end
 
     # Fallback to field storage
-    temp_field.boundary_time_index[] = time_index
+    𝒯.boundary_time_index[] = time_index
 end
 
 """
@@ -483,26 +483,26 @@ function validate_temperature_range(boundary_data::BoundaryData)
 end
 
 """
-    get_current_temperature_boundaries(temp_field)
+    get_current_temperature_boundaries(𝒯)
 
 Get current temperature boundary conditions.
 """
-function get_current_temperature_boundaries(temp_field)
+function get_current_temperature_boundaries(𝒯)
     
-    boundary_set, cache = get_temperature_boundary_data(temp_field)
+    boundary_set, cache = get_temperature_boundary_data(𝒯)
     if boundary_set === nothing
         return Dict(:error => "No boundary conditions loaded")
     end
     
-    time_index = get_temperature_time_index(temp_field)
+    time_index = get_temperature_time_index(𝒯)
     
     # Get current boundary data
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
     outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
     
     # Get spectral coefficients
-    inner_spectral = temp_field.boundary_values[1, :]
-    outer_spectral = temp_field.boundary_values[2, :]
+    inner_spectral = 𝒯.boundary_values[1, :]
+    outer_spectral = 𝒯.boundary_values[2, :]
     
     return Dict(
         :inner_physical => inner_physical,
@@ -521,14 +521,14 @@ function get_current_temperature_boundaries(temp_field)
 end
 
 """
-    set_programmatic_temperature_boundaries!(temp_field, inner_spec::Tuple, outer_spec::Tuple)
+    set_programmatic_temperature_boundaries!(𝒯, inner_spec::Tuple, outer_spec::Tuple)
 
 Set programmatic temperature boundary conditions.
 """
-function set_programmatic_temperature_boundaries!(temp_field, inner_spec::Tuple, outer_spec::Tuple)
+function set_programmatic_temperature_boundaries!(𝒯, inner_spec::Tuple, outer_spec::Tuple)
     
     boundary_specs = Dict(:inner => inner_spec, :outer => outer_spec)
-    return load_temperature_boundary_conditions!(temp_field, boundary_specs)
+    return load_temperature_boundary_conditions!(𝒯, boundary_specs)
 end
 
 """
@@ -636,12 +636,12 @@ function create_layered_temperature_boundary(config, layer_specs::Vector{Tuple{R
 end
 
 """
-    apply_temperature_boundaries!(temp_field, boundary_set::BoundaryConditionSet; time::Float64=0.0)
+    apply_temperature_boundaries!(𝒯, boundary_set::BoundaryConditionSet; time::Float64=0.0)
 
 Apply temperature boundary conditions from a BoundaryConditionSet to a temperature field.
 This is a convenience wrapper that loads the boundary set and applies it.
 """
-function apply_temperature_boundaries!(temp_field, boundary_set::BoundaryConditionSet; time::Float64=0.0)
+function apply_temperature_boundaries!(𝒯, boundary_set::BoundaryConditionSet; time::Float64=0.0)
 
     # Store boundary conditions in a module-level cache since the field structure
     # expects Union{Dict{String, Any}, Nothing} but we have BoundaryConditionSet
@@ -649,26 +649,26 @@ function apply_temperature_boundaries!(temp_field, boundary_set::BoundaryConditi
         global _temperature_boundary_cache = Dict{UInt64, Any}()
     end
 
-    field_id = objectid(temp_field)
+    field_id = objectid(𝒯)
     _temperature_boundary_cache[field_id] = Dict(
         :boundary_set => boundary_set,
-        :interpolation_cache => create_temperature_interpolation_cache(boundary_set, temp_field.config),
+        :interpolation_cache => create_temperature_interpolation_cache(boundary_set, 𝒯.config),
         :time_index => 1
     )
 
     # Apply boundary conditions (no need to modify immutable field structure)
-    apply_temperature_boundary_conditions!(temp_field)
+    apply_temperature_boundary_conditions!(𝒯)
 
-    return temp_field
+    return 𝒯
 end
 
 """
-    enforce_temperature_boundary_constraints!(temp_field, bc_spec::Dict)
+    enforce_temperature_boundary_constraints!(𝒯, bc_spec::Dict)
 
 Enforce specific temperature boundary constraints based on user specification.
 
 # Arguments
-- `temp_field`: Temperature field structure
+- `𝒯`: Temperature field structure
 - `bc_spec`: Dictionary specifying boundary condition types
 
 # BC Specification Format
@@ -700,46 +700,46 @@ bc_spec = Dict(
 # Examples
 ```julia
 # Fixed temperature at both boundaries
-enforce_temperature_boundary_constraints!(temp_field, Dict(
+enforce_temperature_boundary_constraints!(𝒯, Dict(
     :inner => :dirichlet, :inner_value => 1000.0,
     :outer => :dirichlet, :outer_value => 300.0
 ))
 
 # Uniform heating from below, insulated top
-enforce_temperature_boundary_constraints!(temp_field, Dict(
+enforce_temperature_boundary_constraints!(𝒯, Dict(
     :inner => :flux, :inner_flux => 0.1,
     :outer => :flux, :outer_flux => 0.0
 ))
 ```
 """
-function enforce_temperature_boundary_constraints!(temp_field, bc_spec::Dict)
+function enforce_temperature_boundary_constraints!(𝒯, bc_spec::Dict)
 
     # Process inner boundary
     inner_type = get(bc_spec, :inner, :dirichlet)
     if inner_type == :dirichlet
         # Fixed temperature - keep as Dirichlet (already set)
-        fill!(temp_field.bc_type_inner, Int(DIRICHLET))
+        fill!(𝒯.bc_type_inner, Int(DIRICHLET))
 
         # Set boundary value if provided
         if haskey(bc_spec, :inner_value)
             inner_val = bc_spec[:inner_value]
             # Set uniform value in l=0,m=0 mode (spherically symmetric)
-            temp_field.boundary_values[1, 1] = inner_val
+            𝒯.boundary_values[1, 1] = inner_val
             # Zero out other modes for uniform BC
-            temp_field.boundary_values[1, 2:end] .= 0.0
+            𝒯.boundary_values[1, 2:end] .= 0.0
         end
 
     elseif inner_type == :neumann || inner_type == :flux
         # Fixed heat flux - use Neumann BC
-        fill!(temp_field.bc_type_inner, Int(NEUMANN))
+        fill!(𝒯.bc_type_inner, Int(NEUMANN))
 
         # Set flux value if provided
         if haskey(bc_spec, :inner_flux)
             flux_val = bc_spec[:inner_flux]
             # Flux is stored in boundary_values for Neumann BCs
             # For uniform flux: set l=0,m=0 mode to flux value
-            temp_field.boundary_values[1, 1] = flux_val
-            temp_field.boundary_values[1, 2:end] .= 0.0
+            𝒯.boundary_values[1, 1] = flux_val
+            𝒯.boundary_values[1, 2:end] .= 0.0
         end
 
     else
@@ -749,28 +749,28 @@ function enforce_temperature_boundary_constraints!(temp_field, bc_spec::Dict)
     # Process outer boundary
     outer_type = get(bc_spec, :outer, :dirichlet)
     if outer_type == :dirichlet
-        fill!(temp_field.bc_type_outer, Int(DIRICHLET))
+        fill!(𝒯.bc_type_outer, Int(DIRICHLET))
 
         if haskey(bc_spec, :outer_value)
             outer_val = bc_spec[:outer_value]
-            temp_field.boundary_values[2, 1] = outer_val
-            temp_field.boundary_values[2, 2:end] .= 0.0
+            𝒯.boundary_values[2, 1] = outer_val
+            𝒯.boundary_values[2, 2:end] .= 0.0
         end
 
     elseif outer_type == :neumann || outer_type == :flux
-        fill!(temp_field.bc_type_outer, Int(NEUMANN))
+        fill!(𝒯.bc_type_outer, Int(NEUMANN))
 
         if haskey(bc_spec, :outer_flux)
             flux_val = bc_spec[:outer_flux]
-            temp_field.boundary_values[2, 1] = flux_val
-            temp_field.boundary_values[2, 2:end] .= 0.0
+            𝒯.boundary_values[2, 1] = flux_val
+            𝒯.boundary_values[2, 2:end] .= 0.0
         end
 
     else
         throw(ArgumentError("Unknown outer boundary type: $outer_type. Use :dirichlet or :neumann/:flux"))
     end
 
-    return temp_field
+    return 𝒯
 end
 
 """

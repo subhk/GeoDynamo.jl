@@ -4,6 +4,7 @@
 
 using PencilArrays
 using PencilArrays: Pencil, PencilArray
+using Statistics: mean, std
 
 @inline function _pencil_make_transpose(pair)
     trans_mod = PencilArrays.Transpositions
@@ -263,9 +264,18 @@ end
 # ================================================================================
 
 """
-    transpose_with_timer!(dest, src, plan, label="")
+    transpose_with_timer!(dest, src, label=:default)
 
 Perform transpose with optional timing and statistics.
+
+# Arguments
+- `dest::PencilArray`: Destination array
+- `src::PencilArray`: Source array
+- `label::Symbol`: Label for timing statistics (default: `:default`)
+
+# Notes
+Uses PencilArrays.transpose! which creates a Transposition internally.
+Enable timing with `ENABLE_TIMING[] = true`.
 """
 function transpose_with_timer!(dest::PencilArray, src::PencilArray, label::Symbol=:default)
     if ENABLE_TIMING[]
@@ -850,7 +860,8 @@ function print_pencil_axes(pencils)
         println("\nPencil axes_local (local index ranges per axis):")
     end
     for (name, pencil) in pairs(pencils)
-        axes_in = pencil.axes_local
+        # Use range_local accessor for version compatibility
+        axes_in = range_local(pencil)
         if rank == 0
             println(rpad("  " * String(name), 14), " => ", axes_in)
         end
@@ -904,7 +915,8 @@ function validate_radial_distribution(pencils; warn_uneven::Bool=true, strict::B
     distribution_info = Dict{Symbol, Tuple{Int,Int}}()
 
     for (name, pencil) in pairs(pencils)
-        local_axes = pencil.axes_local
+        # Use range_local accessor for version compatibility
+        local_axes = range_local(pencil)
         if length(local_axes) >= 3
             # Get number of local radial levels
             local_r_count = length(local_axes[3])

@@ -36,20 +36,13 @@ function interpolate_boundary_to_grid(boundary_data::BoundaryData, target_theta:
     
     # Extract data for the specified time index
     if boundary_data.is_time_dependent
-        if time_index > boundary_data.ntime
-            time_index = boundary_data.ntime  # Clamp to available range
-        end
         if boundary_data.ncomponents == 1
             src_data = boundary_data.values[:, :, time_index]
         else
             src_data = boundary_data.values[:, :, time_index, :]
         end
     else
-        if boundary_data.ncomponents == 1
-            src_data = boundary_data.values
-        else
-            src_data = boundary_data.values
-        end
+        src_data = boundary_data.values
     end
     
     # Initialize output array
@@ -68,8 +61,8 @@ function interpolate_boundary_to_grid(boundary_data::BoundaryData, target_theta:
             phi_idx = find_grid_indices(src_phi, phi_t, is_periodic=true)         # phi is periodic
             
             # Get interpolation weights
-            theta_weights = get_interpolation_weights(src_theta, theta_t, theta_idx)
-            phi_weights = get_interpolation_weights(src_phi, phi_t, phi_idx)
+            theta_weights = get_interpolation_weights(src_theta, theta_t, theta_idx; is_periodic=false)
+            phi_weights = get_interpolation_weights(src_phi, phi_t, phi_idx; is_periodic=true)
             
             # Perform bilinear interpolation
             if boundary_data.ncomponents == 1
@@ -104,16 +97,22 @@ function find_grid_indices(coords::Vector{T}, target::T; is_periodic::Bool=false
     
     # Handle periodic coordinates (e.g., longitude)
     if is_periodic
-        period = coords[end] - coords[1] + (coords[2] - coords[1])  # Assume uniform spacing
-        
-        # Wrap target to coordinate range
-        while target < coords[1]
-            target += period
+        grid_spacing = coords[2] - coords[1]  # Assume uniform spacing
+        period = coords[end] - coords[1] + grid_spacing
+
+        # Safety check: period must be positive
+        if period <= zero(T)
+            @warn "Invalid period for periodic coordinate interpolation: period=$period"
+            return (1, min(2, n))
         end
-        while target > coords[end] + (coords[2] - coords[1])
-            target -= period
+
+        # Wrap target to coordinate range using modulo for safety (avoids infinite loop)
+        range_start = coords[1]
+        range_end = coords[end] + grid_spacing
+        if target < range_start || target >= range_end
+            target = range_start + mod(target - range_start, period)
         end
-        
+
         # Check if target is beyond the last point but within one grid spacing
         if target > coords[end]
             return (n, 1)  # Wrap to beginning
@@ -142,20 +141,46 @@ function find_grid_indices(coords::Vector{T}, target::T; is_periodic::Bool=false
 end
 
 """
-    get_interpolation_weights(coords::Vector{T}, target::T, indices::Tuple{Int, Int}) where T
+    get_interpolation_weights(coords::Vector{T}, target::T, indices::Tuple{Int, Int};
+                              is_periodic::Bool=false) where T
 
 Calculate interpolation weights for linear interpolation.
+Handles periodic wrapping when is_periodic=true and indices wrap around (e.g., (n, 1)).
 """
-function get_interpolation_weights(coords::Vector{T}, target::T, indices::Tuple{Int, Int}) where T
+function get_interpolation_weights(coords::Vector{T}, target::T, indices::Tuple{Int, Int};
+                                   is_periodic::Bool=false) where T
     i1, i2 = indices
 
     if i1 == i2
         return (one(T), zero(T))
     end
 
-    dx = coords[i2] - coords[i1]
-    w2 = (target - coords[i1]) / dx
-    w1 = one(T) - w2
+    # Handle periodic boundary wrapping case (e.g., indices = (n, 1))
+    if is_periodic && i2 < i1
+        # Wrapped around: compute period and adjust
+        n = length(coords)
+        grid_spacing = n > 1 ? (coords[end] - coords[1]) / (n - 1) : zero(T)
+        # Distance from coords[i1] to the wrap point, then to coords[i2]
+        dx = (coords[end] - coords[i1]) + grid_spacing + (coords[i2] - coords[1])
+        if dx <= zero(T)
+            return (one(T), zero(T))  # Fallback for degenerate case
+        end
+        # Target is either beyond coords[end] or wrapped to start
+        if target >= coords[i1]
+            dist = target - coords[i1]
+        else
+            dist = (coords[end] - coords[i1]) + grid_spacing + (target - coords[1])
+        end
+        w2 = dist / dx
+        w1 = one(T) - w2
+    else
+        dx = coords[i2] - coords[i1]
+        if dx == zero(T)
+            return (one(T), zero(T))  # Prevent division by zero
+        end
+        w2 = (target - coords[i1]) / dx
+        w1 = one(T) - w2
+    end
 
     return (w1, w2)
 end
@@ -228,12 +253,12 @@ function create_interpolation_cache(boundary_data::BoundaryData, target_theta::V
     
     for (i, theta_t) in enumerate(target_theta)
         theta_indices[i] = find_grid_indices(src_theta, theta_t, is_periodic=false)
-        theta_weights[i] = get_interpolation_weights(src_theta, theta_t, theta_indices[i])
+        theta_weights[i] = get_interpolation_weights(src_theta, theta_t, theta_indices[i]; is_periodic=false)
     end
-    
+
     for (j, phi_t) in enumerate(target_phi)
         phi_indices[j] = find_grid_indices(src_phi, phi_t, is_periodic=true)
-        phi_weights[j] = get_interpolation_weights(src_phi, phi_t, phi_indices[j])
+        phi_weights[j] = get_interpolation_weights(src_phi, phi_t, phi_indices[j]; is_periodic=true)
     end
     
     cache["theta_indices"] = theta_indices
@@ -272,10 +297,10 @@ function interpolate_with_cache(boundary_data::BoundaryData, cache::Dict, time_i
     phi_weights = cache["phi_weights"]
     nlat_tgt, nlon_tgt = cache["target_shape"]
     
-    # Extract source data for the specified time index
+    # Validate and extract source data for the specified time index
     if boundary_data.is_time_dependent
-        if time_index > boundary_data.ntime
-            time_index = boundary_data.ntime
+        if time_index < 1 || time_index > boundary_data.ntime
+            throw(ArgumentError("Time index $time_index is out of bounds for boundary data with $(boundary_data.ntime) time steps"))
         end
         if boundary_data.ncomponents == 1
             src_data = boundary_data.values[:, :, time_index]
@@ -283,11 +308,7 @@ function interpolate_with_cache(boundary_data::BoundaryData, cache::Dict, time_i
             src_data = boundary_data.values[:, :, time_index, :]
         end
     else
-        if boundary_data.ncomponents == 1
-            src_data = boundary_data.values
-        else
-            src_data = boundary_data.values
-        end
+        src_data = boundary_data.values
     end
     
     # Initialize output array

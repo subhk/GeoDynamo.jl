@@ -6,12 +6,12 @@
 # All necessary packages are imported at the module level
 
 """
-    load_velocity_boundary_conditions!(velocity_field, boundary_specs::Dict)
+    load_velocity_boundary_conditions!(𝒰, boundary_specs::Dict)
 
 Load velocity boundary conditions from various sources.
 
 # Arguments
-- `velocity_field`: SHTnsVelocityField structure
+- `𝒰`: SHTnsVelocityField structure
 - `boundary_specs`: Dictionary specifying boundary sources
 
 # Examples
@@ -35,7 +35,7 @@ boundary_specs = Dict(
 )
 ```
 """
-function load_velocity_boundary_conditions!(velocity_field, boundary_specs::Dict)
+function load_velocity_boundary_conditions!(𝒰, boundary_specs::Dict)
     
     if get_rank() == 0
         @info "Loading velocity boundary conditions..."
@@ -52,33 +52,33 @@ function load_velocity_boundary_conditions!(velocity_field, boundary_specs::Dict
     # Load or generate boundary data
     if isa(inner_spec, String) && isa(outer_spec, String)
         # Both from NetCDF files
-        boundary_set = load_velocity_boundaries_from_files(inner_spec, outer_spec, velocity_field.config)
+        boundary_set = load_velocity_boundaries_from_files(inner_spec, outer_spec, 𝒰.config)
     elseif isa(inner_spec, String) && isa(outer_spec, Tuple)
         # Inner from file, outer programmatic
-        boundary_set = create_hybrid_velocity_boundaries(inner_spec, outer_spec, velocity_field.config)
+        boundary_set = create_hybrid_velocity_boundaries(inner_spec, outer_spec, 𝒰.config)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, String)
         # Inner programmatic, outer from file
-        boundary_set = create_hybrid_velocity_boundaries(outer_spec, inner_spec, velocity_field.config, swap_boundaries=true)
+        boundary_set = create_hybrid_velocity_boundaries(outer_spec, inner_spec, 𝒰.config, swap_boundaries=true)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, Tuple)
         # Both programmatic
-        boundary_set = create_programmatic_velocity_boundaries(inner_spec, outer_spec, velocity_field.config)
+        boundary_set = create_programmatic_velocity_boundaries(inner_spec, outer_spec, 𝒰.config)
     else
         throw(ArgumentError("Invalid boundary specification format"))
     end
     
-    cache = create_velocity_interpolation_cache(boundary_set, velocity_field.config)
+    cache = create_velocity_interpolation_cache(boundary_set, 𝒰.config)
 
-    if hasfield(typeof(velocity_field), :boundary_condition_set)
-        velocity_field.boundary_condition_set = boundary_set
-        if hasfield(typeof(velocity_field), :boundary_time_index)
-            velocity_field.boundary_time_index[] = 1
+    if hasfield(typeof(𝒰), :boundary_condition_set)
+        𝒰.boundary_condition_set = boundary_set
+        if hasfield(typeof(𝒰), :boundary_time_index)
+            𝒰.boundary_time_index[] = 1
         end
-        velocity_field.boundary_interpolation_cache = cache
+        𝒰.boundary_interpolation_cache = cache
     else
         if !isdefined(@__MODULE__, :_velocity_boundary_cache)
             global _velocity_boundary_cache = Dict{UInt64, Any}()
         end
-        field_id = objectid(velocity_field)
+        field_id = objectid(𝒰)
         _velocity_boundary_cache[field_id] = Dict(
             :boundary_set => boundary_set,
             :interpolation_cache => cache,
@@ -87,14 +87,14 @@ function load_velocity_boundary_conditions!(velocity_field, boundary_specs::Dict
     end
 
     # Apply initial boundary conditions
-    apply_velocity_boundary_conditions!(velocity_field)
+    apply_velocity_boundary_conditions!(𝒰)
     
     if get_rank() == 0
         print_boundary_info(boundary_set)
         @info "Velocity boundary conditions loaded successfully"
     end
     
-    return velocity_field
+    return 𝒰
 end
 
 """
@@ -112,13 +112,10 @@ function load_velocity_boundaries_from_files(inner_file::String, outer_file::Str
     end
     
     # Read boundary data
+    # Note: field_type is set automatically by read_netcdf_boundary_data based on file contents
     inner_data = read_netcdf_boundary_data(inner_file, precision=config.T)
     outer_data = read_netcdf_boundary_data(outer_file, precision=config.T)
-    
-    # Update field type for velocity
-    inner_data.field_type = "velocity"
-    outer_data.field_type = "velocity"
-    
+
     # Validate vector field dimensions (should have 3 components: r, θ, φ)
     if inner_data.ncomponents != 3 || outer_data.ncomponents != 3
         throw(ArgumentError("Velocity boundary conditions require 3 components (r, θ, φ)"))
@@ -143,9 +140,9 @@ Create hybrid velocity boundaries (one from file, one programmatic).
 function create_hybrid_velocity_boundaries(file_spec::String, prog_spec::Tuple, config; swap_boundaries=false)
     
     # Load file-based boundary
+    # Note: field_type is set automatically by read_netcdf_boundary_data based on file contents
     file_data = read_netcdf_boundary_data(file_spec, precision=config.T)
-    file_data.field_type = "velocity"
-    
+
     # Create programmatic boundary
     pattern, amplitude = prog_spec[1], prog_spec[2]
     parameters = length(prog_spec) >= 3 ? prog_spec[3] : Dict()
@@ -390,16 +387,16 @@ function infer_velocity_bc_type(boundary::BoundaryData)
 end
 
 """
-    apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
+    apply_velocity_boundary_conditions!(𝒰, time_index::Int=1)
 
 Apply velocity boundary conditions to the field.
 """
-function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
+function apply_velocity_boundary_conditions!(𝒰, time_index::Int=1)
     
-    boundary_set, cache = get_velocity_boundary_data(velocity_field)
+    boundary_set, cache = get_velocity_boundary_data(𝒰)
     if boundary_set === nothing || cache === nothing
         @warn "No boundary conditions loaded for velocity field"
-        return velocity_field
+        return 𝒰
     end
     
     # Interpolate boundary data to simulation grid
@@ -424,10 +421,10 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
     # Convert velocity components to QST spectral coefficients
     # Using proper SHTnsKit QST decomposition for 3D vector fields
     inner_Q, inner_S, inner_T = velocity_to_qst_coefficients(
-        inner_physical[:, :, 1], inner_physical[:, :, 2], inner_physical[:, :, 3], velocity_field.config
+        inner_physical[:, :, 1], inner_physical[:, :, 2], inner_physical[:, :, 3], 𝒰.config
     )
     outer_Q, outer_S, outer_T = velocity_to_qst_coefficients(
-        outer_physical[:, :, 1], outer_physical[:, :, 2], outer_physical[:, :, 3], velocity_field.config
+        outer_physical[:, :, 1], outer_physical[:, :, 2], outer_physical[:, :, 3], 𝒰.config
     )
     
     # Apply QST coefficients to boundary arrays
@@ -435,12 +432,12 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
     # but in QST decomposition: "poloidal" → Q (radial), "toroidal" → T (tangential toroidal)
 
     # Q component (radial) - stored in "poloidal" field for backward compatibility
-    velocity_field.𝒫.boundary_values[1, :] .= inner_Q  # Inner boundary (radial component)
-    velocity_field.𝒫.boundary_values[2, :] .= outer_Q  # Outer boundary (radial component)
+    𝒰.𝒫.boundary_values[1, :] .= inner_Q  # Inner boundary (radial component)
+    𝒰.𝒫.boundary_values[2, :] .= outer_Q  # Outer boundary (radial component)
 
     # T component (tangential toroidal) - stored in "toroidal" field
-    velocity_field.𝒯.boundary_values[1, :] .= inner_T  # Inner boundary (toroidal component)
-    velocity_field.𝒯.boundary_values[2, :] .= outer_T  # Outer boundary (toroidal component)
+    𝒰.𝒯.boundary_values[1, :] .= inner_T  # Inner boundary (toroidal component)
+    𝒰.𝒯.boundary_values[2, :] .= outer_T  # Outer boundary (toroidal component)
 
     # Update boundary condition type metadata based on pattern descriptions
     # For stress-free: radial (poloidal/Q) is Dirichlet, tangential (toroidal/T) is Neumann
@@ -450,21 +447,21 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
 
     # Set BC types for poloidal (radial) component
     if occursin("stress-free", inner_desc) || occursin("stress free", inner_desc)
-        fill!(velocity_field.𝒫.bc_type_inner, Int(DIRICHLET))  # v_r = 0 (Dirichlet)
-        fill!(velocity_field.𝒯.bc_type_inner, Int(NEUMANN))     # ∂v_tangential/∂r (Neumann)
+        fill!(𝒰.𝒫.bc_type_inner, Int(DIRICHLET))  # v_r = 0 (Dirichlet)
+        fill!(𝒰.𝒯.bc_type_inner, Int(NEUMANN))     # ∂v_tangential/∂r (Neumann)
     else
         inner_bc_type = infer_velocity_bc_type(boundary_set.inner_boundary)
-        fill!(velocity_field.𝒫.bc_type_inner, inner_bc_type)
-        fill!(velocity_field.𝒯.bc_type_inner, inner_bc_type)
+        fill!(𝒰.𝒫.bc_type_inner, inner_bc_type)
+        fill!(𝒰.𝒯.bc_type_inner, inner_bc_type)
     end
 
     if occursin("stress-free", outer_desc) || occursin("stress free", outer_desc)
-        fill!(velocity_field.𝒫.bc_type_outer, Int(DIRICHLET))  # v_r = 0 (Dirichlet)
-        fill!(velocity_field.𝒯.bc_type_outer, Int(NEUMANN))     # ∂v_tangential/∂r (Neumann)
+        fill!(𝒰.𝒫.bc_type_outer, Int(DIRICHLET))  # v_r = 0 (Dirichlet)
+        fill!(𝒰.𝒯.bc_type_outer, Int(NEUMANN))     # ∂v_tangential/∂r (Neumann)
     else
         outer_bc_type = infer_velocity_bc_type(boundary_set.outer_boundary)
-        fill!(velocity_field.𝒫.bc_type_outer, outer_bc_type)
-        fill!(velocity_field.𝒯.bc_type_outer, outer_bc_type)
+        fill!(𝒰.𝒫.bc_type_outer, outer_bc_type)
+        fill!(𝒰.𝒯.bc_type_outer, outer_bc_type)
     end
 
     # S component (tangential spheroidal/curl-free) handling:
@@ -498,67 +495,67 @@ function apply_velocity_boundary_conditions!(velocity_field, time_index::Int=1)
     end
     
     # Update time index
-    update_velocity_time_index!(velocity_field, time_index)
+    update_velocity_time_index!(𝒰, time_index)
 
-    return velocity_field
+    return 𝒰
 end
 
 """
-    update_time_dependent_velocity_boundaries!(velocity_field, current_time::Float64)
+    update_time_dependent_velocity_boundaries!(𝒰, current_time::Float64)
 
 Update time-dependent velocity boundary conditions.
 """
-function update_time_dependent_velocity_boundaries!(velocity_field, current_time::Float64)
+function update_time_dependent_velocity_boundaries!(𝒰, current_time::Float64)
     
-    boundary_set, _ = get_velocity_boundary_data(velocity_field)
+    boundary_set, _ = get_velocity_boundary_data(𝒰)
     if boundary_set === nothing
-        return velocity_field
+        return 𝒰
     end
     
     # Check if boundaries are time-dependent
     if !boundary_set.inner_boundary.is_time_dependent && !boundary_set.outer_boundary.is_time_dependent
-        return velocity_field  # Nothing to update
+        return 𝒰  # Nothing to update
     end
     
     # Find time index for current time
     time_index = find_boundary_time_index(boundary_set, current_time)
-    current_time_index = get_velocity_time_index(velocity_field)
+    current_time_index = get_velocity_time_index(𝒰)
     
     # Only update if time index has changed
     if time_index != current_time_index
-        apply_velocity_boundary_conditions!(velocity_field, time_index)
+        apply_velocity_boundary_conditions!(𝒰, time_index)
         
         if get_rank() == 0
             @info "Updated velocity boundaries to time index $time_index (t=$current_time)"
         end
     end
     
-    return velocity_field
+    return 𝒰
 end
 
 """
-    get_current_velocity_boundaries(velocity_field)
+    get_current_velocity_boundaries(𝒰)
 
 Get current velocity boundary conditions.
 """
-function get_current_velocity_boundaries(velocity_field)
+function get_current_velocity_boundaries(𝒰)
     
-    boundary_set, cache = get_velocity_boundary_data(velocity_field)
+    boundary_set, cache = get_velocity_boundary_data(𝒰)
     if boundary_set === nothing || cache === nothing
         return Dict(:error => "No boundary conditions loaded")
     end
     
-    time_index = get_velocity_time_index(velocity_field)
+    time_index = get_velocity_time_index(𝒰)
     
     # Get current boundary data
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
     outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
     
     # Get spectral coefficients
-    innerᵀ_spectral = velocity_field.𝒯.boundary_values[1, :]
-    outerᵀ_spectral = velocity_field.𝒯.boundary_values[2, :]
-    innerᴾ_spectral = velocity_field.𝒫.boundary_values[1, :]
-    outerᴾ_spectral = velocity_field.𝒫.boundary_values[2, :]
+    innerᵀ_spectral = 𝒰.𝒯.boundary_values[1, :]
+    outerᵀ_spectral = 𝒰.𝒯.boundary_values[2, :]
+    innerᴾ_spectral = 𝒰.𝒫.boundary_values[1, :]
+    outerᴾ_spectral = 𝒰.𝒫.boundary_values[2, :]
     
     return Dict(
         :inner_physical => inner_physical,
@@ -580,74 +577,74 @@ function get_current_velocity_boundaries(velocity_field)
 end
 
 """
-    set_programmatic_velocity_boundaries!(velocity_field, inner_spec::Tuple, outer_spec::Tuple)
+    set_programmatic_velocity_boundaries!(𝒰, inner_spec::Tuple, outer_spec::Tuple)
 
 Set programmatic velocity boundary conditions.
 """
-function set_programmatic_velocity_boundaries!(velocity_field, inner_spec::Tuple, outer_spec::Tuple)
+function set_programmatic_velocity_boundaries!(𝒰, inner_spec::Tuple, outer_spec::Tuple)
     
     boundary_specs = Dict(:inner => inner_spec, :outer => outer_spec)
-    return load_velocity_boundary_conditions!(velocity_field, boundary_specs)
+    return load_velocity_boundary_conditions!(𝒰, boundary_specs)
 end
 
 """
-    get_velocity_boundary_data(velocity_field)
+    get_velocity_boundary_data(𝒰)
 
 Return `(boundary_set, cache)` for the provided velocity field, falling back to
 module-level storage when the struct does not carry boundary metadata.
 """
-function get_velocity_boundary_data(velocity_field)
+function get_velocity_boundary_data(𝒰)
     if isdefined(@__MODULE__, :_velocity_boundary_cache)
-        field_id = objectid(velocity_field)
+        field_id = objectid(𝒰)
         if haskey(_velocity_boundary_cache, field_id)
             data = _velocity_boundary_cache[field_id]
             return data[:boundary_set], data[:interpolation_cache]
         end
     end
 
-    if hasfield(typeof(velocity_field), :boundary_condition_set)
-        return velocity_field.boundary_condition_set, velocity_field.boundary_interpolation_cache
+    if hasfield(typeof(𝒰), :boundary_condition_set)
+        return 𝒰.boundary_condition_set, 𝒰.boundary_interpolation_cache
     end
 
     return nothing, nothing
 end
 
 """
-    get_velocity_time_index(velocity_field)
+    get_velocity_time_index(𝒰)
 
 Fetch the current boundary time index for a velocity field, honoring fallback storage.
 """
-function get_velocity_time_index(velocity_field)
+function get_velocity_time_index(𝒰)
     if isdefined(@__MODULE__, :_velocity_boundary_cache)
-        field_id = objectid(velocity_field)
+        field_id = objectid(𝒰)
         if haskey(_velocity_boundary_cache, field_id)
             return _velocity_boundary_cache[field_id][:time_index]
         end
     end
 
-    if hasfield(typeof(velocity_field), :boundary_time_index)
-        return velocity_field.boundary_time_index[]
+    if hasfield(typeof(𝒰), :boundary_time_index)
+        return 𝒰.boundary_time_index[]
     end
 
     return 1
 end
 
 """
-    update_velocity_time_index!(velocity_field, time_index)
+    update_velocity_time_index!(𝒰, time_index)
 
 Update cached time indices for velocity boundary conditions in both the field
 and the module-level fallback cache (when present).
 """
-function update_velocity_time_index!(velocity_field, time_index::Int)
+function update_velocity_time_index!(𝒰, time_index::Int)
     if isdefined(@__MODULE__, :_velocity_boundary_cache)
-        field_id = objectid(velocity_field)
+        field_id = objectid(𝒰)
         if haskey(_velocity_boundary_cache, field_id)
             _velocity_boundary_cache[field_id][:time_index] = time_index
         end
     end
 
-    if hasfield(typeof(velocity_field), :boundary_time_index)
-        velocity_field.boundary_time_index[] = time_index
+    if hasfield(typeof(𝒰), :boundary_time_index)
+        𝒰.boundary_time_index[] = time_index
     end
 end
 
@@ -742,9 +739,11 @@ function velocity_to_qst_coefficients(v_r, v_theta, v_phi, config)
     # S and T components: proper spheroidal-toroidal decomposition
     # Using SHTnsKit's spat_to_SHsphtor function for horizontal components
     try
-        # Create temporary SHTConfig for the decomposition
+        # Create SHTnsKit config for the decomposition using correct API
         nlat, nlon = size(v_theta)
-        shtconfig = SHTnsKit.SHTConfig(config.lmax; nlat=nlat, nlon=nlon)
+        lmax = config.lmax
+        mmax = hasfield(typeof(config), :mmax) ? config.mmax : lmax
+        shtconfig = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon)
 
         # Use SHTnsKit's proper spheroidal-toroidal decomposition
         S_matrix, T_matrix = SHTnsKit.spat_to_SHsphtor(shtconfig, v_theta, v_phi)
@@ -808,7 +807,7 @@ end
 # Function moved to main bcs module to avoid duplication
 
 """
-    enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=:no_slip)
+    enforce_velocity_boundary_constraints!(𝒰, bc_type::Symbol=:no_slip)
 
 Enforce specific velocity boundary constraints based on boundary condition type.
 
@@ -817,7 +816,7 @@ For boundary conditions loaded from files or other sources, use
 load_velocity_boundary_conditions!() instead.
 
 # Arguments
-- `velocity_field`: Velocity field structure with toroidal and poloidal components
+- `𝒰`: Velocity field structure with toroidal and poloidal components
 - `bc_type`: Type of boundary condition (:no_slip, :stress_free, :impermeable)
 
 # Boundary Condition Mapping (for solenoidal/incompressible flows):
@@ -826,44 +825,44 @@ load_velocity_boundary_conditions!() instead.
 - Impermeable: v_r = 0 → Q = 0 at boundaries (Dirichlet), T unconstrained
 
 # Field naming convention:
-- velocity_field.𝒫 actually stores Q (radial component)
-- velocity_field.𝒯 actually stores T (tangential toroidal component)
+- 𝒰.𝒫 actually stores Q (radial component)
+- 𝒰.𝒯 actually stores T (tangential toroidal component)
 - S component (spheroidal) is zero for solenoidal flows
 """
-function enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=:no_slip)
+function enforce_velocity_boundary_constraints!(𝒰, bc_type::Symbol=:no_slip)
 
     if bc_type == :no_slip
         # No-slip: all velocity components = 0 at boundaries
         # Q = T = 0 with Dirichlet BCs
 
-        if hasfield(typeof(velocity_field), :𝒫) && hasfield(typeof(velocity_field.𝒫), :boundary_values)
-            fill!(velocity_field.𝒫.boundary_values, 0.0)  # Q = 0 (radial)
-            fill!(velocity_field.𝒫.bc_type_inner, Int(DIRICHLET))
-            fill!(velocity_field.𝒫.bc_type_outer, Int(DIRICHLET))
+        if hasfield(typeof(𝒰), :𝒫) && hasfield(typeof(𝒰.𝒫), :boundary_values)
+            fill!(𝒰.𝒫.boundary_values, 0.0)  # Q = 0 (radial)
+            fill!(𝒰.𝒫.bc_type_inner, Int(DIRICHLET))
+            fill!(𝒰.𝒫.bc_type_outer, Int(DIRICHLET))
         end
 
-        if hasfield(typeof(velocity_field), :𝒯) && hasfield(typeof(velocity_field.𝒯), :boundary_values)
-            fill!(velocity_field.𝒯.boundary_values, 0.0)  # T = 0 (toroidal)
-            fill!(velocity_field.𝒯.bc_type_inner, Int(DIRICHLET))
-            fill!(velocity_field.𝒯.bc_type_outer, Int(DIRICHLET))
+        if hasfield(typeof(𝒰), :𝒯) && hasfield(typeof(𝒰.𝒯), :boundary_values)
+            fill!(𝒰.𝒯.boundary_values, 0.0)  # T = 0 (toroidal)
+            fill!(𝒰.𝒯.bc_type_inner, Int(DIRICHLET))
+            fill!(𝒰.𝒯.bc_type_outer, Int(DIRICHLET))
         end
 
     elseif bc_type == :stress_free
         # Stress-free: v_r = 0 (Dirichlet), zero tangential stress (Neumann)
         # Q = 0 (Dirichlet), ∂T/∂r = T/r (Neumann, enforced by apply_velocity_flux_bc_spectral!)
 
-        if hasfield(typeof(velocity_field), :𝒫) && hasfield(typeof(velocity_field.𝒫), :boundary_values)
-            fill!(velocity_field.𝒫.boundary_values, 0.0)  # Q = 0 (radial)
-            fill!(velocity_field.𝒫.bc_type_inner, Int(DIRICHLET))
-            fill!(velocity_field.𝒫.bc_type_outer, Int(DIRICHLET))
+        if hasfield(typeof(𝒰), :𝒫) && hasfield(typeof(𝒰.𝒫), :boundary_values)
+            fill!(𝒰.𝒫.boundary_values, 0.0)  # Q = 0 (radial)
+            fill!(𝒰.𝒫.bc_type_inner, Int(DIRICHLET))
+            fill!(𝒰.𝒫.bc_type_outer, Int(DIRICHLET))
         end
 
-        if hasfield(typeof(velocity_field), :𝒯)
+        if hasfield(typeof(𝒰), :𝒯)
             # Toroidal component uses Neumann BC (tangential stress = 0)
             # Boundary values are not enforced for Neumann BCs
-            if hasfield(typeof(velocity_field.𝒯), :bc_type_inner)
-                fill!(velocity_field.𝒯.bc_type_inner, Int(NEUMANN))
-                fill!(velocity_field.𝒯.bc_type_outer, Int(NEUMANN))
+            if hasfield(typeof(𝒰.𝒯), :bc_type_inner)
+                fill!(𝒰.𝒯.bc_type_inner, Int(NEUMANN))
+                fill!(𝒰.𝒯.bc_type_outer, Int(NEUMANN))
             end
         end
 
@@ -871,10 +870,10 @@ function enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=
         # Impermeable: v_r = 0 only (Dirichlet), tangential components unconstrained
         # Q = 0 (Dirichlet), T unconstrained
 
-        if hasfield(typeof(velocity_field), :𝒫) && hasfield(typeof(velocity_field.𝒫), :boundary_values)
-            fill!(velocity_field.𝒫.boundary_values, 0.0)  # Q = 0 (radial)
-            fill!(velocity_field.𝒫.bc_type_inner, Int(DIRICHLET))
-            fill!(velocity_field.𝒫.bc_type_outer, Int(DIRICHLET))
+        if hasfield(typeof(𝒰), :𝒫) && hasfield(typeof(𝒰.𝒫), :boundary_values)
+            fill!(𝒰.𝒫.boundary_values, 0.0)  # Q = 0 (radial)
+            fill!(𝒰.𝒫.bc_type_inner, Int(DIRICHLET))
+            fill!(𝒰.𝒫.bc_type_outer, Int(DIRICHLET))
         end
         # Toroidal component BC types remain unchanged (solver determines values)
 
@@ -882,10 +881,48 @@ function enforce_velocity_boundary_constraints!(velocity_field, bc_type::Symbol=
         throw(ArgumentError("Unknown velocity boundary condition type: $bc_type. Use :no_slip, :stress_free, or :impermeable"))
     end
 
-    return velocity_field
+    return 𝒰
+end
+
+"""
+    find_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
+
+Find the appropriate time index for the current simulation time.
+Used by velocity and magnetic field boundary conditions.
+"""
+function find_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
+
+    # Use time coordinates from inner boundary (both should be compatible)
+    time_coords = boundary_set.inner_boundary.time
+
+    if time_coords === nothing
+        return 1  # Time-independent
+    end
+
+    # Find closest time index
+    if current_time <= time_coords[1]
+        return 1
+    elseif current_time >= time_coords[end]
+        return length(time_coords)
+    else
+        # Linear search for closest time
+        for i in 1:(length(time_coords)-1)
+            if time_coords[i] <= current_time <= time_coords[i+1]
+                # Choose closer time point
+                if abs(current_time - time_coords[i]) <= abs(current_time - time_coords[i+1])
+                    return i
+                else
+                    return i + 1
+                end
+            end
+        end
+    end
+
+    return 1  # Fallback
 end
 
 export load_velocity_boundary_conditions!, set_programmatic_velocity_boundaries!
 export update_time_dependent_velocity_boundaries!, get_current_velocity_boundaries
 export validate_velocity_boundary_files, create_programmatic_velocity_boundary
 export velocity_to_qst_coefficients, enforce_velocity_boundary_constraints!
+export find_boundary_time_index

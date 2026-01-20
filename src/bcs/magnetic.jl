@@ -6,12 +6,12 @@
 # All necessary packages are imported at the module level
 
 """
-    load_magnetic_boundary_conditions!(magnetic_field, boundary_specs::Dict)
+    load_magnetic_boundary_conditions!(ℬ, boundary_specs::Dict)
 
 Load magnetic field boundary conditions from various sources.
 
 # Arguments
-- `magnetic_field`: SHTnsMagneticField structure
+- `ℬ`: SHTnsMagneticField structure
 - `boundary_specs`: Dictionary specifying boundary sources
 
 # Examples
@@ -35,7 +35,7 @@ boundary_specs = Dict(
 )
 ```
 """
-function load_magnetic_boundary_conditions!(magnetic_field, boundary_specs::Dict)
+function load_magnetic_boundary_conditions!(ℬ, boundary_specs::Dict)
     
     if get_rank() == 0
         @info "Loading magnetic field boundary conditions..."
@@ -52,33 +52,33 @@ function load_magnetic_boundary_conditions!(magnetic_field, boundary_specs::Dict
     # Load or generate boundary data
     if isa(inner_spec, String) && isa(outer_spec, String)
         # Both from NetCDF files
-        boundary_set = load_magnetic_boundaries_from_files(inner_spec, outer_spec, magnetic_field.config)
+        boundary_set = load_magnetic_boundaries_from_files(inner_spec, outer_spec, ℬ.config)
     elseif isa(inner_spec, String) && isa(outer_spec, Tuple)
         # Inner from file, outer programmatic
-        boundary_set = create_hybrid_magnetic_boundaries(inner_spec, outer_spec, magnetic_field.config)
+        boundary_set = create_hybrid_magnetic_boundaries(inner_spec, outer_spec, ℬ.config)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, String)
         # Inner programmatic, outer from file
-        boundary_set = create_hybrid_magnetic_boundaries(outer_spec, inner_spec, magnetic_field.config, swap_boundaries=true)
+        boundary_set = create_hybrid_magnetic_boundaries(outer_spec, inner_spec, ℬ.config, swap_boundaries=true)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, Tuple)
         # Both programmatic
-        boundary_set = create_programmatic_magnetic_boundaries(inner_spec, outer_spec, magnetic_field.config)
+        boundary_set = create_programmatic_magnetic_boundaries(inner_spec, outer_spec, ℬ.config)
     else
         throw(ArgumentError("Invalid boundary specification format"))
     end
     
-    cache = create_magnetic_interpolation_cache(boundary_set, magnetic_field.config)
+    cache = create_magnetic_interpolation_cache(boundary_set, ℬ.config)
 
-    if hasfield(typeof(magnetic_field), :boundary_condition_set)
-        magnetic_field.boundary_condition_set = boundary_set
-        if hasfield(typeof(magnetic_field), :boundary_time_index)
-            magnetic_field.boundary_time_index[] = 1
+    if hasfield(typeof(ℬ), :boundary_condition_set)
+        ℬ.boundary_condition_set = boundary_set
+        if hasfield(typeof(ℬ), :boundary_time_index)
+            ℬ.boundary_time_index[] = 1
         end
-        magnetic_field.boundary_interpolation_cache = cache
+        ℬ.boundary_interpolation_cache = cache
     else
         if !isdefined(@__MODULE__, :_magnetic_boundary_cache)
             global _magnetic_boundary_cache = Dict{UInt64, Any}()
         end
-        field_id = objectid(magnetic_field)
+        field_id = objectid(ℬ)
         _magnetic_boundary_cache[field_id] = Dict(
             :boundary_set => boundary_set,
             :interpolation_cache => cache,
@@ -87,14 +87,14 @@ function load_magnetic_boundary_conditions!(magnetic_field, boundary_specs::Dict
     end
 
     # Apply initial boundary conditions
-    apply_magnetic_boundary_conditions!(magnetic_field)
+    apply_magnetic_boundary_conditions!(ℬ)
     
     if get_rank() == 0
         print_boundary_info(boundary_set)
         @info "Magnetic field boundary conditions loaded successfully"
     end
     
-    return magnetic_field
+    return ℬ
 end
 
 """
@@ -112,13 +112,10 @@ function load_magnetic_boundaries_from_files(inner_file::String, outer_file::Str
     end
     
     # Read boundary data
+    # Note: field_type is set automatically by read_netcdf_boundary_data based on file contents
     inner_data = read_netcdf_boundary_data(inner_file, precision=config.T)
     outer_data = read_netcdf_boundary_data(outer_file, precision=config.T)
-    
-    # Update field type for magnetic field
-    inner_data.field_type = "magnetic"
-    outer_data.field_type = "magnetic"
-    
+
     # Validate vector field dimensions (should have 3 components: Bᵣ, Bθ, Bφ)
     if inner_data.ncomponents != 3 || outer_data.ncomponents != 3
         throw(ArgumentError("Magnetic boundary conditions require 3 components (Bᵣ, Bθ, Bφ)"))
@@ -143,9 +140,9 @@ Create hybrid magnetic boundaries (one from file, one programmatic).
 function create_hybrid_magnetic_boundaries(file_spec::String, prog_spec::Tuple, config; swap_boundaries=false)
     
     # Load file-based boundary
+    # Note: field_type is set automatically by read_netcdf_boundary_data based on file contents
     file_data = read_netcdf_boundary_data(file_spec, precision=config.T)
-    file_data.field_type = "magnetic"
-    
+
     # Create programmatic boundary
     pattern, amplitude = prog_spec[1], prog_spec[2]
     parameters = length(prog_spec) >= 3 ? prog_spec[3] : Dict()
@@ -532,16 +529,16 @@ function create_magnetic_interpolation_cache(boundary_set::BoundaryConditionSet,
 end
 
 """
-    apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
+    apply_magnetic_boundary_conditions!(ℬ, time_index::Int=1)
 
 Apply magnetic field boundary conditions to the field.
 """
-function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
+function apply_magnetic_boundary_conditions!(ℬ, time_index::Int=1)
     
-    boundary_set, cache = get_magnetic_boundary_data(magnetic_field)
+    boundary_set, cache = get_magnetic_boundary_data(ℬ)
     if boundary_set === nothing || cache === nothing
         @warn "No boundary conditions loaded for magnetic field"
-        return magnetic_field
+        return ℬ
     end
     
     # Interpolate boundary data to simulation grid
@@ -565,26 +562,26 @@ function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
     try
         # Inner boundary
         Q_inner, S_inner, T_inner = magnetic_to_qst_coefficients(
-            Bᵣ_inner, Bθ_inner, Bφ_inner, magnetic_field.config
+            Bᵣ_inner, Bθ_inner, Bφ_inner, ℬ.config
         )
 
         # Outer boundary
         Q_outer, S_outer, T_outer = magnetic_to_qst_coefficients(
-            Bᵣ_outer, Bθ_outer, Bφ_outer, magnetic_field.config
+            Bᵣ_outer, Bθ_outer, Bφ_outer, ℬ.config
         )
 
         # Map to toroidal-poloidal structure:
         # For magnetic fields: toroidal ~ T (purely tangential), poloidal ~ Q + S (radial + potential)
-        magnetic_field.𝒯.boundary_values[1, :] = T_inner   # Inner toroidal
-        magnetic_field.𝒯.boundary_values[2, :] = T_outer   # Outer toroidal
+        ℬ.𝒯.boundary_values[1, :] = T_inner   # Inner toroidal
+        ℬ.𝒯.boundary_values[2, :] = T_outer   # Outer toroidal
 
         # Combine Q and S for poloidal
         # For solenoidal fields (∇·B = 0), the decomposition is:
         # - Q: radial component (Bᵣ)
         # - S: should be zero for purely solenoidal fields
         # - T: tangential toroidal component
-        magnetic_field.𝒫.boundary_values[1, :] = Q_inner  # Inner poloidal (radial)
-        magnetic_field.𝒫.boundary_values[2, :] = Q_outer  # Outer poloidal (radial)
+        ℬ.𝒫.boundary_values[1, :] = Q_inner  # Inner poloidal (radial)
+        ℬ.𝒫.boundary_values[2, :] = Q_outer  # Outer poloidal (radial)
 
         # Check S component magnitude to verify solenoidal assumption
         S_norm_inner = sqrt(sum(abs2, S_inner))
@@ -633,14 +630,14 @@ function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
         Possible solutions:
         1. Check that SHTnsKit.spat_to_SHqst is properly installed and configured
         2. Verify grid dimensions (nlat=$(size(Bᵣ_inner,1)), nlon=$(size(Bᵣ_inner,2)))
-           are compatible with lmax=$(magnetic_field.config.lmax)
+           are compatible with lmax=$(ℬ.config.lmax)
         3. Ensure SHTnsKit configuration is properly initialized
         """
         throw(ErrorException(error_msg))
     end
     
     # Update time index
-    update_magnetic_time_index!(magnetic_field, time_index)
+    update_magnetic_time_index!(ℬ, time_index)
 
     # Enforce magnetic boundary condition constraints based on boundary pattern
     # Infer constraint type from boundary description strings
@@ -712,67 +709,67 @@ function apply_magnetic_boundary_conditions!(magnetic_field, time_index::Int=1)
     end
 
     # Apply the determined constraint
-    enforce_magnetic_boundary_constraints!(magnetic_field, primary_constraint)
+    enforce_magnetic_boundary_constraints!(ℬ, primary_constraint)
 
-    return magnetic_field
+    return ℬ
 end
 
 """
-    update_time_dependent_magnetic_boundaries!(magnetic_field, current_time::Float64)
+    update_time_dependent_magnetic_boundaries!(ℬ, current_time::Float64)
 
 Update time-dependent magnetic boundary conditions.
 """
-function update_time_dependent_magnetic_boundaries!(magnetic_field, current_time::Float64)
+function update_time_dependent_magnetic_boundaries!(ℬ, current_time::Float64)
     
-    boundary_set, _ = get_magnetic_boundary_data(magnetic_field)
+    boundary_set, _ = get_magnetic_boundary_data(ℬ)
     if boundary_set === nothing
-        return magnetic_field
+        return ℬ
     end
     
     # Check if boundaries are time-dependent
     if !boundary_set.inner_boundary.is_time_dependent && !boundary_set.outer_boundary.is_time_dependent
-        return magnetic_field  # Nothing to update
+        return ℬ  # Nothing to update
     end
     
     # Find time index for current time
     time_index = find_boundary_time_index(boundary_set, current_time)
-    current_time_index = get_magnetic_time_index(magnetic_field)
+    current_time_index = get_magnetic_time_index(ℬ)
     
     # Only update if time index has changed
     if time_index != current_time_index
-        apply_magnetic_boundary_conditions!(magnetic_field, time_index)
+        apply_magnetic_boundary_conditions!(ℬ, time_index)
         
         if get_rank() == 0
             @info "Updated magnetic boundaries to time index $time_index (t=$current_time)"
         end
     end
     
-    return magnetic_field
+    return ℬ
 end
 
 """
-    get_current_magnetic_boundaries(magnetic_field)
+    get_current_magnetic_boundaries(ℬ)
 
 Get current magnetic field boundary conditions.
 """
-function get_current_magnetic_boundaries(magnetic_field)
+function get_current_magnetic_boundaries(ℬ)
     
-    boundary_set, cache = get_magnetic_boundary_data(magnetic_field)
+    boundary_set, cache = get_magnetic_boundary_data(ℬ)
     if boundary_set === nothing || cache === nothing
         return Dict(:error => "No boundary conditions loaded")
     end
     
-    time_index = get_magnetic_time_index(magnetic_field)
+    time_index = get_magnetic_time_index(ℬ)
     
     # Get current boundary data
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
     outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
     
     # Get spectral coefficients
-    innerᵀ_spectral = magnetic_field.𝒯.boundary_values[1, :]
-    outerᵀ_spectral = magnetic_field.𝒯.boundary_values[2, :]
-    innerᴾ_spectral = magnetic_field.𝒫.boundary_values[1, :]
-    outerᴾ_spectral = magnetic_field.𝒫.boundary_values[2, :]
+    innerᵀ_spectral = ℬ.𝒯.boundary_values[1, :]
+    outerᵀ_spectral = ℬ.𝒯.boundary_values[2, :]
+    innerᴾ_spectral = ℬ.𝒫.boundary_values[1, :]
+    outerᴾ_spectral = ℬ.𝒫.boundary_values[2, :]
     
     return Dict(
         :inner_physical => inner_physical,
@@ -794,75 +791,75 @@ function get_current_magnetic_boundaries(magnetic_field)
 end
 
 """
-    set_programmatic_magnetic_boundaries!(magnetic_field, inner_spec::Tuple, outer_spec::Tuple)
+    set_programmatic_magnetic_boundaries!(ℬ, inner_spec::Tuple, outer_spec::Tuple)
 
 Set programmatic magnetic boundary conditions.
 """
-function set_programmatic_magnetic_boundaries!(magnetic_field, inner_spec::Tuple, outer_spec::Tuple)
+function set_programmatic_magnetic_boundaries!(ℬ, inner_spec::Tuple, outer_spec::Tuple)
     
     boundary_specs = Dict(:inner => inner_spec, :outer => outer_spec)
-    return load_magnetic_boundary_conditions!(magnetic_field, boundary_specs)
+    return load_magnetic_boundary_conditions!(ℬ, boundary_specs)
 end
 
 """
-    get_magnetic_boundary_data(magnetic_field)
+    get_magnetic_boundary_data(ℬ)
 
 Return `(boundary_set, cache)` for the magnetic field, falling back to a
 module-level cache when the field struct lacks boundary storage.
 """
-function get_magnetic_boundary_data(magnetic_field)
+function get_magnetic_boundary_data(ℬ)
     if isdefined(@__MODULE__, :_magnetic_boundary_cache)
-        field_id = objectid(magnetic_field)
+        field_id = objectid(ℬ)
         if haskey(_magnetic_boundary_cache, field_id)
             data = _magnetic_boundary_cache[field_id]
             return data[:boundary_set], data[:interpolation_cache]
         end
     end
 
-    if hasfield(typeof(magnetic_field), :boundary_condition_set)
-        return magnetic_field.boundary_condition_set,
-               magnetic_field.boundary_interpolation_cache
+    if hasfield(typeof(ℬ), :boundary_condition_set)
+        return ℬ.boundary_condition_set,
+               ℬ.boundary_interpolation_cache
     end
 
     return nothing, nothing
 end
 
 """
-    get_magnetic_time_index(magnetic_field)
+    get_magnetic_time_index(ℬ)
 
 Fetch the currently active boundary time index, honoring legacy cache storage.
 """
-function get_magnetic_time_index(magnetic_field)
+function get_magnetic_time_index(ℬ)
     if isdefined(@__MODULE__, :_magnetic_boundary_cache)
-        field_id = objectid(magnetic_field)
+        field_id = objectid(ℬ)
         if haskey(_magnetic_boundary_cache, field_id)
             return _magnetic_boundary_cache[field_id][:time_index]
         end
     end
 
-    if hasfield(typeof(magnetic_field), :boundary_time_index)
-        return magnetic_field.boundary_time_index[]
+    if hasfield(typeof(ℬ), :boundary_time_index)
+        return ℬ.boundary_time_index[]
     end
 
     return 1
 end
 
 """
-    update_magnetic_time_index!(magnetic_field, time_index)
+    update_magnetic_time_index!(ℬ, time_index)
 
 Persist the provided time index to both the magnetic field structure and the
 module-level cache when available.
 """
-function update_magnetic_time_index!(magnetic_field, time_index::Int)
+function update_magnetic_time_index!(ℬ, time_index::Int)
     if isdefined(@__MODULE__, :_magnetic_boundary_cache)
-        field_id = objectid(magnetic_field)
+        field_id = objectid(ℬ)
         if haskey(_magnetic_boundary_cache, field_id)
             _magnetic_boundary_cache[field_id][:time_index] = time_index
         end
     end
 
-    if hasfield(typeof(magnetic_field), :boundary_time_index)
-        magnetic_field.boundary_time_index[] = time_index
+    if hasfield(typeof(ℬ), :boundary_time_index)
+        ℬ.boundary_time_index[] = time_index
     end
 end
 
@@ -1104,7 +1101,7 @@ end
 # Function moved to main bcs module to avoid duplication
 
 """
-    enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
+    enforce_magnetic_boundary_constraints!(ℬ, bc_type::Symbol)
 
 Enforce magnetic boundary condition constraints based on magnetohydrodynamic physics.
 
@@ -1128,7 +1125,7 @@ For most geodynamo applications:
 - Inner boundary (ICB): Often insulating or potential field
 - Outer boundary (CMB): Often insulating (matching Earth's mantle)
 """
-function enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
+function enforce_magnetic_boundary_constraints!(ℬ, bc_type::Symbol)
 
     if bc_type == :insulating
         # Insulating boundary: J_n = 0, which gives (∇×B)_r = 0
@@ -1140,10 +1137,10 @@ function enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
         # calculation in apply_magnetic_boundary_conditions!
 
         # Both components use Dirichlet BC (matching potential field)
-        fill!(magnetic_field.𝒯.bc_type_inner, Int(DIRICHLET))
-        fill!(magnetic_field.𝒯.bc_type_outer, Int(DIRICHLET))
-        fill!(magnetic_field.𝒫.bc_type_inner, Int(DIRICHLET))
-        fill!(magnetic_field.𝒫.bc_type_outer, Int(DIRICHLET))
+        fill!(ℬ.𝒯.bc_type_inner, Int(DIRICHLET))
+        fill!(ℬ.𝒯.bc_type_outer, Int(DIRICHLET))
+        fill!(ℬ.𝒫.bc_type_inner, Int(DIRICHLET))
+        fill!(ℬ.𝒫.bc_type_outer, Int(DIRICHLET))
 
     elseif bc_type == :perfect_conductor
         # Perfect conductor: B_tangential = 0 at boundary
@@ -1152,23 +1149,23 @@ function enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
         # Radial component (poloidal/Q) is non-zero and determined by ∇·B = 0
 
         # Set toroidal components to zero (tangential field = 0)
-        fill!(magnetic_field.𝒯.boundary_values, 0.0)
-        fill!(magnetic_field.𝒯.bc_type_inner, Int(DIRICHLET))  # T = 0 enforced
-        fill!(magnetic_field.𝒯.bc_type_outer, Int(DIRICHLET))  # T = 0 enforced
+        fill!(ℬ.𝒯.boundary_values, 0.0)
+        fill!(ℬ.𝒯.bc_type_inner, Int(DIRICHLET))  # T = 0 enforced
+        fill!(ℬ.𝒯.bc_type_outer, Int(DIRICHLET))  # T = 0 enforced
 
         # Poloidal/radial component uses Dirichlet BC from computed values
         # (determined by ∇·B = 0 and matching conditions)
-        fill!(magnetic_field.𝒫.bc_type_inner, Int(DIRICHLET))
-        fill!(magnetic_field.𝒫.bc_type_outer, Int(DIRICHLET))
+        fill!(ℬ.𝒫.bc_type_inner, Int(DIRICHLET))
+        fill!(ℬ.𝒫.bc_type_outer, Int(DIRICHLET))
 
     elseif bc_type == :potential_field
         # Potential field boundary: match external field
         # Both components use computed boundary values as Dirichlet BC
 
-        fill!(magnetic_field.𝒯.bc_type_inner, Int(DIRICHLET))
-        fill!(magnetic_field.𝒯.bc_type_outer, Int(DIRICHLET))
-        fill!(magnetic_field.𝒫.bc_type_inner, Int(DIRICHLET))
-        fill!(magnetic_field.𝒫.bc_type_outer, Int(DIRICHLET))
+        fill!(ℬ.𝒯.bc_type_inner, Int(DIRICHLET))
+        fill!(ℬ.𝒯.bc_type_outer, Int(DIRICHLET))
+        fill!(ℬ.𝒫.bc_type_inner, Int(DIRICHLET))
+        fill!(ℬ.𝒫.bc_type_outer, Int(DIRICHLET))
 
     elseif bc_type == :custom
         # Custom boundary conditions - leave arrays as set by user
@@ -1176,10 +1173,10 @@ function enforce_magnetic_boundary_constraints!(magnetic_field, bc_type::Symbol)
 
     else
         @warn "Unknown magnetic boundary condition type: $bc_type, using potential_field"
-        enforce_magnetic_boundary_constraints!(magnetic_field, :potential_field)
+        enforce_magnetic_boundary_constraints!(ℬ, :potential_field)
     end
 
-    return magnetic_field
+    return ℬ
 end
 
 export load_magnetic_boundary_conditions!, set_programmatic_magnetic_boundaries!

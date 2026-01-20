@@ -53,11 +53,6 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     @test err / max(MPI.Allreduce(sum(abs2, parent(spec1.data_real)) + sum(abs2, parent(spec1.data_imag)), MPI.SUM, comm), eps()) < 1e-7
 
     # Vector roundtrip
-    # NOTE: Vector transforms currently have issues in SHTnsKit.jl (see VECTOR_TRANSFORM_ISSUE.md)
-    # - Threading bug causes BoundsError
-    # - Coefficient recovery doesn't work correctly even with single thread
-    # Skipping vector test until upstream SHTnsKit issues are resolved
-    @test_skip begin  # Mark as expected failure for now
     # Spectral fields (toroidal/poloidal) use spec pencil, vector components use physical pencils
     tor1 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     pol1 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
@@ -101,8 +96,7 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
           sum(abs2, parent(pol1.data_real)) + sum(abs2, parent(pol1.data_imag))
     ref_vec = MPI.Allreduce(ref, MPI.SUM, comm)
 
-    err_vec / max(ref_vec, eps()) < 1e-7
-    end  # End @test_skip
+    @test err_vec / max(ref_vec, eps()) < 1e-7
 
     if MPI.Initialized()
         MPI.Barrier(comm)

@@ -241,6 +241,9 @@ struct SHTnsKitConfig <: AbstractSHTnsConfig
     # SHTnsKit configuration - the underlying transform engine
     sht_config::SHTnsKit.SHTConfig
 
+    # Floating-point precision type for field data
+    T::Type{<:AbstractFloat}
+
     # Grid parameters defining the resolution
     nlat::Int   # Number of latitude points (Gauss-Legendre)
     nlon::Int   # Number of longitude points (equispaced)
@@ -310,7 +313,8 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
                                nlat::Int=max(lmax+2, get_default_nlat()),
                                nlon::Int=max(2*lmax+1, 4, get_default_nlon()),
                                nr::Int=i_N,
-                               optimize_decomp::Bool=true)
+                               optimize_decomp::Bool=true,
+                               T::Type{<:AbstractFloat}=Float64)
 
     # Step 1: Create base SHTnsKit configuration
     # Uses Gauss-Legendre quadrature for latitude (exact integration up to degree 2*nlat-1)
@@ -344,7 +348,7 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
 
     # Estimate memory usage for user information
     field_count = estimate_field_count()
-    memory_mb = estimate_memory_usage_shtnskit(nlat, nlon, lmax, field_count, Float64)
+    memory_mb = estimate_memory_usage_shtnskit(nlat, nlon, nr, lmax, field_count, Float64)
     memory_estimate = "$(round(memory_mb, digits=1)) MB"
 
     # Get total number of spectral modes from SHTnsKit
@@ -392,7 +396,7 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
     end
 
     if get_rank() == 0
-        print_shtnskit_config_summary(nlat, nlon, lmax, mmax, nlm, nprocs, memory_estimate)
+        print_shtnskit_config_summary(nlat, nlon, nr, lmax, mmax, nlm, nprocs, memory_estimate)
     end
 
     # Step 8: Initialize buffer cache with SHTnsKit v1.1.15 scratch buffers
@@ -414,7 +418,7 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
     end
 
     return SHTnsKitConfig(
-        sht_config, nlat, nlon, lmax, mmax, nlm,
+        sht_config, T, nlat, nlon, lmax, mmax, nlm,
         pencils, fft_plans, transpose_plans, memory_estimate,
         l_vals, m_vals, theta_grid, phi_grid, gauss_weights,
         buffer_cache
@@ -735,19 +739,27 @@ function create_shtnskit_transpose_plans(pencils)
 end
 
 """
-    estimate_memory_usage_shtnskit(nlat, nlon, lmax, field_count, T)
+    estimate_memory_usage_shtnskit(nlat, nlon, nr, lmax, field_count, T)
 
 Estimate memory usage for SHTnsKit-based transforms with PencilArrays.
+
+# Arguments
+- `nlat`: Number of latitude points
+- `nlon`: Number of longitude points
+- `nr`: Number of radial points
+- `lmax`: Maximum spherical harmonic degree
+- `field_count`: Number of fields to estimate for
+- `T`: Element type (e.g., Float64)
 """
-function estimate_memory_usage_shtnskit(nlat::Int, nlon::Int, lmax::Int,
+function estimate_memory_usage_shtnskit(nlat::Int, nlon::Int, nr::Int, lmax::Int,
                                        field_count::Int, ::Type{T}) where T
 
     # Physical grid memory per process (distributed)
-    physical_memory_per_process = (nlat * nlon * i_N * sizeof(T)) / get_nprocs()
+    physical_memory_per_process = (nlat * nlon * nr * sizeof(T)) / get_nprocs()
 
     # Spectral memory (approximate)
     nlm = SHTnsKit.nlm_calc(lmax, lmax, 1)
-    spectral_memory_per_process = (nlm * i_N * sizeof(ComplexF64) * 2) / get_nprocs()
+    spectral_memory_per_process = (nlm * nr * sizeof(ComplexF64) * 2) / get_nprocs()
 
     # PencilArrays working memory (transpose buffers)
     transpose_memory = max(physical_memory_per_process, spectral_memory_per_process)
@@ -766,11 +778,11 @@ function estimate_memory_usage_shtnskit(nlat::Int, nlon::Int, lmax::Int,
 end
 
 """
-    print_shtnskit_config_summary(nlat, nlon, lmax, mmax, nlm, nprocs, memory_estimate)
+    print_shtnskit_config_summary(nlat, nlon, nr, lmax, mmax, nlm, nprocs, memory_estimate)
 
 Print configuration summary for SHTnsKit setup.
 """
-function print_shtnskit_config_summary(nlat, nlon, lmax, mmax, nlm, nprocs, memory_estimate)
+function print_shtnskit_config_summary(nlat, nlon, nr, lmax, mmax, nlm, nprocs, memory_estimate)
     # Get version info for feature flags
     version = try
         string(pkgversion(SHTnsKit))
@@ -782,7 +794,7 @@ function print_shtnskit_config_summary(nlat, nlon, lmax, mmax, nlm, nprocs, memo
     println("║         SHTnsKit Configuration Summary                ║")
     println("╠═══════════════════════════════════════════════════════╣")
     println("║ Grid Configuration:                                   ║")
-    println("║   Physical grid:    $(lpad(nlat,4)) × $(lpad(nlon,4)) × $(lpad(i_N,4))         ║")
+    println("║   Physical grid:    $(lpad(nlat,4)) × $(lpad(nlon,4)) × $(lpad(nr,4))         ║")
     println("║   Spectral modes:   lmax=$(lpad(lmax,3)), mmax=$(lpad(mmax,3))              ║")
     println("║   Total modes:      $(lpad(nlm,5))                             ║")
     println("║                                                       ║")

@@ -6,12 +6,12 @@
 # All required types and functions are available within the module scope
 
 """
-    load_composition_boundary_conditions!(comp_field, boundary_specs::Dict)
+    load_composition_boundary_conditions!(𝔽, boundary_specs::Dict)
 
 Load composition boundary conditions from various sources.
 
 # Arguments
-- `comp_field`: SHTnsCompositionField structure
+- `𝔽`: SHTnsCompositionField structure
 - `boundary_specs`: Dictionary specifying boundary sources
 
 # Examples
@@ -29,7 +29,7 @@ boundary_specs = Dict(
 )
 ```
 """
-function load_composition_boundary_conditions!(comp_field, boundary_specs::Dict)
+function load_composition_boundary_conditions!(𝔽, boundary_specs::Dict)
     
     if get_rank() == 0
         @info "Loading composition boundary conditions..."
@@ -46,49 +46,49 @@ function load_composition_boundary_conditions!(comp_field, boundary_specs::Dict)
     # Load or generate boundary data
     if isa(inner_spec, String) && isa(outer_spec, String)
         # Both from NetCDF files
-        boundary_set = load_composition_boundaries_from_files(inner_spec, outer_spec, comp_field.config)
+        boundary_set = load_composition_boundaries_from_files(inner_spec, outer_spec, 𝔽.config)
     elseif isa(inner_spec, String) && isa(outer_spec, Tuple)
         # Inner from file, outer programmatic
-        boundary_set = create_hybrid_composition_boundaries(inner_spec, outer_spec, comp_field.config)
+        boundary_set = create_hybrid_composition_boundaries(inner_spec, outer_spec, 𝔽.config)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, String)
         # Inner programmatic, outer from file
-        boundary_set = create_hybrid_composition_boundaries(outer_spec, inner_spec, comp_field.config; swap_boundaries=true)
+        boundary_set = create_hybrid_composition_boundaries(outer_spec, inner_spec, 𝔽.config; swap_boundaries=true)
     elseif isa(inner_spec, Tuple) && isa(outer_spec, Tuple)
         # Both programmatic
-        boundary_set = create_programmatic_composition_boundaries(inner_spec, outer_spec, comp_field.config)
+        boundary_set = create_programmatic_composition_boundaries(inner_spec, outer_spec, 𝔽.config)
     else
         throw(ArgumentError("Invalid boundary specification format"))
     end
     
     # Store boundary conditions in field (if supported by field structure)
-    if hasfield(typeof(comp_field), :boundary_condition_set)
-        comp_field.boundary_condition_set = boundary_set
-        comp_field.boundary_time_index[] = 1
+    if hasfield(typeof(𝔽), :boundary_condition_set)
+        𝔽.boundary_condition_set = boundary_set
+        𝔽.boundary_time_index[] = 1
         # Create interpolation cache
-        comp_field.boundary_interpolation_cache = create_composition_interpolation_cache(boundary_set, comp_field.config)
+        𝔽.boundary_interpolation_cache = create_composition_interpolation_cache(boundary_set, 𝔽.config)
     else
         # Fallback for legacy field structure - store in global Dict
         # This is temporary until field structures are updated
         if !isdefined(@__MODULE__, :_composition_boundary_cache)
             global _composition_boundary_cache = Dict{UInt64, Any}()
         end
-        field_id = objectid(comp_field)
+        field_id = objectid(𝔽)
         _composition_boundary_cache[field_id] = Dict(
             :boundary_set => boundary_set,
-            :interpolation_cache => create_composition_interpolation_cache(boundary_set, comp_field.config),
+            :interpolation_cache => create_composition_interpolation_cache(boundary_set, 𝔽.config),
             :time_index => 1
         )
     end
     
     # Apply initial boundary conditions
-    apply_composition_boundary_conditions!(comp_field)
+    apply_composition_boundary_conditions!(𝔽)
     
     if get_rank() == 0
         print_boundary_info(boundary_set)
         @info "Composition boundary conditions loaded successfully"
     end
     
-    return comp_field
+    return 𝔽
 end
 
 """
@@ -285,17 +285,17 @@ function create_composition_interpolation_cache(boundary_set::BoundaryConditionS
 end
 
 """
-    apply_composition_boundary_conditions!(comp_field, time_index::Int=1)
+    apply_composition_boundary_conditions!(𝔽, time_index::Int=1)
 
 Apply composition boundary conditions to the field.
 """
-function apply_composition_boundary_conditions!(comp_field, time_index::Int=1)
+function apply_composition_boundary_conditions!(𝔽, time_index::Int=1)
     
     # Get boundary data (from field or fallback cache)
-    boundary_set, cache = get_composition_boundary_data(comp_field)
+    boundary_set, cache = get_composition_boundary_data(𝔽)
     if boundary_set === nothing
         @warn "No boundary conditions loaded for composition field"
-        return comp_field
+        return 𝔽
     end
     
     # Interpolate boundary data to simulation grid
@@ -307,25 +307,25 @@ function apply_composition_boundary_conditions!(comp_field, time_index::Int=1)
     outer_physical .= clamp.(outer_physical, 0.0, 1.0)
     
     # Transform to spectral space using SHTnsKit
-    inner_spectral = shtns_physical_to_spectral(inner_physical, comp_field.config)
-    outer_spectral = shtns_physical_to_spectral(outer_physical, comp_field.config)
+    inner_spectral = shtns_physical_to_spectral(inner_physical, 𝔽.config)
+    outer_spectral = shtns_physical_to_spectral(outer_physical, 𝔽.config)
     
     # Apply to boundary arrays
-    comp_field.boundary_values[1, :] = inner_spectral  # Inner boundary
-    comp_field.boundary_values[2, :] = outer_spectral  # Outer boundary
+    𝔽.boundary_values[1, :] = inner_spectral  # Inner boundary
+    𝔽.boundary_values[2, :] = outer_spectral  # Outer boundary
 
     # Set boundary condition types based on boundary specifications
     # Default to Dirichlet (fixed composition), but check for flux BCs
     inner_bc_type = infer_composition_bc_type(boundary_set.inner_boundary)
     outer_bc_type = infer_composition_bc_type(boundary_set.outer_boundary)
 
-    fill!(comp_field.bc_type_inner, inner_bc_type)
-    fill!(comp_field.bc_type_outer, outer_bc_type)
+    fill!(𝔽.bc_type_inner, inner_bc_type)
+    fill!(𝔽.bc_type_outer, outer_bc_type)
 
     # Update time index (in field or fallback cache)
-    update_composition_time_index!(comp_field, time_index)
+    update_composition_time_index!(𝔽, time_index)
 
-    return comp_field
+    return 𝔽
 end
 
 """
@@ -351,59 +351,59 @@ function infer_composition_bc_type(boundary::BoundaryData)
 end
 
 """
-    update_time_dependent_composition_boundaries!(comp_field, current_time::Float64)
+    update_time_dependent_composition_boundaries!(𝔽, current_time::Float64)
 
 Update time-dependent composition boundary conditions.
 """
-function update_time_dependent_composition_boundaries!(comp_field, current_time::Float64)
+function update_time_dependent_composition_boundaries!(𝔽, current_time::Float64)
     
-    boundary_set, _ = get_composition_boundary_data(comp_field)
+    boundary_set, _ = get_composition_boundary_data(𝔽)
     if boundary_set === nothing
-        return comp_field
+        return 𝔽
     end
     
     # Check if boundaries are time-dependent
     if !boundary_set.inner_boundary.is_time_dependent && !boundary_set.outer_boundary.is_time_dependent
-        return comp_field  # Nothing to update
+        return 𝔽  # Nothing to update
     end
     
     # Find time index for current time  
     time_index = find_composition_boundary_time_index(boundary_set, current_time)
     
     # Only update if time index has changed
-    current_time_index = get_composition_time_index(comp_field)
+    current_time_index = get_composition_time_index(𝔽)
     if time_index != current_time_index
-        apply_composition_boundary_conditions!(comp_field, time_index)
+        apply_composition_boundary_conditions!(𝔽, time_index)
         
         if get_rank() == 0
             @info "Updated composition boundaries to time index $time_index (t=$current_time)"
         end
     end
     
-    return comp_field
+    return 𝔽
 end
 
 """
-    get_current_composition_boundaries(comp_field)
+    get_current_composition_boundaries(𝔽)
 
 Get current composition boundary conditions.
 """
-function get_current_composition_boundaries(comp_field)
+function get_current_composition_boundaries(𝔽)
     
-    boundary_set, cache = get_composition_boundary_data(comp_field)
+    boundary_set, cache = get_composition_boundary_data(𝔽)
     if boundary_set === nothing
         return Dict(:error => "No boundary conditions loaded")
     end
     
-    time_index = get_composition_time_index(comp_field)
+    time_index = get_composition_time_index(𝔽)
     
     # Get current boundary data
     inner_physical = interpolate_with_cache(boundary_set.inner_boundary, cache["inner"], time_index)
     outer_physical = interpolate_with_cache(boundary_set.outer_boundary, cache["outer"], time_index)
     
     # Get spectral coefficients
-    inner_spectral = comp_field.boundary_values[1, :]
-    outer_spectral = comp_field.boundary_values[2, :]
+    inner_spectral = 𝔽.boundary_values[1, :]
+    outer_spectral = 𝔽.boundary_values[2, :]
     
     return Dict(
         :inner_physical => inner_physical,
@@ -423,14 +423,14 @@ function get_current_composition_boundaries(comp_field)
 end
 
 """
-    set_programmatic_composition_boundaries!(comp_field, inner_spec::Tuple, outer_spec::Tuple)
+    set_programmatic_composition_boundaries!(𝔽, inner_spec::Tuple, outer_spec::Tuple)
 
 Set programmatic composition boundary conditions.
 """
-function set_programmatic_composition_boundaries!(comp_field, inner_spec::Tuple, outer_spec::Tuple)
+function set_programmatic_composition_boundaries!(𝔽, inner_spec::Tuple, outer_spec::Tuple)
     
     boundary_specs = Dict(:inner => inner_spec, :outer => outer_spec)
-    return load_composition_boundary_conditions!(comp_field, boundary_specs)
+    return load_composition_boundary_conditions!(𝔽, boundary_specs)
 end
 
 """
@@ -586,19 +586,19 @@ end
 # Function moved to main bcs module to avoid duplication
 
 """
-    get_composition_boundary_data(comp_field)
+    get_composition_boundary_data(𝔽)
 
 Get boundary data from field or fallback cache.
 """
-function get_composition_boundary_data(comp_field)
-    if hasfield(typeof(comp_field), :boundary_condition_set)
-        boundary_set = comp_field.boundary_condition_set
-        cache = comp_field.boundary_interpolation_cache
+function get_composition_boundary_data(𝔽)
+    if hasfield(typeof(𝔽), :boundary_condition_set)
+        boundary_set = 𝔽.boundary_condition_set
+        cache = 𝔽.boundary_interpolation_cache
         return boundary_set, cache
     else
         # Use fallback cache
         if isdefined(@__MODULE__, :_composition_boundary_cache)
-            field_id = objectid(comp_field)
+            field_id = objectid(𝔽)
             if haskey(_composition_boundary_cache, field_id)
                 data = _composition_boundary_cache[field_id]
                 return data[:boundary_set], data[:interpolation_cache]
@@ -609,17 +609,17 @@ function get_composition_boundary_data(comp_field)
 end
 
 """
-    get_composition_time_index(comp_field)
+    get_composition_time_index(𝔽)
 
 Get current time index from field or fallback cache.
 """
-function get_composition_time_index(comp_field)
-    if hasfield(typeof(comp_field), :boundary_time_index)
-        return comp_field.boundary_time_index[]
+function get_composition_time_index(𝔽)
+    if hasfield(typeof(𝔽), :boundary_time_index)
+        return 𝔽.boundary_time_index[]
     else
         # Use fallback cache
         if isdefined(@__MODULE__, :_composition_boundary_cache)
-            field_id = objectid(comp_field)
+            field_id = objectid(𝔽)
             if haskey(_composition_boundary_cache, field_id)
                 return _composition_boundary_cache[field_id][:time_index]
             end
@@ -629,17 +629,17 @@ function get_composition_time_index(comp_field)
 end
 
 """
-    update_composition_time_index!(comp_field, time_index::Int)
+    update_composition_time_index!(𝔽, time_index::Int)
 
 Update time index in field or fallback cache.
 """
-function update_composition_time_index!(comp_field, time_index::Int)
-    if hasfield(typeof(comp_field), :boundary_time_index)
-        comp_field.boundary_time_index[] = time_index
+function update_composition_time_index!(𝔽, time_index::Int)
+    if hasfield(typeof(𝔽), :boundary_time_index)
+        𝔽.boundary_time_index[] = time_index
     else
         # Use fallback cache
         if isdefined(@__MODULE__, :_composition_boundary_cache)
-            field_id = objectid(comp_field)
+            field_id = objectid(𝔽)
             if haskey(_composition_boundary_cache, field_id)
                 _composition_boundary_cache[field_id][:time_index] = time_index
             end
@@ -648,44 +648,44 @@ function update_composition_time_index!(comp_field, time_index::Int)
 end
 
 """
-    apply_composition_boundaries!(comp_field, boundary_set::BoundaryConditionSet; time::Float64=0.0)
+    apply_composition_boundaries!(𝔽, boundary_set::BoundaryConditionSet; time::Float64=0.0)
 
 Apply composition boundary conditions from a BoundaryConditionSet to a composition field.
 This is a convenience wrapper that loads the boundary set and applies it.
 """
-function apply_composition_boundaries!(comp_field, boundary_set::BoundaryConditionSet; time::Float64=0.0)
+function apply_composition_boundaries!(𝔽, boundary_set::BoundaryConditionSet; time::Float64=0.0)
 
     # Store boundary conditions in field (if supported)
-    if hasfield(typeof(comp_field), :boundary_condition_set)
-        comp_field.boundary_condition_set = boundary_set
-        comp_field.boundary_time_index[] = 1
-        comp_field.boundary_interpolation_cache = create_composition_interpolation_cache(boundary_set, comp_field.config)
+    if hasfield(typeof(𝔽), :boundary_condition_set)
+        𝔽.boundary_condition_set = boundary_set
+        𝔽.boundary_time_index[] = 1
+        𝔽.boundary_interpolation_cache = create_composition_interpolation_cache(boundary_set, 𝔽.config)
     else
         # Fallback for legacy field structure
         if !isdefined(@__MODULE__, :_composition_boundary_cache)
             global _composition_boundary_cache = Dict{UInt64, Any}()
         end
-        field_id = objectid(comp_field)
+        field_id = objectid(𝔽)
         _composition_boundary_cache[field_id] = Dict(
             :boundary_set => boundary_set,
-            :interpolation_cache => create_composition_interpolation_cache(boundary_set, comp_field.config),
+            :interpolation_cache => create_composition_interpolation_cache(boundary_set, 𝔽.config),
             :time_index => 1
         )
     end
 
     # Apply boundary conditions
-    apply_composition_boundary_conditions!(comp_field)
+    apply_composition_boundary_conditions!(𝔽)
 
-    return comp_field
+    return 𝔽
 end
 
 """
-    enforce_composition_boundary_constraints!(comp_field, bc_spec::Dict)
+    enforce_composition_boundary_constraints!(𝔽, bc_spec::Dict)
 
 Enforce specific composition boundary constraints based on user specification.
 
 # Arguments
-- `comp_field`: Composition field structure
+- `𝔽`: Composition field structure
 - `bc_spec`: Dictionary specifying boundary condition types
 
 # BC Specification Format
@@ -716,43 +716,43 @@ bc_spec = Dict(
 # Examples
 ```julia
 # Fixed composition at both boundaries
-enforce_composition_boundary_constraints!(comp_field, Dict(
+enforce_composition_boundary_constraints!(𝔽, Dict(
     :inner => :dirichlet, :inner_value => 1.0,
     :outer => :dirichlet, :outer_value => 0.0
 ))
 
 # Compositional release from below, sealed top
-enforce_composition_boundary_constraints!(comp_field, Dict(
+enforce_composition_boundary_constraints!(𝔽, Dict(
     :inner => :flux, :inner_flux => 0.01,
     :outer => :flux, :outer_flux => 0.0
 ))
 ```
 """
-function enforce_composition_boundary_constraints!(comp_field, bc_spec::Dict)
+function enforce_composition_boundary_constraints!(𝔽, bc_spec::Dict)
 
     # Process inner boundary
     inner_type = get(bc_spec, :inner, :dirichlet)
     if inner_type == :dirichlet
         # Fixed composition - use Dirichlet BC
-        fill!(comp_field.bc_type_inner, Int(DIRICHLET))
+        fill!(𝔽.bc_type_inner, Int(DIRICHLET))
 
         # Set boundary value if provided (must be in [0,1])
         if haskey(bc_spec, :inner_value)
             inner_val = clamp(bc_spec[:inner_value], 0.0, 1.0)
             # Set uniform value in l=0,m=0 mode
-            comp_field.boundary_values[1, 1] = inner_val
-            comp_field.boundary_values[1, 2:end] .= 0.0
+            𝔽.boundary_values[1, 1] = inner_val
+            𝔽.boundary_values[1, 2:end] .= 0.0
         end
 
     elseif inner_type == :neumann || inner_type == :flux
         # Fixed compositional flux - use Neumann BC
-        fill!(comp_field.bc_type_inner, Int(NEUMANN))
+        fill!(𝔽.bc_type_inner, Int(NEUMANN))
 
         # Set flux value if provided
         if haskey(bc_spec, :inner_flux)
             flux_val = bc_spec[:inner_flux]
-            comp_field.boundary_values[1, 1] = flux_val
-            comp_field.boundary_values[1, 2:end] .= 0.0
+            𝔽.boundary_values[1, 1] = flux_val
+            𝔽.boundary_values[1, 2:end] .= 0.0
         end
 
     else
@@ -762,28 +762,28 @@ function enforce_composition_boundary_constraints!(comp_field, bc_spec::Dict)
     # Process outer boundary
     outer_type = get(bc_spec, :outer, :dirichlet)
     if outer_type == :dirichlet
-        fill!(comp_field.bc_type_outer, Int(DIRICHLET))
+        fill!(𝔽.bc_type_outer, Int(DIRICHLET))
 
         if haskey(bc_spec, :outer_value)
             outer_val = clamp(bc_spec[:outer_value], 0.0, 1.0)
-            comp_field.boundary_values[2, 1] = outer_val
-            comp_field.boundary_values[2, 2:end] .= 0.0
+            𝔽.boundary_values[2, 1] = outer_val
+            𝔽.boundary_values[2, 2:end] .= 0.0
         end
 
     elseif outer_type == :neumann || outer_type == :flux
-        fill!(comp_field.bc_type_outer, Int(NEUMANN))
+        fill!(𝔽.bc_type_outer, Int(NEUMANN))
 
         if haskey(bc_spec, :outer_flux)
             flux_val = bc_spec[:outer_flux]
-            comp_field.boundary_values[2, 1] = flux_val
-            comp_field.boundary_values[2, 2:end] .= 0.0
+            𝔽.boundary_values[2, 1] = flux_val
+            𝔽.boundary_values[2, 2:end] .= 0.0
         end
 
     else
         throw(ArgumentError("Unknown outer boundary type: $outer_type. Use :dirichlet or :neumann/:flux"))
     end
 
-    return comp_field
+    return 𝔽
 end
 
 export load_composition_boundary_conditions!, set_programmatic_composition_boundaries!

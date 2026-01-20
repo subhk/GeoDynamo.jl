@@ -12,6 +12,17 @@ module InitialConditions
 
 using LinearAlgebra
 using Random
+using SHTnsKit
+
+# Import functions from parent module (GeoDynamo)
+# These will be available when the module is included in GeoDynamo.jl
+import ..get_local_range
+import ..apply_ball_temperature_regularity!
+import ..enforce_ball_vector_regularity!
+
+export load_initial_conditions!, generate_random_initial_conditions!
+export set_analytical_initial_conditions!, save_initial_conditions
+export randomize_scalar_field!, randomize_vector_field!, randomize_magnetic_field!
 
 function _maybe_enforce_ball_scalar!(field, domain)
     if domain !== nothing && domain.r[1, 4] == 0.0
@@ -125,10 +136,6 @@ function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain=not
     end
     return _maybe_enforce_ball_vector!(field, domain)
 end
-using SHTnsKit
-
-export load_initial_conditions!, generate_random_initial_conditions!
-export set_analytical_initial_conditions!, save_initial_conditions
 
 # ================================================================================
 # Loading Initial Conditions from Files
@@ -188,33 +195,13 @@ end
     load_temperature_initial_conditions!(temp_field, file_path::String)
 
 Load temperature initial conditions from NetCDF file.
+
+Note: NetCDF loading not yet implemented. Use `set_analytical_temperature!`
+with `:conductive` pattern instead.
 """
 function load_temperature_initial_conditions!(temp_field, file_path::String)
-
-    # Placeholder for NetCDF loading
-    # In real implementation, this would use NCDatasets.jl
-
-    # For now, generate a simple test pattern
-    @warn "NetCDF loading not implemented, using test pattern"
-
-    T = eltype(temp_field.spectral.data)
-    nr, nlm = size(temp_field.spectral.data)
-
-    # Simple hot bottom, cold top with small perturbation
-    for r_idx in 1:nr
-        r_frac = (r_idx - 1) / (nr - 1)  # 0 at bottom, 1 at top
-
-        for lm in 1:nlm
-            if lm == 1  # l=0, m=0 mode
-                temp_field.spectral.data[r_idx, lm] = T(1.0 - r_frac)  # Linear profile
-            elseif lm <= 4  # Small perturbations in low-order modes
-                temp_field.spectral.data[r_idx, lm] = T(0.01 * sin(π * r_frac) * (rand() - 0.5))
-            else
-                temp_field.spectral.data[r_idx, lm] = T(0.0)
-            end
-        end
-    end
-
+    @warn "NetCDF loading not implemented. Using conductive profile as fallback."
+    set_analytical_temperature!(temp_field, :conductive, 1.0)
     return temp_field
 end
 
@@ -222,44 +209,13 @@ end
     load_magnetic_initial_conditions!(mag_field, file_path::String)
 
 Load magnetic initial conditions from NetCDF file.
+
+Note: NetCDF loading not yet implemented. Use `set_analytical_magnetic!`
+with `:dipole` pattern instead.
 """
 function load_magnetic_initial_conditions!(mag_field, file_path::String)
-
-    @warn "NetCDF loading not implemented, using test pattern"
-
-    T = eltype(mag_field.𝒯.data)
-    nr_tor, nlm_tor = size(mag_field.𝒯.data)
-    nr_pol, nlm_pol = size(mag_field.𝒫.data)
-
-    # Simple dipolar field with small perturbations
-    for r_idx in 1:nr_tor
-        r_frac = (r_idx - 1) / (nr_tor - 1)
-
-        for lm in 1:nlm_tor
-            if lm == 3  # l=1, m=0 dipole mode for toroidal
-                mag_field.𝒯.data[r_idx, lm] = T(0.1 * sin(π * r_frac))
-            elseif lm <= 6  # Small perturbations
-                mag_field.𝒯.data[r_idx, lm] = T(0.001 * (rand() - 0.5))
-            else
-                mag_field.𝒯.data[r_idx, lm] = T(0.0)
-            end
-        end
-    end
-
-    for r_idx in 1:nr_pol
-        r_frac = (r_idx - 1) / (nr_pol - 1)
-
-        for lm in 1:nlm_pol
-            if lm == 3  # l=1, m=0 dipole mode for poloidal
-                mag_field.𝒫.data[r_idx, lm] = T(1.0 * sin(π * r_frac))
-            elseif lm <= 6  # Small perturbations
-                mag_field.𝒫.data[r_idx, lm] = T(0.01 * (rand() - 0.5))
-            else
-                mag_field.𝒫.data[r_idx, lm] = T(0.0)
-            end
-        end
-    end
-
+    @warn "NetCDF loading not implemented. Using dipole pattern as fallback."
+    set_analytical_magnetic!(mag_field, :dipole, 1.0)
     return mag_field
 end
 
@@ -267,40 +223,13 @@ end
     load_velocity_initial_conditions!(vel_field, file_path::String)
 
 Load velocity initial conditions from NetCDF file.
+
+Note: NetCDF loading not yet implemented. Use `set_analytical_velocity!`
+with `:convective` pattern instead.
 """
 function load_velocity_initial_conditions!(vel_field, file_path::String)
-
-    @warn "NetCDF loading not implemented, using test pattern"
-
-    T = eltype(vel_field.𝒯.data)
-    nr_tor, nlm_tor = size(vel_field.𝒯.data)
-    nr_pol, nlm_pol = size(vel_field.𝒫.data)
-
-    # Simple convective pattern with small velocities
-    for r_idx in 1:nr_tor
-        r_frac = (r_idx - 1) / (nr_tor - 1)
-
-        for lm in 1:nlm_tor
-            if lm <= 10  # Convective modes
-                vel_field.𝒯.data[r_idx, lm] = T(0.01 * sin(2π * r_frac) * (rand() - 0.5))
-            else
-                vel_field.𝒯.data[r_idx, lm] = T(0.0)
-            end
-        end
-    end
-
-    for r_idx in 1:nr_pol
-        r_frac = (r_idx - 1) / (nr_pol - 1)
-
-        for lm in 1:nlm_pol
-            if lm <= 10  # Convective modes
-                vel_field.𝒫.data[r_idx, lm] = T(0.01 * sin(π * r_frac) * (rand() - 0.5))
-            else
-                vel_field.𝒫.data[r_idx, lm] = T(0.0)
-            end
-        end
-    end
-
+    @warn "NetCDF loading not implemented. Using convective pattern as fallback."
+    set_analytical_velocity!(vel_field, :convective, 0.01)
     return vel_field
 end
 
@@ -308,27 +237,13 @@ end
     load_composition_initial_conditions!(comp_field, file_path::String)
 
 Load composition initial conditions from NetCDF file.
+
+Note: NetCDF loading not yet implemented. Use `set_analytical_composition!`
+with `:stratified` pattern instead.
 """
 function load_composition_initial_conditions!(comp_field, file_path::String)
-
-    @warn "NetCDF loading not implemented, using test pattern"
-
-    # Similar to temperature but with composition range [0,1]
-    nr, nlm = size(comp_field.spectral.data)
-
-    for r_idx in 1:nr
-        r_frac = (r_idx - 1) / (nr - 1)
-
-        for lm in 1:nlm
-            if lm == 1  # l=0, m=0 mode
-                comp_field.spectral.data[r_idx, lm] = 0.1 + 0.2 * r_frac  # 0.1 to 0.3 range
-            elseif lm <= 4  # Small perturbations
-                comp_field.spectral.data[r_idx, lm] = 0.01 * (rand() - 0.5)
-            else
-                comp_field.spectral.data[r_idx, lm] = 0.0
-            end
-        end
-    end
+    @warn "NetCDF loading not implemented. Using stratified pattern as fallback."
+    set_analytical_composition!(comp_field, :stratified, 1.0)
 
     return comp_field
 end
@@ -395,30 +310,47 @@ end
 """
     generate_random_temperature!(temp_field, amplitude, modes_range)
 
-Generate random temperature initial conditions.
+Generate random temperature initial conditions with base conductive profile
+and random perturbations.
+
+Uses PencilArray structure with data_real/data_imag arrays.
 """
 function generate_random_temperature!(temp_field, amplitude, modes_range)
+    spectral = temp_field.spectral
+    real_data = parent(spectral.data_real)
+    imag_data = parent(spectral.data_imag)
 
-    T = eltype(temp_field.spectral.data)
-    nr, nlm = size(temp_field.spectral.data)
+    T = eltype(real_data)
+    nlm = size(real_data, 1)
+    nr = size(real_data, 3)
+
+    # Get local ranges for distributed computation
+    lm_range = get_local_range(spectral.pencil, 1)
+    r_range = get_local_range(spectral.pencil, 3)
+    l_values = spectral.config.l_values
 
     # Clear field first
-    fill!(temp_field.spectral.data, T(0))
+    fill!(real_data, zero(T))
+    fill!(imag_data, zero(T))
 
-    for r_idx in 1:nr
-        r_frac = (r_idx - 1) / (nr - 1)
+    for (local_lm, global_lm) in enumerate(lm_range)
+        if global_lm <= length(l_values)
+            l = l_values[global_lm]
 
-        # Base temperature profile (hot bottom, cold top)
-        base_temp = T(1.0 - 0.8 * r_frac)
+            for (local_r, global_r) in enumerate(r_range)
+                if local_r <= size(real_data, 3)
+                    r_frac = (global_r - 1) / max(nr - 1, 1)
 
-        for lm in modes_range
-            if lm <= nlm
-                if lm == 1  # l=0, m=0 mode
-                    temp_field.spectral.data[r_idx, lm] = base_temp + T(amplitude * 0.1 * (rand() - 0.5))
-                else
-                    # Random perturbations with radial dependence
-                    radial_factor = sin(π * r_frac)  # Peak in middle
-                    temp_field.spectral.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
+                    if l == 0  # l=0, m=0 mode - base conductive profile
+                        base_temp = T(1.0 - 0.8 * r_frac)
+                        real_data[local_lm, 1, local_r] = base_temp + T(amplitude * 0.1 * (rand() - 0.5))
+                    elseif l in modes_range
+                        # Random perturbations with radial dependence
+                        radial_factor = sin(π * r_frac)
+                        real_data[local_lm, 1, local_r] = T(amplitude * radial_factor * (rand() - 0.5))
+                    end
+                    # Imaginary part is zero for real-valued fields
+                    imag_data[local_lm, 1, local_r] = zero(T)
                 end
             end
         end
@@ -430,41 +362,45 @@ end
 """
     generate_random_magnetic!(mag_field, amplitude, modes_range)
 
-Generate random magnetic initial conditions.
+Generate random magnetic initial conditions with dipolar bias.
+
+Uses PencilArray structure with data_real/data_imag arrays.
 """
 function generate_random_magnetic!(mag_field, amplitude, modes_range)
+    # Process toroidal and poloidal components
+    for (spectral, is_poloidal) in ((mag_field.𝒯, false), (mag_field.𝒫, true))
+        real_data = parent(spectral.data_real)
+        imag_data = parent(spectral.data_imag)
+        T = eltype(real_data)
+        nr = size(real_data, 3)
 
-    T = eltype(mag_field.𝒯.data)
-    nr_tor, nlm_tor = size(mag_field.𝒯.data)
-    nr_pol, nlm_pol = size(mag_field.𝒫.data)
+        # Get local ranges
+        lm_range = get_local_range(spectral.pencil, 1)
+        r_range = get_local_range(spectral.pencil, 3)
+        l_values = spectral.config.l_values
 
-    # Clear fields first
-    fill!(mag_field.𝒯.data, T(0))
-    fill!(mag_field.𝒫.data, T(0))
+        # Clear fields
+        fill!(real_data, zero(T))
+        fill!(imag_data, zero(T))
 
-    # Toroidal field
-    for r_idx in 1:nr_tor
-        r_frac = (r_idx - 1) / (nr_tor - 1)
-        radial_factor = sin(π * r_frac)  # Peak in middle
+        for (local_lm, global_lm) in enumerate(lm_range)
+            if global_lm <= length(l_values)
+                l = l_values[global_lm]
 
-        for lm in modes_range
-            if lm <= nlm_tor
-                mag_field.𝒯.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
-            end
-        end
-    end
+                for (local_r, global_r) in enumerate(r_range)
+                    if local_r <= size(real_data, 3)
+                        r_frac = (global_r - 1) / max(nr - 1, 1)
+                        radial_factor = sin(π * r_frac)
 
-    # Poloidal field (typically stronger for dipolar field)
-    for r_idx in 1:nr_pol
-        r_frac = (r_idx - 1) / (nr_pol - 1)
-        radial_factor = sin(π * r_frac)
-
-        for lm in modes_range
-            if lm <= nlm_pol
-                if lm == 3  # l=1, m=0 dipole mode
-                    mag_field.𝒫.data[r_idx, lm] = T(5.0 * amplitude * radial_factor)
-                else
-                    mag_field.𝒫.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
+                        if l in modes_range && l >= 1  # l=0 not valid for vector fields
+                            if is_poloidal && l == 1  # Dipole mode - stronger
+                                real_data[local_lm, 1, local_r] = T(5.0 * amplitude * radial_factor)
+                            else
+                                real_data[local_lm, 1, local_r] = T(amplitude * radial_factor * (rand() - 0.5))
+                            end
+                        end
+                        imag_data[local_lm, 1, local_r] = zero(T)
+                    end
                 end
             end
         end
@@ -477,36 +413,41 @@ end
     generate_random_velocity!(vel_field, amplitude, modes_range)
 
 Generate random velocity initial conditions.
+
+Uses PencilArray structure with data_real/data_imag arrays.
 """
 function generate_random_velocity!(vel_field, amplitude, modes_range)
+    # Process toroidal and poloidal components
+    for spectral in (vel_field.𝒯, vel_field.𝒫)
+        real_data = parent(spectral.data_real)
+        imag_data = parent(spectral.data_imag)
+        T = eltype(real_data)
+        nr = size(real_data, 3)
 
-    T = eltype(vel_field.𝒯.data)
-    nr_tor, nlm_tor = size(vel_field.𝒯.data)
-    nr_pol, nlm_pol = size(vel_field.𝒫.data)
+        # Get local ranges
+        lm_range = get_local_range(spectral.pencil, 1)
+        r_range = get_local_range(spectral.pencil, 3)
+        l_values = spectral.config.l_values
 
-    # Clear fields first
-    fill!(vel_field.𝒯.data, T(0))
-    fill!(vel_field.𝒫.data, T(0))
+        # Clear fields
+        fill!(real_data, zero(T))
+        fill!(imag_data, zero(T))
 
-    # Generate small random velocities
-    for r_idx in 1:nr_tor
-        r_frac = (r_idx - 1) / (nr_tor - 1)
-        radial_factor = sin(π * r_frac)  # Avoid boundaries
+        for (local_lm, global_lm) in enumerate(lm_range)
+            if global_lm <= length(l_values)
+                l = l_values[global_lm]
 
-        for lm in modes_range
-            if lm <= nlm_tor
-                vel_field.𝒯.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
-            end
-        end
-    end
+                for (local_r, global_r) in enumerate(r_range)
+                    if local_r <= size(real_data, 3)
+                        r_frac = (global_r - 1) / max(nr - 1, 1)
+                        radial_factor = sin(π * r_frac)  # Avoid boundaries
 
-    for r_idx in 1:nr_pol
-        r_frac = (r_idx - 1) / (nr_pol - 1)
-        radial_factor = sin(π * r_frac)
-
-        for lm in modes_range
-            if lm <= nlm_pol
-                vel_field.𝒫.data[r_idx, lm] = T(amplitude * radial_factor * (rand() - 0.5))
+                        if l in modes_range && l >= 1  # l=0 not valid for vector fields
+                            real_data[local_lm, 1, local_r] = T(amplitude * radial_factor * (rand() - 0.5))
+                        end
+                        imag_data[local_lm, 1, local_r] = zero(T)
+                    end
+                end
             end
         end
     end
@@ -517,28 +458,43 @@ end
 """
     generate_random_composition!(comp_field, amplitude, modes_range)
 
-Generate random composition initial conditions.
+Generate random composition initial conditions with stratified base profile.
+
+Uses PencilArray structure with data_real/data_imag arrays.
 """
 function generate_random_composition!(comp_field, amplitude, modes_range)
+    spectral = comp_field.spectral
+    real_data = parent(spectral.data_real)
+    imag_data = parent(spectral.data_imag)
 
-    nr, nlm = size(comp_field.spectral.data)
+    T = eltype(real_data)
+    nr = size(real_data, 3)
+
+    # Get local ranges
+    lm_range = get_local_range(spectral.pencil, 1)
+    r_range = get_local_range(spectral.pencil, 3)
+    l_values = spectral.config.l_values
 
     # Clear field first
-    fill!(comp_field.spectral.data, 0.0)
+    fill!(real_data, zero(T))
+    fill!(imag_data, zero(T))
 
-    for r_idx in 1:nr
-        r_frac = (r_idx - 1) / (nr - 1)
+    for (local_lm, global_lm) in enumerate(lm_range)
+        if global_lm <= length(l_values)
+            l = l_values[global_lm]
 
-        # Base composition profile
-        base_comp = 0.1 + 0.2 * r_frac  # 0.1 to 0.3
+            for (local_r, global_r) in enumerate(r_range)
+                if local_r <= size(real_data, 3)
+                    r_frac = (global_r - 1) / max(nr - 1, 1)
 
-        for lm in modes_range
-            if lm <= nlm
-                if lm == 1  # l=0, m=0 mode
-                    comp_field.spectral.data[r_idx, lm] = base_comp + amplitude * 0.05 * (rand() - 0.5)
-                else
-                    radial_factor = sin(π * r_frac)
-                    comp_field.spectral.data[r_idx, lm] = amplitude * 0.1 * radial_factor * (rand() - 0.5)
+                    if l == 0  # l=0, m=0 mode - base stratified profile
+                        base_comp = T(0.1 + 0.2 * r_frac)  # 0.1 to 0.3
+                        real_data[local_lm, 1, local_r] = base_comp + T(amplitude * 0.05 * (rand() - 0.5))
+                    elseif l in modes_range
+                        radial_factor = sin(π * r_frac)
+                        real_data[local_lm, 1, local_r] = T(amplitude * 0.1 * radial_factor * (rand() - 0.5))
+                    end
+                    imag_data[local_lm, 1, local_r] = zero(T)
                 end
             end
         end
@@ -601,18 +557,37 @@ end
     set_analytical_temperature!(temp_field, pattern, amplitude; parameters...)
 
 Set analytical temperature patterns.
+
+Uses PencilArray structure with data_real/data_imag arrays.
 """
 function set_analytical_temperature!(temp_field, pattern::Symbol, amplitude; parameters...)
+    spectral = temp_field.spectral
+    real_data = parent(spectral.data_real)
+    imag_data = parent(spectral.data_imag)
 
-    T = eltype(temp_field.spectral.data)
-    nr, nlm = size(temp_field.spectral.data)
-    fill!(temp_field.spectral.data, T(0))
+    T = eltype(real_data)
+    nr = size(real_data, 3)
+
+    # Get local ranges
+    lm_range = get_local_range(spectral.pencil, 1)
+    r_range = get_local_range(spectral.pencil, 3)
+    l_values = spectral.config.l_values
+
+    # Clear fields
+    fill!(real_data, zero(T))
+    fill!(imag_data, zero(T))
 
     if pattern == :conductive
-        # Linear conductive profile
-        for r_idx in 1:nr
-            r_frac = (r_idx - 1) / (nr - 1)
-            temp_field.spectral.data[r_idx, 1] = T(amplitude * (1.0 - r_frac))
+        # Linear conductive profile (only l=0 mode)
+        for (local_lm, global_lm) in enumerate(lm_range)
+            if global_lm <= length(l_values) && l_values[global_lm] == 0
+                for (local_r, global_r) in enumerate(r_range)
+                    if local_r <= size(real_data, 3)
+                        r_frac = (global_r - 1) / max(nr - 1, 1)
+                        real_data[local_lm, 1, local_r] = T(amplitude * (1.0 - r_frac))
+                    end
+                end
+            end
         end
 
     elseif pattern == :hot_blob
@@ -620,18 +595,27 @@ function set_analytical_temperature!(temp_field, pattern::Symbol, amplitude; par
         r_center = get(parameters, :r_center, 0.5)
         blob_width = get(parameters, :blob_width, 0.2)
 
-        for r_idx in 1:nr
-            r_frac = (r_idx - 1) / (nr - 1)
+        for (local_lm, global_lm) in enumerate(lm_range)
+            if global_lm <= length(l_values)
+                l = l_values[global_lm]
+                for (local_r, global_r) in enumerate(r_range)
+                    if local_r <= size(real_data, 3)
+                        r_frac = (global_r - 1) / max(nr - 1, 1)
 
-            # Background conductive profile
-            temp_field.spectral.data[r_idx, 1] = T(0.5 * (1.0 - r_frac))
-
-            # Add hot blob
-            if abs(r_frac - r_center) < blob_width
-                temp_field.spectral.data[r_idx, 1] += T(amplitude)
-                # Add some higher-order modes for blob shape
-                temp_field.spectral.data[r_idx, 2] += T(0.3 * amplitude)
-                temp_field.spectral.data[r_idx, 4] += T(0.2 * amplitude)
+                        if l == 0
+                            # Background conductive profile
+                            real_data[local_lm, 1, local_r] = T(0.5 * (1.0 - r_frac))
+                            # Add hot blob
+                            if abs(r_frac - r_center) < blob_width
+                                real_data[local_lm, 1, local_r] += T(amplitude)
+                            end
+                        elseif l == 1 && abs(r_frac - r_center) < blob_width
+                            real_data[local_lm, 1, local_r] = T(0.3 * amplitude)
+                        elseif l == 2 && abs(r_frac - r_center) < blob_width
+                            real_data[local_lm, 1, local_r] = T(0.2 * amplitude)
+                        end
+                    end
+                end
             end
         end
 
@@ -646,45 +630,51 @@ end
     set_analytical_magnetic!(mag_field, pattern, amplitude; parameters...)
 
 Set analytical magnetic field patterns.
+
+Uses PencilArray structure with data_real/data_imag arrays.
 """
 function set_analytical_magnetic!(mag_field, pattern::Symbol, amplitude; parameters...)
+    # Helper to set field values
+    function set_spectral_values!(spectral, l_target, value_fn)
+        real_data = parent(spectral.data_real)
+        imag_data = parent(spectral.data_imag)
+        T = eltype(real_data)
+        nr = size(real_data, 3)
 
-    T = eltype(mag_field.𝒯.data)
-    nr_tor, nlm_tor = size(mag_field.𝒯.data)
-    nr_pol, nlm_pol = size(mag_field.𝒫.data)
+        lm_range = get_local_range(spectral.pencil, 1)
+        r_range = get_local_range(spectral.pencil, 3)
+        l_values = spectral.config.l_values
 
-    fill!(mag_field.𝒯.data, T(0))
-    fill!(mag_field.𝒫.data, T(0))
+        for (local_lm, global_lm) in enumerate(lm_range)
+            if global_lm <= length(l_values) && l_values[global_lm] == l_target
+                for (local_r, global_r) in enumerate(r_range)
+                    if local_r <= size(real_data, 3)
+                        r_frac = (global_r - 1) / max(nr - 1, 1)
+                        real_data[local_lm, 1, local_r] = T(value_fn(r_frac))
+                        imag_data[local_lm, 1, local_r] = zero(T)
+                    end
+                end
+            end
+        end
+    end
+
+    # Clear both fields
+    for spectral in (mag_field.𝒯, mag_field.𝒫)
+        fill!(parent(spectral.data_real), zero(eltype(parent(spectral.data_real))))
+        fill!(parent(spectral.data_imag), zero(eltype(parent(spectral.data_imag))))
+    end
 
     if pattern == :dipole
-        # Earth-like dipolar field
-        for r_idx in 1:nr_pol
-            r_frac = (r_idx - 1) / (nr_pol - 1)
-
-            # Dipole field: l=1, m=0 mode
-            if nlm_pol >= 3
-                mag_field.𝒫.data[r_idx, 3] = T(amplitude * sin(π * r_frac))
-            end
-        end
-
-        # Small toroidal component
-        for r_idx in 1:nr_tor
-            r_frac = (r_idx - 1) / (nr_tor - 1)
-            if nlm_tor >= 3
-                mag_field.𝒯.data[r_idx, 3] = T(0.1 * amplitude * sin(π * r_frac))
-            end
-        end
+        # Earth-like dipolar field: l=1 mode
+        set_spectral_values!(mag_field.𝒫, 1, r -> amplitude * sin(π * r))
+        set_spectral_values!(mag_field.𝒯, 1, r -> 0.1 * amplitude * sin(π * r))
 
     elseif pattern == :uniform_field
-        # Uniform axial field
-        direction = get(parameters, :direction, :z)  # :x, :y, or :z
-
-        for r_idx in 1:nr_pol
-            if direction == :z && nlm_pol >= 1
-                mag_field.𝒫.data[r_idx, 1] = T(amplitude)  # l=0, m=0 mode
-            elseif direction == :x && nlm_pol >= 3
-                mag_field.𝒫.data[r_idx, 3] = T(amplitude)  # l=1, m=0 mode
-            end
+        direction = get(parameters, :direction, :z)
+        if direction == :z
+            set_spectral_values!(mag_field.𝒫, 0, r -> amplitude)
+        elseif direction == :x
+            set_spectral_values!(mag_field.𝒫, 1, r -> amplitude)
         end
 
     else
@@ -698,35 +688,44 @@ end
     set_analytical_velocity!(vel_field, pattern, amplitude; parameters...)
 
 Set analytical velocity patterns.
+
+Uses PencilArray structure with data_real/data_imag arrays.
 """
 function set_analytical_velocity!(vel_field, pattern::Symbol, amplitude; parameters...)
-
-    T = eltype(vel_field.𝒯.data)
-    nr_tor, nlm_tor = size(vel_field.𝒯.data)
-    nr_pol, nlm_pol = size(vel_field.𝒫.data)
-
-    fill!(vel_field.𝒯.data, T(0))
-    fill!(vel_field.𝒫.data, T(0))
+    # Clear both fields
+    for spectral in (vel_field.𝒯, vel_field.𝒫)
+        fill!(parent(spectral.data_real), zero(eltype(parent(spectral.data_real))))
+        fill!(parent(spectral.data_imag), zero(eltype(parent(spectral.data_imag))))
+    end
 
     if pattern == :convective
-        # Small convective perturbations
-        for r_idx in 1:min(nr_tor, nr_pol)
-            r_frac = (r_idx - 1) / (nr_tor - 1)
-            radial_factor = sin(π * r_frac)  # Avoid boundaries
+        # Small convective perturbations in low-order modes
+        for spectral in (vel_field.𝒯, vel_field.𝒫)
+            real_data = parent(spectral.data_real)
+            T = eltype(real_data)
+            nr = size(real_data, 3)
 
-            # Add small perturbations in low-order modes
-            for lm in 2:min(10, nlm_tor, nlm_pol)
-                vel_field.𝒯.data[r_idx, lm] = T(amplitude * radial_factor * 0.1)
-                vel_field.𝒫.data[r_idx, lm] = T(amplitude * radial_factor * 0.1)
+            lm_range = get_local_range(spectral.pencil, 1)
+            r_range = get_local_range(spectral.pencil, 3)
+            l_values = spectral.config.l_values
+
+            for (local_lm, global_lm) in enumerate(lm_range)
+                if global_lm <= length(l_values)
+                    l = l_values[global_lm]
+                    if 1 <= l <= 10  # Low-order convective modes
+                        for (local_r, global_r) in enumerate(r_range)
+                            if local_r <= size(real_data, 3)
+                                r_frac = (global_r - 1) / max(nr - 1, 1)
+                                radial_factor = sin(π * r_frac)
+                                real_data[local_lm, 1, local_r] = T(amplitude * radial_factor * 0.1)
+                            end
+                        end
+                    end
+                end
             end
         end
 
     elseif pattern == :solid_rotation
-        # Solid body rotation
-        omega = get(parameters, :omega, 1.0)
-
-        # This would require specific toroidal modes for solid rotation
-        # Implementation depends on the exact spherical harmonic conventions
         @warn "Solid rotation pattern not fully implemented"
 
     else
@@ -740,20 +739,40 @@ end
     set_analytical_composition!(comp_field, pattern, amplitude; parameters...)
 
 Set analytical composition patterns.
+
+Uses PencilArray structure with data_real/data_imag arrays.
 """
 function set_analytical_composition!(comp_field, pattern::Symbol, amplitude; parameters...)
+    spectral = comp_field.spectral
+    real_data = parent(spectral.data_real)
+    imag_data = parent(spectral.data_imag)
 
-    nr, nlm = size(comp_field.spectral.data)
-    fill!(comp_field.spectral.data, 0.0)
+    T = eltype(real_data)
+    nr = size(real_data, 3)
+
+    # Get local ranges
+    lm_range = get_local_range(spectral.pencil, 1)
+    r_range = get_local_range(spectral.pencil, 3)
+    l_values = spectral.config.l_values
+
+    # Clear field
+    fill!(real_data, zero(T))
+    fill!(imag_data, zero(T))
 
     if pattern == :stratified
-        # Vertically stratified composition
+        # Vertically stratified composition (only l=0 mode)
         bottom_comp = get(parameters, :bottom_composition, 0.3)
         top_comp = get(parameters, :top_composition, 0.1)
 
-        for r_idx in 1:nr
-            r_frac = (r_idx - 1) / (nr - 1)
-            comp_field.spectral.data[r_idx, 1] = bottom_comp + (top_comp - bottom_comp) * r_frac
+        for (local_lm, global_lm) in enumerate(lm_range)
+            if global_lm <= length(l_values) && l_values[global_lm] == 0
+                for (local_r, global_r) in enumerate(r_range)
+                    if local_r <= size(real_data, 3)
+                        r_frac = (global_r - 1) / max(nr - 1, 1)
+                        real_data[local_lm, 1, local_r] = T(bottom_comp + (top_comp - bottom_comp) * r_frac)
+                    end
+                end
+            end
         end
 
     elseif pattern == :blob
@@ -762,16 +781,25 @@ function set_analytical_composition!(comp_field, pattern::Symbol, amplitude; par
         blob_width = get(parameters, :blob_width, 0.2)
         blob_composition = get(parameters, :blob_composition, 0.8)
 
-        for r_idx in 1:nr
-            r_frac = (r_idx - 1) / (nr - 1)
+        for (local_lm, global_lm) in enumerate(lm_range)
+            if global_lm <= length(l_values)
+                l = l_values[global_lm]
+                for (local_r, global_r) in enumerate(r_range)
+                    if local_r <= size(real_data, 3)
+                        r_frac = (global_r - 1) / max(nr - 1, 1)
 
-            # Background
-            comp_field.spectral.data[r_idx, 1] = 0.1
-
-            # Add blob
-            if abs(r_frac - r_center) < blob_width
-                comp_field.spectral.data[r_idx, 1] = blob_composition
-                comp_field.spectral.data[r_idx, 2] = 0.1 * blob_composition
+                        if l == 0
+                            # Background + blob
+                            if abs(r_frac - r_center) < blob_width
+                                real_data[local_lm, 1, local_r] = T(blob_composition)
+                            else
+                                real_data[local_lm, 1, local_r] = T(0.1)
+                            end
+                        elseif l == 1 && abs(r_frac - r_center) < blob_width
+                            real_data[local_lm, 1, local_r] = T(0.1 * blob_composition)
+                        end
+                    end
+                end
             end
         end
 
