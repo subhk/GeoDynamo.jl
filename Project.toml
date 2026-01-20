@@ -31,7 +31,7 @@ NCDatasets = "0.14"
 NetCDF = "0.12"
 PencilArrays = "0.19"
 PencilFFTs = "0.15"
-SHTnsKit = "1.1.16"
+SHTnsKit = "1.1.17"
 StaticArrays = "1.9.15"
 julia = "1.10"
 
