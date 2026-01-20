@@ -157,7 +157,7 @@ Create a composition field structure with all necessary arrays for spectral comp
 ```julia
 config = create_shtns_config(lmax=32, mmax=32, nlat=64, nlon=128)
 domain = create_radial_domain(nr=64, ri=0.35, ro=1.0)
-comp_field = create_shtns_composition_field(Float64, config, domain)
+𝔽 = create_shtns_composition_field(Float64, config, domain)
 ```
 
 # Notes
@@ -306,7 +306,7 @@ end
 # ================================================================================
 
 """
-    compute_composition_nonlinear!(comp_𝔽::SHTnsCompositionField{T},
+    compute_composition_nonlinear!(𝔽::SHTnsCompositionField{T},
                                    vel_fields, 𝒟ᵒᶜ::RadialDomain;
                                    geometry::Symbol = get_parameters().geometry) where T
 
@@ -324,14 +324,14 @@ The advection term -u·∇C is computed using the following optimized workflow:
 6. Apply boundary conditions
 
 # Arguments
-- `comp_field`: Composition field structure to update
+- `𝔽`: Composition field structure to update
 - `vel_fields`: Velocity field structure (provides u for advection)
 - `𝒟ᵒᶜ`: Radial domain information
 - `geometry`: Geometry type (:shell or :ball) for transform selection
 
 # Side Effects
-- Updates `comp_field.nonlinear` with the computed advection term
-- Updates `comp_field.gradient` with ∇C in physical space
+- Updates `𝔽.nonlinear` with the computed advection term
+- Updates `𝔽.gradient` with ∇C in physical space
 - Applies boundary conditions to spectral representation
 
 # Performance Notes
@@ -339,52 +339,52 @@ The advection term -u·∇C is computed using the following optimized workflow:
 - Batched transforms minimize data transfer overhead
 - Physical space operations are embarrassingly parallel
 """
-function compute_composition_nonlinear!(comp_𝔽::SHTnsCompositionField{T},
+function compute_composition_nonlinear!(𝔽::SHTnsCompositionField{T},
                                         vel_fields, 𝒟ᵒᶜ::RadialDomain;
                                         geometry::Symbol = get_parameters().geometry) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
 
     # Zero work arrays
-    zero_scalar_work_arrays!(comp_field)
+    zero_scalar_work_arrays!(𝔽)
 
     # Step 1: Compute ALL gradients in spectral space (NO COMMUNICATION!)
     t_spectral = MPI.Wtime()
-    compute_all_gradients_spectral!(comp_field, 𝒟ᵒᶜ)
-    comp_field.spectral_time[] += MPI.Wtime() - t_spectral
+    compute_all_gradients_spectral!(𝔽, 𝒟ᵒᶜ)
+    𝔽.spectral_time[] += MPI.Wtime() - t_spectral
 
     # Step 2: Single batched transform of composition and gradients to physical
     t_transform = MPI.Wtime()
-    transform_field_and_gradients_to_physical!(comp_field)
-    comp_field.transform_time[] += MPI.Wtime() - t_transform
+    transform_field_and_gradients_to_physical!(𝔽)
+    𝔽.transform_time[] += MPI.Wtime() - t_transform
 
     # Step 3: Compute advection term -u·∇C in physical space (local operation)
     if vel_fields !== nothing
-        compute_scalar_advection_local!(comp_field, vel_fields)
+        compute_scalar_advection_local!(𝔽, vel_fields)
     end
 
     # Step 4: Add internal compositional sources (local operation)
-    add_internal_sources_local!(comp_field, 𝒟ᵒᶜ)
+    add_internal_sources_local!(𝔽, 𝒟ᵒᶜ)
 
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
     if geometry === :ball
-        ball_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
+        ball_physical_to_spectral!(𝔽.advection_physical, 𝔽.nonlinear)
     else
-        shtnskit_physical_to_spectral!(comp_field.advection_physical, comp_field.nonlinear)
+        shtnskit_physical_to_spectral!(𝔽.advection_physical, 𝔽.nonlinear)
     end
-    comp_field.transform_time[] += MPI.Wtime() - t_transform
+    𝔽.transform_time[] += MPI.Wtime() - t_transform
 
     # Step 6: Apply boundary conditions in spectral space
-    apply_composition_boundary_conditions!(comp_field)
-    apply_composition_boundary_conditions_spectral!(comp_field, 𝒟ᵒᶜ)
+    apply_composition_boundary_conditions!(𝔽)
+    apply_composition_boundary_conditions_spectral!(𝔽, 𝒟ᵒᶜ)
 
     if ENABLE_TIMING[]
-        comp_field.computation_time[] += MPI.Wtime() - t_start
+        𝔽.computation_time[] += MPI.Wtime() - t_start
     end
 end
 
 # Backwards compatibility wrapper - uses shared implementation from scalar_field_common.jl
-zero_composition_work_arrays!(comp_𝔽::SHTnsCompositionField{T}) where T = zero_scalar_work_arrays!(comp_field)
+zero_composition_work_arrays!(𝔽::SHTnsCompositionField{T}) where T = zero_scalar_work_arrays!(𝔽)
 
 # ================================================================================
 # NOTE: Gradient computation functions moved to scalar_field_common.jl
@@ -396,15 +396,15 @@ zero_composition_work_arrays!(comp_𝔽::SHTnsCompositionField{T}) where T = zer
 # Boundary conditions in spectral space
 # ================================================================================
 
-function apply_composition_boundary_conditions_spectral!(comp_𝔽::SHTnsCompositionField{T}, 
+function apply_composition_boundary_conditions_spectral!(𝔽::SHTnsCompositionField{T}, 
                                                          domain::RadialDomain) where T
     # Apply boundary conditions in spectral space
     
-    spec_real = parent(comp_field.spectral.data_real)
-    spec_imag = parent(comp_field.spectral.data_imag)
+    spec_real = parent(𝔽.spectral.data_real)
+    spec_imag = parent(𝔽.spectral.data_imag)
     
-    lm_range = range_local(comp_field.config.pencils.spec, 1)
-    r_range  = range_local(comp_field.config.pencils.spec, 3)
+    lm_range = range_local(𝔽.config.pencils.spec, 1)
+    r_range  = range_local(𝔽.config.pencils.spec, 3)
     
     # Check which boundaries are local
     has_inner = 1 in r_range
@@ -412,14 +412,14 @@ function apply_composition_boundary_conditions_spectral!(comp_𝔽::SHTnsComposi
     
     if has_inner || has_outer
         for (local_lm, lm_idx) in enumerate(lm_range)
-            bc_inner = comp_𝔽.bc_type_inner[lm_idx]
-            bc_outer = comp_𝔽.bc_type_outer[lm_idx]
+            bc_inner = 𝔽.bc_type_inner[lm_idx]
+            bc_outer = 𝔽.bc_type_outer[lm_idx]
             
             # Apply inner boundary condition (skip at r=0 for ball)
             if has_inner && domain.r[1,4] > 0
                 r_local = 1
                 if bc_inner == Int(DIRICHLET)  # Fixed composition
-                    spec_real[local_lm, 1, r_local] = comp_𝔽.boundary_values[1, lm_idx]
+                    spec_real[local_lm, 1, r_local] = 𝔽.boundary_values[1, lm_idx]
                     spec_imag[local_lm, 1, r_local] = 0.0  # Fixed values are real
                 elseif bc_inner == Int(NEUMANN)  # No-flux (zero gradient)
                     # Defer to full no-flux enforcement after loop
@@ -431,7 +431,7 @@ function apply_composition_boundary_conditions_spectral!(comp_𝔽::SHTnsComposi
                 r_local = domain.N - first(r_range) + 1
                 if r_local <= size(spec_real, 3)
                     if bc_outer == Int(DIRICHLET)  # Fixed composition
-                        spec_real[local_lm, 1, r_local] = comp_𝔽.boundary_values[2, lm_idx]
+                        spec_real[local_lm, 1, r_local] = 𝔽.boundary_values[2, lm_idx]
                         spec_imag[local_lm, 1, r_local] = 0.0  # Fixed values are real
                     elseif bc_outer == Int(NEUMANN)  # No-flux (zero gradient)
                         # Defer to full no-flux enforcement after loop
@@ -441,13 +441,13 @@ function apply_composition_boundary_conditions_spectral!(comp_𝔽::SHTnsComposi
         end
     end
     # Apply flux boundary conditions using the common scalar field implementation
-    if any(comp_𝔽.bc_type_inner .== Int(NEUMANN)) || any(comp_𝔽.bc_type_outer .== Int(NEUMANN))
+    if any(𝔽.bc_type_inner .== Int(NEUMANN)) || any(𝔽.bc_type_outer .== Int(NEUMANN))
         # Use the robust tau method for flux boundary conditions
-        apply_scalar_flux_bc_spectral!(comp_field, domain; method=:tau)
+        apply_scalar_flux_bc_spectral!(𝔽, domain; method=:tau)
     end
 
     if domain.r[1, 4] == 0.0
-        apply_ball_composition_regularity!(comp_field)
+        apply_ball_composition_regularity!(𝔽)
     end
 end
 
@@ -468,29 +468,29 @@ end
 # Validation and Testing
 # ================================================================================
 
-function validate_composition_field(comp_𝔽::SHTnsCompositionField{T}, domain::RadialDomain) where T
+function validate_composition_field(𝔽::SHTnsCompositionField{T}, domain::RadialDomain) where T
     """
     Validate composition field consistency and boundary conditions
     """
     errors = String[]
     
     # Check spectral field dimensions
-    spec_real = parent(comp_field.spectral.data_real)
-    if size(spec_real, 1) != comp_𝔽.config.nlm
+    spec_real = parent(𝔽.spectral.data_real)
+    if size(spec_real, 1) != 𝔽.config.nlm
         push!(errors, "Spectral field nlm dimension mismatch")
     end
     
     # Check boundary condition arrays
-    if length(comp_𝔽.bc_type_inner) != comp_𝔽.config.nlm
+    if length(𝔽.bc_type_inner) != 𝔽.config.nlm
         push!(errors, "Inner BC array size mismatch")
     end
     
-    if length(comp_𝔽.bc_type_outer) != comp_𝔽.config.nlm
+    if length(𝔽.bc_type_outer) != 𝔽.config.nlm
         push!(errors, "Outer BC array size mismatch")
     end
     
     # Check internal sources
-    if length(comp_field.internal_sources) != domain.N
+    if length(𝔽.internal_sources) != domain.N
         push!(errors, "Internal sources array size mismatch")
     end
     
@@ -505,10 +505,10 @@ end
 # Diagnostic functions
 # ================================================================================
 
-function compute_composition_rms(comp_𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::RadialDomain) where T
+function compute_composition_rms(𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::RadialDomain) where T
     # Compute RMS composition
-    spec_real = parent(comp_field.spectral.data_real)
-    spec_imag = parent(comp_field.spectral.data_imag)
+    spec_real = parent(𝔽.spectral.data_real)
+    spec_imag = parent(𝔽.spectral.data_imag)
     
     local_sum = zero(T)
     
@@ -525,16 +525,16 @@ function compute_composition_rms(comp_𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ
     comm = get_comm()
     global_sum = MPI.Allreduce(local_sum, MPI.SUM, comm)
     
-    return sqrt(global_sum / (𝒟ᵒᶜ.N * comp_𝔽.config.nlm))
+    return sqrt(global_sum / (𝒟ᵒᶜ.N * 𝔽.config.nlm))
 end
 
-function compute_composition_energy(comp_𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::RadialDomain) where T
+function compute_composition_energy(𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::RadialDomain) where T
     # Compute compositional energy ∫ C² dV
     
     # Transform to physical space first
-    shtnskit_spectral_to_physical!(comp_field.spectral, comp_field.work_physical)
+    shtnskit_spectral_to_physical!(𝔽.spectral, 𝔽.work_physical)
     
-    comp_data = parent(comp_field.work_physical.data)
+    comp_data = parent(𝔽.work_physical.data)
     local_energy = zero(T)
     
     # Integrate over local physical space
@@ -553,20 +553,20 @@ function compute_composition_energy(comp_𝔽::SHTnsCompositionField{T}, 𝒟ᵒ
     comm = get_comm()
     global_energy = MPI.Allreduce(local_energy, MPI.SUM, comm)
     
-    return global_energy / (comp_field.config.nlat * comp_field.config.nlon * 𝒟ᵒᶜ.N)
+    return global_energy / (𝔽.config.nlat * 𝔽.config.nlon * 𝒟ᵒᶜ.N)
 end
 
 # ================================================================================
 # Performance monitoring and statistics
 # ================================================================================
 
-function get_composition_statistics(comp_𝔽::SHTnsCompositionField{T}, 
+function get_composition_statistics(𝔽::SHTnsCompositionField{T}, 
                                    domain::RadialDomain) where T
     """
     Compute various composition field statistics
     """
     # Min/max composition
-    comp_data = parent(comp_field.composition.data)
+    comp_data = parent(𝔽.composition.data)
     local_min = minimum(comp_data)
     local_max = maximum(comp_data)
 
@@ -583,7 +583,7 @@ function get_composition_statistics(comp_𝔽::SHTnsCompositionField{T},
     rms_comp = sqrt(global_sum / global_count)
     
     # Total energy
-    energy = compute_composition_energy(comp_field, domain)
+    energy = compute_composition_energy(𝔽, domain)
     
     return (min = global_min,
             max = global_max,
@@ -595,12 +595,12 @@ end
 # Utility functions
 # ================================================================================
 
-function set_composition_ic!(comp_𝔽::SHTnsCompositionField{T}, 
+function set_composition_ic!(𝔽::SHTnsCompositionField{T}, 
                              ic_type::Symbol, 𝒟ᵒᶜ::RadialDomain) where T
     # Set initial conditions for composition field
     
-    spec_real = parent(comp_field.spectral.data_real)
-    spec_imag = parent(comp_field.spectral.data_imag)
+    spec_real = parent(𝔽.spectral.data_real)
+    spec_imag = parent(𝔽.spectral.data_imag)
     
     if ic_type == :uniform
         # Uniform composition (only l=0, m=0 mode)
@@ -637,23 +637,23 @@ function set_composition_ic!(comp_𝔽::SHTnsCompositionField{T},
 end
 
 # Boundary condition setup
-function set_composition_boundary_conditions!(comp_𝔽::SHTnsCompositionField{T}, 
+function set_composition_boundary_conditions!(𝔽::SHTnsCompositionField{T}, 
                                               bc_inner::Symbol, bc_outer::Symbol,
                                               value_inner::T = zero(T), value_outer::T = zero(T)) where T
     # Set boundary condition types and values
     
     if bc_inner == :fixed
-        fill!(comp_𝔽.bc_type_inner, Int(DIRICHLET))
-        comp_𝔽.boundary_values[1, :] .= value_inner
+        fill!(𝔽.bc_type_inner, Int(DIRICHLET))
+        𝔽.boundary_values[1, :] .= value_inner
     elseif bc_inner == :no_flux
-        fill!(comp_𝔽.bc_type_inner, Int(NEUMANN))
+        fill!(𝔽.bc_type_inner, Int(NEUMANN))
     end
 
     if bc_outer == :fixed
-        fill!(comp_𝔽.bc_type_outer, Int(DIRICHLET))
-        comp_𝔽.boundary_values[2, :] .= value_outer
+        fill!(𝔽.bc_type_outer, Int(DIRICHLET))
+        𝔽.boundary_values[2, :] .= value_outer
     elseif bc_outer == :no_flux
-        fill!(comp_𝔽.bc_type_outer, Int(NEUMANN))
+        fill!(𝔽.bc_type_outer, Int(NEUMANN))
     end
 end
 
