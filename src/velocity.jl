@@ -119,10 +119,10 @@ struct VelocityWorkspace{T}
     Pᴾ_profile_imag::Vector{Vector{T}}
     Tᵀ_profile_real::Vector{Vector{T}}
     Tᵀ_profile_imag::Vector{Vector{T}}
-    ∂ᵣP_real::Vector{Vector{T}}
-    ∂ᵣP_imag::Vector{Vector{T}}
-    ∂ᵣᵣP_real::Vector{Vector{T}}
-    ∂ᵣᵣP_imag::Vector{Vector{T}}
+    ∂ᵣ𝒫_real::Vector{Vector{T}}
+    ∂ᵣ𝒫_imag::Vector{Vector{T}}
+    ∂ᵣᵣ𝒫_real::Vector{Vector{T}}
+    ∂ᵣᵣ𝒫_imag::Vector{Vector{T}}
     # Pre-allocated buffers for BC operations (avoid allocations per mode)
     bc_profile_real::Vector{Vector{T}}
     bc_profile_imag::Vector{Vector{T}}
@@ -1038,20 +1038,20 @@ function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
             Pᴾ_profile_imag = ws.Pᴾ_profile_imag[tid]
             Tᵀ_profile_real = ws.Tᵀ_profile_real[tid]
             Tᵀ_profile_imag = ws.Tᵀ_profile_imag[tid]
-            ∂ᵣP_real     = ws.∂ᵣP_real[tid]
-            ∂ᵣP_imag     = ws.∂ᵣP_imag[tid]
-            ∂ᵣᵣP_real   = ws.∂ᵣᵣP_real[tid]
-            ∂ᵣᵣP_imag   = ws.∂ᵣᵣP_imag[tid]
+            ∂ᵣ𝒫_real     = ws.∂ᵣ𝒫_real[tid]
+            ∂ᵣ𝒫_imag     = ws.∂ᵣ𝒫_imag[tid]
+            ∂ᵣᵣ𝒫_real   = ws.∂ᵣᵣ𝒫_real[tid]
+            ∂ᵣᵣ𝒫_imag   = ws.∂ᵣᵣ𝒫_imag[tid]
 
             extract_local_radial_profile!(Pᴾ_profile_real, uᴾ_real, local_lm, nr, r_range)
             extract_local_radial_profile!(Pᴾ_profile_imag, uᴾ_imag, local_lm, nr, r_range)
             extract_local_radial_profile!(Tᵀ_profile_real, uᵀ_real, local_lm, nr, r_range)
             extract_local_radial_profile!(Tᵀ_profile_imag, uᵀ_imag, local_lm, nr, r_range)
 
-            apply_∂r!(∂ᵣP_real,   𝒰.∂r,  Pᴾ_profile_real)
-            apply_∂r!(∂ᵣP_imag,   𝒰.∂r,  Pᴾ_profile_imag)
-            apply_∂r!(∂ᵣᵣP_real, 𝒰.∂²r, Pᴾ_profile_real)
-            apply_∂r!(∂ᵣᵣP_imag, 𝒰.∂²r, Pᴾ_profile_imag)
+            apply_∂r!(∂ᵣ𝒫_real,   𝒰.∂r,  Pᴾ_profile_real)
+            apply_∂r!(∂ᵣ𝒫_imag,   𝒰.∂r,  Pᴾ_profile_imag)
+            apply_∂r!(∂ᵣᵣ𝒫_real, 𝒰.∂²r, Pᴾ_profile_real)
+            apply_∂r!(∂ᵣᵣ𝒫_imag, 𝒰.∂²r, Pᴾ_profile_imag)
 
             r_first = first(r_range)
             r_last = min(last(r_range), nr)
@@ -1071,12 +1071,12 @@ function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
                         r⁻¹  = domain.r[r_idx, 3]
                         r⁻² = domain.r[r_idx, 2]
                         ζᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx]
-                                                            - ∂ᵣᵣP_real[r_idx]
-                                                            - 2.0 * r⁻¹ * ∂ᵣP_real[r_idx])
+                                                            - ∂ᵣᵣ𝒫_real[r_idx]
+                                                            - 2.0 * r⁻¹ * ∂ᵣ𝒫_real[r_idx])
 
                         ζᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx]
-                                                            - ∂ᵣᵣP_imag[r_idx]
-                                                            - 2.0 * r⁻¹ * ∂ᵣP_imag[r_idx])
+                                                            - ∂ᵣᵣ𝒫_imag[r_idx]
+                                                            - 2.0 * r⁻¹ * ∂ᵣ𝒫_imag[r_idx])
 
                         ζᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Tᵀ_profile_real[r_idx]
                         
@@ -1272,10 +1272,10 @@ function _compute_vorticity_spectral_threaded!(𝒰::SHTnsVelocityFields{T}, dom
     Pᴾ_profile_imag_bufs = [zeros(T, nr) for _ in 1:nT]
     Tᵀ_profile_real_bufs = [zeros(T, nr) for _ in 1:nT]
     Tᵀ_profile_imag_bufs = [zeros(T, nr) for _ in 1:nT]
-    ∂ᵣP_real_bufs     = [zeros(T, nr) for _ in 1:nT]
-    ∂ᵣP_imag_bufs     = [zeros(T, nr) for _ in 1:nT]
-    ∂ᵣᵣP_real_bufs   = [zeros(T, nr) for _ in 1:nT]
-    ∂ᵣᵣP_imag_bufs   = [zeros(T, nr) for _ in 1:nT]
+    ∂ᵣ𝒫_real_bufs     = [zeros(T, nr) for _ in 1:nT]
+    ∂ᵣ𝒫_imag_bufs     = [zeros(T, nr) for _ in 1:nT]
+    ∂ᵣᵣ𝒫_real_bufs   = [zeros(T, nr) for _ in 1:nT]
+    ∂ᵣᵣ𝒫_imag_bufs   = [zeros(T, nr) for _ in 1:nT]
 
     # Process each (l,m) mode (parallel over lm)
     @inbounds Threads.@threads for lm_idx in lm_range
@@ -1295,10 +1295,10 @@ function _compute_vorticity_spectral_threaded!(𝒰::SHTnsVelocityFields{T}, dom
             Pᴾ_profile_imag = Pᴾ_profile_imag_bufs[tid]
             Tᵀ_profile_real = Tᵀ_profile_real_bufs[tid]
             Tᵀ_profile_imag = Tᵀ_profile_imag_bufs[tid]
-            ∂ᵣP_real     = ∂ᵣP_real_bufs[tid]
-            ∂ᵣP_imag     = ∂ᵣP_imag_bufs[tid]
-            ∂ᵣᵣP_real   = ∂ᵣᵣP_real_bufs[tid]
-            ∂ᵣᵣP_imag   = ∂ᵣᵣP_imag_bufs[tid]
+            ∂ᵣ𝒫_real     = ∂ᵣ𝒫_real_bufs[tid]
+            ∂ᵣ𝒫_imag     = ∂ᵣ𝒫_imag_bufs[tid]
+            ∂ᵣᵣ𝒫_real   = ∂ᵣᵣ𝒫_real_bufs[tid]
+            ∂ᵣᵣ𝒫_imag   = ∂ᵣᵣ𝒫_imag_bufs[tid]
 
             # Extract radial profiles (in-place)
             extract_local_radial_profile!(Pᴾ_profile_real, uᴾ_real, local_lm, nr, r_range)
@@ -1307,10 +1307,10 @@ function _compute_vorticity_spectral_threaded!(𝒰::SHTnsVelocityFields{T}, dom
             extract_local_radial_profile!(Tᵀ_profile_imag, uᵀ_imag, local_lm, nr, r_range)
 
             # Compute radial derivatives for poloidal component (in-place, reuse buffers)
-            apply_∂r!(∂ᵣP_real,   𝒰.∂r,  Pᴾ_profile_real)
-            apply_∂r!(∂ᵣP_imag,   𝒰.∂r,  Pᴾ_profile_imag)
-            apply_∂r!(∂ᵣᵣP_real, 𝒰.∂²r, Pᴾ_profile_real)
-            apply_∂r!(∂ᵣᵣP_imag, 𝒰.∂²r, Pᴾ_profile_imag)
+            apply_∂r!(∂ᵣ𝒫_real,   𝒰.∂r,  Pᴾ_profile_real)
+            apply_∂r!(∂ᵣ𝒫_imag,   𝒰.∂r,  Pᴾ_profile_imag)
+            apply_∂r!(∂ᵣᵣ𝒫_real, 𝒰.∂²r, Pᴾ_profile_real)
+            apply_∂r!(∂ᵣᵣ𝒫_imag, 𝒰.∂²r, Pᴾ_profile_imag)
 
             # Compute vorticity components
             r_first = first(r_range)
@@ -1333,11 +1333,11 @@ function _compute_vorticity_spectral_threaded!(𝒰::SHTnsVelocityFields{T}, dom
                         r⁻² = domain.r[r_idx, 2]  # 1/r²
                         # Toroidal vorticity from poloidal velocity (with full derivatives)
                         ζᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx]
-                                                            - ∂ᵣᵣP_real[r_idx]
-                                                            - 2.0 * r⁻¹ * ∂ᵣP_real[r_idx])
+                                                            - ∂ᵣᵣ𝒫_real[r_idx]
+                                                            - 2.0 * r⁻¹ * ∂ᵣ𝒫_real[r_idx])
                         ζᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx]
-                                                            - ∂ᵣᵣP_imag[r_idx]
-                                                            - 2.0 * r⁻¹ * ∂ᵣP_imag[r_idx])
+                                                            - ∂ᵣᵣ𝒫_imag[r_idx]
+                                                            - 2.0 * r⁻¹ * ∂ᵣ𝒫_imag[r_idx])
                         # Poloidal vorticity from toroidal velocity
                         ζᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Tᵀ_profile_real[r_idx]
                         ζᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Tᵀ_profile_imag[r_idx]

@@ -251,7 +251,7 @@ end
 # Main nonlinear computation using enhanced transforms
 # ========================================================
 function compute_magnetic_nonlinear!(ℬ::SHTnsMagneticFields{T},
-                                    vel_fields, 𝒟ᵒᶜ::RadialDomain, 𝒟ⁱᶜ::RadialDomain,
+                                    𝒰, 𝒟ᵒᶜ::RadialDomain, 𝒟ⁱᶜ::RadialDomain,
                                     rotation_rate::Float64=0.0;
                                     geometry::Symbol = get_parameters().geometry) where T
     # Zero work arrays
@@ -269,8 +269,8 @@ function compute_magnetic_nonlinear!(ℬ::SHTnsMagneticFields{T},
                                ℬ.current; domain=𝒟ᵒᶜ)
     
     # Step 4: Compute induction equation: ∂B/∂t = ∇ × (u × B) + η∇²B
-    if vel_fields !== nothing
-        compute_induction_term!(ℬ, vel_fields; geometry)
+    if 𝒰 !== nothing
+        compute_induction_term!(ℬ, 𝒰; geometry)
     end
     
     # Step 5: Inner core rotation effects
@@ -387,10 +387,10 @@ function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T},
     #   jᴾ = -[l(l+1)/r²] T^{lm}
     
     # Get local data views
-    Bᵀ_real = parent(ℬ.𝒯.data_real)
-    Bᵀ_imag = parent(ℬ.𝒯.data_imag)
-    Bᴾ_real = parent(ℬ.𝒫.data_real)
-    Bᴾ_imag = parent(ℬ.𝒫.data_imag)
+    𝒯ᵇ_real = parent(ℬ.𝒯.data_real)
+    𝒯ᵇ_imag = parent(ℬ.𝒯.data_imag)
+    𝒫ᵇ_real = parent(ℬ.𝒫.data_real)
+    𝒫ᵇ_imag = parent(ℬ.𝒫.data_imag)
     
     jᵀ_real = parent(ℬ.work_tor.data_real)
     jᵀ_imag = parent(ℬ.work_tor.data_imag)
@@ -430,9 +430,9 @@ function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T},
             fill!(Pᴾ_profile_imag, zero(T))
             for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
-                if local_r <= size(Bᴾ_real, 3)
-                    Pᴾ_profile_real[r_idx] = Bᴾ_real[local_lm, 1, local_r]
-                    Pᴾ_profile_imag[r_idx] = Bᴾ_imag[local_lm, 1, local_r]
+                if local_r <= size(𝒫ᵇ_real, 3)
+                    Pᴾ_profile_real[r_idx] = 𝒫ᵇ_real[local_lm, 1, local_r]
+                    Pᴾ_profile_imag[r_idx] = 𝒫ᵇ_imag[local_lm, 1, local_r]
                 end
             end
 
@@ -466,8 +466,8 @@ function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T},
                         jᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx]
                                                             - d²ᴾ_dr²_imag[r_idx]
                                                             - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
-                        jᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Bᵀ_real[local_lm, 1, local_r]
-                        jᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * Bᵀ_imag[local_lm, 1, local_r]
+                        jᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * 𝒯ᵇ_real[local_lm, 1, local_r]
+                        jᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * 𝒯ᵇ_imag[local_lm, 1, local_r]
                     end
                 end
             end
@@ -488,7 +488,7 @@ end
 #
 # ================================================================================
 
-function compute_induction_term!(ℬ::SHTnsMagneticFields{T}, vel_fields; geometry::Symbol = get_parameters().geometry) where T
+function compute_induction_term!(ℬ::SHTnsMagneticFields{T}, 𝒰; geometry::Symbol = get_parameters().geometry) where T
     # =========================================================================
     # Compute ∇×(u×B) for the induction equation in three steps
     # =========================================================================
@@ -499,7 +499,7 @@ function compute_induction_term!(ℬ::SHTnsMagneticFields{T}, vel_fields; geomet
     #   (u×B)_r = uθ Bφ - uφ Bθ
     #   (u×B)_θ = uφ Bᵣ - uᵣ Bφ
     #   (u×B)_φ = uᵣ Bθ - uθ Bᵣ
-    compute_velocity_cross_magnetic!(ℬ, vel_fields)
+    compute_velocity_cross_magnetic!(ℬ, 𝒰)
 
     # Step 2: Transform u×B to SPECTRAL space
     # ----------------------------------------
@@ -519,13 +519,13 @@ function compute_induction_term!(ℬ::SHTnsMagneticFields{T}, vel_fields; geomet
 end
 
 
-function compute_velocity_cross_magnetic!(ℬ::SHTnsMagneticFields{T}, vel_fields) where T
+function compute_velocity_cross_magnetic!(ℬ::SHTnsMagneticFields{T}, 𝒰) where T
     # Compute u × B in physical space with enhanced memory access
     
     # Get local data views
-    uᵣ = parent(vel_fields.velocity.r_component.data)
-    uθ = parent(vel_fields.velocity.θ_component.data)
-    uφ = parent(vel_fields.velocity.φ_component.data)
+    uᵣ = parent(𝒰.velocity.r_component.data)
+    uθ = parent(𝒰.velocity.θ_component.data)
+    uφ = parent(𝒰.velocity.φ_component.data)
     
     Bᵣ = parent(ℬ.magnetic.r_component.data)
     Bθ = parent(ℬ.magnetic.θ_component.data)
@@ -562,10 +562,10 @@ function compute_curl_of_induction!(ℬ::SHTnsMagneticFields{T}) where T
     # This matches the vorticity and current density computations.
 
     # Get local data views
-    uBᵀ_real = parent(ℬ.work_tor.data_real)
-    uBᵀ_imag = parent(ℬ.work_tor.data_imag)
-    uBᴾ_real = parent(ℬ.work_pol.data_real)
-    uBᴾ_imag = parent(ℬ.work_pol.data_imag)
+    𝒯ᵘᵇ_real = parent(ℬ.work_tor.data_real)
+    𝒯ᵘᵇ_imag = parent(ℬ.work_tor.data_imag)
+    𝒫ᵘᵇ_real = parent(ℬ.work_pol.data_real)
+    𝒫ᵘᵇ_imag = parent(ℬ.work_pol.data_imag)
 
     NLᵀ_real = parent(ℬ.nlᵀ.data_real)
     NLᵀ_imag = parent(ℬ.nlᵀ.data_imag)
@@ -607,9 +607,9 @@ function compute_curl_of_induction!(ℬ::SHTnsMagneticFields{T}) where T
             fill!(Pᴾ_profile_imag, zero(T))
             for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
-                if local_r <= size(uBᴾ_real, 3)
-                    Pᴾ_profile_real[r_idx] = uBᴾ_real[local_lm, 1, local_r]
-                    Pᴾ_profile_imag[r_idx] = uBᴾ_imag[local_lm, 1, local_r]
+                if local_r <= size(𝒫ᵘᵇ_real, 3)
+                    Pᴾ_profile_real[r_idx] = 𝒫ᵘᵇ_real[local_lm, 1, local_r]
+                    Pᴾ_profile_imag[r_idx] = 𝒫ᵘᵇ_imag[local_lm, 1, local_r]
                 end
             end
 
@@ -643,8 +643,8 @@ function compute_curl_of_induction!(ℬ::SHTnsMagneticFields{T}) where T
                         NLᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx]
                                                              - d²ᴾ_dr²_imag[r_idx]
                                                              - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
-                        NLᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_real[local_lm, 1, local_r]
-                        NLᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * uBᵀ_imag[local_lm, 1, local_r]
+                        NLᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * 𝒯ᵘᵇ_real[local_lm, 1, local_r]
+                        NLᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * 𝒯ᵘᵇ_imag[local_lm, 1, local_r]
                     end
                 end
             end

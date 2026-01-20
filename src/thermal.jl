@@ -118,7 +118,7 @@ mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
 end
 
 # Specialization for temperature field (moved after struct definition)
-get_main_physical_field(field::SHTnsTemperatureField{T}) where T = field.temperature
+get_main_physical_field(𝔽::SHTnsTemperatureField{T}) where T = 𝔽.temperature
 
 function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
                                         𝒟ᵒᶜ::RadialDomain,
@@ -197,32 +197,32 @@ end
 
 Anchor spectral boundary coefficients to stored Dirichlet values when needed.
 """
-function enforce_temperature_boundary_values!(field::SHTnsTemperatureField{T}) where T
-    spec_real = parent(field.spectral.data_real)
-    spec_imag = parent(field.spectral.data_imag)
+function enforce_temperature_boundary_values!(𝔽::SHTnsTemperatureField{T}) where T
+    spec_real = parent(𝔽.spectral.data_real)
+    spec_imag = parent(𝔽.spectral.data_imag)
 
-    lm_range = range_local(field.config.pencils.spec, 1)
-    r_range  = range_local(field.config.pencils.spec, 3)
+    lm_range = range_local(𝔽.config.pencils.spec, 1)
+    r_range  = range_local(𝔽.config.pencils.spec, 3)
 
-    has_inner = 1 in r_range && field.domain.r[1, 4] > 0
-    has_outer = field.domain.N in r_range
+    has_inner = 1 in r_range && 𝔽.domain.r[1, 4] > 0
+    has_outer = 𝔽.domain.N in r_range
 
     inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
-    outer_idx = has_outer ? (field.domain.N - first(r_range) + 1) : 0
+    outer_idx = has_outer ? (𝔽.domain.N - first(r_range) + 1) : 0
 
     dirichlet = Int(DIRICHLET)
 
     for lm_idx in lm_range
-        if lm_idx <= field.config.nlm
+        if lm_idx <= 𝔽.config.nlm
             local_lm = lm_idx - first(lm_range) + 1
 
-            if has_inner && 1 <= inner_idx <= size(spec_real, 3) && field.bc_type_inner[lm_idx] == dirichlet
-                spec_real[local_lm, 1, inner_idx] = field.boundary_values[1, lm_idx]
+            if has_inner && 1 <= inner_idx <= size(spec_real, 3) && 𝔽.bc_type_inner[lm_idx] == dirichlet
+                spec_real[local_lm, 1, inner_idx] = 𝔽.boundary_values[1, lm_idx]
                 spec_imag[local_lm, 1, inner_idx] = zero(T)
             end
 
-            if has_outer && 1 <= outer_idx <= size(spec_real, 3) && field.bc_type_outer[lm_idx] == dirichlet
-                spec_real[local_lm, 1, outer_idx] = field.boundary_values[2, lm_idx]
+            if has_outer && 1 <= outer_idx <= size(spec_real, 3) && 𝔽.bc_type_outer[lm_idx] == dirichlet
+                spec_real[local_lm, 1, outer_idx] = 𝔽.boundary_values[2, lm_idx]
                 spec_imag[local_lm, 1, outer_idx] = zero(T)
             end
         end
@@ -237,7 +237,7 @@ end
 Refresh cached boundary values through the bcs subsystem and
 enforce Dirichlet data directly in spectral space when appropriate.
 """
-function apply_temperature_boundary_conditions!(field::SHTnsTemperatureField{T};
+function apply_temperature_boundary_conditions!(𝔽::SHTnsTemperatureField{T};
                                                  time_index::Union{Nothing,Int}=nothing) where T
     boundary_set, _ = bcs.get_temperature_boundary_data(field)
     boundary_set === nothing && return field
@@ -250,7 +250,7 @@ function apply_temperature_boundary_conditions!(field::SHTnsTemperatureField{T};
 
     enforce_temperature_boundary_values!(field)
 
-    if field.domain.r[1, 4] == 0.0
+    if 𝔽.domain.r[1, 4] == 0.0
         apply_ball_temperature_regularity!(field)
     end
 
@@ -260,7 +260,7 @@ end
 # ================================================================================
 # Main nonlinear computation with full spectral optimization
 # ================================================================================
-function compute_temperature_nonlinear!(temp_field::SHTnsTemperatureField{T}, 
+function compute_temperature_nonlinear!(temp_𝔽::SHTnsTemperatureField{T}, 
                                         vel_fields, 𝒟ᵒᶜ::RadialDomain; 
                                         geometry::Symbol = get_parameters().geometry) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
@@ -320,7 +320,7 @@ end
 #
 # ================================================================================
 
-function compute_temperature_advection_local!(temp_field::SHTnsTemperatureField{T},
+function compute_temperature_advection_local!(temp_𝔽::SHTnsTemperatureField{T},
                                              vel_fields) where T
     # =========================================================================
     # Compute the advection term: -u·∇T
@@ -356,7 +356,7 @@ function compute_temperature_advection_local!(temp_field::SHTnsTemperatureField{
     end
 end
 
-function add_internal_sources_local!(temp_field::SHTnsTemperatureField{T}, 
+function add_internal_sources_local!(temp_𝔽::SHTnsTemperatureField{T}, 
                                     domain::RadialDomain) where T
     """
     Add volumetric heating (completely local operation)
@@ -392,7 +392,7 @@ end
 # ================================================================================
 # Boundary conditions in spectral space
 # ================================================================================
-function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemperatureField{T}, 
+function apply_temperature_boundary_conditions_spectral!(temp_𝔽::SHTnsTemperatureField{T}, 
                                                         domain::RadialDomain) where T
     """
     Apply boundary conditions in spectral space
@@ -408,16 +408,16 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
     has_outer = domain.N in r_range
     
     @inbounds for lm_idx in lm_range
-        if lm_idx <= temp_field.config.nlm
+        if lm_idx <= temp_𝔽.config.nlm
             local_lm = lm_idx - first(lm_range) + 1
             
             # Inner boundary (skip at r=0 for ball geometry)
             if has_inner && domain.r[1, 4] > 0
-                if temp_field.bc_type_inner[lm_idx] == Int(DIRICHLET)
+                if temp_𝔽.bc_type_inner[lm_idx] == Int(DIRICHLET)
                     local_r = 1 - first(r_range) + 1
-                    spec_real[local_lm, 1, local_r] = temp_field.boundary_values[1, lm_idx]
+                    spec_real[local_lm, 1, local_r] = temp_𝔽.boundary_values[1, lm_idx]
                     spec_imag[local_lm, 1, local_r] = 0.0
-                elseif temp_field.bc_type_inner[lm_idx] == Int(NEUMANN)
+                elseif temp_𝔽.bc_type_inner[lm_idx] == Int(NEUMANN)
                     # Defer to full flux BC application after loop
                     # (handled by apply_flux_bc_spectral!(temp_field, domain))
                 end
@@ -425,18 +425,18 @@ function apply_temperature_boundary_conditions_spectral!(temp_field::SHTnsTemper
 
             # Outer boundary
             if has_outer
-                if temp_field.bc_type_outer[lm_idx] == Int(DIRICHLET)
+                if temp_𝔽.bc_type_outer[lm_idx] == Int(DIRICHLET)
                     local_r = domain.N - first(r_range) + 1
-                    spec_real[local_lm, 1, local_r] = temp_field.boundary_values[2, lm_idx]
+                    spec_real[local_lm, 1, local_r] = temp_𝔽.boundary_values[2, lm_idx]
                     spec_imag[local_lm, 1, local_r] = 0.0
-                elseif temp_field.bc_type_outer[lm_idx] == Int(NEUMANN)
+                elseif temp_𝔽.bc_type_outer[lm_idx] == Int(NEUMANN)
                     # Defer to full flux BC application after loop
                 end
             end
         end
     end
     # If any Neumann BCs present, apply the complete spectral flux BC correction
-    if any(temp_field.bc_type_inner .== Int(NEUMANN)) || any(temp_field.bc_type_outer .== Int(NEUMANN))
+    if any(temp_𝔽.bc_type_inner .== Int(NEUMANN)) || any(temp_𝔽.bc_type_outer .== Int(NEUMANN))
         apply_flux_bc_spectral!(temp_field, domain)
     end
 
@@ -456,7 +456,7 @@ end
 Complete implementation of flux boundary conditions in spectral space.
 This modifies the spectral coefficients to satisfy ∂T/∂r = prescribed_flux.
 """
-function apply_flux_bc_spectral!(temp_field::SHTnsTemperatureField{T}, 
+function apply_flux_bc_spectral!(temp_𝔽::SHTnsTemperatureField{T}, 
                                          domain::RadialDomain) where T
     # Use the common flux BC implementation with tau method (most robust)
     apply_scalar_flux_bc_spectral!(temp_field, domain; method=:tau)
@@ -484,11 +484,11 @@ function validate_flux_bc(temp_field, domain)
     max_error = 0.0
     
     for lm_idx in lm_range
-        if lm_idx <= temp_field.config.nlm
+        if lm_idx <= temp_𝔽.config.nlm
             local_lm = lm_idx - first(lm_range) + 1
             
             # Check inner boundary
-            if temp_field.bc_type_inner[lm_idx] == Int(NEUMANN)
+            if temp_𝔽.bc_type_inner[lm_idx] == Int(NEUMANN)
                 prescribed = get_flux_value(lm_idx, 1, temp_field)
                 actual = compute_flux_at_boundary(spec_real, spec_imag, local_lm,
                                                  1, temp_field, domain)
@@ -497,7 +497,7 @@ function validate_flux_bc(temp_field, domain)
             end
 
             # Check outer boundary
-            if temp_field.bc_type_outer[lm_idx] == Int(NEUMANN)
+            if temp_𝔽.bc_type_outer[lm_idx] == Int(NEUMANN)
                 prescribed = get_flux_value(lm_idx, 2, temp_field)
                 actual = compute_flux_at_boundary(spec_real, spec_imag, local_lm,
                                                  domain.N, temp_field, domain)
@@ -524,7 +524,7 @@ end
 # ================================================================================
 # Diagnostic functions
 # ================================================================================
-function compute_nusselt_number(temp_field::SHTnsTemperatureField{T},
+function compute_nusselt_number(temp_𝔽::SHTnsTemperatureField{T},
                                domain::RadialDomain) where T
     """
     Compute Nusselt number from heat flux at boundaries
@@ -544,7 +544,7 @@ function compute_nusselt_number(temp_field::SHTnsTemperatureField{T},
 end
 
 
-function compute_thermal_energy(temp_field::SHTnsTemperatureField{T}) where T
+function compute_thermal_energy(temp_𝔽::SHTnsTemperatureField{T}) where T
     """
     Compute total thermal energy in spectral space
     """
@@ -558,7 +558,7 @@ function compute_thermal_energy(temp_field::SHTnsTemperatureField{T}) where T
     r_range  = range_local(temp_field.config.pencils.spec, 3)
     
     @inbounds for lm_idx in lm_range
-        if lm_idx <= temp_field.config.nlm
+        if lm_idx <= temp_𝔽.config.nlm
             local_lm = lm_idx - first(lm_range) + 1
             
             @simd for r_idx in r_range
@@ -581,7 +581,7 @@ function compute_surface_flux(field::SHTnsPhysField{T}, r_level::Int,
     """
     Compute surface integral of flux at given radial level
     """
-    data = parent(field.data)
+    data = parent(𝔽.data)
     
     # Local contribution
     local_flux = 0.0
@@ -617,7 +617,7 @@ end
 # ================================================================================
 # Performance monitoring and statistics
 # ================================================================================
-function get_temperature_statistics(temp_field::SHTnsTemperatureField{T}, 
+function get_temperature_statistics(temp_𝔽::SHTnsTemperatureField{T}, 
                                    domain::RadialDomain) where T
     """
     Compute various temperature field statistics
@@ -655,7 +655,7 @@ end
 # ================================================================================
 # Utility functions
 # ================================================================================
-function zero_temperature_work_arrays!(temp_field::SHTnsTemperatureField{T}) where T
+function zero_temperature_work_arrays!(temp_𝔽::SHTnsTemperatureField{T}) where T
     """
     Efficiently zero all work arrays
     """
@@ -671,7 +671,7 @@ function zero_temperature_work_arrays!(temp_field::SHTnsTemperatureField{T}) whe
     fill!(parent(temp_field.∇ᵣ_spec.data_imag), zero(T))
 end
 
-function set_temperature_ic!(temp_field::SHTnsTemperatureField{T}, 
+function set_temperature_ic!(temp_𝔽::SHTnsTemperatureField{T}, 
                             domain::RadialDomain;
                             perturbation_amplitude::T = T(1e-3)) where T
     """
@@ -684,7 +684,7 @@ function set_temperature_ic!(temp_field::SHTnsTemperatureField{T},
     r_range = range_local(temp_field.config.pencils.spec, 3)
     
     @inbounds for lm_idx in lm_range
-        if lm_idx <= temp_field.config.nlm
+        if lm_idx <= temp_𝔽.config.nlm
             local_lm = lm_idx - first(lm_range) + 1
             l = temp_field.config.l_values[lm_idx]
             m = temp_field.config.m_values[lm_idx]
@@ -717,7 +717,7 @@ function set_temperature_ic!(temp_field::SHTnsTemperatureField{T},
     end
 end
 
-function set_boundary_conditions!(temp_field::SHTnsTemperatureField{T};
+function set_boundary_conditions!(temp_𝔽::SHTnsTemperatureField{T};
                                  inner_bc_type::Int = Int(DIRICHLET),
                                  outer_bc_type::Int = Int(DIRICHLET),
                                  inner_value::T = T(1.0),
@@ -726,24 +726,24 @@ function set_boundary_conditions!(temp_field::SHTnsTemperatureField{T};
     Set boundary condition types and values
     """
     # Set BC types for all modes
-    fill!(temp_field.bc_type_inner, inner_bc_type)
-    fill!(temp_field.bc_type_outer, outer_bc_type)
+    fill!(temp_𝔽.bc_type_inner, inner_bc_type)
+    fill!(temp_𝔽.bc_type_outer, outer_bc_type)
     
     # Set boundary values for l=0, m=0 mode (mean temperature)
     l0m0_idx = get_mode_index(temp_field.config, 0, 0)
     if l0m0_idx > 0
-        temp_field.boundary_values[1, l0m0_idx] = inner_value
-        temp_field.boundary_values[2, l0m0_idx] = outer_value
+        temp_𝔽.boundary_values[1, l0m0_idx] = inner_value
+        temp_𝔽.boundary_values[2, l0m0_idx] = outer_value
     end
     
     # Other modes have zero boundary values by default
-    for lm_idx in 2:temp_field.config.nlm
-        temp_field.boundary_values[1, lm_idx] = T(0.0)
-        temp_field.boundary_values[2, lm_idx] = T(0.0)
+    for lm_idx in 2:temp_𝔽.config.nlm
+        temp_𝔽.boundary_values[1, lm_idx] = T(0.0)
+        temp_𝔽.boundary_values[2, lm_idx] = T(0.0)
     end
 end
 
-function set_internal_heating!(temp_field::SHTnsTemperatureField{T}, 
+function set_internal_heating!(temp_𝔽::SHTnsTemperatureField{T}, 
                               domain::RadialDomain;
                               heating_type::Symbol = :uniform,
                               amplitude::T = T(1.0)) where T
