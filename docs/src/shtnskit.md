@@ -298,6 +298,31 @@ validate_pencil_decomposition(config)
 
 ---
 
+## Verification
+
+Verify that spherical harmonic transforms work correctly with a roundtrip test:
+
+```
+╭──────────────────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│   $ julia --project test/shtnskit_roundtrip.jl                               │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+This test validates:
+
+| Test | Description |
+|:-----|:------------|
+| **Scalar roundtrip** | `spectral → physical → spectral` preserves coefficients |
+| **Vector roundtrip** | Toroidal-poloidal `synthesis → analysis` cycle |
+| **MPI consistency** | Distributed transforms match across ranks |
+
+!!! tip "Expected Output"
+    All tests should pass with relative errors below `1e-7`.
+
+---
+
 ## API Summary
 
 | Category | Functions |

@@ -1388,36 +1388,38 @@ Dimensionless parameters:
 - Ra = (αgΔT d³)/(νκ): Rayleigh number
 - Ra_C = (Δρg d³)/(ρνD): Compositional Rayleigh number
 
-# Non-Dimensional Momentum Equation
+# Non-Dimensional Momentum Equation (magnetic diffusion time scaling)
 
-(E/Pm) ∂ũ/∂τ + (E/Pm)(∇×ũ)×ũ + ẑ×ũ = -∇p̃
-                + (Pm/Pr)Ra·T̃·r̂ + (Pm/Sc)Ra_C·C̃·r̂
+E·Pm⁻¹[∂ũ/∂τ + (∇×ũ)×ũ] + ẑ×ũ = -∇p̃*
+                + (Pm/Pr)·Ra·T̃·r·r̂ + (Pm/Sc)·Ra_C·C̃·r·r̂
                 + (∇×B̃)×B̃ + E∇²ũ
 
-where tilde denotes dimensionless quantities.
+where:
+  - τ = L²/η (magnetic diffusion time scaling)
+  - E = ν/(2ΩL²) is the Ekman number
+  - r factor in buoyancy represents linear gravity profile g(r) ∝ r
 
 # Implementation Notes
 
-After dividing Eq. (1) by E/Pm, the explicit RHS entering the time integrator is:
-RHS = -(Pm/E)(∇×ũ)×ũ - (Pm/E)(ẑ×ũ)
-      + (Pm/E)(Pm/Pr)Ra·T̃·r̂ + (Pm/E)(Pm/Sc)Ra_C·C̃·r̂
-      + (Pm/E)(∇×B̃)×B̃
+The explicit RHS entering the time integrator is:
+RHS = -(E/Pm)·(∇×ũ)×ũ - (ẑ×ũ) + (Pm/Pr)·Ra·T̃·r·r̂ + (Pm/Sc)·Ra_C·C̃·r·r̂ + (∇×B̃)×B̃
 
-All explicit terms (advection, Coriolis, buoyancy, Lorentz) carry the (Pm/E) prefactor
-(=`rossby_factor`), consistent with Sreenivasan & Kar (2018).
-Viscous diffusion is treated implicitly with coefficient Pm (passed via `diffusivity`).
+Coefficients:
+  - Advection: E/Pm (= E·Pm⁻¹)
+  - Coriolis: 1 (no scaling)
+  - Thermal buoyancy: (Pm/Pr) * Ra * r (with radial factor)
+  - Compositional buoyancy: (Pm/Sc) * Ra_C * r (with radial factor)
+  - Lorentz: 1
 
-The time derivative has unit coefficient after the division and is handled by the integrator.
+Viscous diffusion is treated implicitly with coefficient E (Ekman number).
 """
 function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
                                                temp_field, comp_field, mag_field,
                                                domain::RadialDomain) where T
-    # Compute all forces in a single enhanced loop
+    # Compute all forces in a single enhanced loop (magnetic diffusion time scaling)
 
-    if iszero(d_E)
-        throw(ArgumentError("Ekman number d_E must be nonzero when evaluating the velocity equation in magnetic-diffusion scaling."))
-    end
-    rossby_factor = d_Pm / d_E
+    # Advection coefficient = E/Pm
+    advection_coeff = d_E / d_Pm
 
     # Get all data views
     vᵣ = parent(𝒰.velocity.r_component.data)
@@ -1442,8 +1444,8 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
     r_range = range_local(config.pencils.r, 3)
 
     # Main fused computation loop with enhanced indexing (parallel over r-slices)
-    # After dividing Eq. (1) by E/Pm, advection has coefficient Pm/E (same as Coriolis)
-    adv_coeff = rossby_factor  # (Pm/E) scaling per Sreenivasan & Kar (2018)
+    # Advection has coefficient E/Pm, Coriolis has coefficient 1
+    adv_coeff = advection_coeff
     @inbounds Threads.@threads for k in 1:local_size[3]
         # Get radius for this level using pencil range
         r_idx = k + first(r_range) - 1
@@ -1474,8 +1476,8 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
                     ω_θ = ζθ[linear_idx]
                     ω_φ = ζφ[linear_idx]
                     
-                    # Advection: (Pm/E) u × ζ = -(Pm/E)(∇×u) × u
-                    adv_r = adv_coeff * (u_θ * ω_φ - u_φ * ω_θ)
+                    # Advection: (E/Pm) * (u × ζ)
+                    adv_r_val = adv_coeff * (u_θ * ω_φ - u_φ * ω_θ)
                     adv_θ_val = adv_coeff * (u_φ * ω_r - u_r * ω_φ)
                     adv_φ_val = adv_coeff * (u_r * ω_θ - u_θ * ω_r)
                     
@@ -1483,12 +1485,12 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
                     zhat_cross_r = -sin_theta * u_φ
                     zhat_cross_θ = -cos_theta * u_φ
                     zhat_cross_φ = cos_theta * u_θ + sin_theta * u_r
-                    cor_r = -rossby_factor * zhat_cross_r
-                    cor_θ = -rossby_factor * zhat_cross_θ
-                    cor_φ = -rossby_factor * zhat_cross_φ
+                    cor_r = -zhat_cross_r  # Coriolis coefficient = 1
+                    cor_θ = -zhat_cross_θ
+                    cor_φ = -zhat_cross_φ
                     
                     # Store combined result
-                    adv_r[linear_idx] = adv_r + cor_r
+                    adv_r[linear_idx] = adv_r_val + cor_r
                     adv_θ[linear_idx] = adv_θ_val + cor_θ
                     adv_φ[linear_idx] = adv_φ_val + cor_φ
                 end
@@ -1496,14 +1498,15 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
         end
     end
     
-    # Add buoyancy forces with proper scaling
+    # Add buoyancy forces: (Pm/Pr)*Ra*r (thermal), (Pm/Sc)*Ra_C*r (compositional)
+    # Buoyancy coefficient is (Pm/Pr)·Ra (with radial factor r)
     if temp_field !== nothing
-        buoyancy_factor = rossby_factor * (d_Pm / d_Pr) * d_Ra
+        buoyancy_factor = (d_Pm / d_Pr) * d_Ra
         add_thermal_buoyancy_force!(adv_r, temp_field, buoyancy_factor, domain)
     end
-    
+
     if comp_field !== nothing
-        comp_factor = rossby_factor * (d_Pm / d_Sc) * d_Ra_C
+        comp_factor = (d_Pm / d_Sc) * d_Ra_C
         add_buoyancy_force!(adv_r, comp_field, comp_factor, domain)
     end
     
@@ -1520,13 +1523,13 @@ end
 function add_thermal_buoyancy_force!(force_r::AbstractArray{T,3},
                                       scalar_field, factor::Float64,
                                       domain::RadialDomain) where T
-    # Add buoyancy force: F_buoyancy = (Pm²/E·Pr) Ra T r̂
+    # Add buoyancy force: F_buoyancy = (Pm/Pr) · Ra · T · r · r̂
     #
-    # Boussinesq approximation: buoyancy is proportional to temperature anomaly
-    # WITHOUT radial dependence (gravity is absorbed into Ra)
+    # Buoyancy includes radial factor for linear gravity profile
+    # g(r) ∝ r in a spherical shell (gravity increases linearly with radius)
     #
     # In non-dimensional form with magnetic diffusion time scaling:
-    # F = (Pm/E)·(Pm/Pr)·Ra·T·r̂
+    # F = (Pm/Pr) · Ra · T · r · r̂
     if iszero(factor)
         return force_r
     end
@@ -1538,16 +1541,30 @@ function add_thermal_buoyancy_force!(force_r::AbstractArray{T,3},
         scalar_data = parent(scalar_field.temperature.data)
     end
 
-    # Vectorized addition WITHOUT radial position factor (threaded in flat index space)
-    # Standard Boussinesq: F ∝ T, NOT F ∝ r·T
-    Ntot = length(force_r)
-    chunk = max(1, Ntot ÷ max(1, Threads.nthreads()))
-    @inbounds Threads.@threads for start in 1:chunk:Ntot
-        stop = min(Ntot, start + chunk - 1)
-        @simd for idx in start:stop
-            if idx <= length(scalar_data)
-                # Boussinesq buoyancy: force proportional to temperature, no radial weighting
-                force_r[idx] += factor * scalar_data[idx]
+    # Get pencil configuration to map linear indices to radial positions
+    config = scalar_field isa SHTnsPhysField ? scalar_field.config : scalar_field.temperature.config
+    r_range = range_local(config.pencils.r, 3)
+    local_size = size(force_r)
+
+    # Add buoyancy WITH radial factor r for linear gravity profile
+    # Loop over radial levels to apply r-dependent scaling
+    @inbounds Threads.@threads for k in 1:local_size[3]
+        # Get radius for this level using pencil range
+        r_idx = k + first(r_range) - 1
+        if r_idx <= domain.N
+            r = domain.r[r_idx, 4]  # r coordinate at this radial level
+        else
+            r = 1.0
+        end
+
+        # Apply factor * r * T at this radial level
+        factor_r = factor * r
+        for j in 1:local_size[2]
+            @simd for i in 1:local_size[1]
+                linear_idx = i + (j-1)*local_size[1] + (k-1)*local_size[1]*local_size[2]
+                if linear_idx <= length(scalar_data)
+                    force_r[linear_idx] += factor_r * scalar_data[linear_idx]
+                end
             end
         end
     end
@@ -1557,13 +1574,13 @@ end
 function add_buoyancy_force!(force_r::AbstractArray{T,3},
                              comp_field, factor::Float64,
                              domain::RadialDomain) where T
-    # Add compositional buoyancy force: F_comp = (Pm²/E·Sc) Ra_C C r̂
+    # Add compositional buoyancy force: F_comp = (Pm/Sc) · Ra_C · C · r · r̂
     #
-    # Boussinesq approximation: buoyancy is proportional to composition anomaly
-    # WITHOUT radial dependence (analogous to thermal buoyancy)
+    # Buoyancy includes radial factor for linear gravity profile
+    # g(r) ∝ r in a spherical shell (gravity increases linearly with radius)
     #
     # In non-dimensional form with magnetic diffusion time scaling:
-    # F = (Pm/E)·(Pm/Sc)·Ra_C·C·r̂
+    # F = (Pm/Sc) · Ra_C · C · r · r̂
     if iszero(factor)
         return force_r
     end
@@ -1575,16 +1592,30 @@ function add_buoyancy_force!(force_r::AbstractArray{T,3},
         comp_data = parent(comp_field.composition.data)
     end
 
-    # Vectorized addition WITHOUT radial position factor (threaded in flat index space)
-    # Standard Boussinesq: F ∝ C, NOT F ∝ r·C
-    Ntot = length(force_r)
-    chunk = max(1, Ntot ÷ max(1, Threads.nthreads()))
-    @inbounds Threads.@threads for start in 1:chunk:Ntot
-        stop = min(Ntot, start + chunk - 1)
-        @simd for idx in start:stop
-            if idx <= length(comp_data)
-                # Boussinesq buoyancy: force proportional to composition, no radial weighting
-                force_r[idx] += factor * comp_data[idx]
+    # Get pencil configuration to map linear indices to radial positions
+    config = comp_field isa SHTnsPhysField ? comp_field.config : comp_field.composition.config
+    r_range = range_local(config.pencils.r, 3)
+    local_size = size(force_r)
+
+    # Add buoyancy WITH radial factor r for linear gravity profile
+    # Loop over radial levels to apply r-dependent scaling
+    @inbounds Threads.@threads for k in 1:local_size[3]
+        # Get radius for this level using pencil range
+        r_idx = k + first(r_range) - 1
+        if r_idx <= domain.N
+            r = domain.r[r_idx, 4]  # r coordinate at this radial level
+        else
+            r = 1.0
+        end
+
+        # Apply factor * r * C at this radial level
+        factor_r = factor * r
+        for j in 1:local_size[2]
+            @simd for i in 1:local_size[1]
+                linear_idx = i + (j-1)*local_size[1] + (k-1)*local_size[1]*local_size[2]
+                if linear_idx <= length(comp_data)
+                    force_r[linear_idx] += factor_r * comp_data[linear_idx]
+                end
             end
         end
     end
@@ -1597,15 +1628,10 @@ function add_lorentz_force!(𝒰::SHTnsVelocityFields{T},
                            mag_field::SHTnsMagneticFields{T},
                            domain::RadialDomain) where T
 
-    # Compute Lorentz force F = (Pm/E) (∇ × B) × B with vectorization
-    if iszero(d_E)
-        throw(ArgumentError("Ekman number d_E must be nonzero when evaluating the velocity equation in magnetic-diffusion scaling."))
-    end
+    # Compute Lorentz force F = (∇ × B) × B with vectorization
+    # Lorentz coefficient = 1 (magnetic diffusion time scaling)
 
-    lorentz_factor = d_Pm / d_E
-
-    # Step 1: Use pre-computed current density from magnetic field
-    # Leverage shared memory access patterns for efficiency
+    # Step 1: Use pre-computed current density from magnetic field (j = ∇×B)
 
     # Step 2: Compute j × B with enhanced vectorization
     j_r = parent(mag_field.current.r_component.data)
@@ -1619,14 +1645,14 @@ function add_lorentz_force!(𝒰::SHTnsVelocityFields{T},
     adv_r = parent(𝒰.advection_physical.r_component.data)
     adv_θ = parent(𝒰.advection_physical.θ_component.data)
     adv_φ = parent(𝒰.advection_physical.φ_component.data)
-    
-    # Fused loop for j × B / Pm
+
+    # Fused loop for j × B (Lorentz coefficient = 1)
     @inbounds @simd for idx in eachindex(j_r)
         if idx <= length(B_r)
             # Add Lorentz force to existing forces
-            adv_r[idx] += lorentz_factor * (j_θ[idx] * B_φ[idx] - j_φ[idx] * B_θ[idx])
-            adv_θ[idx] += lorentz_factor * (j_φ[idx] * B_r[idx] - j_r[idx] * B_φ[idx])
-            adv_φ[idx] += lorentz_factor * (j_r[idx] * B_θ[idx] - j_θ[idx] * B_r[idx])
+            adv_r[idx] += (j_θ[idx] * B_φ[idx] - j_φ[idx] * B_θ[idx])
+            adv_θ[idx] += (j_φ[idx] * B_r[idx] - j_r[idx] * B_φ[idx])
+            adv_φ[idx] += (j_r[idx] * B_θ[idx] - j_θ[idx] * B_r[idx])
         end
     end
 end

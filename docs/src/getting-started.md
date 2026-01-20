@@ -17,11 +17,11 @@ Welcome to GeoDynamo.jl! This guide will get you from zero to running your first
 
 ## Installation
 
-### 1. Install Julia
+### Step 1: Install Julia
 
 Download from [julialang.org/downloads](https://julialang.org/downloads/) and ensure it's on your `PATH`.
 
-### 2. Install MPI & NetCDF
+### Step 2: Install MPI & NetCDF
 
 === "Ubuntu/Debian"
     ```bash
@@ -39,21 +39,40 @@ Download from [julialang.org/downloads](https://julialang.org/downloads/) and en
     ```
 
 Verify MPI is working:
-```bash
-mpiexec --version
+
+```
+╭─────────────────────────────────────────────────────────────────────────────╮
+│  Verify MPI                                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   $ mpiexec --version                                                       │
+│                                                                             │
+╰─────────────────────────────────────────────────────────────────────────────╯
 ```
 
-### 3. Clone GeoDynamo.jl
+### Step 3: Clone GeoDynamo.jl
 
-```bash
-git clone https://github.com/subhk/GeoDynamo.jl
-cd GeoDynamo.jl
+```
+╭─────────────────────────────────────────────────────────────────────────────╮
+│  Clone repository                                                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   $ git clone https://github.com/subhk/GeoDynamo.jl                         │
+│   $ cd GeoDynamo.jl                                                         │
+│                                                                             │
+╰─────────────────────────────────────────────────────────────────────────────╯
 ```
 
-### 4. Install Dependencies
+### Step 4: Install Dependencies
 
-```bash
-julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
+```
+╭─────────────────────────────────────────────────────────────────────────────╮
+│  Install Julia packages                                                     │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   $ julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'     │
+│                                                                             │
+╰─────────────────────────────────────────────────────────────────────────────╯
 ```
 
 !!! tip "Development Mode"
@@ -68,12 +87,24 @@ julia --project -e 'using Pkg; Pkg.instantiate(); Pkg.precompile()'
 
 ### Test the Installation
 
-```bash
-# Quick test
-julia --project test/shtnskit_roundtrip.jl
+```
+╭─────────────────────────────────────────────────────────────────────────────╮
+│  Quick test                                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   $ julia --project test/shtnskit_roundtrip.jl                              │
+│                                                                             │
+╰─────────────────────────────────────────────────────────────────────────────╯
+```
 
-# Full test suite
-julia --project -e 'using Pkg; Pkg.test("GeoDynamo")'
+```
+╭─────────────────────────────────────────────────────────────────────────────╮
+│  Full test suite                                                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   $ julia --project -e 'using Pkg; Pkg.test("GeoDynamo")'                   │
+│                                                                             │
+╰─────────────────────────────────────────────────────────────────────────────╯
 ```
 
 ### Check SHTnsKit Features
@@ -135,12 +166,18 @@ save_parameters(params, "config/my_run.jl")
 
 ### Running with MPI
 
-```bash
-mpiexec -n 4 julia --project -e '
-    using GeoDynamo
-    state = initialize_simulation(Float64)
-    run_simulation!(state; t_end = 0.02)
-'
+```
+╭─────────────────────────────────────────────────────────────────────────────╮
+│  MPI execution (4 processes)                                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   $ mpiexec -n 4 julia --project -e '                                       │
+│       using GeoDynamo                                                       │
+│       state = initialize_simulation(Float64)                                │
+│       run_simulation!(state; t_end = 0.02)                                  │
+│   '                                                                         │
+│                                                                             │
+╰─────────────────────────────────────────────────────────────────────────────╯
 ```
 
 !!! success "Output"
@@ -155,19 +192,19 @@ GeoDynamo.jl solves the Boussinesq MHD equations in a rotating spherical shell:
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                                                                     │
-│    ∂u/∂t  =  viscous diffusion  +  buoyancy  +  Lorentz force      │
-│                    ↓                  ↓              ↓              │
-│               E∇²u           Ra·T·r̂      (∇×B)×B           │
+│   ∂u/∂t  =  viscous diffusion  +  buoyancy  +  Lorentz force       │
+│                     ↓                 ↓              ↓              │
+│                   E∇²u            Ra·T·r̂        (∇×B)×B            │
 │                                                                     │
-│    ∂T/∂t  =  thermal diffusion  -  advection                       │
-│                    ↓                  ↓                              │
-│              (Pm/Pr)∇²T          u·∇T                              │
+│   ∂T/∂t  =  thermal diffusion  -  advection                        │
+│                     ↓                  ↓                            │
+│                (Pm/Pr)∇²T            u·∇T                           │
 │                                                                     │
-│    ∂B/∂t  =  magnetic diffusion  +  induction                      │
-│                    ↓                    ↓                            │
-│                 ∇²B              ∇×(u×B)                           │
+│   ∂B/∂t  =  magnetic diffusion  +  induction                       │
+│                     ↓                  ↓                            │
+│                   ∇²B              ∇×(u×B)                          │
 │                                                                     │
-│    Constraints:  ∇·u = 0    ∇·B = 0                                │
+│   Constraints:      ∇·u = 0           ∇·B = 0                      │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```

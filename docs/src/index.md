@@ -37,7 +37,7 @@ run_simulation!(state; t_end=0.1)
 !!! success "End-to-End MHD Pipeline"
     Temperature, composition, velocity, and magnetic fields evolved in a single tightly coupled solver.
 
-!!! success "Hybrid Spectral–Radial Discretization"
+!!! success "Hybrid Spectral-Radial Discretization"
     SHTnsKit for fast spherical harmonics + pencil-decomposed finite differences for radial terms.
 
 !!! success "Multiple Time Integrators"
@@ -154,6 +154,26 @@ GeoDynamo.jl builds on a robust stack of Julia packages:
 
 ## Governing Equations
 
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                                                                     │
+│   ∂u/∂t  =  viscous diffusion  +  buoyancy  +  Lorentz force       │
+│                     ↓                 ↓              ↓              │
+│                   E∇²u            Ra·T·r̂        (∇×B)×B            │
+│                                                                     │
+│   ∂T/∂t  =  thermal diffusion  -  advection                        │
+│                     ↓                  ↓                            │
+│                (Pm/Pr)∇²T            u·∇T                           │
+│                                                                     │
+│   ∂B/∂t  =  magnetic diffusion  +  induction                       │
+│                     ↓                  ↓                            │
+│                   ∇²B              ∇×(u×B)                          │
+│                                                                     │
+│   Constraints:      ∇·u = 0           ∇·B = 0                      │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
 The solver advances the nondimensional Boussinesq MHD system from *Sreenivasan & Kar, Phys. Rev. Fluids* **3**, 093801 (2018).
 
 ### Momentum
@@ -184,8 +204,8 @@ The solver advances the nondimensional Boussinesq MHD system from *Sreenivasan &
 \nabla \cdot \boldsymbol{u} = 0 \qquad \nabla \cdot \boldsymbol{B} = 0
 ```
 
-!!! info "Toroidal–Poloidal Decomposition"
-    Both velocity and magnetic fields use toroidal–poloidal decomposition, which spectrally enforces the divergence-free constraints.
+!!! info "Toroidal-Poloidal Decomposition"
+    Both velocity and magnetic fields use toroidal-poloidal decomposition, which spectrally enforces the divergence-free constraints.
 
 ---
 
