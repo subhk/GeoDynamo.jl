@@ -45,10 +45,10 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
     GeoDynamo.compute_vorticity_spectral_full!(vfields, dom)
 
-    ω_tor_r = parent(vfields.vort_toroidal.data_real)
-    ω_tor_i = parent(vfields.vort_toroidal.data_imag)
-    ω_pol_r = parent(vfields.vort_poloidal.data_real)
-    ω_pol_i = parent(vfields.vort_poloidal.data_imag)
+    ω_tor_r = parent(vfields.ζᵀ.data_real)
+    ω_tor_i = parent(vfields.ζᵀ.data_imag)
+    ω_pol_r = parent(vfields.ζᴾ.data_real)
+    ω_pol_i = parent(vfields.ζᴾ.data_imag)
 
     r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
     lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)

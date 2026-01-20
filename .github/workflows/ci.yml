@@ -21,10 +21,12 @@ jobs:
             julia-version: '1.10'
           - os: ubuntu-latest
             julia-version: '1.11'
+          - os: ubuntu-latest
+            julia-version: '1.12'
           - os: macos-latest
-            julia-version: '1.11'
+            julia-version: '1.12'
           - os: windows-latest
-            julia-version: '1.11'
+            julia-version: '1.12'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

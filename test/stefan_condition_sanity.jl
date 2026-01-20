@@ -59,7 +59,7 @@ end
     G = Topo.gaunt_on_the_fly(l, m, lp, mp, L, M; use_wigner=true)
     G_grad = Topo.gradient_gaunt_from_basic(l, lp, L, G)
     gaunt.G[(l, m, lp, mp, L, M)] = G
-    gaunt.G_grad[(l, m, lp, mp, L, M)] = G_grad
+    gaunt.G_∇[(l, m, lp, mp, L, M)] = G_grad
 
     config = Topo.TopographyCouplingConfig(
         enabled=true,
