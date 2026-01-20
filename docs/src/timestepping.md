@@ -56,6 +56,95 @@ The geodynamo equations contain both linear (diffusion) and nonlinear (advection
 
 ---
 
+## Toroidal-Poloidal Decomposition
+
+For incompressible flow (∇·**u** = 0) and solenoidal magnetic fields (∇·**B** = 0), vector fields are decomposed into **toroidal** and **poloidal** scalar potentials:
+
+```math
+\mathbf{u} = \nabla \times (\mathcal{T} \hat{\mathbf{r}}) + \nabla \times \nabla \times (\mathcal{P} \hat{\mathbf{r}})
+```
+
+```math
+\mathbf{B} = \nabla \times (T \hat{\mathbf{r}}) + \nabla \times \nabla \times (P \hat{\mathbf{r}})
+```
+
+where:
+- **𝒯** (toroidal potential) generates flow/field with no radial component
+- **𝒫** (poloidal potential) generates flow/field with radial component
+
+This decomposition automatically satisfies the divergence-free constraints.
+
+### Velocity Equations
+
+Taking the toroidal and poloidal components of the momentum equation yields separate evolution equations for each potential.
+
+**Toroidal velocity (𝒯):**
+```math
+\frac{\partial \mathcal{T}}{\partial t} = Pm \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{T} + N_{\mathcal{T}}
+```
+
+**Poloidal velocity (𝒫):**
+```math
+\frac{\partial \mathcal{P}}{\partial t} = Pm \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{P} + N_{\mathcal{P}}
+```
+
+where:
+- `Pm` is the magnetic Prandtl number (viscous diffusion coefficient in magnetic time units)
+- `N_𝒯` and `N_𝒫` contain the nonlinear terms (Coriolis, advection, Lorentz force, buoyancy)
+- The radial Laplacian operator in spectral space is:
+```math
+\nabla^2_\ell = \frac{\partial^2}{\partial r^2} + \frac{2}{r}\frac{\partial}{\partial r} - \frac{\ell(\ell+1)}{r^2}
+```
+
+### Magnetic Field Equations
+
+The induction equation similarly splits into toroidal and poloidal components.
+
+**Toroidal magnetic field (T):**
+```math
+\frac{\partial T}{\partial t} = \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) T + [\nabla \times (\mathbf{u} \times \mathbf{B})]_T
+```
+
+**Poloidal magnetic field (P):**
+```math
+\frac{\partial P}{\partial t} = \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) P + [\nabla \times (\mathbf{u} \times \mathbf{B})]_P
+```
+
+where:
+- The diffusivity is 1.0 (magnetic diffusion time scaling: τ = L²/η)
+- The subscripts `T` and `P` denote the toroidal and poloidal projections of the induction term
+
+### Scalar Fields
+
+Temperature and composition are **scalar** fields—they do not have toroidal/poloidal decomposition:
+
+**Temperature:**
+```math
+\frac{\partial \Theta}{\partial t} = \frac{Pm}{Pr} \nabla^2 \Theta - \mathbf{u} \cdot \nabla \Theta
+```
+
+**Composition (if enabled):**
+```math
+\frac{\partial C}{\partial t} = \frac{Pm}{Sc} \nabla^2 C - \mathbf{u} \cdot \nabla C
+```
+
+### Summary of Timestepped Fields
+
+| Field | Type | Components | Diffusivity Coefficient |
+|:------|:-----|:-----------|:------------------------|
+| Velocity | Vector | 𝒯 (toroidal), 𝒫 (poloidal) | `Pm` |
+| Magnetic | Vector | T (toroidal), P (poloidal) | `1.0` |
+| Temperature | Scalar | Θ | `Pm/Pr` |
+| Composition | Scalar | C | `Pm/Sc` |
+
+!!! note "Physical Interpretation"
+    - **Toroidal velocity** represents zonal flows and azimuthal circulation
+    - **Poloidal velocity** represents meridional overturning and radial motion
+    - **Toroidal magnetic field** generates the azimuthal (φ) component of **B**
+    - **Poloidal magnetic field** generates the dipole and higher multipole structure
+
+---
+
 ## IMEX Framework
 
 All schemes split the equations:

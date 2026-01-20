@@ -154,14 +154,26 @@ function enforce_ball_scalar_regularity!(spec::GeoDynamo.SHTnsSpecField)
     cfg = spec.config
     spec_real = parent(spec.data_real)
     spec_imag = parent(spec.data_imag)
+
     lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)
-    r_local_idx = 1  # inner radial index in local r-pencil for spec arrays
+    r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
+
+    # Only proceed if this rank owns the inner boundary (r=0, global index 1)
+    if !(1 in r_range)
+        return spec  # This rank doesn't own r=0
+    end
+
+    # Convert global radial index 1 to local index
+    r_local_idx = 1 - first(r_range) + 1
+
+    T = eltype(spec_real)
+
     @inbounds for (k, lm_idx) in enumerate(lm_range)
         if lm_idx <= cfg.nlm
             l = cfg.l_values[lm_idx]
-            if l > 0 && r_local_idx <= size(spec_real, 3)
-                spec_real[k, 1, r_local_idx] = 0.0
-                spec_imag[k, 1, r_local_idx] = 0.0
+            if l > 0
+                spec_real[k, 1, r_local_idx] = zero(T)
+                spec_imag[k, 1, r_local_idx] = zero(T)
             end
         end
     end
@@ -179,17 +191,29 @@ they vanish at r=0 for all l ≥ 1. Zeros the inner radial plane for l≥1.
 function enforce_ball_vector_regularity!(tor_spec::GeoDynamo.SHTnsSpecField,
                                          pol_spec::GeoDynamo.SHTnsSpecField)
     cfg = tor_spec.config
+
+    lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)
+    r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
+
+    # Only proceed if this rank owns the inner boundary (r=0, global index 1)
+    if !(1 in r_range)
+        return tor_spec, pol_spec  # This rank doesn't own r=0
+    end
+
+    # Convert global radial index 1 to local index
+    r_local_idx = 1 - first(r_range) + 1
+
     for sp in (tor_spec, pol_spec)
         sreal = parent(sp.data_real)
         simag = parent(sp.data_imag)
-        lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)
-        r_local_idx = 1
+        T = eltype(sreal)
+
         @inbounds for (k, lm_idx) in enumerate(lm_range)
             if lm_idx <= cfg.nlm
                 l = cfg.l_values[lm_idx]
-                if l >= 1 && r_local_idx <= size(sreal, 3)
-                    sreal[k, 1, r_local_idx] = 0.0
-                    simag[k, 1, r_local_idx] = 0.0
+                if l >= 1
+                    sreal[k, 1, r_local_idx] = zero(T)
+                    simag[k, 1, r_local_idx] = zero(T)
                 end
             end
         end

@@ -228,19 +228,12 @@ function create_programmatic_boundary(pattern::Symbol, config, amplitude::Real=1
 end
 
 """
-    create_time_dependent_programmatic_boundary(pattern::Symbol, config, time_span::Tuple{Real, Real}, 
-                                               ntime::Int; amplitude::Real=1.0, 
-                                               parameters::Dict=Dict(), description::String="",
-                                               field_type::String="temperature")
+    create_time_dependent_programmatic_boundary(ylm::Ylm, config, time_span, ntime; kwargs...)
+    create_time_dependent_programmatic_boundary(pattern::Symbol, config, time_span, ntime; kwargs...)
 
 Create time-dependent programmatically generated boundary conditions.
-"""
-"""
-    create_time_dependent_programmatic_boundary(ylm::Ylm, config, time_span, ntime; kwargs...)
 
-Create time-dependent spherical harmonic boundary condition using Ylm struct.
-
-# Example
+# Example with Ylm
 ```julia
 boundary = create_time_dependent_programmatic_boundary(Ylm(3, 2), config, (0.0, 10.0), 100;
     amplitude=0.5, time_factor=2π)
