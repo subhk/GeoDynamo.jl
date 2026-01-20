@@ -143,8 +143,8 @@ mutable struct SHTnsMagneticFields{T}
     𝒫::SHTnsSpecField{T}
 
     # Inner core fields
-    ic_toroidal::SHTnsSpecField{T}
-    ic_poloidal::SHTnsSpecField{T}
+    𝒯ⁱᶜ::SHTnsSpecField{T}
+    𝒫ⁱᶜ::SHTnsSpecField{T}
 
     # Nonlinear terms (induction)
     nlᵀ::SHTnsSpecField{T}
@@ -202,8 +202,8 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     𝒫 = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
     
     # Inner core fields (different domain)
-    ic_toroidal = create_shtns_spectral_field(T, config, 𝒟ⁱᶜ, pencil_spec)
-    ic_poloidal = create_shtns_spectral_field(T, config, 𝒟ⁱᶜ, pencil_spec)
+    𝒯ⁱᶜ = create_shtns_spectral_field(T, config, 𝒟ⁱᶜ, pencil_spec)
+    𝒫ⁱᶜ = create_shtns_spectral_field(T, config, 𝒟ⁱᶜ, pencil_spec)
     
     # Nonlinear terms
     nlᵀ = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
@@ -234,7 +234,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     
     return SHTnsMagneticFields{T}(magnetic, current,
                                 𝒯, 𝒫,
-                                ic_toroidal, ic_poloidal,
+                                𝒯ⁱᶜ, 𝒫ⁱᶜ,
                                 nlᵀ, nlᴾ, prev_nlᵀ, prev_nlᴾ,
                                 work_tor, work_pol, work_physical,
                                 induction_physical,
@@ -661,10 +661,10 @@ function add_inner_core_rotation!(ℬ::SHTnsMagneticFields{T}, Ω::Float64) wher
     # This modifies the nonlinear terms based on inner core rotation
     
     # Get local data views
-    ic_tor_real = parent(ℬ.ic_toroidal.data_real)
-    ic_tor_imag = parent(ℬ.ic_toroidal.data_imag)
-    ic_pol_real = parent(ℬ.ic_poloidal.data_real)
-    ic_pol_imag = parent(ℬ.ic_poloidal.data_imag)
+    ic_tor_real = parent(ℬ.𝒯ⁱᶜ.data_real)
+    ic_tor_imag = parent(ℬ.𝒯ⁱᶜ.data_imag)
+    ic_pol_real = parent(ℬ.𝒫ⁱᶜ.data_real)
+    ic_pol_imag = parent(ℬ.𝒫ⁱᶜ.data_imag)
     
     NLᵀ_real = parent(ℬ.nlᵀ.data_real)
     NLᵀ_imag = parent(ℬ.nlᵀ.data_imag)
@@ -672,15 +672,15 @@ function add_inner_core_rotation!(ℬ::SHTnsMagneticFields{T}, Ω::Float64) wher
     NLᴾ_imag = parent(ℬ.nlᴾ.data_imag)
     
     # Get local ranges
-    lm_range = get_local_range(ℬ.ic_toroidal.pencil, 1)
-    r_range  = get_local_range(ℬ.ic_toroidal.pencil, 3)
+    lm_range = get_local_range(ℬ.𝒯ⁱᶜ.pencil, 1)
+    r_range  = get_local_range(ℬ.𝒯ⁱᶜ.pencil, 3)
     
     # Rotation factor for inner core coupling
     rotation_factor = Ω * 1e-3  # Scaled rotation rate
     
     # Add rotation effects to nonlinear terms at inner core boundary
     @inbounds for lm_idx in lm_range
-        if lm_idx <= ℬ.ic_toroidal.nlm
+        if lm_idx <= ℬ.𝒯ⁱᶜ.nlm
             local_lm = lm_idx - first(lm_range) + 1
             m = ℬ.𝒯.config.m_values[lm_idx]
             
@@ -823,7 +823,7 @@ Perform batched transforms for better cache efficiency using shtnskit_transforms
 """
 function batch_magnetic_transforms!(ℬ::SHTnsMagneticFields{T}) where T
     # Use batched operations from shtnskit_transforms.jl for better performance
-    specs = [ℬ.𝒯, ℬ.𝒫, ℬ.ic_toroidal, ℬ.ic_poloidal]
+    specs = [ℬ.𝒯, ℬ.𝒫, ℬ.𝒯ⁱᶜ, ℬ.𝒫ⁱᶜ]
     physs = [ℬ.work_physical.r_component, ℬ.work_physical.θ_component, 
              ℬ.work_physical.φ_component, ℬ.magnetic.r_component]
     
@@ -847,7 +847,7 @@ function optimize_magnetic_memory_layout!(ℬ::SHTnsMagneticFields{T}) where T
     # Use transpose plans if available
     plans = config.transpose_plans
     if !isempty(plans) && haskey(plans, :r_to_spec)
-        transpose_with_timer!(ℬ.work_tor.data_real, ℬ.𝒯.data_real, 
+        transpose_with_timer!(ℬ.work_tor.data_real, ℬ.𝒯.data_real,
                               plans[:r_to_spec], "magnetic_toroidal_layout_opt")
         transpose_with_timer!(ℬ.work_pol.data_real, ℬ.𝒫.data_real, 
                               plans[:r_to_spec], "magnetic_poloidal_layout_opt")
@@ -882,7 +882,7 @@ function validate_magnetic_configuration(ℬ::SHTnsMagneticFields{T}, config::SH
     # Note: Transform manager checks removed - now handled by SHTnsKit directly
     
     # Check inner core field consistency
-    if size(ℬ.ic_toroidal.data_real, 1) != config.nlm
+    if size(ℬ.𝒯ⁱᶜ.data_real, 1) != config.nlm
         push!(errors, "Inner core toroidal field size mismatch with config.nlm")
     end
     
