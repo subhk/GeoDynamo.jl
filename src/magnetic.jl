@@ -282,24 +282,24 @@ function compute_magnetic_nonlinear!(ℬ::SHTnsMagneticFields{T},
 end
 
 """
-    enforce_magnetic_boundary_values!(fields)
+    enforce_magnetic_boundary_values!(ℬ)
 
 Anchor magnetic toroidal/poloidal spectral data to cached Dirichlet boundary
 values on the inner and outer radial surfaces.
 """
-function enforce_magnetic_boundary_values!(fields::SHTnsMagneticFields{T}) where T
-    domain = fields.outer_domain
+function enforce_magnetic_boundary_values!(ℬ::SHTnsMagneticFields{T}) where T
+    domain = ℬ.outer_domain
 
-    tor_real = parent(fields.𝒯.data_real)
-    tor_imag = parent(fields.𝒯.data_imag)
-    pol_real = parent(fields.𝒫.data_real)
-    pol_imag = parent(fields.𝒫.data_imag)
+    tor_real = parent(ℬ.𝒯.data_real)
+    tor_imag = parent(ℬ.𝒯.data_imag)
+    pol_real = parent(ℬ.𝒫.data_real)
+    pol_imag = parent(ℬ.𝒫.data_imag)
 
-    tor_bc = fields.𝒯.boundary_values
-    pol_bc = fields.𝒫.boundary_values
+    tor_bc = ℬ.𝒯.boundary_values
+    pol_bc = ℬ.𝒫.boundary_values
 
-    lm_range = get_local_range(fields.𝒯.pencil, 1)
-    r_range = get_local_range(fields.𝒯.pencil, 3)
+    lm_range = get_local_range(ℬ.𝒯.pencil, 1)
+    r_range = get_local_range(ℬ.𝒯.pencil, 3)
 
     has_inner = 1 in r_range && domain.r[1, 4] > 0
     has_outer = domain.N in r_range
@@ -310,26 +310,26 @@ function enforce_magnetic_boundary_values!(fields::SHTnsMagneticFields{T}) where
     dirichlet_code = Int(bcs.DIRICHLET)
 
     for lm_idx in lm_range
-        if lm_idx <= fields.𝒯.nlm
+        if lm_idx <= ℬ.𝒯.nlm
             local_lm = lm_idx - first(lm_range) + 1
 
             if has_inner && 1 <= inner_idx <= size(tor_real, 3)
-                if fields.𝒯.bc_type_inner[lm_idx] == dirichlet_code
+                if ℬ.𝒯.bc_type_inner[lm_idx] == dirichlet_code
                     tor_real[local_lm, 1, inner_idx] = tor_bc[1, lm_idx]
                     tor_imag[local_lm, 1, inner_idx] = zero(T)
                 end
-                if fields.𝒫.bc_type_inner[lm_idx] == dirichlet_code
+                if ℬ.𝒫.bc_type_inner[lm_idx] == dirichlet_code
                     pol_real[local_lm, 1, inner_idx] = pol_bc[1, lm_idx]
                     pol_imag[local_lm, 1, inner_idx] = zero(T)
                 end
             end
 
             if has_outer && 1 <= outer_idx <= size(tor_real, 3)
-                if fields.𝒯.bc_type_outer[lm_idx] == dirichlet_code
+                if ℬ.𝒯.bc_type_outer[lm_idx] == dirichlet_code
                     tor_real[local_lm, 1, outer_idx] = tor_bc[2, lm_idx]
                     tor_imag[local_lm, 1, outer_idx] = zero(T)
                 end
-                if fields.𝒫.bc_type_outer[lm_idx] == dirichlet_code
+                if ℬ.𝒫.bc_type_outer[lm_idx] == dirichlet_code
                     pol_real[local_lm, 1, outer_idx] = pol_bc[2, lm_idx]
                     pol_imag[local_lm, 1, outer_idx] = zero(T)
                 end
@@ -337,34 +337,34 @@ function enforce_magnetic_boundary_values!(fields::SHTnsMagneticFields{T}) where
         end
     end
 
-    return fields
+    return ℬ
 end
 
 """
-    apply_magnetic_boundary_conditions!(fields; time_index=nothing)
+    apply_magnetic_boundary_conditions!(ℬ; time_index=nothing)
 
 Refresh magnetic boundary data from the bcs subsystem and
 enforce the corresponding Dirichlet values in spectral space.
 """
-function apply_magnetic_boundary_conditions!(fields::SHTnsMagneticFields{T};
+function apply_magnetic_boundary_conditions!(ℬ::SHTnsMagneticFields{T};
                                               time_index::Union{Nothing,Int}=nothing) where T
-    boundary_set, _ = bcs.get_magnetic_boundary_data(fields)
+    boundary_set, _ = bcs.get_magnetic_boundary_data(ℬ)
     if boundary_set === nothing
-        return fields
+        return ℬ
     end
 
     if time_index === nothing
-        bcs.apply_magnetic_boundary_conditions!(fields)
+        bcs.apply_magnetic_boundary_conditions!(ℬ)
     else
-        bcs.apply_magnetic_boundary_conditions!(fields, time_index)
+        bcs.apply_magnetic_boundary_conditions!(ℬ, time_index)
     end
 
-    enforce_magnetic_boundary_values!(fields)
+    enforce_magnetic_boundary_values!(ℬ)
 
-    if fields.outer_domain.r[1, 4] == 0.0
-        enforce_ball_vector_regularity!(fields.𝒯, fields.𝒫)
+    if ℬ.outer_domain.r[1, 4] == 0.0
+        enforce_ball_vector_regularity!(ℬ.𝒯, ℬ.𝒫)
     end
-    return fields
+    return ℬ
 end
 
 

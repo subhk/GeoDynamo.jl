@@ -395,9 +395,10 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
 
     # Process each radial level
     for r_local in axes(tor_real, 3)
-        # Extract toroidal and poloidal coefficients (includes MPI gathering)
-        tor_coeffs = extract_coefficients_for_shtnskit(tor_real, tor_imag, r_local, config)
-        pol_coeffs = extract_coefficients_for_shtnskit(pol_real, pol_imag, r_local, config)
+        # Extract toroidal and poloidal coefficients efficiently (includes MPI gathering)
+        # Uses optimized pair extraction to reduce memory allocations
+        tor_coeffs, pol_coeffs = extract_coefficients_pair_for_shtnskit(
+            tor_real, tor_imag, pol_real, pol_imag, r_local, config)
 
         # Perform vector synthesis using SHTnsKit (tangential components only)
         vt_field, vp_field = SHTnsKit.SHsphtor_to_spat(sht_config, pol_coeffs, tor_coeffs;
@@ -662,8 +663,9 @@ function extract_coefficients_for_shtnskit!(coeffs_buffer::Matrix{ComplexF64},
 
     # Convert from linear indexing to (l,m) matrix format
     # Threaded for performance with large spectral arrays
+    # Uses O(1) index_to_lm_fast with precomputed lookup tables
     Threads.@threads for lm_idx in eachindex(IndexLinear(), view(spec_real, :, 1, 1))
-        l, m = index_to_lm_shtnskit(lm_idx, lmax, mmax)
+        l, m = index_to_lm_fast(lm_idx, config)
         # Check bounds on both spec_real and spec_imag for safety
         if r_local <= size(spec_real, 3) && r_local <= size(spec_imag, 3) &&
            l >= 0 && m >= 0 && l <= buffer_lmax && m <= buffer_mmax
@@ -714,7 +716,54 @@ function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config
     Allreduce!(coeffs_buffer, coeffs_gathered, MPI.SUM, get_comm())
 
     # Return copy to avoid aliasing issues with buffer reuse
+    # This is necessary when multiple extractions are done sequentially (e.g., vector transforms)
     return copy(coeffs_gathered)
+end
+
+"""
+    extract_coefficients_pair_for_shtnskit(spec1_real, spec1_imag, spec2_real, spec2_imag, r_local, config)
+
+Extract two spectral coefficient matrices efficiently for vector transforms.
+
+This is optimized for the common case in vector synthesis/analysis where we need
+both toroidal and poloidal coefficients. It avoids one copy operation compared
+to calling `extract_coefficients_for_shtnskit` twice.
+
+# Returns
+Tuple (coeffs1, coeffs2) of coefficient matrices.
+"""
+function extract_coefficients_pair_for_shtnskit(spec1_real, spec1_imag,
+                                                 spec2_real, spec2_imag,
+                                                 r_local, config)
+    lmax, mmax = config.lmax, config.mmax
+
+    # Use separate cached buffers for each extraction
+    coeffs_buffer1 = get_cached_buffer!(config, :coeffs_buffer_pair1) do
+        zeros(ComplexF64, lmax+1, mmax+1)
+    end
+    coeffs_buffer2 = get_cached_buffer!(config, :coeffs_buffer_pair2) do
+        zeros(ComplexF64, lmax+1, mmax+1)
+    end
+
+    # Extract both coefficient sets
+    extract_coefficients_for_shtnskit!(coeffs_buffer1, spec1_real, spec1_imag, r_local, config)
+    extract_coefficients_for_shtnskit!(coeffs_buffer2, spec2_real, spec2_imag, r_local, config)
+
+    # Buffers for MPI reduction
+    coeffs_gathered1 = get_cached_buffer!(config, :coeffs_gathered_pair1) do
+        zeros(ComplexF64, lmax+1, mmax+1)
+    end
+    coeffs_gathered2 = get_cached_buffer!(config, :coeffs_gathered_pair2) do
+        zeros(ComplexF64, lmax+1, mmax+1)
+    end
+
+    # MPI gather for both - these can't be parallelized due to MPI collective semantics
+    Allreduce!(coeffs_buffer1, coeffs_gathered1, MPI.SUM, get_comm())
+    Allreduce!(coeffs_buffer2, coeffs_gathered2, MPI.SUM, get_comm())
+
+    # Only one copy needed (for the first matrix) since we use separate buffers
+    # The second buffer won't be overwritten until next pair extraction
+    return copy(coeffs_gathered1), coeffs_gathered2
 end
 
 """
@@ -738,8 +787,9 @@ function store_coefficients_from_shtnskit!(spec_real, spec_imag, coeffs_matrix, 
     matrix_mmax = size(coeffs_matrix, 2) - 1
 
     # Convert from (l,m) matrix to linear index format
+    # Uses O(1) index_to_lm_fast with precomputed lookup tables
     Threads.@threads for lm_idx in eachindex(IndexLinear(), view(spec_real, :, 1, 1))
-        l, m = index_to_lm_shtnskit(lm_idx, lmax, mmax)
+        l, m = index_to_lm_fast(lm_idx, config)
         # Check bounds on both spec_real and spec_imag for safety
         if r_local <= size(spec_real, 3) && r_local <= size(spec_imag, 3) && l >= 0 && m >= 0
             if l <= matrix_lmax && m <= matrix_mmax
