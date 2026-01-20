@@ -447,7 +447,10 @@ end
 
 Compute Gaunt coefficient using Wigner 3j symbols (analytic formula).
 
-G = sqrt((2l1+1)(2l2+1)(2L+1)/(4π)) * (l1 l2 L; 0 0 0) * (l1 l2 L; -m1 m2 M)
+For the Gaunt integral with conjugate: G = ∫ Y_{l1}^{m1*} Y_{l2}^{m2} Y_L^M dΩ
+
+Using Y_l^{m*} = (-1)^m Y_l^{-m}, the formula is:
+G = (-1)^{m1} * sqrt((2l1+1)(2l2+1)(2L+1)/(4π)) * (l1 l2 L; 0 0 0) * (l1 l2 L; -m1 m2 M)
 
 This is faster than numerical integration for production use.
 """
@@ -470,7 +473,10 @@ function compute_gaunt_from_wigner3j(l1::Int, m1::Int, l2::Int, m2::Int, L::Int,
     w3j_000 = _wigner_3j(l1, l2, L, 0, 0, 0)
     w3j_mmM = _wigner_3j(l1, l2, L, -m1, m2, M)
 
-    return prefactor * w3j_000 * w3j_mmM
+    # Phase factor from conjugate: Y_l^{m*} = (-1)^m Y_l^{-m}
+    phase = iseven(m1) ? 1.0 : -1.0
+
+    return phase * prefactor * w3j_000 * w3j_mmM
 end
 
 """

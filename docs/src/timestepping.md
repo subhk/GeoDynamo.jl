@@ -43,12 +43,12 @@ The geodynamo equations contain both linear (diffusion) and nonlinear (advection
 
 **Magnetic field:**
 ```math
-\frac{\partial \mathbf{B}}{\partial t} = \underbrace{\frac{E}{Pm} \nabla^2 \mathbf{B}}_{\text{magnetic diffusion}} + \underbrace{\nabla \times (\mathbf{u} \times \mathbf{B})}_{\text{induction}}
+\frac{\partial \mathbf{B}}{\partial t} = \underbrace{\nabla^2 \mathbf{B}}_{\text{magnetic diffusion}} + \underbrace{\nabla \times (\mathbf{u} \times \mathbf{B})}_{\text{induction}}
 ```
 
 **Temperature:**
 ```math
-\frac{\partial T}{\partial t} = \underbrace{\frac{E}{Pr} \nabla^2 T}_{\text{thermal diffusion}} + \underbrace{N_T(\mathbf{u}, T)}_{\text{advection}}
+\frac{\partial T}{\partial t} = \underbrace{\frac{Pm}{Pr} \nabla^2 T}_{\text{thermal diffusion}} + \underbrace{N_T(\mathbf{u}, T)}_{\text{advection}}
 ```
 
 !!! info "Stiffness"
@@ -80,16 +80,16 @@ Taking the toroidal and poloidal components of the momentum equation yields sepa
 
 **Toroidal velocity (𝒯):**
 ```math
-\frac{\partial \mathcal{T}}{\partial t} = Pm \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{T} + N_{\mathcal{T}}
+\frac{\partial \mathcal{T}}{\partial t} = E \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{T} + N_{\mathcal{T}}
 ```
 
 **Poloidal velocity (𝒫):**
 ```math
-\frac{\partial \mathcal{P}}{\partial t} = Pm \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{P} + N_{\mathcal{P}}
+\frac{\partial \mathcal{P}}{\partial t} = E \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{P} + N_{\mathcal{P}}
 ```
 
 where:
-- `Pm` is the magnetic Prandtl number (viscous diffusion coefficient in magnetic time units)
+- `E` is the Ekman number (viscous diffusion coefficient in magnetic time units)
 - `N_𝒯` and `N_𝒫` contain the nonlinear terms (Coriolis, advection, Lorentz force, buoyancy)
 - The radial Laplacian operator in spectral space is:
 ```math
@@ -132,7 +132,7 @@ Temperature and composition are **scalar** fields—they do not have toroidal/po
 
 | Field | Type | Components | Diffusivity Coefficient |
 |:------|:-----|:-----------|:------------------------|
-| Velocity | Vector | 𝒯 (toroidal), 𝒫 (poloidal) | `Pm` |
+| Velocity | Vector | 𝒯 (toroidal), 𝒫 (poloidal) | `E` |
 | Magnetic | Vector | T (toroidal), P (poloidal) | `1.0` |
 | Temperature | Scalar | Θ | `Pm/Pr` |
 | Composition | Scalar | C | `Pm/Sc` |
