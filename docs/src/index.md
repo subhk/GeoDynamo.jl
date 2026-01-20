@@ -215,6 +215,7 @@ The solver advances the nondimensional Boussinesq MHD system from *Sreenivasan &
 |:-----|:------------|
 | **[Getting Started](getting-started.md)** | Installation and first simulation |
 | **[Configuration](configuration.md)** | All parameter options explained |
+| **[Boundary Conditions](boundary-conditions.md)** | Velocity, magnetic, thermal, and compositional BCs |
 | **[Time Integration](timestepping.md)** | CNAB2, EAB2, ERK2 schemes |
 | **[Spherical Harmonics](shtnskit.md)** | SHTnsKit transforms and operators |
 | **[Boundary Topography](topography.md)** | Non-spherical boundary coupling |

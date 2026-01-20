@@ -116,17 +116,28 @@ See [Time Integration](timestepping.md) for detailed scheme documentation.
 
 ## Boundary Conditions
 
-### Built-in Boundary Options
+For complete documentation of all boundary condition types and their physical interpretation, see the dedicated **[Boundary Conditions](boundary-conditions.md)** page.
+
+### Quick Reference
 
 | Parameter | Field | Options |
 |:----------|:------|:--------|
-| `i_vel_bc` | Velocity | `1` = no-slip (default), `2` = stress-free |
-| `i_tmp_bc` | Temperature | `1` = fixed temperature |
-| `i_cmp_bc` | Composition | `1` = fixed composition |
+| `i_vel_bc` | Velocity | `1` = no-slip, `2` = stress-free |
+| `i_tmp_bc` | Temperature | `1` = Dirichlet/Dirichlet, `2` = Dirichlet/Neumann, `3` = Neumann/Dirichlet, `4` = Neumann/Neumann |
+| `i_cmp_bc` | Composition | Same as `i_tmp_bc` |
 | `i_poloidal_stress_iters` | Velocity | Extra iterations for stress-free poloidal constraints |
 
-!!! note "Custom Boundary Data"
-    When a boundary file exists at `config/boundaries/<field>_boundary.nc`, those data override the analytic defaults. Each file provides spherical-harmonic coefficients with type flags (`DIRICHLET`, `NEUMANN`, `ROBIN`).
+### Summary of BC Types
+
+| Field | Available Options |
+|:------|:------------------|
+| **Velocity** | No-slip (T=0, ∂P/∂r=0), Stress-free (∂T/∂r=T/r, ∂²P/∂r²=0) |
+| **Magnetic** | Insulating, Conducting inner core, Perfect conductor |
+| **Temperature** | Fixed temperature (Dirichlet), Fixed flux (Neumann) |
+| **Composition** | Fixed composition (Dirichlet), Fixed flux (Neumann) |
+
+!!! note "Neumann-Neumann Special Case"
+    When both boundaries use flux (Neumann) conditions for temperature or composition, the l=0 mode automatically uses Dirichlet at the inner boundary to pin the mean value.
 
 ### Loading Custom Boundaries
 
@@ -297,7 +308,8 @@ params = load_parameters("config/run_highres.jl")
 
 | Goal | Resource |
 |:-----|:---------|
+| Understand boundary condition physics | [Boundary Conditions](boundary-conditions.md) |
 | Understand time integration schemes | [Time Integration](timestepping.md) |
 | Configure output and restarts | [Data Output & Restart Files](io.md) |
-| Customize boundary conditions | [Boundary Topography](topography.md) |
+| Non-spherical boundary coupling | [Boundary Topography](topography.md) |
 | Contribute to development | [Developer Guide](developer.md) |
