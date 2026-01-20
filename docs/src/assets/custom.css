@@ -571,3 +571,18 @@ html[data-theme="dark"] article .admonition-title {
     background: rgba(0, 0, 0, 0.2) !important;
     color: #f3f4f6 !important;
 }
+
+/* Dark mode math blocks */
+html[data-theme="dark"] article mjx-container[display="true"] {
+    background: #1e293b;
+    border-color: #374151;
+    color: #ffffff;
+}
+
+html[data-theme="dark"] article mjx-container {
+    color: #ffffff;
+}
+
+html[data-theme="dark"] article .MathJax {
+    color: #ffffff;
+}
