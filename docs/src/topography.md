@@ -99,7 +99,7 @@ G_{\ell m, \ell' m', LM} = \int Y_\ell^{m*} Y_{\ell'}^{m'} Y_L^M \, d\Omega
     | Rule | Condition |
     |:-----|:----------|
     | **Azimuthal** | ``m = m' + M`` |
-    | **Triangle inequality** | ``|\ell - \ell'| \leq L \leq \ell + \ell'`` |
+    | **Triangle inequality** | ``\lvert\ell - \ell'\rvert \leq L \leq \ell + \ell'`` |
     | **Parity** | ``\ell + \ell' + L`` must be even |
 
 The Gaunt integral can be computed analytically using Wigner 3j symbols:
