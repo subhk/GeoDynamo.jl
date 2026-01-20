@@ -234,10 +234,19 @@ cache = create_etd_cache(domain, diffusivity, dt)
 ```
 
 **2. Krylov Action Mode** (large problems, recommended):
-```julia
-eab2_update_krylov_cached!(u, nl, nl_prev, alu_map, domain, ν, config, dt;
-                           m=20,      # Arnoldi basis size
-                           tol=1e-8)  # Convergence tolerance
+
+```
+╭─────────────────────────────────────────────────────────────────────────────╮
+│  Recommended for production                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   eab2_update_krylov_cached!(u, nl, nl_prev, alu_map, domain, ν, config,    │
+│                              dt; m=20, tol=1e-8)                            │
+│                                                                             │
+│   # m   = Arnoldi basis size                                                │
+│   # tol = Convergence tolerance                                             │
+│                                                                             │
+╰─────────────────────────────────────────────────────────────────────────────╯
 ```
 
 The Krylov approach:

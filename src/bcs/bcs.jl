@@ -142,6 +142,10 @@ Enumeration for boundary condition types.
     NEUMANN = 2        # Fixed flux/gradient boundary condition
     MIXED = 3          # Mixed boundary condition
     ROBIN = 4          # Robin boundary condition (linear combination)
+    NEUMANN_DERIV1 = 5 # First derivative = 0 (∂f/∂r = 0, for no-slip poloidal)
+    NEUMANN_DERIV2 = 6 # Second derivative = 0 (∂²f/∂r² = 0, for stress-free poloidal)
+    NEUMANN_MAG_INNER = 7  # Insulating inner BC: (∂/∂r - l/r) P = 0 (magnetic poloidal)
+    NEUMANN_MAG_OUTER = 8  # Insulating outer BC: (∂/∂r + (l+1)/r) P = 0 (magnetic poloidal)
 end
 
 """
@@ -162,7 +166,7 @@ end
 
 export AbstractBoundaryCondition
 export BoundaryLocation, INNER_BOUNDARY, OUTER_BOUNDARY
-export BoundaryType, DIRICHLET, NEUMANN, MIXED, ROBIN
+export BoundaryType, DIRICHLET, NEUMANN, MIXED, ROBIN, NEUMANN_DERIV1, NEUMANN_DERIV2, NEUMANN_MAG_INNER, NEUMANN_MAG_OUTER
 export FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC
 
 # ================================================================================

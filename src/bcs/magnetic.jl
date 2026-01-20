@@ -1128,19 +1128,25 @@ For most geodynamo applications:
 function enforce_magnetic_boundary_constraints!(ℬ, bc_type::Symbol)
 
     if bc_type == :insulating
-        # Insulating boundary: J_n = 0, which gives (∇×B)_r = 0
-        # For potential field matching (typical insulating implementation):
-        # - All components match external/internal potential field
-        # - Use Dirichlet BC with values from potential field calculation
+        # Insulating boundary conditions matching DD_2DCODE:
+        # - Toroidal: B_tor = 0 at both boundaries (Dirichlet)
+        # - Poloidal inner: (∂/∂r - l/r) B_pol = 0 (NEUMANN_MAG_INNER)
+        # - Poloidal outer: (∂/∂r + (l+1)/r) B_pol = 0 (NEUMANN_MAG_OUTER)
         #
-        # Note: The boundary values should already be set from potential field
-        # calculation in apply_magnetic_boundary_conditions!
+        # These conditions ensure the magnetic field matches a potential field
+        # solution outside the conducting region.
 
-        # Both components use Dirichlet BC (matching potential field)
+        # Toroidal: B_tor = 0 at both boundaries
+        fill!(ℬ.𝒯.boundary_values, 0.0)
         fill!(ℬ.𝒯.bc_type_inner, Int(DIRICHLET))
         fill!(ℬ.𝒯.bc_type_outer, Int(DIRICHLET))
-        fill!(ℬ.𝒫.bc_type_inner, Int(DIRICHLET))
-        fill!(ℬ.𝒫.bc_type_outer, Int(DIRICHLET))
+
+        # Poloidal: l-dependent derivative conditions (matching DD_2DCODE)
+        # Inner: (∂/∂r - l/r) P = 0  →  field decays as r^l inside
+        # Outer: (∂/∂r + (l+1)/r) P = 0  →  field decays as r^{-(l+1)} outside
+        fill!(ℬ.𝒫.boundary_values, 0.0)  # RHS = 0 for homogeneous BC
+        fill!(ℬ.𝒫.bc_type_inner, Int(NEUMANN_MAG_INNER))
+        fill!(ℬ.𝒫.bc_type_outer, Int(NEUMANN_MAG_OUTER))
 
     elseif bc_type == :perfect_conductor
         # Perfect conductor: B_tangential = 0 at boundary

@@ -307,29 +307,32 @@ end
     apply_velocity_flux_bc_spectral!(𝒰::SHTnsVelocityFields{T}, domain::RadialDomain;
                                      method::Symbol=:tau) where T
 
-Apply stress-free boundary conditions to velocity field components in spectral space.
+Apply flux boundary conditions to velocity field components in spectral space.
 
-This function enforces the correct stress-free condition for the toroidal velocity
-potential. For stress-free boundaries:
-- Poloidal (radial) component: P = 0 (Dirichlet, v_r = 0, handled by enforce_velocity_boundary_values!)
-- Toroidal (tangential) component: ∂T/∂r = T/r (stress-free condition, handled here)
+This function enforces boundary conditions matching DD_2DCODE:
+- Toroidal (NEUMANN): ∂T/∂r = T/r (stress-free tangential)
+- Poloidal (NEUMANN_DERIV1): ∂P/∂r = 0 (no-slip)
+- Poloidal (NEUMANN_DERIV2): ∂²P/∂r² = 0 (stress-free)
 
 # Arguments
 - `𝒰`: Velocity field structure with toroidal and poloidal components
 - `domain`: Radial domain information
 - `method`: Method for applying BCs (default `:tau` recommended for accuracy)
-  - `:tau` - High-order accurate tau method (recommended)
+  - `:tau` - High-order accurate tau method (recommended for toroidal)
   - `:direct` - First-order finite difference
   - `:physical_stress` - First-order finite difference (equivalent to :direct)
 
+# Boundary Condition Mapping (matching DD_2DCODE):
+- No-slip: T = 0 (Dirichlet), ∂P/∂r = 0 (NEUMANN_DERIV1)
+- Stress-free: ∂T/∂r = T/r (NEUMANN), ∂²P/∂r² = 0 (NEUMANN_DERIV2)
+
 # Physical Interpretation
-For stress-free boundaries, the zero tangential stress condition requires:
+For stress-free toroidal boundaries, the zero tangential stress condition requires:
   σ_rθ = r ∂/∂r(v_θ/r) = ∂v_θ/∂r - v_θ/r = 0
+  →  ∂T/∂r = T/r  at boundaries
 
-For the toroidal potential T where v_θ ∝ T, this becomes:
-  ∂T/∂r = T/r  at boundaries
-
-Note: This is NOT the same as simple Neumann (∂T/∂r = 0)!
+For stress-free poloidal boundaries, DD_2DCODE uses ∂²P/∂r² = 0.
+For no-slip poloidal boundaries, DD_2DCODE uses ∂P/∂r = 0.
 """
 function apply_velocity_flux_bc_spectral!(𝒰::SHTnsVelocityFields{T},
                                           domain::RadialDomain;
@@ -352,9 +355,12 @@ end
                                        ∂r::BandedMatrix{T},
                                        method::Symbol) where T
 
-Apply stress-free boundary conditions to a single velocity component (toroidal or poloidal).
+Apply flux boundary conditions to a single velocity component (toroidal or poloidal).
 
-All methods now correctly enforce ∂T/∂r = T/r for stress-free boundaries.
+Handles different BC types matching DD_2DCODE:
+- NEUMANN: ∂T/∂r = T/r (stress-free toroidal)
+- NEUMANN_DERIV1: ∂P/∂r = 0 (no-slip poloidal)
+- NEUMANN_DERIV2: ∂²P/∂r² = 0 (stress-free poloidal)
 
 # Methods
 - `:tau` - High-order accurate tau method (recommended, default)
@@ -394,19 +400,28 @@ function apply_velocity_flux_bc!(field::SHTnsSpecField{T},
         owns_mode = lm_idx in lm_range
         local_lm = owns_mode ? (lm_idx - first(lm_range) + 1) : 0
 
+        # Get BC types for this mode
+        bc_inner = field.bc_type_inner[lm_idx]
+        bc_outer = field.bc_type_outer[lm_idx]
+
         # Check if this mode needs flux BC (based on BC type, consistent across processes)
-        # The boundary ownership check is done inside the BC functions
-        needs_inner_bc = field.bc_type_inner[lm_idx] == Int(NEUMANN)
-        needs_outer_bc = field.bc_type_outer[lm_idx] == Int(NEUMANN)
+        # NEUMANN: ∂T/∂r = T/r (stress-free toroidal)
+        needs_neumann_inner = bc_inner == Int(NEUMANN)
+        needs_neumann_outer = bc_outer == Int(NEUMANN)
 
-        # If any boundary needs BC, all processes must call the BC function together
-        if needs_inner_bc || needs_outer_bc
-            # Determine which boundaries this process can apply (owns boundary points)
-            apply_inner = needs_inner_bc && (1 in r_range)
-            apply_outer = needs_outer_bc && (domain.N in r_range)
+        # NEUMANN_DERIV1: ∂P/∂r = 0 (no-slip poloidal)
+        needs_deriv1_inner = bc_inner == Int(NEUMANN_DERIV1)
+        needs_deriv1_outer = bc_outer == Int(NEUMANN_DERIV1)
 
-            # Apply flux BC using specified method
-            # ALL processes call these functions for MPI synchronization (Allreduce inside)
+        # NEUMANN_DERIV2: ∂²P/∂r² = 0 (stress-free poloidal)
+        needs_deriv2_inner = bc_inner == Int(NEUMANN_DERIV2)
+        needs_deriv2_outer = bc_outer == Int(NEUMANN_DERIV2)
+
+        # Handle NEUMANN BC (∂T/∂r = T/r) for toroidal stress-free
+        if needs_neumann_inner || needs_neumann_outer
+            apply_inner = needs_neumann_inner && (1 in r_range)
+            apply_outer = needs_neumann_outer && (domain.N in r_range)
+
             if method == :tau
                 if ws !== nothing
                     apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
@@ -426,18 +441,7 @@ function apply_velocity_flux_bc!(field::SHTnsSpecField{T},
                                                    apply_inner, apply_outer, bc_values,
                                                    domain, r_range, owns_mode)
                 end
-            elseif method == :physical_stress
-                if ws !== nothing
-                    apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                                               apply_inner, apply_outer, bc_values,
-                                                               domain, r_range, ws, tid, owns_mode)
-                else
-                    apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm, lm_idx,
-                                                           apply_inner, apply_outer, bc_values,
-                                                           domain, r_range, owns_mode)
-                end
             else
-                @warn "Flux BC method $method not implemented for velocity, using :physical_stress"
                 if ws !== nothing
                     apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
                                                                apply_inner, apply_outer, bc_values,
@@ -448,6 +452,26 @@ function apply_velocity_flux_bc!(field::SHTnsSpecField{T},
                                                            domain, r_range, owns_mode)
                 end
             end
+        end
+
+        # Handle NEUMANN_DERIV1 BC (∂P/∂r = 0) for no-slip poloidal
+        if needs_deriv1_inner || needs_deriv1_outer
+            apply_inner = needs_deriv1_inner && (1 in r_range)
+            apply_outer = needs_deriv1_outer && (domain.N in r_range)
+
+            apply_poloidal_deriv1_bc!(spec_real, spec_imag, local_lm, lm_idx,
+                                      apply_inner, apply_outer, bc_values, ∂r,
+                                      domain, r_range, ws, tid, owns_mode)
+        end
+
+        # Handle NEUMANN_DERIV2 BC (∂²P/∂r² = 0) for stress-free poloidal
+        if needs_deriv2_inner || needs_deriv2_outer
+            apply_inner = needs_deriv2_inner && (1 in r_range)
+            apply_outer = needs_deriv2_outer && (domain.N in r_range)
+
+            apply_poloidal_deriv2_bc!(spec_real, spec_imag, local_lm, lm_idx,
+                                      apply_inner, apply_outer, bc_values, ∂r,
+                                      domain, r_range, ws, tid, owns_mode)
         end
     end
 end
@@ -808,6 +832,187 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
     # Store back (only if this process owns the mode)
     if owns_mode
         for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+            end
+        end
+    end
+end
+
+# ================================================================================
+# Poloidal Boundary Condition Functions (matching DD_2DCODE)
+# ================================================================================
+
+"""
+    apply_poloidal_deriv1_bc!(spec_real, spec_imag, local_lm, lm_idx,
+                              apply_inner, apply_outer, boundary_values, ∂r,
+                              domain, r_range, ws, tid, owns_mode)
+
+Apply first derivative boundary condition ∂P/∂r = 0 for no-slip poloidal velocity.
+
+This matches DD_2DCODE's vel_bc_Pol for no-slip boundaries (i_vel_bc = 1, 2),
+which uses the first derivative matrix rows to enforce ∂P/∂r = 0.
+
+# MPI Safety
+All processes must call this function for each mode to ensure Allreduce is called
+the same number of times by all processes (prevents deadlock).
+"""
+function apply_poloidal_deriv1_bc!(spec_real, spec_imag, local_lm, lm_idx,
+                                   apply_inner, apply_outer,
+                                   boundary_values::AbstractMatrix,
+                                   ∂r::BandedMatrix, domain, r_range,
+                                   ws, tid, owns_mode::Bool)
+    T = eltype(spec_real)
+    nr = domain.N
+    r = domain.r[:, 4]
+
+    # Use workspace if available, otherwise allocate
+    if ws !== nothing
+        profile_real = ws.bc_profile_real[tid]
+        profile_imag = ws.bc_profile_imag[tid]
+        fill!(profile_real, zero(T))
+        fill!(profile_imag, zero(T))
+    else
+        profile_real = zeros(T, nr)
+        profile_imag = zeros(T, nr)
+    end
+
+    # Extract radial profile (only if this process owns the mode)
+    if owns_mode
+        @inbounds for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+            end
+        end
+    end
+
+    # MPI gather (ALL processes call this for synchronization)
+    comm = bcs.get_comm()
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        Allreduce!(profile_real, MPI.SUM, comm)
+        Allreduce!(profile_imag, MPI.SUM, comm)
+    end
+
+    # Apply ∂P/∂r = 0 at boundaries using finite difference
+    # Inner boundary: (P[2] - P[1])/Δr = 0  =>  P[1] = P[2]
+    # Outer boundary: (P[N] - P[N-1])/Δr = 0  =>  P[N] = P[N-1]
+
+    if apply_inner
+        rhs_inner = boundary_values[1, lm_idx]  # Usually 0 for no-slip
+        @inbounds profile_real[1] = profile_real[2] + rhs_inner * (r[2] - r[1])
+        if any(x -> abs(x) > 1e-12, profile_imag)
+            @inbounds profile_imag[1] = profile_imag[2]
+        end
+    end
+
+    if apply_outer
+        rhs_outer = boundary_values[2, lm_idx]  # Usually 0 for no-slip
+        @inbounds profile_real[nr] = profile_real[nr-1] + rhs_outer * (r[nr] - r[nr-1])
+        if any(x -> abs(x) > 1e-12, profile_imag)
+            @inbounds profile_imag[nr] = profile_imag[nr-1]
+        end
+    end
+
+    # Store back (only if this process owns the mode)
+    if owns_mode
+        @inbounds for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
+                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+            end
+        end
+    end
+end
+
+"""
+    apply_poloidal_deriv2_bc!(spec_real, spec_imag, local_lm, lm_idx,
+                              apply_inner, apply_outer, boundary_values, ∂r,
+                              domain, r_range, ws, tid, owns_mode)
+
+Apply second derivative boundary condition ∂²P/∂r² = 0 for stress-free poloidal velocity.
+
+This matches DD_2DCODE's vel_bc_Pol for stress-free boundaries (i_vel_bc = 3, 4),
+which uses the second derivative matrix rows to enforce ∂²P/∂r² = 0.
+
+# Physical Interpretation
+For stress-free boundaries, the condition ∂²P/∂r² = 0 ensures that the radial
+stress component vanishes at the boundary.
+
+# MPI Safety
+All processes must call this function for each mode to ensure Allreduce is called
+the same number of times by all processes (prevents deadlock).
+"""
+function apply_poloidal_deriv2_bc!(spec_real, spec_imag, local_lm, lm_idx,
+                                   apply_inner, apply_outer,
+                                   boundary_values::AbstractMatrix,
+                                   ∂r::BandedMatrix, domain, r_range,
+                                   ws, tid, owns_mode::Bool)
+    T = eltype(spec_real)
+    nr = domain.N
+    r = domain.r[:, 4]
+
+    # Use workspace if available, otherwise allocate
+    if ws !== nothing
+        profile_real = ws.bc_profile_real[tid]
+        profile_imag = ws.bc_profile_imag[tid]
+        fill!(profile_real, zero(T))
+        fill!(profile_imag, zero(T))
+    else
+        profile_real = zeros(T, nr)
+        profile_imag = zeros(T, nr)
+    end
+
+    # Extract radial profile (only if this process owns the mode)
+    if owns_mode
+        @inbounds for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            if local_r <= size(spec_real, 3)
+                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
+                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+            end
+        end
+    end
+
+    # MPI gather (ALL processes call this for synchronization)
+    comm = bcs.get_comm()
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        Allreduce!(profile_real, MPI.SUM, comm)
+        Allreduce!(profile_imag, MPI.SUM, comm)
+    end
+
+    # Apply ∂²P/∂r² = 0 at boundaries using second-order finite difference
+    # Using 3-point stencil: P''[i] ≈ (P[i+1] - 2P[i] + P[i-1]) / Δr²
+    # Setting P''[1] = 0: P[1] = 2P[2] - P[3] (extrapolation)
+    # Setting P''[N] = 0: P[N] = 2P[N-1] - P[N-2] (extrapolation)
+
+    if apply_inner
+        rhs_inner = boundary_values[1, lm_idx]  # Usually 0 for stress-free
+        Δr = r[2] - r[1]
+        # Extrapolate using quadratic fit: P[1] = 2*P[2] - P[3] + rhs_inner * Δr²
+        @inbounds profile_real[1] = 2.0 * profile_real[2] - profile_real[3] + rhs_inner * Δr^2
+        if any(x -> abs(x) > 1e-12, profile_imag)
+            @inbounds profile_imag[1] = 2.0 * profile_imag[2] - profile_imag[3]
+        end
+    end
+
+    if apply_outer
+        rhs_outer = boundary_values[2, lm_idx]  # Usually 0 for stress-free
+        Δr = r[nr] - r[nr-1]
+        # Extrapolate using quadratic fit: P[N] = 2*P[N-1] - P[N-2] + rhs_outer * Δr²
+        @inbounds profile_real[nr] = 2.0 * profile_real[nr-1] - profile_real[nr-2] + rhs_outer * Δr^2
+        if any(x -> abs(x) > 1e-12, profile_imag)
+            @inbounds profile_imag[nr] = 2.0 * profile_imag[nr-1] - profile_imag[nr-2]
+        end
+    end
+
+    # Store back (only if this process owns the mode)
+    if owns_mode
+        @inbounds for r_idx in r_range
             local_r = r_idx - first(r_range) + 1
             if local_r <= size(spec_real, 3)
                 spec_real[local_lm, 1, local_r] = profile_real[r_idx]
