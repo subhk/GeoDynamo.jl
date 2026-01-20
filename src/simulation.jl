@@ -6,6 +6,7 @@ using MPI
 using Base.Threads
 using LinearAlgebra
 using Printf
+using Statistics: mean
 
 # Geometry modules are now imported in main GeoDynamo module
 # Functions like create_shell_radial_domain, create_ball_radial_domain, etc.
@@ -43,9 +44,9 @@ function print_geodynamo_banner(config, nprocs::Int, nthreads::Int)
     println("║   Geometry:        $(uppercase(geometry))")
     println("║   Grid:            $(config.nlat) × $(config.nlon) × $(i_N)")
     println("║   Spectral modes:  $(config.nlm) (lmax=$(config.lmax), mmax=$(config.mmax))")
-    println("║   Rayleigh:        $(@sprintf("%.2e", params.d_rayleigh))")
-    println("║   Prandtl:         $(@sprintf("%.2e", params.d_prandtl))")
-    println("║   Magnetic Prandtl:$(@sprintf("%.2e", params.d_magnetic_prandtl))")
+    println("║   Rayleigh:        $(@sprintf("%.2e", params.d_Ra))")
+    println("║   Prandtl:         $(@sprintf("%.2e", params.d_Pr))")
+    println("║   Magnetic Prandtl:$(@sprintf("%.2e", params.d_Pm))")
     println("╠══════════════════════════════════════════════════════════════════════════")
     println("║ PARALLELIZATION")
     println("║   MPI processes:   $(nprocs)")
@@ -156,10 +157,6 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
         composition = include_composition ? create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
     end
     
-    # Initialize hybrid parallelization system
-    hybrid_parallelizer = create_hybrid_parallelizer(T, shtns_config)
-    performance_monitor = create_performance_monitor()
-    
     # Initialize timestepping with enhanced matrices
     timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false)
     
@@ -173,12 +170,17 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
         implicit_matrices[:composition] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Sc, d_timestep)
     end
     
+    # Create a unified master parallelizer from the hybrid components
+    master_parallelizer = create_master_parallelizer(T, shtns_config)
+
     return SimulationState{T}(
         velocity, magnetic, temperature, composition,
         shtns_config, 𝒟ᵒᶜ, 𝒟ⁱᶜ,
-        hybrid_parallelizer, performance_monitor,
+        master_parallelizer,
         timestep_state, implicit_matrices,
-        0, auto_optimize, geom
+        Dict{Symbol, EAB2ALUCacheEntry{T}}(),  # etd_caches
+        Dict{Symbol, ERK2Cache{T}}(),          # erk2_caches
+        0, auto_optimize, true, geom           # output_counter, auto_optimization, adaptive_threading, geometry
     )
 end
 
@@ -354,13 +356,17 @@ function run_shtns_simulation!(state)
                 break
             end
             
-            # Update previous state
-            prev_velocity    .= state.velocity.𝒯
-            prev_magnetic    .= state.magnetic.𝒯
-            prev_temperature .= state.temperature.spectral
-            
+            # Update previous state (copy underlying data arrays)
+            parent(prev_velocity.data_real) .= parent(state.velocity.𝒯.data_real)
+            parent(prev_velocity.data_imag) .= parent(state.velocity.𝒯.data_imag)
+            parent(prev_magnetic.data_real) .= parent(state.magnetic.𝒯.data_real)
+            parent(prev_magnetic.data_imag) .= parent(state.magnetic.𝒯.data_imag)
+            parent(prev_temperature.data_real) .= parent(state.temperature.spectral.data_real)
+            parent(prev_temperature.data_imag) .= parent(state.temperature.spectral.data_imag)
+
             if state.composition !== nothing && prev_composition !== nothing
-                prev_composition .= state.composition.spectral
+                parent(prev_composition.data_real) .= parent(state.composition.spectral.data_real)
+                parent(prev_composition.data_imag) .= parent(state.composition.spectral.data_imag)
             end
             
             state.timestep_state.iteration += 1
@@ -442,7 +448,7 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
         compute_start = Wtime()
         
         # Temperature evolution with all optimizations
-        hybrid_compute_nonlinear!(state.hybrid_parallelizer, state.temperature, 
+        hybrid_compute_nonlinear!(state.master_parallelizer, state.temperature, 
                                  state.velocity, state.𝒟ᵒᶜ)
         
         # Velocity evolution
@@ -492,11 +498,11 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
             monitor_start = Wtime()
             
             # Update performance metrics
-            update_performance_metrics!(state.performance_monitor, step, 
+            update_performance_metrics!(state.master_parallelizer.performance_monitor, step, 
                                       compute_time, integrate_time, io_time)
             
             # Dynamic load balancing check
-            adaptive_rebalance!(state.hybrid_parallelizer.load_balancer, state.temperature)
+            adaptive_rebalance!(state.master_parallelizer.load_balancer, state.temperature)
             
             # Auto-tuning of parameters
             if step % 200 == 0
@@ -523,7 +529,7 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
     
     # Final performance analysis
     if rank == 0
-        analyze_parallel_performance(state.performance_monitor)
+        analyze_parallel_performance(state.master_parallelizer.performance_monitor)
         
         println("\n" * "="^80)
         println("         SIMULATION COMPLETED SUCCESSFULLY")
@@ -534,11 +540,11 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
         println("Average time per step: $(round(total_time/step*1000, digits=2)) ms")
         
         # Parallel efficiency summary
-        parallel_efficiency = get_parallel_efficiency(state.performance_monitor)
+        parallel_efficiency = get_parallel_efficiency(state.master_parallelizer.performance_monitor)
         println("Parallel efficiency: $(round(parallel_efficiency*100, digits=1))%")
         
         # Thread utilization
-        thread_utilization = get_thread_utilization(state.hybrid_parallelizer.threading_accelerator)
+        thread_utilization = get_thread_utilization(state.master_parallelizer.threading_accelerator)
         println("Thread utilization: $(round(thread_utilization*100, digits=1))%")
         
         println("="^80)

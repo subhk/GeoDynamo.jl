@@ -5,21 +5,124 @@
 # Note: This file is included within the bcs module
 # All necessary packages are imported at the module level
 
+using SHTnsKit
+
+# ================================================================================
+# Spherical Harmonic Pattern Type
+# ================================================================================
+
 """
-    create_programmatic_boundary(pattern::Symbol, config, amplitude::Real=1.0;
-                                parameters::Dict=Dict(), description::String="")
+    Ylm(l::Int, m::Int)
+
+Spherical harmonic pattern specifier for programmatic boundary conditions.
+
+# Examples
+```julia
+# Create Y₂¹ pattern with amplitude 0.5
+boundary = create_programmatic_boundary(Ylm(2, 1), config, 0.5)
+
+# Create Y₄⁻² pattern
+boundary = create_programmatic_boundary(Ylm(4, -2), config, 1.0)
+
+# Time-dependent oscillating Y₃² pattern
+boundary = create_time_dependent_programmatic_boundary(Ylm(3, 2), config, (0.0, 10.0), 100;
+    amplitude=0.3)
+```
+"""
+struct Ylm
+    l::Int
+    m::Int
+
+    function Ylm(l::Int, m::Int)
+        l >= 0 || throw(ArgumentError("Spherical harmonic degree l must be non-negative, got l=$l"))
+        abs(m) <= l || throw(ArgumentError("Spherical harmonic order |m| must be ≤ l, got l=$l, m=$m"))
+        new(l, m)
+    end
+end
+
+Base.show(io::IO, ylm::Ylm) = print(io, "Y_$(ylm.l)^$(ylm.m)")
+
+"""
+    create_programmatic_boundary(pattern, config, amplitude::Real=1.0; kwargs...)
 
 Create programmatically generated boundary conditions.
 
 # Available patterns:
+- `Ylm(l, m)` - Arbitrary Yₗᵐ spherical harmonic using SHTnsKit
 - `:uniform` - Uniform value
-- `:y11` - Y₁₁ spherical harmonic  
+- `:y11` - Y₁₁ spherical harmonic
 - `:plume` - Gaussian plume pattern
 - `:hemisphere` - Hemispherical pattern
 - `:dipole` - Dipolar pattern (Y₁₀)
 - `:quadrupole` - Quadrupolar pattern
 - `:custom` - User-defined function
+
+# Examples
+```julia
+# Using Ylm struct (recommended)
+boundary = create_programmatic_boundary(Ylm(2, 1), config, 0.5)
+boundary = create_programmatic_boundary(Ylm(4, -2), config, 1.0)
+
+# Using symbol with parameters
+boundary = create_programmatic_boundary(:dipole, config, 0.3)
+boundary = create_programmatic_boundary(:plume, config, 1.0;
+    parameters=Dict("width" => π/8, "center_theta" => π/3))
+```
 """
+function create_programmatic_boundary(ylm::Ylm, config, amplitude::Real=1.0;
+                                    description::String="", field_type::String="temperature")
+    l, m = ylm.l, ylm.m
+
+    if l > config.lmax
+        throw(ArgumentError("Spherical harmonic degree l=$l exceeds config.lmax=$(config.lmax)"))
+    end
+
+    # Create coordinate grids
+    nlat, nlon = config.nlat, config.nlon
+    theta = collect(range(0, π, length=nlat))
+    phi = collect(range(0, 2π, length=nlon+1)[1:end-1])
+
+    # Create SHTnsKit coefficient matrix (lmax+1 × mmax+1, complex)
+    lmax = config.lmax
+    mmax = hasfield(typeof(config), :mmax) ? config.mmax : lmax
+    coeffs = zeros(Complex{Float64}, lmax + 1, mmax + 1)
+
+    # Set the (l, m) coefficient
+    # SHTnsKit uses 1-based indexing: coeffs[l+1, |m|+1]
+    if m >= 0
+        coeffs[l + 1, m + 1] = Complex{Float64}(amplitude, 0.0)
+    else
+        # For negative m, use conjugate symmetry: Y_l^{-m} = (-1)^m conj(Y_l^m)
+        phase = iseven(-m) ? 1.0 : -1.0
+        coeffs[l + 1, abs(m) + 1] = Complex{Float64}(phase * amplitude, 0.0)
+    end
+
+    # Use SHTnsKit synthesis to convert to physical space
+    values_complex = SHTnsKit.synthesis(config.sht_config, coeffs; real_output=false)
+
+    # Extract appropriate component based on m
+    values = zeros(eltype(amplitude), nlat, nlon)
+    if m >= 0
+        values .= real.(values_complex)
+    else
+        # For m < 0: sin(|m|*φ) component
+        values .= imag.(values_complex)
+    end
+
+    # Create description if not provided
+    if isempty(description)
+        description = "Spherical harmonic Y_$(l)^$(m) (amplitude=$amplitude)"
+    end
+
+    return create_boundary_data(
+        values, field_type;
+        theta=theta, phi=phi, time=nothing,
+        units=get_default_units(determine_field_type_from_name(field_type)),
+        description=description,
+        file_path="programmatic"
+    )
+end
+
 function create_programmatic_boundary(pattern::Symbol, config, amplitude::Real=1.0;
                                     parameters::Dict=Dict(), description::String="", 
                                     field_type::String="temperature")
@@ -35,7 +138,7 @@ function create_programmatic_boundary(pattern::Symbol, config, amplitude::Real=1
     # Generate pattern
     if pattern == :uniform
         values .= amplitude
-        
+
     elseif pattern == :y11
         # Y₁₁ spherical harmonic: sin(θ)cos(φ)
         for (i, θ) in enumerate(theta)
@@ -132,11 +235,81 @@ end
 
 Create time-dependent programmatically generated boundary conditions.
 """
-function create_time_dependent_programmatic_boundary(pattern::Symbol, config, 
+"""
+    create_time_dependent_programmatic_boundary(ylm::Ylm, config, time_span, ntime; kwargs...)
+
+Create time-dependent spherical harmonic boundary condition using Ylm struct.
+
+# Example
+```julia
+boundary = create_time_dependent_programmatic_boundary(Ylm(3, 2), config, (0.0, 10.0), 100;
+    amplitude=0.5, time_factor=2π)
+```
+"""
+function create_time_dependent_programmatic_boundary(ylm::Ylm, config,
+                                                   time_span::Tuple{Real, Real}, ntime::Int;
+                                                   amplitude::Real=1.0, time_factor::Real=1.0,
+                                                   phase_offset::Real=0.0, description::String="",
+                                                   field_type::String="temperature")
+    l, m = ylm.l, ylm.m
+
+    if l > config.lmax
+        throw(ArgumentError("Spherical harmonic degree l=$l exceeds config.lmax=$(config.lmax)"))
+    end
+
+    # Create coordinate grids
+    nlat, nlon = config.nlat, config.nlon
+    theta = collect(range(0, π, length=nlat))
+    phi = collect(range(0, 2π, length=nlon+1)[1:end-1])
+    time_coords = collect(range(time_span[1], time_span[2], length=ntime))
+
+    # Initialize data array
+    values = zeros(eltype(amplitude), nlat, nlon, ntime)
+
+    # Create SHTnsKit coefficient matrix
+    lmax = config.lmax
+    mmax = hasfield(typeof(config), :mmax) ? config.mmax : lmax
+
+    for (t, time_val) in enumerate(time_coords)
+        time_phase = time_factor * time_val + phase_offset
+        time_modulated_amplitude = amplitude * cos(time_phase)
+
+        coeffs = zeros(Complex{Float64}, lmax + 1, mmax + 1)
+
+        if m >= 0
+            coeffs[l + 1, m + 1] = Complex{Float64}(time_modulated_amplitude, 0.0)
+        else
+            phase = iseven(-m) ? 1.0 : -1.0
+            coeffs[l + 1, abs(m) + 1] = Complex{Float64}(phase * time_modulated_amplitude, 0.0)
+        end
+
+        values_complex = SHTnsKit.synthesis(config.sht_config, coeffs; real_output=false)
+
+        if m >= 0
+            values[:, :, t] .= real.(values_complex)
+        else
+            values[:, :, t] .= imag.(values_complex)
+        end
+    end
+
+    if isempty(description)
+        description = "Time-dependent spherical harmonic Y_$(l)^$(m) (amplitude=$amplitude)"
+    end
+
+    return create_boundary_data(
+        values, field_type;
+        theta=theta, phi=phi, time=time_coords,
+        units=get_default_units(determine_field_type_from_name(field_type)),
+        description=description,
+        file_path="programmatic"
+    )
+end
+
+function create_time_dependent_programmatic_boundary(pattern::Symbol, config,
                                                    time_span::Tuple{Real, Real}, ntime::Int;
                                                    amplitude::Real=1.0, parameters::Dict=Dict(),
                                                    description::String="", field_type::String="temperature")
-    
+
     # Create coordinate grids
     nlat, nlon = config.nlat, config.nlon
     theta = collect(range(0, π, length=nlat))
@@ -153,10 +326,10 @@ function create_time_dependent_programmatic_boundary(pattern::Symbol, config,
     # Generate time-dependent pattern
     for (t, time_val) in enumerate(time_coords)
         time_phase = time_factor * time_val + phase_offset
-        
+
         if pattern == :uniform
             values[:, :, t] .= amplitude
-            
+
         elseif pattern == :y11
             # Rotating Y₁₁: sin(θ)cos(φ + ωt)
             for (i, θ) in enumerate(theta)
@@ -246,53 +419,63 @@ function create_time_dependent_programmatic_boundary(pattern::Symbol, config,
 end
 
 """
-    combine_programmatic_patterns(patterns::Vector{Tuple{Symbol, Real}}, config; 
-                                 parameters::Vector{Dict}=Dict[], description::String="")
+    combine_programmatic_patterns(patterns::Vector{Tuple{Symbol, Real}}, config;
+                                 parameters::Vector{Dict}=Dict{String,Any}[], description::String="")
 
 Combine multiple programmatic patterns with different amplitudes.
 """
-function combine_programmatic_patterns(patterns::Vector{Tuple{Symbol, Real}}, config; 
-                                     parameters::Vector{Dict}=Dict[], description::String="",
+function combine_programmatic_patterns(patterns::Vector{Tuple{Symbol, Real}}, config;
+                                     parameters::Vector{Dict}=Dict{String,Any}[], description::String="",
                                      field_type::String="temperature")
-    
+
     if isempty(patterns)
         throw(ArgumentError("At least one pattern must be specified"))
     end
-    
+
+    # Create a local copy of parameters to avoid modifying the default
+    local_params = copy(parameters)
+
     # Ensure parameters vector has correct length
-    if length(parameters) < length(patterns)
-        for i in (length(parameters)+1):length(patterns)
-            push!(parameters, Dict())
-        end
+    while length(local_params) < length(patterns)
+        push!(local_params, Dict{String,Any}())
     end
-    
-    # Create first pattern as base
+
+    # Create first pattern as base and get its values
     pattern1, amplitude1 = patterns[1]
-    combined_boundary = create_programmatic_boundary(
-        pattern1, config, amplitude1; 
-        parameters=parameters[1], field_type=field_type
+    first_boundary = create_programmatic_boundary(
+        pattern1, config, amplitude1;
+        parameters=local_params[1], field_type=field_type
     )
-    
+
+    # Create a mutable copy of values to accumulate results
+    combined_values = copy(first_boundary.values)
+
     # Add additional patterns
     for i in 2:length(patterns)
         pattern_i, amplitude_i = patterns[i]
         boundary_i = create_programmatic_boundary(
-            pattern_i, config, amplitude_i; 
-            parameters=parameters[i], field_type=field_type
+            pattern_i, config, amplitude_i;
+            parameters=local_params[i], field_type=field_type
         )
-        
+
         # Add to combined result
-        combined_boundary.values .+= boundary_i.values
+        combined_values .+= boundary_i.values
     end
-    
-    # Update description
+
+    # Create description
     if isempty(description)
         pattern_names = [string(p[1]) for p in patterns]
         description = "Combined programmatic patterns: " * join(pattern_names, " + ")
     end
-    combined_boundary.description = description
-    
-    return combined_boundary
+
+    # Create new BoundaryData with combined values
+    return create_boundary_data(
+        combined_values, field_type;
+        theta=first_boundary.theta, phi=first_boundary.phi, time=nothing,
+        units=first_boundary.units,
+        description=description,
+        file_path="programmatic"
+    )
 end
 
 """
@@ -419,5 +602,6 @@ function apply_gaussian_smoothing!(data::AbstractMatrix, theta::Vector, phi::Vec
     end
 end
 
+export Ylm
 export create_programmatic_boundary, create_time_dependent_programmatic_boundary
 export combine_programmatic_patterns, add_noise_to_boundary, smooth_boundary_data

@@ -102,9 +102,7 @@ julia> @show info.has_energy_functions
 ```julia
 using GeoDynamo
 
-# ╔═══════════════════════════════════════════════════════════════╗
-# ║                    Configure Parameters                        ║
-# ╚═══════════════════════════════════════════════════════════════╝
+# === Configure Parameters ===
 
 params = GeoDynamoParameters(
     # Geometry
@@ -125,9 +123,7 @@ params = GeoDynamoParameters(
     independent_output_files = true,
 )
 
-# ╔═══════════════════════════════════════════════════════════════╗
-# ║                    Initialize & Run                            ║
-# ╚═══════════════════════════════════════════════════════════════╝
+# === Initialize & Run ===
 
 set_parameters!(params)
 state = initialize_simulation(Float64)
@@ -224,14 +220,14 @@ using Random
 
 state = initialize_simulation(Float64)
 
-# ── Temperature ──────────────────────────────────────────────
+# Temperature
 set_temperature_ic!(state.temperature; profile = :conductive)
 randomize_scalar_field!(state.temperature; amplitude = 1e-3)
 
-# ── Velocity ─────────────────────────────────────────────────
+# Velocity
 randomize_vector_field!(state.velocity.velocity; amplitude = 1e-4)
 
-# ── Magnetic Field ───────────────────────────────────────────
+# Magnetic Field
 randomize_magnetic_field!(state.magnetic; amplitude = 1e-5)
 ```
 
