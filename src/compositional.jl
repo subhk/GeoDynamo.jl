@@ -94,8 +94,7 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     ∇φ_spec::SHTnsSpecField{T}
     ∇r_spec::SHTnsSpecField{T}
 
-    # Sources and boundary conditions
-    internal_sources::Vector{T}        # Radial profile of compositional sources
+    # Boundary conditions
     boundary_values::Matrix{T}         # [2, nlm] for ICB and CMB
     bc_type_inner::Vector{Int}         # BC type for each mode at inner
     bc_type_outer::Vector{Int}         # BC type for each mode at outer
@@ -197,8 +196,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     ∇φ_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
     ∇r_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
 
-    # Sources and boundary conditions
-    internal_sources = zeros(T, 𝒟ᵒᶜ.N)
+    # Boundary conditions
     boundary_values  = zeros(T, 2, config.nlm)
 
     # Default BC types (DIRICHLET = fixed value, NEUMANN = fixed flux)
@@ -224,8 +222,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
         composition, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
         ∇θ_spec, ∇φ_spec, ∇r_spec,
-        internal_sources, boundary_values,
-        bc_type_inner, bc_type_outer,
+        boundary_values, bc_type_inner, bc_type_outer,
         nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
         ℓ_factors, config,
         ∂r, ∂²r,
@@ -319,9 +316,8 @@ The advection term -u·∇C is computed using the following optimized workflow:
 1. Compute ∇C in spectral space (no MPI communication required)
 2. Batched transform of C and ∇C to physical space
 3. Compute advection -u·∇C locally in physical space
-4. Add internal compositional sources
-5. Transform result back to spectral space
-6. Apply boundary conditions
+4. Transform result back to spectral space
+5. Apply boundary conditions
 
 # Arguments
 - `𝔽`: Composition field structure to update
@@ -362,10 +358,7 @@ function compute_composition_nonlinear!(𝔽::SHTnsCompositionField{T},
         compute_scalar_advection_local!(𝔽, vel_fields)
     end
 
-    # Step 4: Add internal compositional sources (local operation)
-    add_internal_sources_local!(𝔽, 𝒟ᵒᶜ)
-
-    # Step 5: Transform advection + sources back to spectral space
+    # Step 4: Transform advection back to spectral space
     t_transform = MPI.Wtime()
     if geometry === :ball
         ball_physical_to_spectral!(𝔽.advection_physical, 𝔽.nonlinear)
@@ -374,7 +367,7 @@ function compute_composition_nonlinear!(𝔽::SHTnsCompositionField{T},
     end
     𝔽.transform_time[] += MPI.Wtime() - t_transform
 
-    # Step 6: Apply boundary conditions in spectral space
+    # Step 5: Apply boundary conditions in spectral space
     apply_composition_boundary_conditions!(𝔽)
     apply_composition_boundary_conditions_spectral!(𝔽, 𝒟ᵒᶜ)
 
@@ -389,7 +382,6 @@ zero_composition_work_arrays!(𝔽::SHTnsCompositionField{T}) where T = zero_sca
 # ================================================================================
 # NOTE: Gradient computation functions moved to scalar_field_common.jl
 # NOTE: Batched transform operations moved to scalar_field_common.jl
-# NOTE: Internal source functions use add_internal_sources_local! from scalar_field_common.jl
 # ================================================================================
 
 # ================================================================================
@@ -488,12 +480,7 @@ function validate_composition_field(𝔽::SHTnsCompositionField{T}, domain::Radi
     if length(𝔽.bc_type_outer) != 𝔽.config.nlm
         push!(errors, "Outer BC array size mismatch")
     end
-    
-    # Check internal sources
-    if length(𝔽.internal_sources) != domain.N
-        push!(errors, "Internal sources array size mismatch")
-    end
-    
+
     if !isempty(errors)
         error("Composition field validation failed:\n" * join(errors, "\n"))
     end
