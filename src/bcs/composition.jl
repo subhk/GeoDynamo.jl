@@ -322,6 +322,18 @@ function apply_composition_boundary_conditions!(𝔽, time_index::Int=1)
     fill!(𝔽.bc_type_inner, inner_bc_type)
     fill!(𝔽.bc_type_outer, outer_bc_type)
 
+    # SPECIAL CASE: When BOTH boundaries are Neumann (flux BCs),
+    # the composition is only determined up to a constant. To fix the composition level,
+    # use Dirichlet BC for the l=0 (mean) mode at the inner boundary.
+    # This pins the average composition while still allowing flux BCs for other modes.
+    if inner_bc_type == Int(NEUMANN) && outer_bc_type == Int(NEUMANN)
+        # l=0 mode is at index 1 (first mode in spectral ordering)
+        𝔽.bc_type_inner[1] = Int(DIRICHLET)
+        if get_rank() == 0
+            @info "Neumann-Neumann composition BCs: using Dirichlet for l=0 mode to pin composition level"
+        end
+    end
+
     # Update time index (in field or fallback cache)
     update_composition_time_index!(𝔽, time_index)
 
@@ -781,6 +793,18 @@ function enforce_composition_boundary_constraints!(𝔽, bc_spec::Dict)
 
     else
         throw(ArgumentError("Unknown outer boundary type: $outer_type. Use :dirichlet or :neumann/:flux"))
+    end
+
+    # SPECIAL CASE: When BOTH boundaries are Neumann (flux BCs),
+    # the composition is only determined up to a constant. To fix the composition level,
+    # use Dirichlet BC for the l=0 (mean) mode at the inner boundary.
+    if (inner_type == :neumann || inner_type == :flux) &&
+       (outer_type == :neumann || outer_type == :flux)
+        # l=0 mode is at index 1 (first mode in spectral ordering)
+        𝔽.bc_type_inner[1] = Int(DIRICHLET)
+        if get_rank() == 0
+            @info "Neumann-Neumann composition BCs: using Dirichlet for l=0 mode to pin composition level"
+        end
     end
 
     return 𝔽

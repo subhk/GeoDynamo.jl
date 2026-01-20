@@ -1111,6 +1111,14 @@ Enforce magnetic boundary condition constraints based on magnetohydrodynamic phy
   * Implementation: Potential field matching (B continuous, tangential current-free)
   * Spectral: Typically Dirichlet BC for both components matching external potential
 
+- `:conducting_inner_core` - Conducting inner core (finite σ) with insulating exterior
+  * Physical interpretation: Field diffuses through inner core, continuous at ICB
+  * Implementation:
+    - At center (r=0): (∂/∂r - l/r) P = 0 (regularity)
+    - At ICB: ∂B/∂r continuous across interface
+    - At outer boundary: insulating (∂/∂r + (l+1)/r) P = 0
+  * Spectral: Continuity condition at ICB, insulating at exterior
+
 - `:perfect_conductor` - Perfect conductor (σ → ∞): Zero tangential magnetic field
   * Physical interpretation: B_tangential = 0, Bᵣ free (from ∇·B = 0)
   * Implementation: Tangential components zero, radial component determined by matching
@@ -1122,13 +1130,13 @@ Enforce magnetic boundary condition constraints based on magnetohydrodynamic phy
 
 # Notes:
 For most geodynamo applications:
-- Inner boundary (ICB): Often insulating or potential field
+- Inner boundary (ICB): Often insulating or conducting inner core
 - Outer boundary (CMB): Often insulating (matching Earth's mantle)
 """
 function enforce_magnetic_boundary_constraints!(ℬ, bc_type::Symbol)
 
     if bc_type == :insulating
-        # Insulating boundary conditions matching DD_2DCODE:
+        # Insulating boundary conditions:
         # - Toroidal: B_tor = 0 at both boundaries (Dirichlet)
         # - Poloidal inner: (∂/∂r - l/r) B_pol = 0 (NEUMANN_MAG_INNER)
         # - Poloidal outer: (∂/∂r + (l+1)/r) B_pol = 0 (NEUMANN_MAG_OUTER)
@@ -1141,12 +1149,35 @@ function enforce_magnetic_boundary_constraints!(ℬ, bc_type::Symbol)
         fill!(ℬ.𝒯.bc_type_inner, Int(DIRICHLET))
         fill!(ℬ.𝒯.bc_type_outer, Int(DIRICHLET))
 
-        # Poloidal: l-dependent derivative conditions (matching DD_2DCODE)
+        # Poloidal: l-dependent derivative conditions
         # Inner: (∂/∂r - l/r) P = 0  →  field decays as r^l inside
         # Outer: (∂/∂r + (l+1)/r) P = 0  →  field decays as r^{-(l+1)} outside
         fill!(ℬ.𝒫.boundary_values, 0.0)  # RHS = 0 for homogeneous BC
         fill!(ℬ.𝒫.bc_type_inner, Int(NEUMANN_MAG_INNER))
         fill!(ℬ.𝒫.bc_type_outer, Int(NEUMANN_MAG_OUTER))
+
+    elseif bc_type == :conducting_inner_core
+        # Conducting inner core boundary conditions:
+        # The inner core has finite electrical conductivity, so magnetic field
+        # can diffuse through it. At the ICB, B and ∂B/∂r must be continuous.
+        #
+        # Toroidal at ICB: ∂BTor/∂r continuous (jump condition)
+        # Poloidal at ICB: ∂BPol/∂r continuous
+        # Outer boundary: still insulating
+
+        # Toroidal:
+        # - Inner (ICB): continuity of ∂BTor/∂r
+        # - Outer: B_tor = 0 (insulating)
+        fill!(ℬ.𝒯.boundary_values, 0.0)
+        fill!(ℬ.𝒯.bc_type_inner, Int(CONTINUITY_MAG))  # Continuity at ICB
+        fill!(ℬ.𝒯.bc_type_outer, Int(DIRICHLET))       # BTor = 0 at exterior
+
+        # Poloidal:
+        # - Inner (ICB): continuity of ∂BPol/∂r
+        # - Outer: insulating (∂/∂r + (l+1)/r) P = 0
+        fill!(ℬ.𝒫.boundary_values, 0.0)
+        fill!(ℬ.𝒫.bc_type_inner, Int(CONTINUITY_MAG))      # Continuity at ICB
+        fill!(ℬ.𝒫.bc_type_outer, Int(NEUMANN_MAG_OUTER))   # Insulating exterior
 
     elseif bc_type == :perfect_conductor
         # Perfect conductor: B_tangential = 0 at boundary

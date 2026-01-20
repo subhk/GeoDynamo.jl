@@ -146,6 +146,7 @@ Enumeration for boundary condition types.
     NEUMANN_DERIV2 = 6 # Second derivative = 0 (∂²f/∂r² = 0, for stress-free poloidal)
     NEUMANN_MAG_INNER = 7  # Insulating inner BC: (∂/∂r - l/r) P = 0 (magnetic poloidal)
     NEUMANN_MAG_OUTER = 8  # Insulating outer BC: (∂/∂r + (l+1)/r) P = 0 (magnetic poloidal)
+    CONTINUITY_MAG = 9     # Conducting inner core: ∂B/∂r continuous at ICB
 end
 
 """
@@ -166,7 +167,7 @@ end
 
 export AbstractBoundaryCondition
 export BoundaryLocation, INNER_BOUNDARY, OUTER_BOUNDARY
-export BoundaryType, DIRICHLET, NEUMANN, MIXED, ROBIN, NEUMANN_DERIV1, NEUMANN_DERIV2, NEUMANN_MAG_INNER, NEUMANN_MAG_OUTER
+export BoundaryType, DIRICHLET, NEUMANN, MIXED, ROBIN, NEUMANN_DERIV1, NEUMANN_DERIV2, NEUMANN_MAG_INNER, NEUMANN_MAG_OUTER, CONTINUITY_MAG
 export FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC
 
 # ================================================================================

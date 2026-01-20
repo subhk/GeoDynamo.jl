@@ -131,7 +131,7 @@
 # ================================================================================
 
 import .bcs
-import .bcs: BoundaryType, DIRICHLET, NEUMANN
+import .bcs: BoundaryType, DIRICHLET, NEUMANN, NEUMANN_MAG_INNER, NEUMANN_MAG_OUTER, CONTINUITY_MAG
 
 mutable struct SHTnsMagneticFields{T}
     # Physical space magnetic field
@@ -284,16 +284,34 @@ end
 """
     enforce_magnetic_boundary_values!(ℬ)
 
-Anchor magnetic toroidal/poloidal spectral data to cached Dirichlet boundary
-values on the inner and outer radial surfaces.
+Anchor magnetic toroidal/poloidal spectral data to boundary conditions
+on the inner and outer radial surfaces.
+
+Supports multiple BC types:
+- DIRICHLET: Fixed value (P = value)
+- NEUMANN_MAG_INNER: (∂/∂r - l/r) P = 0 (insulating, field decays as r^l)
+- NEUMANN_MAG_OUTER: (∂/∂r + (l+1)/r) P = 0 (insulating, field decays as r^{-(l+1)})
+- CONTINUITY_MAG: ∂B/∂r continuous at ICB (conducting inner core)
+
+The l-dependent derivative conditions:
+- Inner insulating: (∂P/∂r) = (l/r) * P → P[1] = P[2] / (1 + Δr*l/r[1])
+- Outer insulating: (∂P/∂r) = -(l+1)/r * P → P[N] = P[N-1] / (1 + Δr*(l+1)/r[N])
+- Conducting IC: ∂B_oc/∂r = ∂B_ic/∂r at ICB (continuity of derivative)
 """
 function enforce_magnetic_boundary_values!(ℬ::SHTnsMagneticFields{T}) where T
     domain = ℬ.outer_domain
+    config = ℬ.𝒯.config
 
     tor_real = parent(ℬ.𝒯.data_real)
     tor_imag = parent(ℬ.𝒯.data_imag)
     pol_real = parent(ℬ.𝒫.data_real)
     pol_imag = parent(ℬ.𝒫.data_imag)
+
+    # Inner core fields (for conducting inner core BC)
+    ic_tor_real = parent(ℬ.𝒯ⁱᶜ.data_real)
+    ic_tor_imag = parent(ℬ.𝒯ⁱᶜ.data_imag)
+    ic_pol_real = parent(ℬ.𝒫ⁱᶜ.data_real)
+    ic_pol_imag = parent(ℬ.𝒫ⁱᶜ.data_imag)
 
     tor_bc = ℬ.𝒯.boundary_values
     pol_bc = ℬ.𝒫.boundary_values
@@ -307,31 +325,107 @@ function enforce_magnetic_boundary_values!(ℬ::SHTnsMagneticFields{T}) where T
     inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
     outer_idx = has_outer ? (domain.N - first(r_range) + 1) : 0
 
+    # BC type codes
     dirichlet_code = Int(bcs.DIRICHLET)
+    neumann_mag_inner_code = Int(NEUMANN_MAG_INNER)
+    neumann_mag_outer_code = Int(NEUMANN_MAG_OUTER)
+    continuity_mag_code = Int(CONTINUITY_MAG)
+
+    # Compute grid spacing for finite difference
+    # Inner: use forward difference Δr = r[2] - r[1]
+    # Outer: use backward difference Δr = r[N] - r[N-1]
+    nr = domain.N
+    r_inner = has_inner ? domain.r[1, 4] : 1.0
+    r_outer = has_outer ? domain.r[nr, 4] : 1.0
+
+    # Grid spacing (assuming uniform or quasi-uniform grid near boundaries)
+    Δr_inner = nr > 1 ? (domain.r[2, 4] - domain.r[1, 4]) : 0.01
+    Δr_outer = nr > 1 ? (domain.r[nr, 4] - domain.r[nr-1, 4]) : 0.01
+
+    # Inner core grid info (for continuity BC)
+    ic_nr = size(ic_tor_real, 3)
 
     for lm_idx in lm_range
         if lm_idx <= ℬ.𝒯.nlm
             local_lm = lm_idx - first(lm_range) + 1
 
+            # Get l value for this mode
+            l = config.l_values[lm_idx]
+
+            # === INNER BOUNDARY ===
             if has_inner && 1 <= inner_idx <= size(tor_real, 3)
-                if ℬ.𝒯.bc_type_inner[lm_idx] == dirichlet_code
+                # --- Toroidal BC ---
+                tor_bc_type_inner = ℬ.𝒯.bc_type_inner[lm_idx]
+                if tor_bc_type_inner == dirichlet_code
                     tor_real[local_lm, 1, inner_idx] = tor_bc[1, lm_idx]
                     tor_imag[local_lm, 1, inner_idx] = zero(T)
+                elseif tor_bc_type_inner == continuity_mag_code
+                    # Conducting inner core: ∂BTor/∂r continuous at ICB
+                    # Match the outer core boundary to the inner core's outer edge
+                    # B_oc[1] = B_ic[end] (value continuity)
+                    # The derivative continuity is handled by the coupled time-stepping
+                    if ic_nr >= 1 && local_lm <= size(ic_tor_real, 1)
+                        tor_real[local_lm, 1, inner_idx] = ic_tor_real[local_lm, 1, ic_nr]
+                        tor_imag[local_lm, 1, inner_idx] = ic_tor_imag[local_lm, 1, ic_nr]
+                    end
                 end
-                if ℬ.𝒫.bc_type_inner[lm_idx] == dirichlet_code
+
+                # --- Poloidal BC ---
+                pol_bc_type_inner = ℬ.𝒫.bc_type_inner[lm_idx]
+                if pol_bc_type_inner == dirichlet_code
                     pol_real[local_lm, 1, inner_idx] = pol_bc[1, lm_idx]
                     pol_imag[local_lm, 1, inner_idx] = zero(T)
+                elseif pol_bc_type_inner == neumann_mag_inner_code
+                    # (∂/∂r - l/r) P = 0 → P[1] = P[2] / (1 + Δr*l/r[1])
+                    # This condition ensures field matches r^l behavior at inner boundary
+                    if r_inner > 0 && inner_idx + 1 <= size(pol_real, 3)
+                        factor = 1.0 + Δr_inner * l / r_inner
+                        if factor > 0
+                            pol_real[local_lm, 1, inner_idx] = pol_real[local_lm, 1, inner_idx + 1] / T(factor)
+                            pol_imag[local_lm, 1, inner_idx] = pol_imag[local_lm, 1, inner_idx + 1] / T(factor)
+                        end
+                    else
+                        # Fallback for r=0 or edge case: set to zero
+                        pol_real[local_lm, 1, inner_idx] = zero(T)
+                        pol_imag[local_lm, 1, inner_idx] = zero(T)
+                    end
+                elseif pol_bc_type_inner == continuity_mag_code
+                    # Conducting inner core: ∂BPol/∂r continuous at ICB
+                    # Match the outer core boundary to the inner core's outer edge
+                    if ic_nr >= 1 && local_lm <= size(ic_pol_real, 1)
+                        pol_real[local_lm, 1, inner_idx] = ic_pol_real[local_lm, 1, ic_nr]
+                        pol_imag[local_lm, 1, inner_idx] = ic_pol_imag[local_lm, 1, ic_nr]
+                    end
                 end
             end
 
+            # === OUTER BOUNDARY ===
             if has_outer && 1 <= outer_idx <= size(tor_real, 3)
+                # Toroidal BC (typically Dirichlet T=0 for insulating)
                 if ℬ.𝒯.bc_type_outer[lm_idx] == dirichlet_code
                     tor_real[local_lm, 1, outer_idx] = tor_bc[2, lm_idx]
                     tor_imag[local_lm, 1, outer_idx] = zero(T)
                 end
-                if ℬ.𝒫.bc_type_outer[lm_idx] == dirichlet_code
+
+                # Poloidal BC
+                pol_bc_type_outer = ℬ.𝒫.bc_type_outer[lm_idx]
+                if pol_bc_type_outer == dirichlet_code
                     pol_real[local_lm, 1, outer_idx] = pol_bc[2, lm_idx]
                     pol_imag[local_lm, 1, outer_idx] = zero(T)
+                elseif pol_bc_type_outer == neumann_mag_outer_code
+                    # (∂/∂r + (l+1)/r) P = 0 → P[N] = P[N-1] / (1 + Δr*(l+1)/r[N])
+                    # This condition ensures field matches r^{-(l+1)} decay at outer boundary
+                    if r_outer > 0 && outer_idx - 1 >= 1
+                        factor = 1.0 + Δr_outer * (l + 1) / r_outer
+                        if factor > 0
+                            pol_real[local_lm, 1, outer_idx] = pol_real[local_lm, 1, outer_idx - 1] / T(factor)
+                            pol_imag[local_lm, 1, outer_idx] = pol_imag[local_lm, 1, outer_idx - 1] / T(factor)
+                        end
+                    else
+                        # Fallback: set to zero
+                        pol_real[local_lm, 1, outer_idx] = zero(T)
+                        pol_imag[local_lm, 1, outer_idx] = zero(T)
+                    end
                 end
             end
         end

@@ -309,7 +309,7 @@ end
 
 Apply flux boundary conditions to velocity field components in spectral space.
 
-This function enforces boundary conditions matching DD_2DCODE:
+This function enforces boundary conditions for spherical shell dynamo:
 - Toroidal (NEUMANN): ∂T/∂r = T/r (stress-free tangential)
 - Poloidal (NEUMANN_DERIV1): ∂P/∂r = 0 (no-slip)
 - Poloidal (NEUMANN_DERIV2): ∂²P/∂r² = 0 (stress-free)
@@ -322,7 +322,7 @@ This function enforces boundary conditions matching DD_2DCODE:
   - `:direct` - First-order finite difference
   - `:physical_stress` - First-order finite difference (equivalent to :direct)
 
-# Boundary Condition Mapping (matching DD_2DCODE):
+# Boundary Condition Mapping:
 - No-slip: T = 0 (Dirichlet), ∂P/∂r = 0 (NEUMANN_DERIV1)
 - Stress-free: ∂T/∂r = T/r (NEUMANN), ∂²P/∂r² = 0 (NEUMANN_DERIV2)
 
@@ -331,8 +331,8 @@ For stress-free toroidal boundaries, the zero tangential stress condition requir
   σ_rθ = r ∂/∂r(v_θ/r) = ∂v_θ/∂r - v_θ/r = 0
   →  ∂T/∂r = T/r  at boundaries
 
-For stress-free poloidal boundaries, DD_2DCODE uses ∂²P/∂r² = 0.
-For no-slip poloidal boundaries, DD_2DCODE uses ∂P/∂r = 0.
+For stress-free poloidal boundaries, ∂²P/∂r² = 0 is used.
+For no-slip poloidal boundaries, ∂P/∂r = 0 is used.
 """
 function apply_velocity_flux_bc_spectral!(𝒰::SHTnsVelocityFields{T},
                                           domain::RadialDomain;
@@ -357,7 +357,7 @@ end
 
 Apply flux boundary conditions to a single velocity component (toroidal or poloidal).
 
-Handles different BC types matching DD_2DCODE:
+Handles different BC types:
 - NEUMANN: ∂T/∂r = T/r (stress-free toroidal)
 - NEUMANN_DERIV1: ∂P/∂r = 0 (no-slip poloidal)
 - NEUMANN_DERIV2: ∂²P/∂r² = 0 (stress-free poloidal)
@@ -842,7 +842,7 @@ function apply_velocity_flux_bc_physical_stress!(spec_real, spec_imag, local_lm,
 end
 
 # ================================================================================
-# Poloidal Boundary Condition Functions (matching DD_2DCODE)
+# Poloidal Boundary Condition Functions
 # ================================================================================
 
 """
@@ -852,8 +852,7 @@ end
 
 Apply first derivative boundary condition ∂P/∂r = 0 for no-slip poloidal velocity.
 
-This matches DD_2DCODE's vel_bc_Pol for no-slip boundaries (i_vel_bc = 1, 2),
-which uses the first derivative matrix rows to enforce ∂P/∂r = 0.
+For no-slip boundaries, the first derivative condition ∂P/∂r = 0 is enforced.
 
 # MPI Safety
 All processes must call this function for each mode to ensure Allreduce is called
@@ -936,8 +935,7 @@ end
 
 Apply second derivative boundary condition ∂²P/∂r² = 0 for stress-free poloidal velocity.
 
-This matches DD_2DCODE's vel_bc_Pol for stress-free boundaries (i_vel_bc = 3, 4),
-which uses the second derivative matrix rows to enforce ∂²P/∂r² = 0.
+For stress-free boundaries, the second derivative condition ∂²P/∂r² = 0 is enforced.
 
 # Physical Interpretation
 For stress-free boundaries, the condition ∂²P/∂r² = 0 ensures that the radial

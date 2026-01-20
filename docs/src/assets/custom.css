@@ -193,11 +193,11 @@ article pre code {
 /* ASCII art code blocks - special styling */
 article pre:has(code:not([class*="language-"])) {
     background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-    color: #e2e8f0;
+    color: #ffffff;
 }
 
 article pre:has(code:not([class*="language-"])) code {
-    color: #94a3b8;
+    color: #ffffff;
 }
 
 /* Julia code blocks */

@@ -302,6 +302,18 @@ function apply_temperature_boundary_conditions!(𝒯, time_index::Int=1)
     fill!(𝒯.bc_type_inner, inner_bc_type)
     fill!(𝒯.bc_type_outer, outer_bc_type)
 
+    # SPECIAL CASE: When BOTH boundaries are Neumann (flux BCs),
+    # the temperature is only determined up to a constant. To fix the temperature level,
+    # use Dirichlet BC for the l=0 (mean) mode at the inner boundary.
+    # This pins the average temperature while still allowing flux BCs for other modes.
+    if inner_bc_type == Int(NEUMANN) && outer_bc_type == Int(NEUMANN)
+        # l=0 mode is at index 1 (first mode in spectral ordering)
+        𝒯.bc_type_inner[1] = Int(DIRICHLET)
+        if get_rank() == 0
+            @info "Neumann-Neumann temperature BCs: using Dirichlet for l=0 mode to pin temperature level"
+        end
+    end
+
     # Update time index
     update_temperature_time_index!(𝒯, time_index)
 
@@ -768,6 +780,18 @@ function enforce_temperature_boundary_constraints!(𝒯, bc_spec::Dict)
 
     else
         throw(ArgumentError("Unknown outer boundary type: $outer_type. Use :dirichlet or :neumann/:flux"))
+    end
+
+    # SPECIAL CASE: When BOTH boundaries are Neumann (flux BCs),
+    # the temperature is only determined up to a constant. To fix the temperature level,
+    # use Dirichlet BC for the l=0 (mean) mode at the inner boundary.
+    if (inner_type == :neumann || inner_type == :flux) &&
+       (outer_type == :neumann || outer_type == :flux)
+        # l=0 mode is at index 1 (first mode in spectral ordering)
+        𝒯.bc_type_inner[1] = Int(DIRICHLET)
+        if get_rank() == 0
+            @info "Neumann-Neumann temperature BCs: using Dirichlet for l=0 mode to pin temperature level"
+        end
     end
 
     return 𝒯

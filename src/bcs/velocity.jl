@@ -819,7 +819,7 @@ load_velocity_boundary_conditions!() instead.
 - `𝒰`: Velocity field structure with toroidal and poloidal components
 - `bc_type`: Type of boundary condition (:no_slip, :stress_free, :impermeable)
 
-# Boundary Condition Mapping (matching DD_2DCODE):
+# Boundary Condition Mapping:
 - No-slip: T = 0 (Dirichlet), ∂P/∂r = 0 (NEUMANN_DERIV1)
 - Stress-free: ∂T/∂r = T/r (NEUMANN), ∂²P/∂r² = 0 (NEUMANN_DERIV2)
 - Impermeable: v_r = 0 → Q = 0 at boundaries (Dirichlet), T unconstrained
@@ -833,11 +833,11 @@ function enforce_velocity_boundary_constraints!(𝒰, bc_type::Symbol=:no_slip)
 
     if bc_type == :no_slip
         # No-slip: all velocity components = 0 at boundaries
-        # Matching DD_2DCODE: T = 0 (Dirichlet), ∂P/∂r = 0 (NEUMANN_DERIV1)
+        # T = 0 (Dirichlet), ∂P/∂r = 0 (NEUMANN_DERIV1)
 
         if hasfield(typeof(𝒰), :𝒫) && hasfield(typeof(𝒰.𝒫), :boundary_values)
             fill!(𝒰.𝒫.boundary_values, 0.0)  # ∂P/∂r = 0 target
-            # DD_2DCODE uses first derivative condition for no-slip poloidal
+            # First derivative condition for no-slip poloidal
             fill!(𝒰.𝒫.bc_type_inner, Int(NEUMANN_DERIV1))
             fill!(𝒰.𝒫.bc_type_outer, Int(NEUMANN_DERIV1))
         end
@@ -850,11 +850,11 @@ function enforce_velocity_boundary_constraints!(𝒰, bc_type::Symbol=:no_slip)
 
     elseif bc_type == :stress_free
         # Stress-free: v_r = 0 constraint, zero tangential stress
-        # Matching DD_2DCODE: ∂T/∂r = T/r (NEUMANN), ∂²P/∂r² = 0 (NEUMANN_DERIV2)
+        # ∂T/∂r = T/r (NEUMANN), ∂²P/∂r² = 0 (NEUMANN_DERIV2)
 
         if hasfield(typeof(𝒰), :𝒫) && hasfield(typeof(𝒰.𝒫), :boundary_values)
             fill!(𝒰.𝒫.boundary_values, 0.0)  # ∂²P/∂r² = 0 target
-            # DD_2DCODE uses second derivative condition for stress-free poloidal
+            # Second derivative condition for stress-free poloidal
             fill!(𝒰.𝒫.bc_type_inner, Int(NEUMANN_DERIV2))
             fill!(𝒰.𝒫.bc_type_outer, Int(NEUMANN_DERIV2))
         end
