@@ -221,7 +221,7 @@ If GeoDynamo.jl supports your research, please cite:
 
 ```bibtex
 @software{geodynamo_jl,
-  author = {Kar, Subhadeep},
+  author = {Kar, Subhajit},
   title  = {GeoDynamo.jl: Spherical-MHD Solver for Planetary Cores},
   url    = {https://github.com/subhk/GeoDynamo.jl},
   year   = {2024}

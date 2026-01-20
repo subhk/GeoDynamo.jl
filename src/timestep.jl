@@ -1060,53 +1060,34 @@ end
 """
     validate_mpi_consistency!(field::SHTnsSpecField{T}) where T
 
-Check that spectral field data is consistent across MPI processes after time stepping.
+Check that spectral field data is valid (no NaN/Inf) across all MPI processes.
+Returns the field after validation. Warns if any process has invalid data.
 """
 function validate_mpi_consistency!(field::SHTnsSpecField{T}) where T
     comm = get_comm()
     rank = get_rank()
-    nprocs = get_nprocs()
-    
-    if nprocs > 1
-        # Check a few sample values for consistency
-        real_data = parent(field.data_real)
-        imag_data = parent(field.data_imag)
-        
-        # Sample first few elements
-        n_samples = min(5, length(real_data))
-        local_samples_real = Vector{T}(undef, n_samples)
-        local_samples_imag = Vector{T}(undef, n_samples)
-        
-        @inbounds for i in 1:n_samples
-            local_samples_real[i] = real_data[i]
-            local_samples_imag[i] = imag_data[i]
-        end
-        
-        # Gather samples from all processes
-        all_samples_real = MPI.Allgather(local_samples_real, comm)
-        all_samples_imag = MPI.Allgather(local_samples_imag, comm)
-        
-        # Check consistency on rank 0
+
+    # Check local data for NaN/Inf
+    real_data = parent(field.data_real)
+    imag_data = parent(field.data_imag)
+
+    local_nan_count = count(isnan, real_data) + count(isnan, imag_data)
+    local_inf_count = count(isinf, real_data) + count(isinf, imag_data)
+    local_has_issues = (local_nan_count > 0 || local_inf_count > 0) ? 1 : 0
+
+    # Check if any process has issues
+    global_has_issues = Allreduce(local_has_issues, MPI.MAX, comm)
+
+    if global_has_issues > 0
+        # Gather counts from all processes for detailed reporting
+        total_nan = Allreduce(local_nan_count, MPI.SUM, comm)
+        total_inf = Allreduce(local_inf_count, MPI.SUM, comm)
+
         if rank == 0
-            max_diff_real = zero(T)
-            max_diff_imag = zero(T)
-            
-            for proc in 2:nprocs
-                for i in 1:n_samples
-                    diff_real = abs(all_samples_real[(proc-1)*n_samples + i] - all_samples_real[i])
-                    diff_imag = abs(all_samples_imag[(proc-1)*n_samples + i] - all_samples_imag[i])
-                    max_diff_real = max(max_diff_real, diff_real)
-                    max_diff_imag = max(max_diff_imag, diff_imag)
-                end
-            end
-            
-            # Warn if inconsistency detected
-            if max_diff_real > 1e-12 || max_diff_imag > 1e-12
-                @warn "MPI data inconsistency detected: max_diff_real=$max_diff_real, max_diff_imag=$max_diff_imag"
-            end
+            @warn "MPI data validation failed: $total_nan NaN values, $total_inf Inf values across all processes"
         end
     end
-    
+
     return field
 end
 
