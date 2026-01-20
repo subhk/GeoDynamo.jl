@@ -518,9 +518,17 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
 
     # Process each radial level
     for r_local in axes(v_theta, 3)
-        # Extract vector components
-        vt_field = extract_vector_component_generic(v_theta, r_local, config)
-        vp_field = extract_vector_component_generic(v_phi, r_local, config)
+        # Extract vector components using SEPARATE buffers to avoid overwriting
+        # (extract_vector_component_generic uses a shared cached buffer)
+        nlat, nlon = config.nlat, config.nlon
+        vt_buffer = get_cached_buffer!(config, :vector_component_buffer_vt) do
+            zeros(eltype(v_theta), nlat, nlon)
+        end
+        vp_buffer = get_cached_buffer!(config, :vector_component_buffer_vp) do
+            zeros(eltype(v_phi), nlat, nlon)
+        end
+        vt_field = extract_vector_component_generic!(vt_buffer, v_theta, r_local, config)
+        vp_field = extract_vector_component_generic!(vp_buffer, v_phi, r_local, config)
 
         # Perform vector analysis using SHTnsKit (tangential components)
         # This returns P and T assuming solenoidal constraint
