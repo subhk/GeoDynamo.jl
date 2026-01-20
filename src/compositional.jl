@@ -92,7 +92,7 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     # Gradient spectral components for efficiency
     ∇θ_spec::SHTnsSpecField{T}
     ∇φ_spec::SHTnsSpecField{T}
-    ∇ᵣ_spec::SHTnsSpecField{T}
+    ∇r_spec::SHTnsSpecField{T}
 
     # Sources and boundary conditions
     internal_sources::Vector{T}        # Radial profile of compositional sources
@@ -116,7 +116,7 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     ∂²r::BandedMatrix{T}        # Second derivative d²/dr²
 
     # Spectral derivative operators (matching thermal.jl types)
-    theta_derivative_matrix::SparseMatrixCSC{T,Int}  # Pre-computed θ-derivative
+    ∂θ::SparseMatrixCSC{T,Int}  # Pre-computed θ-derivative
     theta_recurrence_coeffs::Matrix{T}               # Recurrence coefficients
 
     # Performance tracking
@@ -195,7 +195,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     # Gradient spectral components
     ∇θ_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
     ∇φ_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    ∇ᵣ_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    ∇r_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
 
     # Sources and boundary conditions
     internal_sources = zeros(T, 𝒟ᵒᶜ.N)
@@ -217,19 +217,19 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     ∂²r = create_derivative_matrix(2, 𝒟ᵒᶜ)
 
     # Pre-compute spectral derivative operators
-    theta_derivative_matrix = build_theta_derivative_matrix(T, config)
+    ∂θ = build_∂θ(T, config)
     theta_recurrence_coeffs = compute_theta_recurrence_coefficients(T, config)
 
     return SHTnsCompositionField{T}(
         composition, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
-        ∇θ_spec, ∇φ_spec, ∇ᵣ_spec,
+        ∇θ_spec, ∇φ_spec, ∇r_spec,
         internal_sources, boundary_values,
         bc_type_inner, bc_type_outer,
         nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
         ℓ_factors, config,
         ∂r, ∂²r,
-        theta_derivative_matrix, theta_recurrence_coeffs,
+        ∂θ, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),
         𝒟ᵒᶜ
     )

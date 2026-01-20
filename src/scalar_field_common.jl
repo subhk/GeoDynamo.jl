@@ -119,12 +119,12 @@ end
 # ================================================================================
 
 """
-    build_theta_derivative_matrix(::Type{T}, config::SHTnsKitConfig) where T
+    build_∂θ(::Type{T}, config::SHTnsKitConfig) where T
 
 Build sparse matrix for θ-derivatives in spectral space.
 This matrix couples different l modes with the same m.
 """
-function build_theta_derivative_matrix(::Type{T}, config::SHTnsKitConfig) where T
+function build_∂θ(::Type{T}, config::SHTnsKitConfig) where T
     nlm = config.nlm
     
     # Build sparse matrix for derivative operator
@@ -319,8 +319,8 @@ are distributed across MPI processes.
 function compute_radial_gradient_spectral!(𝔽::AbstractScalarField{T}, domain::RadialDomain) where T
     spec_real = parent(𝔽.spectral.data_real)
     spec_imag = parent(𝔽.spectral.data_imag)
-    ∇ᵣ_real   = parent(𝔽.∇ᵣ_spec.data_real)
-    ∇ᵣ_imag   = parent(𝔽.∇ᵣ_spec.data_imag)
+    ∇r_real   = parent(𝔽.∇r_spec.data_real)
+    ∇r_imag   = parent(𝔽.∇r_spec.data_imag)
 
     lm_range = range_local(𝔽.config.pencils.spec, 1)
     r_range  = range_local(𝔽.config.pencils.spec, 3)
@@ -334,7 +334,7 @@ function compute_radial_gradient_spectral!(𝔽::AbstractScalarField{T}, domain:
             # Apply banded matrix to radial profile
             for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
-                if local_r <= size(∇ᵣ_real, 3)
+                if local_r <= size(∇r_real, 3)
 
                     dr_real = zero(T)
                     dr_imag = zero(T)
@@ -352,8 +352,8 @@ function compute_radial_gradient_spectral!(𝔽::AbstractScalarField{T}, domain:
                         end
                     end
 
-                    ∇ᵣ_real[local_lm, 1, local_r] = dr_real
-                    ∇ᵣ_imag[local_lm, 1, local_r] = dr_imag
+                    ∇r_real[local_lm, 1, local_r] = dr_real
+                    ∇r_imag[local_lm, 1, local_r] = dr_imag
                 end
             end
         end
@@ -443,7 +443,7 @@ function transform_field_and_gradients_to_physical!(𝔽::AbstractScalarField{T}
     spectral_fields = [𝔽.spectral,
                        𝔽.∇θ_spec,
                        𝔽.∇φ_spec,
-                       𝔽.∇ᵣ_spec]
+                       𝔽.∇r_spec]
     
     # Determine physical field based on field type
     main_physical_field = get_main_physical_field(field)
@@ -476,15 +476,15 @@ function compute_scalar_advection_local!(𝔽::AbstractScalarField{T}, vel_field
     u_θ = parent(vel_fields.velocity.θ_component.data)
     u_φ = parent(vel_fields.velocity.φ_component.data)
     
-    ∇ᵣ = parent(𝔽.gradient.r_component.data)
+    ∇r = parent(𝔽.gradient.r_component.data)
     ∇θ = parent(𝔽.gradient.θ_component.data)
     ∇φ = parent(𝔽.gradient.φ_component.data)
     
     advection = parent(𝔽.advection_physical.data)
     
     @inbounds @simd for idx in eachindex(advection)
-        if idx <= length(u_r) && idx <= length(∇ᵣ)
-            advection[idx] = -(u_r[idx] * ∇ᵣ[idx] + 
+        if idx <= length(u_r) && idx <= length(∇r)
+            advection[idx] = -(u_r[idx] * ∇r[idx] + 
                               u_θ[idx] * ∇θ[idx] + 
                               u_φ[idx] * ∇φ[idx])
         end
@@ -610,8 +610,8 @@ function zero_scalar_work_arrays!(𝔽::AbstractScalarField{T}) where T
     fill!(parent(𝔽.∇θ_spec.data_imag), zero(T))
     fill!(parent(𝔽.∇φ_spec.data_real), zero(T))
     fill!(parent(𝔽.∇φ_spec.data_imag), zero(T))
-    fill!(parent(𝔽.∇ᵣ_spec.data_real), zero(T))
-    fill!(parent(𝔽.∇ᵣ_spec.data_imag), zero(T))
+    fill!(parent(𝔽.∇r_spec.data_real), zero(T))
+    fill!(parent(𝔽.∇r_spec.data_imag), zero(T))
     fill!(parent(𝔽.nonlinear.data_real), zero(T))
     fill!(parent(𝔽.nonlinear.data_imag), zero(T))
 end
