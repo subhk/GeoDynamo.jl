@@ -432,6 +432,82 @@ function get_boundary_condition_summary(𝔽, field_type::FieldType)
     return summary
 end
 
+# ================================================================================
+# Apply Programmatic Boundaries to Fields
+# ================================================================================
+
+"""
+    apply_temperature_boundaries!(temp_field, pbs::ProgrammaticBoundarySet; time=0.0)
+
+Apply programmatic temperature boundary conditions to a temperature field.
+
+Transforms physical-space boundary data to spectral coefficients and stores them
+in the field's `boundary_values` matrix, along with setting BC types.
+
+# Arguments
+- `temp_field`: SHTnsTemperatureField to apply boundaries to
+- `pbs`: ProgrammaticBoundarySet containing boundary data and BC types
+- `time`: Current simulation time (for time-dependent boundaries)
+"""
+function apply_temperature_boundaries!(temp_field, pbs::ProgrammaticBoundarySet; time=0.0)
+    cfg = temp_field.config
+
+    # Store the boundary condition set on the field
+    temp_field.boundary_condition_set = pbs.boundary_set
+
+    # Set BC types for all modes
+    fill!(temp_field.bc_type_inner, Int(pbs.inner_bc_type))
+    fill!(temp_field.bc_type_outer, Int(pbs.outer_bc_type))
+
+    # Transform inner boundary from physical to spectral
+    inner_coeffs = shtns_physical_to_spectral(pbs.boundary_set.inner_boundary.values, cfg)
+    nlm = min(length(inner_coeffs), size(temp_field.boundary_values, 2))
+    for idx in 1:nlm
+        temp_field.boundary_values[1, idx] = inner_coeffs[idx]
+    end
+
+    # Transform outer boundary from physical to spectral
+    outer_coeffs = shtns_physical_to_spectral(pbs.boundary_set.outer_boundary.values, cfg)
+    for idx in 1:nlm
+        temp_field.boundary_values[2, idx] = outer_coeffs[idx]
+    end
+
+    return temp_field
+end
+
+"""
+    apply_composition_boundaries!(comp_field, pbs::ProgrammaticBoundarySet; time=0.0)
+
+Apply programmatic composition boundary conditions to a composition field.
+Same interface as `apply_temperature_boundaries!`.
+"""
+function apply_composition_boundaries!(comp_field, pbs::ProgrammaticBoundarySet; time=0.0)
+    cfg = comp_field.config
+
+    # Store the boundary condition set on the field
+    comp_field.boundary_condition_set = pbs.boundary_set
+
+    # Set BC types for all modes
+    fill!(comp_field.bc_type_inner, Int(pbs.inner_bc_type))
+    fill!(comp_field.bc_type_outer, Int(pbs.outer_bc_type))
+
+    # Transform inner boundary from physical to spectral
+    inner_coeffs = shtns_physical_to_spectral(pbs.boundary_set.inner_boundary.values, cfg)
+    nlm = min(length(inner_coeffs), size(comp_field.boundary_values, 2))
+    for idx in 1:nlm
+        comp_field.boundary_values[1, idx] = inner_coeffs[idx]
+    end
+
+    # Transform outer boundary from physical to spectral
+    outer_coeffs = shtns_physical_to_spectral(pbs.boundary_set.outer_boundary.values, cfg)
+    for idx in 1:nlm
+        comp_field.boundary_values[2, idx] = outer_coeffs[idx]
+    end
+
+    return comp_field
+end
+
 export initialize_boundary_conditions!, apply_boundary_conditions!
 export validate_field_boundary_compatibility, copy_boundary_conditions!
 export reset_boundary_conditions!, get_boundary_condition_summary
+export apply_temperature_boundaries!, apply_composition_boundaries!

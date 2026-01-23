@@ -102,108 +102,12 @@ end
 initialize_shtns_simulation(::Type{T}=Float64; include_composition::Bool=true) where T = initialize_simulation(T; include_composition)
 
 # ================================================================================
-# ENHANCED SIMULATION INITIALIZATION
-# ================================================================================
-
-"""
-    initialize_enhanced_simulation(::Type{T}=Float64; kwargs...)
-    
-Initialize simulation with all parallelization features enabled.
-"""
-function initialize_enhanced_simulation(::Type{T}=Float64; 
-                                        include_composition::Bool=true,
-                                        auto_optimize::Bool=true,
-                                        thread_count::Int=Threads.nthreads()) where T
-    
-    # Initialize MPI first
-    if !MPI.Initialized()
-        MPI.Init()
-    end
-    
-    rank = get_rank()
-    nprocs = get_nprocs()
-    
-    if rank == 0
-        println("="^80)
-        println("    GEODYNAMO.jl - ENHANCED PARALLEL INITIALIZATION")
-        println("="^80)
-        println("MPI Processes: $nprocs")
-        println("Threads per process: $thread_count")
-        println("Auto-optimization: $(auto_optimize ? "ENABLED" : "DISABLED")")
-        println("="^80)
-    end
-    
-    # Create SHTns configuration with enhanced topology
-    shtns_config = create_shtnskit_config(lmax=i_L, mmax=i_M, nlat=i_Th, nlon=i_Ph, optimize_decomp=true)
-    
-    # Initialize enhanced pencil decomposition
-    pencils = create_pencil_topology(shtns_config, optimize=true)
-    pencil_spec = pencils.spec
-    
-    geom = get_parameters().geometry
-    if geom === :ball
-        𝒟ᵒᶜ = create_ball_radial_domain(i_N)
-        𝒟ⁱᶜ = 𝒟ᵒᶜ
-        velocity = create_ball_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = create_ball_magnetic_fields(T, shtns_config; nr=i_N)
-        temperature = create_ball_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? create_ball_composition_field(T, shtns_config; nr=i_N) : nothing
-    else
-        𝒟ᵒᶜ = create_shell_radial_domain(i_N)
-        𝒟ⁱᶜ = create_shell_radial_domain(i_Nic)
-        velocity = create_shell_velocity_fields(T, shtns_config; nr=i_N)
-        magnetic = create_shell_magnetic_fields(T, shtns_config; nr_oc=i_N, nr_ic=i_Nic)
-        temperature = create_shell_temperature_field(T, shtns_config; nr=i_N)
-        composition = include_composition ? create_shell_composition_field(T, shtns_config; nr=i_N) : nothing
-    end
-    
-    # Initialize timestepping with enhanced matrices
-    timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false)
-
-    # Create implicit matrices for each equation (magnetic diffusion time scaling)
-    # Velocity: E, Temperature: Pm/Pr, Magnetic: 1, Composition: Pm/Sc
-    implicit_matrices = Dict{Symbol, SHTnsImplicitMatrices{T}}()
-    # Velocity uses separate toroidal/poloidal matrices with BCs embedded (Fortran approach)
-    implicit_matrices[:velocity_tor] = create_velocity_toroidal_matrices(shtns_config, 𝒟ᵒᶜ, d_E, d_timestep;
-                                                                          i_vel_bc=get_parameters().i_vel_bc)
-    implicit_matrices[:velocity_pol] = create_velocity_poloidal_matrices(shtns_config, 𝒟ᵒᶜ, d_E, d_timestep;
-                                                                          i_vel_bc=get_parameters().i_vel_bc)
-    # Keep generic velocity matrices for backward compatibility (used by RHS builder)
-    implicit_matrices[:velocity] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_E, d_timestep)
-    # Magnetic uses separate toroidal/poloidal matrices with BCs embedded (Fortran approach)
-    implicit_matrices[:magnetic_tor] = create_magnetic_toroidal_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
-    implicit_matrices[:magnetic_pol] = create_magnetic_poloidal_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
-    # Keep generic magnetic matrices for backward compatibility (used by RHS builder)
-    implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
-    # Temperature uses matrix-embedded BCs (Fortran DD_2DCODE approach)
-    implicit_matrices[:temperature] = create_temperature_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Pr, d_timestep)
-
-    if include_composition
-        # Composition uses matrix-embedded BCs (Fortran DD_2DCODE approach)
-        implicit_matrices[:composition] = create_composition_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Sc, d_timestep)
-    end
-
-    # Create a unified master parallelizer from the hybrid components
-    master_parallelizer = create_master_parallelizer(T, shtns_config)
-
-    return SimulationState{T}(
-        velocity, magnetic, temperature, composition,
-        shtns_config, 𝒟ᵒᶜ, 𝒟ⁱᶜ,
-        master_parallelizer,
-        timestep_state, implicit_matrices,
-        Dict{Symbol, EAB2ALUCacheEntry{T}}(),  # etd_caches
-        Dict{Symbol, ERK2Cache{T}}(),          # erk2_caches
-        0, auto_optimize, true, geom           # output_counter, auto_optimization, adaptive_threading, geometry
-    )
-end
-
-# ================================================================================
 # MASTER SIMULATION INITIALIZATION
 # ================================================================================
 
 """
-    initialize_master_simulation(::Type{T}=Float64; kwargs...)
-    
+    initialize_simulation(::Type{T}=Float64; kwargs...)
+
 Initialize simulation with comprehensive CPU parallelization.
 """
 function initialize_simulation(::Type{T}=Float64; 
@@ -302,7 +206,7 @@ function initialize_simulation(::Type{T}=Float64;
         implicit_matrices[:composition] = create_composition_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Sc, d_timestep)
     end
 
-    return SimulationState{T}(
+    state = SimulationState{T}(
         velocity, magnetic, temperature, composition,
         shtns_config, 𝒟ᵒᶜ, 𝒟ⁱᶜ,
         master_parallelizer,
@@ -311,6 +215,49 @@ function initialize_simulation(::Type{T}=Float64;
         Dict{Symbol, ERK2Cache{T}}(),  # Type-stable erk2_caches
         0, auto_optimize, adaptive_threading, geom
     )
+
+    # Load file-based boundary conditions if specified in parameters
+    _load_file_bcs!(state)
+
+    return state
+end
+
+"""
+    _load_file_bcs!(state::SimulationState)
+
+Load file-based boundary conditions from paths specified in parameters.
+Modifies the field's mutable boundary_interpolation_cache in place.
+"""
+function _load_file_bcs!(state::SimulationState{T}) where T
+    params = get_parameters()
+
+    # Temperature file BCs
+    if !isempty(params.s_tmp_bc_file)
+        try
+            bc = bcs.load_spectral_bc_from_file(params.s_tmp_bc_file, state.shtns_config;
+                                                 format=params.s_tmp_bc_format, T=T)
+            bcs.store_bc_in_field!(state.temperature, bc)
+            if get_rank() == 0
+                @info "Loaded temperature BCs from $(params.s_tmp_bc_file) (format=$(params.s_tmp_bc_format))"
+            end
+        catch e
+            @warn "Failed to load temperature BC file '$(params.s_tmp_bc_file)': $e"
+        end
+    end
+
+    # Composition file BCs
+    if !isempty(params.s_cmp_bc_file) && state.composition !== nothing
+        try
+            bc = bcs.load_spectral_bc_from_file(params.s_cmp_bc_file, state.shtns_config;
+                                                 format=params.s_cmp_bc_format, T=T)
+            bcs.store_bc_in_field!(state.composition, bc)
+            if get_rank() == 0
+                @info "Loaded composition BCs from $(params.s_cmp_bc_file) (format=$(params.s_cmp_bc_format))"
+            end
+        catch e
+            @warn "Failed to load composition BC file '$(params.s_cmp_bc_file)': $e"
+        end
+    end
 end
 
 # ================================================================================
@@ -933,8 +880,11 @@ function predictor_step!(state::SimulationState{T}) where T
                              d_Pm/d_Pr, state.timestep_state.dt;
                              nl_prev=state.temperature.prev_nonlinear,
                              matrices=state.implicit_matrices[:temperature])
+    tmp_bc = bcs.get_bc_vectors_from_field(state.temperature)
     solve_temperature_implicit_step!(state.temperature.spectral, rhs_temp,
-                                      state.implicit_matrices[:temperature])
+                                      state.implicit_matrices[:temperature];
+                                      bc_inner=tmp_bc.inner_real, bc_outer=tmp_bc.outer_real,
+                                      bc_inner_imag=tmp_bc.inner_imag, bc_outer_imag=tmp_bc.outer_imag)
 
     # Composition (if present) - BCs embedded in matrix (Fortran DD_2DCODE approach)
     if state.composition !== nothing
@@ -944,8 +894,11 @@ function predictor_step!(state::SimulationState{T}) where T
                                  d_Pm/d_Sc, state.timestep_state.dt;
                                  nl_prev=state.composition.prev_nonlinear,
                                  matrices=state.implicit_matrices[:composition])
+        cmp_bc = bcs.get_bc_vectors_from_field(state.composition)
         solve_composition_implicit_step!(state.composition.spectral, rhs_comp,
-                                          state.implicit_matrices[:composition])
+                                          state.implicit_matrices[:composition];
+                                          bc_inner=cmp_bc.inner_real, bc_outer=cmp_bc.outer_real,
+                                          bc_inner_imag=cmp_bc.inner_imag, bc_outer_imag=cmp_bc.outer_imag)
     end
 end
 
@@ -1042,9 +995,12 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
     # This would integrate with advanced linear algebra libraries
     
     # Temperature - BCs embedded in matrix (Fortran DD_2DCODE approach)
+    tmp_bc = bcs.get_bc_vectors_from_field(state.temperature)
     solve_temperature_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
-                                      state.implicit_matrices[:temperature])
-    
+                                      state.implicit_matrices[:temperature];
+                                      bc_inner=tmp_bc.inner_real, bc_outer=tmp_bc.outer_real,
+                                      bc_inner_imag=tmp_bc.inner_imag, bc_outer_imag=tmp_bc.outer_imag)
+
     # Velocity - BCs embedded in matrix (Fortran approach)
     solve_velocity_implicit_step!(state.velocity.𝒯, state.velocity.nlᵀ,
                                   state.implicit_matrices[:velocity_tor], :toroidal;
@@ -1062,11 +1018,14 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
         solve_magnetic_implicit_step!(state.magnetic.𝒫, state.magnetic.nlᴾ,
                                       state.implicit_matrices[:magnetic_pol], :poloidal)
     end
-    
+
     # Composition (if enabled) - BCs embedded in matrix (Fortran DD_2DCODE approach)
     if state.composition !== nothing
+        cmp_bc = bcs.get_bc_vectors_from_field(state.composition)
         solve_composition_implicit_step!(state.composition.spectral, state.composition.nonlinear,
-                                          state.implicit_matrices[:composition])
+                                          state.implicit_matrices[:composition];
+                                          bc_inner=cmp_bc.inner_real, bc_outer=cmp_bc.outer_real,
+                                          bc_inner_imag=cmp_bc.inner_imag, bc_outer_imag=cmp_bc.outer_imag)
     end
 end
 
@@ -1638,12 +1597,15 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         # Diffusivity = Pm/Pr from Eq. (2): ∂T/∂t + u·∇T = (Pm/Pr)∇²T
         # -----------------------------------------------------------------
         temp_task = add_task!(task_graph, () -> begin
+        tmp_bc = bcs.get_bc_vectors_from_field(state.temperature)
         if ts_scheme === :cnab2
             build_rhs_cnab2!(state.temperature.work_spectral, state.temperature.spectral,
                              state.temperature.nonlinear, state.temperature.prev_nonlinear,
                              dt, state.implicit_matrices[:temperature])
             solve_temperature_implicit_step!(state.temperature.spectral, state.temperature.work_spectral,
-                                              state.implicit_matrices[:temperature])
+                                              state.implicit_matrices[:temperature];
+                                              bc_inner=tmp_bc.inner_real, bc_outer=tmp_bc.outer_real,
+                                              bc_inner_imag=tmp_bc.inner_imag, bc_outer_imag=tmp_bc.outer_imag)
         elseif ts_scheme === :eab2
             etd = haskey(state.etd_caches, :temperature) ? state.etd_caches[:temperature] : nothing
             if etd === nothing || etd.dt != dt
@@ -1655,7 +1617,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                          state.temperature.prev_nonlinear, etd, state.shtns_config, dt)
         else
             solve_temperature_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
-                                              state.implicit_matrices[:temperature])
+                                              state.implicit_matrices[:temperature];
+                                              bc_inner=tmp_bc.inner_real, bc_outer=tmp_bc.outer_real,
+                                              bc_inner_imag=tmp_bc.inner_imag, bc_outer_imag=tmp_bc.outer_imag)
         end
     end)
     
@@ -1758,12 +1722,15 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     # -----------------------------------------------------------------
     if state.composition !== nothing
         add_task!(task_graph, () -> begin
+            cmp_bc = bcs.get_bc_vectors_from_field(state.composition)
             if ts_scheme === :cnab2
                 build_rhs_cnab2!(state.composition.work_spectral, state.composition.spectral,
                                  state.composition.nonlinear, state.composition.prev_nonlinear,
                                  dt, state.implicit_matrices[:composition])
                 solve_composition_implicit_step!(state.composition.spectral, state.composition.work_spectral,
-                                                  state.implicit_matrices[:composition])
+                                                  state.implicit_matrices[:composition];
+                                                  bc_inner=cmp_bc.inner_real, bc_outer=cmp_bc.outer_real,
+                                                  bc_inner_imag=cmp_bc.inner_imag, bc_outer_imag=cmp_bc.outer_imag)
             elseif ts_scheme === :eab2
                 # Composition diffusivity = Pm/Sc (magnetic diffusion time scaling)
                 alu_map = get_eab2_alu_cache!(state.etd_caches, :composition, d_Pm/d_Sc, T, state.𝒟ᵒᶜ)
@@ -1772,7 +1739,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
                 solve_composition_implicit_step!(state.composition.spectral, state.composition.nonlinear,
-                                                  state.implicit_matrices[:composition])
+                                                  state.implicit_matrices[:composition];
+                                                  bc_inner=cmp_bc.inner_real, bc_outer=cmp_bc.outer_real,
+                                                  bc_inner_imag=cmp_bc.inner_imag, bc_outer_imag=cmp_bc.outer_imag)
             end
         end)
     end
@@ -1872,7 +1841,7 @@ end
 
 # Main entry point for enhanced simulation
 function run_enhanced_geodynamo_simulation()
-    state = initialize_enhanced_simulation(Float64)
+    state = initialize_simulation(Float64)
     run_enhanced_simulation!(state)
     Finalize()
 end

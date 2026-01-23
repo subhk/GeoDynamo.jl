@@ -125,6 +125,9 @@ module GeoDynamo
     export get_boundary_module_info
     # bcs SHTnsKit v1.1.15 caching utilities
     export clear_bc_shtns_config_cache!, shtns_physical_to_spectral, shtns_spectral_to_physical
+    # File-based spectral BC loading
+    export SpectralBoundaryCoefficients, load_spectral_bc_from_file
+    export store_bc_in_field!, get_bc_vectors_from_field
     # topography coupling exports
     export enable_topography!, disable_topography!, is_topography_enabled
     export TopographyCouplingConfig, get_topography_config, set_topography_config!

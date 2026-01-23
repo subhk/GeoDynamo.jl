@@ -1,7 +1,17 @@
 # ================================================================================
-# Programmatic Boundary Condition Generation
+# Programmatic Boundary Pattern Generation
 # ================================================================================
-
+#
+# Utility for generating spherical harmonic patterns (Ylm)
+# as BoundaryData structs. These can be used for:
+#   - Setting non-homogeneous RHS boundary values
+#   - Initial condition generation
+#   - Testing and visualization
+#
+# Note: BC enforcement is done through the matrix-embedded system
+# (see bcs/thermal_bc.jl, bcs/compositional_bc.jl, bcs/velocity_bc.jl, bcs/magnetic_bc.jl).
+# The BoundaryData structs from this file are not directly used for BC enforcement.
+#
 # Note: This file is included within the bcs module
 # All necessary packages are imported at the module level
 
@@ -43,30 +53,15 @@ end
 Base.show(io::IO, ylm::Ylm) = print(io, "Y_$(ylm.l)^$(ylm.m)")
 
 """
-    create_programmatic_boundary(pattern, config, amplitude::Real=1.0; kwargs...)
+    create_programmatic_boundary(ylm::Ylm, config, amplitude::Real=1.0; kwargs...)
 
-Create programmatically generated boundary conditions.
-
-# Available patterns:
-- `Ylm(l, m)` - Arbitrary Yₗᵐ spherical harmonic using SHTnsKit
-- `:uniform` - Uniform value
-- `:y11` - Y₁₁ spherical harmonic
-- `:plume` - Gaussian plume pattern
-- `:hemisphere` - Hemispherical pattern
-- `:dipole` - Dipolar pattern (Y₁₀)
-- `:quadrupole` - Quadrupolar pattern
-- `:custom` - User-defined function
+Create a boundary pattern from a spherical harmonic Yₗᵐ using SHTnsKit synthesis.
+Values are produced on the Gauss-Legendre grid of the given config.
 
 # Examples
 ```julia
-# Using Ylm struct (recommended)
 boundary = create_programmatic_boundary(Ylm(2, 1), config, 0.5)
 boundary = create_programmatic_boundary(Ylm(4, -2), config, 1.0)
-
-# Using symbol with parameters
-boundary = create_programmatic_boundary(:dipole, config, 0.3)
-boundary = create_programmatic_boundary(:plume, config, 1.0;
-    parameters=Dict("width" => π/8, "center_theta" => π/3))
 ```
 """
 function create_programmatic_boundary(ylm::Ylm, config, amplitude::Real=1.0;
@@ -77,10 +72,11 @@ function create_programmatic_boundary(ylm::Ylm, config, amplitude::Real=1.0;
         throw(ArgumentError("Spherical harmonic degree l=$l exceeds config.lmax=$(config.lmax)"))
     end
 
-    # Create coordinate grids
+    # Use actual SHTnsKit grid coordinates (Gauss-Legendre theta, equispaced phi)
+    # since SHTnsKit.synthesis produces values on this grid
     nlat, nlon = config.nlat, config.nlon
-    theta = collect(range(0, π, length=nlat))
-    phi = collect(range(0, 2π, length=nlon+1)[1:end-1])
+    theta = copy(config.theta_grid)
+    phi = copy(config.phi_grid)
 
     # Create SHTnsKit coefficient matrix (lmax+1 × mmax+1, complex)
     lmax = config.lmax
@@ -123,117 +119,13 @@ function create_programmatic_boundary(ylm::Ylm, config, amplitude::Real=1.0;
     )
 end
 
-function create_programmatic_boundary(pattern::Symbol, config, amplitude::Real=1.0;
-                                    parameters::Dict=Dict(), description::String="", 
-                                    field_type::String="temperature")
-    
-    # Create coordinate grids
-    nlat, nlon = config.nlat, config.nlon
-    theta = collect(range(0, π, length=nlat))
-    phi = collect(range(0, 2π, length=nlon+1)[1:end-1])
-    
-    # Initialize data array
-    values = zeros(eltype(amplitude), nlat, nlon)
-    
-    # Generate pattern
-    if pattern == :uniform
-        values .= amplitude
-
-    elseif pattern == :y11
-        # Y₁₁ spherical harmonic: sin(θ)cos(φ)
-        for (i, θ) in enumerate(theta)
-            for (j, φ) in enumerate(phi)
-                values[i, j] = amplitude * sin(θ) * cos(φ)
-            end
-        end
-        
-    elseif pattern == :plume
-        # Gaussian plume pattern
-        width = get(parameters, "width", π/6)
-        center_theta = get(parameters, "center_theta", π/2)
-        center_phi = get(parameters, "center_phi", 0.0)
-        
-        for (i, θ) in enumerate(theta)
-            for (j, φ) in enumerate(phi)
-                # Angular distance from plume center
-                angular_dist = acos(cos(θ) * cos(center_theta) + 
-                                  sin(θ) * sin(center_theta) * cos(φ - center_phi))
-                values[i, j] = amplitude * exp(-(angular_dist / width)^2)
-            end
-        end
-        
-    elseif pattern == :hemisphere
-        # Hemispherical pattern
-        axis = get(parameters, "axis", "z")  # Options: "x", "y", "z"
-        
-        for (i, θ) in enumerate(theta)
-            for (j, φ) in enumerate(phi)
-                if axis == "z"
-                    values[i, j] = amplitude * (θ <= π/2 ? 1.0 : 0.0)
-                elseif axis == "x" 
-                    values[i, j] = amplitude * (sin(θ) * cos(φ) >= 0 ? 1.0 : 0.0)
-                elseif axis == "y"
-                    values[i, j] = amplitude * (sin(θ) * sin(φ) >= 0 ? 1.0 : 0.0)
-                else
-                    throw(ArgumentError("Invalid axis for hemisphere pattern: $axis"))
-                end
-            end
-        end
-        
-    elseif pattern == :dipole
-        # Dipolar pattern (Y₁₀): cos(θ)
-        for (i, θ) in enumerate(theta)
-            for (j, φ) in enumerate(phi)
-                values[i, j] = amplitude * cos(θ)
-            end
-        end
-        
-    elseif pattern == :quadrupole
-        # Quadrupolar pattern: P₂(cos θ) = (3cos²θ - 1)/2
-        for (i, θ) in enumerate(theta)
-            for (j, φ) in enumerate(phi)
-                values[i, j] = amplitude * 0.5 * (3 * cos(θ)^2 - 1)
-            end
-        end
-        
-    elseif pattern == :custom
-        # User-defined function
-        if !haskey(parameters, "function")
-            throw(ArgumentError("Custom pattern requires 'function' in parameters"))
-        end
-        
-        user_func = parameters["function"]
-        for (i, θ) in enumerate(theta)
-            for (j, φ) in enumerate(phi)
-                values[i, j] = amplitude * user_func(θ, φ)
-            end
-        end
-        
-    else
-        throw(ArgumentError("Unknown programmatic pattern: $pattern"))
-    end
-    
-    # Create BoundaryData structure
-    if isempty(description)
-        description = "Programmatic $pattern pattern (amplitude=$amplitude)"
-    end
-    
-    return create_boundary_data(
-        values, field_type;
-        theta=theta, phi=phi, time=nothing,
-        units=get_default_units(determine_field_type_from_name(field_type)),
-        description=description,
-        file_path="programmatic"
-    )
-end
-
 """
     create_time_dependent_programmatic_boundary(ylm::Ylm, config, time_span, ntime; kwargs...)
-    create_time_dependent_programmatic_boundary(pattern::Symbol, config, time_span, ntime; kwargs...)
 
-Create time-dependent programmatically generated boundary conditions.
+Create a time-dependent boundary pattern from a spherical harmonic Yₗᵐ with
+cosine time modulation. Values are produced on the Gauss-Legendre grid.
 
-# Example with Ylm
+# Example
 ```julia
 boundary = create_time_dependent_programmatic_boundary(Ylm(3, 2), config, (0.0, 10.0), 100;
     amplitude=0.5, time_factor=2π)
@@ -250,10 +142,10 @@ function create_time_dependent_programmatic_boundary(ylm::Ylm, config,
         throw(ArgumentError("Spherical harmonic degree l=$l exceeds config.lmax=$(config.lmax)"))
     end
 
-    # Create coordinate grids
+    # Use actual SHTnsKit grid coordinates (Gauss-Legendre theta, equispaced phi)
     nlat, nlon = config.nlat, config.nlon
-    theta = collect(range(0, π, length=nlat))
-    phi = collect(range(0, 2π, length=nlon+1)[1:end-1])
+    theta = copy(config.theta_grid)
+    phi = copy(config.phi_grid)
     time_coords = collect(range(time_span[1], time_span[2], length=ntime))
 
     # Initialize data array
@@ -293,179 +185,6 @@ function create_time_dependent_programmatic_boundary(ylm::Ylm, config,
         values, field_type;
         theta=theta, phi=phi, time=time_coords,
         units=get_default_units(determine_field_type_from_name(field_type)),
-        description=description,
-        file_path="programmatic"
-    )
-end
-
-function create_time_dependent_programmatic_boundary(pattern::Symbol, config,
-                                                   time_span::Tuple{Real, Real}, ntime::Int;
-                                                   amplitude::Real=1.0, parameters::Dict=Dict(),
-                                                   description::String="", field_type::String="temperature")
-
-    # Create coordinate grids
-    nlat, nlon = config.nlat, config.nlon
-    theta = collect(range(0, π, length=nlat))
-    phi = collect(range(0, 2π, length=nlon+1)[1:end-1])
-    time_coords = collect(range(time_span[1], time_span[2], length=ntime))
-    
-    # Initialize data array
-    values = zeros(eltype(amplitude), nlat, nlon, ntime)
-    
-    # Time evolution parameters
-    time_factor = get(parameters, "time_factor", 1.0)
-    phase_offset = get(parameters, "phase_offset", 0.0)
-    
-    # Generate time-dependent pattern
-    for (t, time_val) in enumerate(time_coords)
-        time_phase = time_factor * time_val + phase_offset
-
-        if pattern == :uniform
-            values[:, :, t] .= amplitude
-
-        elseif pattern == :y11
-            # Rotating Y₁₁: sin(θ)cos(φ + ωt)
-            for (i, θ) in enumerate(theta)
-                for (j, φ) in enumerate(phi)
-                    values[i, j, t] = amplitude * sin(θ) * cos(φ + time_phase)
-                end
-            end
-            
-        elseif pattern == :plume
-            # Moving plume pattern
-            width = get(parameters, "width", π/6)
-            center_theta = get(parameters, "center_theta", π/2)
-            center_phi_base = get(parameters, "center_phi", 0.0)
-            
-            # Move plume center over time
-            center_phi = center_phi_base + time_phase
-            
-            for (i, θ) in enumerate(theta)
-                for (j, φ) in enumerate(phi)
-                    angular_dist = acos(cos(θ) * cos(center_theta) + 
-                                      sin(θ) * sin(center_theta) * cos(φ - center_phi))
-                    values[i, j, t] = amplitude * exp(-(angular_dist / width)^2)
-                end
-            end
-            
-        elseif pattern == :hemisphere
-            # Rotating hemisphere
-            axis_rotation = time_phase
-            
-            for (i, θ) in enumerate(theta)
-                for (j, φ) in enumerate(phi)
-                    # Rotate coordinate system
-                    x = sin(θ) * cos(φ + axis_rotation)
-                    values[i, j, t] = amplitude * (x >= 0 ? 1.0 : 0.0)
-                end
-            end
-            
-        elseif pattern == :dipole
-            # Precessing dipole
-            for (i, θ) in enumerate(theta)
-                for (j, φ) in enumerate(phi)
-                    # Simple precession: cos(θ)cos(ωt) + sin(θ)sin(φ)sin(ωt)
-                    values[i, j, t] = amplitude * (cos(θ) * cos(time_phase) +
-                                                 sin(θ) * sin(φ) * sin(time_phase))
-                end
-            end
-
-        elseif pattern == :quadrupole
-            # Time-varying quadrupole: P₂(cos θ) with time modulation
-            for (i, θ) in enumerate(theta)
-                for (j, φ) in enumerate(phi)
-                    # Quadrupole with oscillating amplitude
-                    values[i, j, t] = amplitude * 0.5 * (3 * cos(θ)^2 - 1) * cos(time_phase)
-                end
-            end
-
-        elseif pattern == :custom
-            # User-defined time-dependent function
-            if !haskey(parameters, "function")
-                throw(ArgumentError("Custom pattern requires 'function' in parameters"))
-            end
-            
-            user_func = parameters["function"]
-            for (i, θ) in enumerate(theta)
-                for (j, φ) in enumerate(phi)
-                    values[i, j, t] = amplitude * user_func(θ, φ, time_val)
-                end
-            end
-            
-        else
-            throw(ArgumentError("Unknown programmatic pattern: $pattern"))
-        end
-    end
-    
-    # Create BoundaryData structure
-    if isempty(description)
-        description = "Time-dependent programmatic $pattern pattern (amplitude=$amplitude)"
-    end
-    
-    return create_boundary_data(
-        values, field_type;
-        theta=theta, phi=phi, time=time_coords,
-        units=get_default_units(determine_field_type_from_name(field_type)),
-        description=description,
-        file_path="programmatic"
-    )
-end
-
-"""
-    combine_programmatic_patterns(patterns::Vector{Tuple{Symbol, Real}}, config;
-                                 parameters::Vector{Dict}=Dict{String,Any}[], description::String="")
-
-Combine multiple programmatic patterns with different amplitudes.
-"""
-function combine_programmatic_patterns(patterns::Vector{Tuple{Symbol, Real}}, config;
-                                     parameters::Vector{Dict}=Dict{String,Any}[], description::String="",
-                                     field_type::String="temperature")
-
-    if isempty(patterns)
-        throw(ArgumentError("At least one pattern must be specified"))
-    end
-
-    # Create a local copy of parameters to avoid modifying the default
-    local_params = copy(parameters)
-
-    # Ensure parameters vector has correct length
-    while length(local_params) < length(patterns)
-        push!(local_params, Dict{String,Any}())
-    end
-
-    # Create first pattern as base and get its values
-    pattern1, amplitude1 = patterns[1]
-    first_boundary = create_programmatic_boundary(
-        pattern1, config, amplitude1;
-        parameters=local_params[1], field_type=field_type
-    )
-
-    # Create a mutable copy of values to accumulate results
-    combined_values = copy(first_boundary.values)
-
-    # Add additional patterns
-    for i in 2:length(patterns)
-        pattern_i, amplitude_i = patterns[i]
-        boundary_i = create_programmatic_boundary(
-            pattern_i, config, amplitude_i;
-            parameters=local_params[i], field_type=field_type
-        )
-
-        # Add to combined result
-        combined_values .+= boundary_i.values
-    end
-
-    # Create description
-    if isempty(description)
-        pattern_names = [string(p[1]) for p in patterns]
-        description = "Combined programmatic patterns: " * join(pattern_names, " + ")
-    end
-
-    # Create new BoundaryData with combined values
-    return create_boundary_data(
-        combined_values, field_type;
-        theta=first_boundary.theta, phi=first_boundary.phi, time=nothing,
-        units=first_boundary.units,
         description=description,
         file_path="programmatic"
     )
@@ -595,6 +314,124 @@ function apply_gaussian_smoothing!(data::AbstractMatrix, theta::Vector, phi::Vec
     end
 end
 
-export Ylm
+# ================================================================================
+# Programmatic Boundary Set Creation (for Shell API)
+# ================================================================================
+
+"""
+    ProgrammaticBoundarySet{T}
+
+Wrapper around BoundaryConditionSet that also stores BC types for each boundary.
+Returned by `create_programmatic_temperature_boundaries` and
+`create_programmatic_composition_boundaries`.
+"""
+struct ProgrammaticBoundarySet{T<:AbstractFloat}
+    boundary_set::BoundaryConditionSet{T}
+    inner_bc_type::BoundaryType
+    outer_bc_type::BoundaryType
+end
+
+"""
+    _parse_boundary_spec(spec::Tuple, cfg) -> (values::Matrix, bc_type::BoundaryType)
+
+Parse a boundary specification tuple into physical-space values and BC type.
+
+Supported spec formats:
+- `(:uniform, value)` or `(:dirichlet, value)`: Dirichlet BC with uniform value
+- `(:neumann, value)`: Neumann BC with uniform flux value
+"""
+function _parse_boundary_spec(spec::Tuple, cfg)
+    pattern_type = spec[1]::Symbol
+    value = Float64(spec[2])
+
+    if pattern_type == :uniform || pattern_type == :dirichlet
+        values = fill(value, cfg.nlat, cfg.nlon)
+        bc_type = DIRICHLET
+    elseif pattern_type == :neumann
+        values = fill(value, cfg.nlat, cfg.nlon)
+        bc_type = NEUMANN
+    else
+        throw(ArgumentError("Unknown boundary pattern type: $pattern_type. " *
+            "Supported types: :uniform, :dirichlet, :neumann"))
+    end
+
+    return values, bc_type
+end
+
+"""
+    create_programmatic_temperature_boundaries(inner_spec::Tuple, outer_spec::Tuple, cfg)
+
+Create a `ProgrammaticBoundarySet` for temperature from programmatic specifications.
+
+# Arguments
+- `inner_spec`: Tuple specifying inner boundary, e.g. `(:uniform, 100.0)`
+- `outer_spec`: Tuple specifying outer boundary, e.g. `(:uniform, 250.0)`
+- `cfg`: SHTnsKitConfig with grid parameters
+
+# Returns
+A `ProgrammaticBoundarySet{Float64}` containing boundary data and BC types.
+
+# Examples
+```julia
+bset = create_programmatic_temperature_boundaries((:uniform, 1.0), (:uniform, 0.0), cfg)
+bset = create_programmatic_temperature_boundaries((:dirichlet, 1.0), (:neumann, 0.0), cfg)
+```
+"""
+function create_programmatic_temperature_boundaries(inner_spec::Tuple, outer_spec::Tuple, cfg)
+    inner_values, inner_bc_type = _parse_boundary_spec(inner_spec, cfg)
+    outer_values, outer_bc_type = _parse_boundary_spec(outer_spec, cfg)
+
+    inner_data = create_boundary_data(
+        inner_values, "temperature";
+        theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,
+        units=get_default_units(TEMPERATURE),
+        description="Programmatic $(inner_spec[1]) boundary (value=$(inner_spec[2]))",
+        file_path="programmatic"
+    )
+
+    outer_data = create_boundary_data(
+        outer_values, "temperature";
+        theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,
+        units=get_default_units(TEMPERATURE),
+        description="Programmatic $(outer_spec[1]) boundary (value=$(outer_spec[2]))",
+        file_path="programmatic"
+    )
+
+    bcs_set = BoundaryConditionSet{Float64}(inner_data, outer_data, "temperature", TEMPERATURE, time())
+    return ProgrammaticBoundarySet{Float64}(bcs_set, inner_bc_type, outer_bc_type)
+end
+
+"""
+    create_programmatic_composition_boundaries(inner_spec::Tuple, outer_spec::Tuple, cfg)
+
+Create a `ProgrammaticBoundarySet` for composition from programmatic specifications.
+Same interface as `create_programmatic_temperature_boundaries`.
+"""
+function create_programmatic_composition_boundaries(inner_spec::Tuple, outer_spec::Tuple, cfg)
+    inner_values, inner_bc_type = _parse_boundary_spec(inner_spec, cfg)
+    outer_values, outer_bc_type = _parse_boundary_spec(outer_spec, cfg)
+
+    inner_data = create_boundary_data(
+        inner_values, "composition";
+        theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,
+        units=get_default_units(COMPOSITION),
+        description="Programmatic $(inner_spec[1]) boundary (value=$(inner_spec[2]))",
+        file_path="programmatic"
+    )
+
+    outer_data = create_boundary_data(
+        outer_values, "composition";
+        theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,
+        units=get_default_units(COMPOSITION),
+        description="Programmatic $(outer_spec[1]) boundary (value=$(outer_spec[2]))",
+        file_path="programmatic"
+    )
+
+    bcs_set = BoundaryConditionSet{Float64}(inner_data, outer_data, "composition", COMPOSITION, time())
+    return ProgrammaticBoundarySet{Float64}(bcs_set, inner_bc_type, outer_bc_type)
+end
+
+export Ylm, ProgrammaticBoundarySet
 export create_programmatic_boundary, create_time_dependent_programmatic_boundary
-export combine_programmatic_patterns, add_noise_to_boundary, smooth_boundary_data
+export add_noise_to_boundary, smooth_boundary_data
+export create_programmatic_temperature_boundaries, create_programmatic_composition_boundaries

@@ -52,35 +52,46 @@
 # ├── common.jl               # Shared types and utilities
 # ├── netcdf_io.jl            # NetCDF file reading/writing
 # ├── interpolation.jl        # Grid interpolation
-# ├── programmatic.jl         # Programmatic BC generation
-# ├── thermal.jl              # Temperature BCs
-# ├── composition.jl          # Composition BCs
-# ├── velocity.jl             # Velocity BCs
-# └── magnetic.jl             # Magnetic field BCs
+# ├── programmatic.jl         # Programmatic pattern generation utility
+# ├── integration.jl          # Integration with field structures
+# ├── timestepping.jl         # Integration with timestepping
+# └── topography/             # Boundary topography effects
+#
+# Matrix-embedded BC files (included by their respective field modules):
+# ├── thermal_bc.jl           # Temperature BCs (included by thermal.jl)
+# ├── compositional_bc.jl     # Composition BCs (included by compositional.jl)
+# ├── velocity_bc.jl          # Velocity BCs (included by velocity.jl)
+# └── magnetic_bc.jl          # Magnetic BCs (included by magnetic.jl)
 #
 # ================================================================================
 # USAGE PATTERN
 # ================================================================================
 #
-#   # 1. Load boundary conditions from file or programmatically
-#   boundary_specs = Dict(
-#       :inner => "cmb_temperature.nc",
-#       :outer => (:uniform, 300.0)
-#   )
-#   load_temperature_boundary_conditions!(temp_field, boundary_specs)
+# Boundary conditions are embedded in the implicit LHS matrices following
+# the DD_2DCODE Fortran approach. BC types are controlled by parameters:
+#   - i_tmp_bc: Temperature BC type (1=DD, 2=DN, 3=ND, 4=NN)
+#   - i_cmp_bc: Composition BC type (1=DD, 2=DN, 3=ND, 4=NN)
+#   - i_vel_bc: Velocity BC type (1=no-slip, 2=stress-free, etc.)
+#   - i_mag_bc: Magnetic BC type
 #
-#   # 2. BCs are automatically applied during field initialization
-#   # 3. Update time-dependent BCs during simulation loop
-#   update_time_dependent_temperature_boundaries!(temp_field, current_time)
+# Matrix creation functions (in respective *_bc.jl files):
+#   create_temperature_matrices(config, domain, diffusivity, dt)
+#   create_composition_matrices(config, domain, diffusivity, dt)
+#   create_velocity_toroidal_matrices(config, domain, dt)
+#   create_magnetic_toroidal_matrices(config, domain, dt)
+#
+# RHS boundary value functions:
+#   set_temperature_rhs_bc!(rhs, i_tmp_bc; val_inner=0, val_outer=0)
+#   set_composition_rhs_bc!(rhs, i_cmp_bc; val_inner=0, val_outer=0)
 #
 # ================================================================================
 # DEBUGGING TIPS
 # ================================================================================
 #
-# 1. Check BC type assignment: `println(field.bc_type_inner)`
-# 2. Verify boundary values: `println(field.boundary_values[1, 1:5])`
-# 3. For MPI issues, ensure all processes load same boundary files
-# 4. For interpolation issues, check grid compatibility with source data
+# 1. Check BC parameter: `println(get_parameters().i_tmp_bc)`
+# 2. Verify matrix boundary rows: check first/last rows of LHS matrix
+# 3. Check RHS boundary values after set_*_rhs_bc! calls
+# 4. For MPI issues, ensure all processes use same BC parameters
 #
 # ================================================================================
 
@@ -178,6 +189,7 @@ include("common.jl")           # Common utilities and data structures
 include("netcdf_io.jl")        # NetCDF file I/O functionality
 include("interpolation.jl")    # Grid interpolation utilities
 include("programmatic.jl")     # Programmatic boundary generation
+include("file_bc_loader.jl")   # File-based spectral BC loading
 
 # Temperature and composition BCs are now embedded in the implicit matrix
 # (see bcs/thermal_bc.jl and bcs/compositional_bc.jl, included by thermal.jl/compositional.jl)

@@ -166,30 +166,34 @@ end
 
 """
     set_composition_rhs_bc!(rhs_real, rhs_imag, local_lm, nr;
-                             inner_value=0.0, outer_value=0.0)
+                             inner_value=0.0, outer_value=0.0,
+                             inner_value_imag=0.0, outer_value_imag=0.0)
 
 Set boundary values in the RHS vector for the composition solve.
 Matches Fortran cmp_setbc: sets RHS boundary rows to prescribed values.
 
 For standard compositional convection, boundary values are typically zero
 (homogeneous Neumann: ∂C/∂r=0, or homogeneous Dirichlet: C=0).
+Non-zero imaginary parts are used when file-based spectral BCs are loaded.
 """
 function set_composition_rhs_bc!(rhs_real::AbstractArray{T}, rhs_imag::AbstractArray{T},
                                   local_lm::Int, nr::Int;
                                   inner_value::T=zero(T),
-                                  outer_value::T=zero(T)) where T
+                                  outer_value::T=zero(T),
+                                  inner_value_imag::T=zero(T),
+                                  outer_value_imag::T=zero(T)) where T
     # Set boundary rows of RHS to prescribed values
     # Inner boundary (radial index 1)
     @inbounds rhs_real[local_lm, 1, 1] = inner_value
-    @inbounds rhs_imag[local_lm, 1, 1] = zero(T)
+    @inbounds rhs_imag[local_lm, 1, 1] = inner_value_imag
     # Outer boundary (radial index nr)
     @inbounds rhs_real[local_lm, 1, nr] = outer_value
-    @inbounds rhs_imag[local_lm, 1, nr] = zero(T)
+    @inbounds rhs_imag[local_lm, 1, nr] = outer_value_imag
 end
 
 """
     solve_composition_implicit_step!(solution, rhs, matrices;
-                                      bc_inner, bc_outer)
+                                      bc_inner, bc_outer, bc_inner_imag, bc_outer_imag)
 
 Solve the implicit composition system with boundary conditions embedded in the matrix.
 Before solving, sets the RHS boundary values appropriately.
@@ -202,14 +206,18 @@ This matches the Fortran approach:
 - `solution`: Output spectral field
 - `rhs`: Input RHS spectral field (modified in place for BCs)
 - `matrices`: SHTnsImplicitMatrices with composition BCs embedded
-- `bc_inner`: Optional vector of inner boundary values per mode (default: zeros)
-- `bc_outer`: Optional vector of outer boundary values per mode (default: zeros)
+- `bc_inner`: Optional vector of inner boundary values (real part) per mode (default: zeros)
+- `bc_outer`: Optional vector of outer boundary values (real part) per mode (default: zeros)
+- `bc_inner_imag`: Optional vector of inner boundary values (imag part) per mode (default: zeros)
+- `bc_outer_imag`: Optional vector of outer boundary values (imag part) per mode (default: zeros)
 """
 function solve_composition_implicit_step!(solution::SHTnsSpecField{T},
                                            rhs::SHTnsSpecField{T},
                                            matrices::SHTnsImplicitMatrices{T};
                                            bc_inner::Union{Vector{T},Nothing}=nothing,
-                                           bc_outer::Union{Vector{T},Nothing}=nothing) where T
+                                           bc_outer::Union{Vector{T},Nothing}=nothing,
+                                           bc_inner_imag::Union{Vector{T},Nothing}=nothing,
+                                           bc_outer_imag::Union{Vector{T},Nothing}=nothing) where T
     sol_real = parent(solution.data_real)
     sol_imag = parent(solution.data_imag)
     rhs_real = parent(rhs.data_real)
@@ -232,9 +240,12 @@ function solve_composition_implicit_step!(solution::SHTnsSpecField{T},
             # Set RHS boundary values (matching Fortran cmp_setbc)
             inner_val = bc_inner !== nothing && lm_idx <= length(bc_inner) ? bc_inner[lm_idx] : zero(T)
             outer_val = bc_outer !== nothing && lm_idx <= length(bc_outer) ? bc_outer[lm_idx] : zero(T)
+            inner_val_i = bc_inner_imag !== nothing && lm_idx <= length(bc_inner_imag) ? bc_inner_imag[lm_idx] : zero(T)
+            outer_val_i = bc_outer_imag !== nothing && lm_idx <= length(bc_outer_imag) ? bc_outer_imag[lm_idx] : zero(T)
 
             set_composition_rhs_bc!(rhs_real, rhs_imag, local_lm, nr;
-                                     inner_value=inner_val, outer_value=outer_val)
+                                     inner_value=inner_val, outer_value=outer_val,
+                                     inner_value_imag=inner_val_i, outer_value_imag=outer_val_i)
 
             # Solve the banded system (with BCs embedded in matrix)
             @inbounds for k in 1:nr

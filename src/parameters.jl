@@ -60,6 +60,12 @@ Base.@kwdef mutable struct GeoDynamoParameters
     i_tmp_bc::Int = 1             # Temperature BC
     i_cmp_bc::Int = 1             # Composition BC
     
+    # File-based boundary conditions
+    s_tmp_bc_file::String = ""              # Temperature BC file path (empty = homogeneous)
+    s_cmp_bc_file::String = ""              # Composition BC file path (empty = homogeneous)
+    s_tmp_bc_format::Symbol = :physical     # :physical or :spectral
+    s_cmp_bc_format::Symbol = :physical     # :physical or :spectral
+
     # BC tuning parameters
     i_poloidal_stress_iters::Int = 2  # Iterations for poloidal stress-free correction
     
@@ -134,7 +140,8 @@ function Base.show(io::IO, ::MIME"text/plain", params::GeoDynamoParameters)
     end
 
     print_section(io, "Boundary Conditions")
-    for key in (:i_vel_bc, :i_tmp_bc, :i_cmp_bc, :i_poloidal_stress_iters)
+    for key in (:i_vel_bc, :i_tmp_bc, :i_cmp_bc, :i_poloidal_stress_iters,
+                :s_tmp_bc_file, :s_cmp_bc_file, :s_tmp_bc_format, :s_cmp_bc_format)
         print_entry(io, key, getfield(params, key))
     end
 
@@ -544,7 +551,14 @@ function save_parameters(params::GeoDynamoParameters, filename::String)
         println(io, "const i_cmp_bc = $(params.i_cmp_bc)            # Composition BC")
         println(io, "const i_poloidal_stress_iters = $(params.i_poloidal_stress_iters)  # Iterations for poloidal stress-free correction")
         println(io)
-        
+
+        println(io, "# File-based boundary conditions")
+        println(io, "const s_tmp_bc_file = \"$(params.s_tmp_bc_file)\"    # Temperature BC file (empty = homogeneous)")
+        println(io, "const s_cmp_bc_file = \"$(params.s_cmp_bc_file)\"    # Composition BC file (empty = homogeneous)")
+        println(io, "const s_tmp_bc_format = :$(params.s_tmp_bc_format)  # :physical or :spectral")
+        println(io, "const s_cmp_bc_format = :$(params.s_cmp_bc_format)  # :physical or :spectral")
+        println(io)
+
         println(io, "# Boolean flags")
         println(io, "const b_mag_impose = $(params.b_mag_impose)    # Imposed magnetic field")
         println(io)
