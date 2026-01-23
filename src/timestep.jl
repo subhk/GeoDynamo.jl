@@ -1210,11 +1210,17 @@ function create_erk2_cache(::Type{T}, config::SHTnsKitConfig, domain::RadialDoma
         Adata = diffusivity .* lap.data
         Adense = banded_to_dense(BandedMatrix(Adata, i_KL, nr))
         lfac = Float64(l * (l + 1))
-        
+
         @inbounds for n in 1:nr
             Adense[n, n] -= diffusivity * lfac * r_inv2[n]
         end
-        
+
+        # Zero boundary rows to enforce homogeneous Dirichlet BCs.
+        # This ensures exp(hA) preserves boundary values (rows become identity)
+        # and phi functions don't propagate boundary errors into the interior.
+        Adense[1, :] .= zero(Float64)
+        Adense[nr, :] .= zero(Float64)
+
         if use_krylov
             # For large problems, we'll use Krylov methods during timestepping
             # Store only the operator for action-based computation
@@ -1812,6 +1818,9 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T},
         mul!(stage_tmp, E_half, ur)
         mul!(stage_phi_tmp, phi1_half, nr_vec)
         @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
+        # Enforce homogeneous Dirichlet BCs at boundaries
+        stage_tmp[1] = zero(T)
+        stage_tmp[nr] = zero(T)
 
         # Scatter stage results only if this process owns the mode
         if owns_mode
@@ -1844,6 +1853,9 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T},
         mul!(stage_tmp, E_half, ui)
         mul!(stage_phi_tmp, phi1_half, ni_vec)
         @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
+        # Enforce homogeneous Dirichlet BCs at boundaries
+        stage_tmp[1] = zero(T)
+        stage_tmp[nr] = zero(T)
 
         # Scatter imaginary stage results only if this process owns the mode
         if owns_mode
@@ -1946,10 +1958,16 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T}
             Allreduce!(tmp_stage, MPI.SUM, comm)
         end
 
+        # ERK2 final formula (Hochbruck & Ostermann 2010, c₂ = 1/2):
+        # u^{n+1} = exp(hA)·u + h·φ₁(hA)·N + (h/c₂)·φ₂(hA)·(N_stage - N)
+        # With c₂ = 1/2, the correction coefficient is 1/c₂ = 2.
         delta .= tmp_stage
         @. delta = delta - tmp_Nn
         mul!(correction, phi2, delta)
-        @. result = tmp_linear + dt * (tmp_k1 + correction)
+        @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
+        # Enforce homogeneous Dirichlet BCs at boundaries
+        result[1] = zero(T)
+        result[nr] = zero(T)
 
         # Scatter back only if this process owns the mode (REAL part)
         if owns_mode
@@ -1995,7 +2013,10 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T}
         delta .= tmp_stage
         @. delta = delta - tmp_Nn
         mul!(correction, phi2, delta)
-        @. result = tmp_linear + dt * (tmp_k1 + correction)
+        @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
+        # Enforce homogeneous Dirichlet BCs at boundaries
+        result[1] = zero(T)
+        result[nr] = zero(T)
 
         # Scatter back only if this process owns the mode (IMAG part)
         if owns_mode

@@ -131,7 +131,7 @@ struct VelocityWorkspace{T}
     bc_correction::Vector{Vector{T}}
 end
 
-# Include matrix-embedded velocity BC functions (Fortran DD_2DCODE style)
+# Include matrix-embedded velocity BC functions
 include("bcs/velocity_bc.jl")
 
 # Velocity field components with SHTns

@@ -14,7 +14,7 @@ function step_once!(state)
         compute_composition_nonlinear!(state.composition, state.velocity, state.𝒟ᵒᶜ)
     end
     # Implicit solve
-    apply_master_implicit_step!(state, GeoDynamo.d_timestep)
+    apply_implicit_step!(state, GeoDynamo.d_timestep)
 end
 
 function bench_scheme(ts::Symbol; steps::Int=10)

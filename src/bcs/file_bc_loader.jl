@@ -6,8 +6,8 @@
 # spectral format), transforms to spectral coefficients, and stores them for
 # use during implicit solve steps.
 #
-# This matches the Fortran DD_2DCODE pattern:
-#   io_load_tmpBC -> tmp_bcRe/Im -> tmp_setbc
+# Pattern:
+#   load boundary data -> extract Re/Im components -> set BCs
 #
 # Supported NetCDF formats:
 #   :physical  - Physical-space data on (nlat, nlon) grid, transformed via SHTnsKit

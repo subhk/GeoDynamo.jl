@@ -192,7 +192,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     )
 end
 
-# Matrix-embedded temperature BC functions (Fortran DD_2DCODE style)
+# Matrix-embedded temperature BC functions
 include("bcs/thermal_bc.jl")
 
 # ================================================================================

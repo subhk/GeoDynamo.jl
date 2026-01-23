@@ -61,7 +61,7 @@ function apply_boundary_conditions_to_rhs!(rhs, state, field_type::FieldType)
     end
     
     # All BCs (temperature, composition, velocity, magnetic) are now embedded
-    # in the implicit matrix system (Fortran DD_2DCODE approach).
+    # in the implicit matrix system.
     # RHS boundary values are set by the solve functions (set_*_rhs_bc!).
     # No post-processing needed here.
     

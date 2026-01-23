@@ -232,7 +232,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     )
 end
 
-# Matrix-embedded composition BC functions (Fortran DD_2DCODE style)
+# Matrix-embedded composition BC functions
 include("bcs/compositional_bc.jl")
 
 # ================================================================================

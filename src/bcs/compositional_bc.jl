@@ -1,10 +1,9 @@
 # ================================================================================
-# Composition Boundary Conditions - Matrix-Embedded Approach (Fortran DD_2DCODE style)
+# Composition Boundary Conditions - Matrix-Embedded Approach
 # ================================================================================
 #
 # This file implements composition boundary conditions by embedding them directly
-# in the LHS implicit system matrix, matching the Fortran DD_2DCODE approach
-# (subroutines cmp_bc_C, cmp_setbc, cmp_predictor, cmp_corrector).
+# in the LHS implicit system matrix.
 #
 # Boundary condition types controlled by i_cmp_bc parameter:
 #   1: Fixed C on both ICB and CMB (Dirichlet-Dirichlet)

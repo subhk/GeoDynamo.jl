@@ -197,7 +197,7 @@ The CI workflow automatically publishes to `gh-pages` on each push to `main`.
 |:----------|:-------|
 | Test single-rank behavior | Ensure code works without implicit reductions |
 | Use global loop bounds | Prevent deadlocks with collectives |
-| Check `independent_output_files` | Rank-local code shouldn't synchronize |
+| All I/O is collective | All ranks must call `NCDataset(...)` together for parallel I/O |
 
 ### Documentation
 

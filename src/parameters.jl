@@ -104,6 +104,13 @@ Base.@kwdef mutable struct GeoDynamoParameters
     # Topography source specifications
     s_topo_icb_file::String = ""              # ICB topography file (NetCDF), empty = no ICB topo
     s_topo_cmb_file::String = ""              # CMB topography file (NetCDF), empty = no CMB topo
+
+    # ================================================================================
+    # Restart Parameters
+    # ================================================================================
+    s_restart_file::String = ""               # Path to restart NetCDF file (empty = fresh start)
+    s_restart_dir::String = ""                # Directory containing restart files (alternative to s_restart_file)
+    d_restart_time::Float64 = 0.0             # Target restart time (used with s_restart_dir)
 end
 
 function print_section(io::IO, title::AbstractString)

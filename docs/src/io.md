@@ -1,12 +1,12 @@
 # Data Output & Restart Files
 
-GeoDynamo.jl provides a comprehensive NetCDF-based I/O system designed for scalable MPI parallelism. The system handles simulation snapshots, restart files, diagnostics, and boundary condition data.
+GeoDynamo.jl provides a parallel NetCDF-based I/O system using MPI-IO. All ranks write concurrently to a single shared file per timestep via `NCDatasets.jl` with parallel HDF5. The system handles simulation snapshots, restart files, diagnostics, and boundary condition data.
 
 !!! tip "Quick Start"
     ```julia
-    config = default_config(precision=Float64, independent_writes=true)
+    config = default_config(precision=Float64)
     tracker = create_time_tracker(config, 0.0)
-    write_fields!(fields, tracker, metadata, config)
+    write_fields!(fields, tracker, metadata, config, shtns_config, pencils)
     ```
 
 ---
@@ -27,9 +27,9 @@ GeoDynamo.jl provides a comprehensive NetCDF-based I/O system designed for scala
 │         │                                        ▼      │       │
 │         │  ┌─────────────┐  ┌─────────────┐  ┌───────┐  │       │
 │         │  │ Grid File   │  │ History     │  │Restart│  │       │
-│         │  │ (rank 0)    │  │ (per-rank)  │  │ Files │  │       │
+│         │  │ (rank 0)    │  │ (shared)    │  │ Files │  │       │
 │         │  └─────────────┘  └─────────────┘  └───────┘  │       │
-│         │              NetCDF Output Layer              │       │
+│         │      Parallel NetCDF (MPI-IO) Output Layer     │       │
 │         └───────────────────────────────────────────────┘       │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -39,9 +39,9 @@ GeoDynamo.jl provides a comprehensive NetCDF-based I/O system designed for scala
 
 | Principle | Description |
 |:----------|:------------|
-| **Independent writes** | Each MPI rank writes its own file without synchronization |
+| **Parallel I/O** | All ranks write concurrently to a single shared NetCDF file via MPI-IO |
 | **Mixed-space output** | Spectral data for velocity/magnetic, physical for T/C |
-| **Compressed storage** | NetCDF4 with configurable deflate compression |
+| **Memory safe** | Each rank holds only its local pencil slice; no gathering |
 | **Time-based scheduling** | Automatic output at specified intervals |
 
 ---
@@ -54,14 +54,13 @@ The `OutputConfig` struct controls all aspects of data output.
 
 ```julia
 # Method 1: From defaults
-config = default_config(precision=Float64, independent_writes=true)
+config = default_config(precision=Float64)
 
 # Method 2: From simulation parameters
 config = output_config_from_parameters()
 
 # Method 3: Modify existing config
 config = with_output_precision(config, Float32)
-config = with_independent_writes(config, true)
 ```
 
 ### Configuration Options
@@ -69,17 +68,14 @@ config = with_independent_writes(config, true)
 | Field | Type | Default | Description |
 |:------|:-----|:--------|:------------|
 | `output_space` | OutputSpace | `MIXED_FIELDS` | Data representation mode |
-| `naming_scheme` | FileNaming | `RANK_TIME` | Filename pattern |
 | `output_dir` | String | `"./output"` | Output directory |
 | `filename_prefix` | String | `"geodynamo"` | File prefix |
-| `compression_level` | Int | `6` | NetCDF deflate level (0-9) |
 | `include_metadata` | Bool | `true` | Include simulation metadata |
 | `include_grid` | Bool | `true` | Include coordinate arrays |
 | `include_diagnostics` | Bool | `true` | Include diagnostic scalars |
 | `output_precision` | DataType | `Float64` | Precision for field data |
 | `spectral_lmax_output` | Int | `-1` | Max ℓ to output (-1 = all) |
 | `overwrite_files` | Bool | `true` | Overwrite existing files |
-| `independent_writes` | Bool | `true` | Ranks write independently |
 | `output_interval` | Float64 | `0.1` | Time between snapshots |
 | `restart_interval` | Float64 | `1.0` | Time between restarts |
 | `max_output_time` | Float64 | `Inf` | Stop output after this time |
@@ -104,17 +100,17 @@ end
 
 ### Naming Convention
 
-Files follow the pattern:
+All ranks write to a single shared file per timestep:
 ```
-{prefix}_{geometry}_rank_{XXXX}_{type}_{N}.nc
+{prefix}_{geometry}_{type}_{N}.nc
 ```
 
 **Examples:**
 ```
-geodynamo_shell_rank_0000_hist_1.nc    # History snapshot 1, rank 0
-geodynamo_shell_rank_0015_hist_42.nc   # History snapshot 42, rank 15
-geodynamo_ball_rank_0000_restart_3.nc  # Restart file 3, rank 0
-geodynamo_shell_grid.nc                # Grid file (rank 0 only)
+geodynamo_shell_hist_1.nc       # History snapshot 1 (all ranks)
+geodynamo_shell_hist_42.nc      # History snapshot 42 (all ranks)
+geodynamo_shell_restart_3.nc    # Restart file 3 (all ranks)
+geodynamo_shell_grid.nc         # Grid file (rank 0 only)
 ```
 
 ### NetCDF Structure
@@ -160,7 +156,7 @@ NetCDF File Structure
 │
 └── Global Attributes
     ├── title, source, history, Conventions
-    ├── mpi_rank, mpi_total_ranks
+    ├── mpi_total_ranks
     ├── geometry (shell/ball)
     └── simulation parameters...
 ```
@@ -277,10 +273,10 @@ metadata = Dict{String,Any}(
 
 ### Writing Restarts
 
-Restart files are automatically written at `restart_interval`:
+Restart files are automatically written at `restart_interval` using parallel I/O:
 
 ```julia
-write_restart!(fields, tracker, metadata, config)
+write_restart!(fields, tracker, metadata, config, pencils)
 ```
 
 Restart files include:
@@ -291,11 +287,15 @@ Restart files include:
 ### Reading Restarts
 
 ```julia
-restart_data, metadata = read_restart!(tracker, "output", target_time, config)
+# From directory (finds most recent restart)
+restart_data, metadata = read_restart!(tracker, "output", target_time, config, pencils)
 
-# Access fields
-temperature = restart_data["temperature"]
-velocity_tor = restart_data["velocity_toroidal"]
+# From specific file
+restart_data, metadata = _load_restart_file(filepath, tracker, config; pencils=pencils)
+
+# Access fields (each rank gets its local slice)
+temperature = restart_data["temperature"]       # local θ×φ×r slice
+velocity_tor = restart_data["velocity_toroidal"] # local lm×r slice
 
 # Access simulation state
 t = metadata["current_time"]
@@ -304,7 +304,7 @@ step = metadata["current_step"]
 
 !!! tip "Restart Tips"
     - Set `restart_interval` longer than `output_interval` unless frequent checkpointing is needed
-    - MPI ranks automatically find files matching their `rank_XXXX` suffix
+    - All ranks open the restart file collectively; each reads only its local pencil slice
     - To change precision: load restart, apply `with_output_precision`, then continue
 
 ---
@@ -415,43 +415,52 @@ end
 
 ---
 
-## MPI Parallelization
+## MPI Parallel I/O
 
-### Independent vs Synchronized Writes
+### How It Works
 
-| Mode | Behavior | Best For |
-|:-----|:---------|:---------|
-| **Independent** (`true`) | Each rank writes immediately, no barriers | Large-scale runs |
-| **Synchronized** (`false`) | All ranks sync before/after writes | Parallel NetCDF collective I/O |
-
-!!! warning
-    Independent mode may result in files with slightly different timestamps across ranks.
-
-### Per-Rank Data Distribution
-
-Each rank writes only the data it owns based on pencil decomposition:
+All MPI ranks collectively open a single NetCDF file using parallel HDF5 (MPI-IO). Each rank writes only its local pencil slice at the correct global offset. No data gathering is required.
 
 ```julia
-# Spectral data: each rank owns a subset of (l,m) modes
-lm_range = range_local(pencils.spec, 1)
+# File is opened collectively by all ranks
+ds = NCDataset(filename, "c"; comm=comm, info=MPI.Info())
 
-# Physical data: each rank owns a portion of the grid
-theta_range = range_local(pencils.θ, 1)
-phi_range = range_local(pencils.φ, 2)
-r_range = range_local(pencils.r, 3)
+# Each rank writes its portion using pencil ranges
+θ_range = range_local(pencils.r, 1)   # local theta indices in global array
+φ_range = range_local(pencils.r, 2)   # local phi indices in global array
+ds["temperature"][θ_range, φ_range, :] = local_temperature
+
+lm_range = range_local(pencils.spec, 1) # local spectral mode indices
+r_range = range_local(pencils.spec, 3)  # local radial indices
+ds["velocity_toroidal_real"][lm_range, r_range] = local_vel_tor_real
 ```
+
+### Pencil-to-Global Index Mapping
+
+| Field Type | Pencil | Local Dims | Write Pattern |
+|:-----------|:-------|:-----------|:--------------|
+| Temperature/Composition | `pencils.r` | r local, (θ,φ) distributed | `ds["temperature"][θ_range, φ_range, :]` |
+| Spectral fields | `pencils.spec` | (lm, r) distributed | `ds["vel_tor_real"][lm_range, r_range]` |
+
+### Runtime Check
+
+At initialization, the system verifies that parallel HDF5 is available:
+
+```julia
+check_parallel_netcdf_support(comm)
+```
+
+This will error immediately if parallel NetCDF is not supported, with instructions on how to install a parallel-enabled HDF5.
 
 ### Verification
 
 ```julia
-# Verify all ranks wrote successfully
+# Verify the shared output file exists and has correct dimensions
 success, missing, info = verify_all_ranks_wrote(
-    "output", hist_number, nprocs;
-    geometry="shell"
+    "output", hist_number;
+    geometry="shell",
+    expected_dims=Dict("theta" => 64, "phi" => 128, "r" => 20)
 )
-
-# Print comprehensive report
-print_output_verification_report("output", [1,2,3,4], nprocs)
 ```
 
 ---
@@ -470,15 +479,13 @@ julia --project extras/spectral_to_physical.jl \
 ### File Analysis Utilities
 
 ```julia
-# Get available time series
-times = get_time_series("output", rank=0)
-
-# Find files in time range
-files = find_files_in_time_range("output", 1.0, 2.0, rank=0)
+# Get available time series from output directory
+times = get_time_series("output")
 
 # Get file information
-info = get_file_info("geodynamo_shell_rank_0000_hist_1.nc")
+info = get_file_info("geodynamo_shell_hist_1.nc")
 println("Time: $(info["time"]), Step: $(info["step"])")
+println("Dimensions: $(info["dimensions"])")
 println("Variables: $(info["variables"])")
 ```
 
@@ -489,37 +496,23 @@ println("Variables: $(info["variables"])")
 cleanup_old_files("output", 10)
 ```
 
-### Combining Multi-Rank Data
+### Reading Output Files
+
+Since all data is in a single file per timestep, reading is straightforward:
 
 ```julia
 using NCDatasets
 
-# Collect files from all ranks for a given time
-nprocs = 16
-files = ["output/geodynamo_shell_rank_$(lpad(rank,4,'0'))_hist_5.nc"
-         for rank in 0:(nprocs-1)]
-
-# Read and combine
-global_temp = zeros(nlat_global, nlon_global, nr_global)
-for (rank, file) in enumerate(files)
-    NCDataset(file, "r") do ds
-        # Map local data to global array based on pencil ranges
-    end
+NCDataset("output/geodynamo_shell_hist_5.nc", "r") do ds
+    temperature = Array(ds["temperature"][:, :, :])   # Full global array
+    vel_tor_real = Array(ds["velocity_toroidal_real"][:, :])  # (nlm, nr)
+    println("Dimensions: theta=$(ds.dim["theta"]), phi=$(ds.dim["phi"]), r=$(ds.dim["r"])")
 end
 ```
 
 ---
 
-## Compression & Performance
-
-### Compression Levels
-
-| Level | Compression | Speed | Use Case |
-|:------|:------------|:------|:---------|
-| 0 | None | Fastest | Development, SSDs |
-| 1-3 | Low | Fast | Balanced performance |
-| 4-6 | Medium | Moderate | Production (default) |
-| 7-9 | High | Slow | Archival storage |
+## Performance
 
 ### Precision vs Size
 
@@ -559,14 +552,18 @@ end
 # Check directory exists and is writable
 mkpath(config.output_dir)
 @assert isdir(config.output_dir) && iswritable(config.output_dir)
+
+# Verify parallel HDF5 is available
+check_parallel_netcdf_support(MPI.COMM_WORLD)
 ```
 
-### Missing Ranks in Output
+### Output File Verification
 
 ```julia
-success, missing, _ = verify_all_ranks_wrote("output", 1, nprocs)
+success, missing, info = verify_all_ranks_wrote("output", 1;
+    expected_dims=Dict("theta" => nlat, "phi" => nlon, "r" => nr))
 if !success
-    @warn "Missing output from ranks: $missing"
+    @warn "Output verification failed: $missing"
 end
 ```
 
@@ -607,16 +604,19 @@ MPI.Init()
 
 # Configuration
 config = OutputConfig(
-    MIXED_FIELDS, RANK_TIME,
-    "./output", "dynamo",
-    6,                  # compression
+    MIXED_FIELDS,       # output space mode
+    "./output",         # output directory
+    "dynamo",           # filename prefix
     true, true, true,   # metadata, grid, diagnostics
     Float32,            # output precision
     -1,                 # all spectral modes
-    true, true,         # overwrite, independent
+    true,               # overwrite files
     0.05, 0.5,          # output, restart intervals
     10.0, 1e-12         # max time, tolerance
 )
+
+# Verify parallel HDF5 support (call once at startup)
+check_parallel_netcdf_support(MPI.COMM_WORLD)
 
 # Initialize tracker
 tracker = create_time_tracker(config, 0.0)

@@ -55,7 +55,7 @@ function print_geodynamo_banner(config, nprocs::Int, nthreads::Int)
     println("║   Optimization:    SIMD + NUMA + Task-based")
     println("╠══════════════════════════════════════════════════════════════════════════")
     println("║ OUTPUT")
-    println("║   Directory:       $(params.independent_output_files ? "./output (independent)" : "./output (coordinated)")")
+    println("║   Directory:       ./output (parallel MPI-IO)")
     println("║   Precision:       $(String(params.output_precision))")
     println("╚══════════════════════════════════════════════════════════════════════════")
     println()
@@ -198,11 +198,11 @@ function initialize_simulation(::Type{T}=Float64;
     implicit_matrices[:magnetic_tor] = create_magnetic_toroidal_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
     implicit_matrices[:magnetic_pol] = create_magnetic_poloidal_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
     implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
-    # Temperature uses matrix-embedded BCs (Fortran DD_2DCODE approach)
+    # Temperature uses matrix-embedded BCs
     implicit_matrices[:temperature] = create_temperature_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Pr, d_timestep)
 
     if include_composition
-        # Composition uses matrix-embedded BCs (Fortran DD_2DCODE approach)
+        # Composition uses matrix-embedded BCs
         implicit_matrices[:composition] = create_composition_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Sc, d_timestep)
     end
 
@@ -376,15 +376,19 @@ end
 # ================================================================================
 
 """
-    run_enhanced_simulation!(state::SimulationState{T})
+    run_enhanced_simulation!(state::SimulationState{T}; restart_file::String="", restart_dir::String="", restart_time::Float64=0.0)
 
 Run geodynamo simulation with all parallelization optimizations.
+Supports restarting from a saved NetCDF restart file.
 """
-function run_enhanced_simulation!(state::SimulationState{T}) where T
+function run_enhanced_simulation!(state::SimulationState{T};
+                                  restart_file::String="",
+                                  restart_dir::String="",
+                                  restart_time::Float64=0.0) where T
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
-    
+
     if rank == 0
         println("\nStarting enhanced geodynamo simulation...")
         println("Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
@@ -392,18 +396,63 @@ function run_enhanced_simulation!(state::SimulationState{T}) where T
         println("Parallel configuration: $nprocs MPI × $(Threads.nthreads()) threads")
         println()
     end
-    
-    # Initialize fields with perturbations
-    initialize_enhanced_fields!(state)
-    
+
+    # Resolve restart parameters
+    params = get_parameters()
+    _restart_file = !isempty(restart_file) ? restart_file : params.s_restart_file
+    _restart_dir = !isempty(restart_dir) ? restart_dir : params.s_restart_dir
+    _restart_time = restart_time > 0.0 ? restart_time : params.d_restart_time
+
     # Create enhanced output configuration
     output_config = create_enhanced_output_config(state)
-    time_tracker = create_time_tracker(output_config)
-    
-    # Main timestepping loop with optimizations
+
+    # Verify parallel NetCDF (MPI-IO) is available
+    check_parallel_netcdf_support(comm)
+
+    is_restart = !isempty(_restart_file) || !isempty(_restart_dir)
+
     step = 0
     simulation_time = d_time
     dt = d_timestep
+
+    if is_restart
+        time_tracker = create_time_tracker(output_config)
+
+        pencils = state.shtns_config.pencils
+        if !isempty(_restart_file)
+            if rank == 0
+                println("  RESTARTING FROM FILE: $_restart_file")
+            end
+            restart_data, restart_metadata = _load_restart_file(
+                _restart_file, time_tracker, output_config; pencils=pencils)
+        else
+            if rank == 0
+                println("  RESTARTING FROM DIR: $_restart_dir (target time=$_restart_time)")
+            end
+            restart_data, restart_metadata = read_restart!(
+                time_tracker, _restart_dir, _restart_time, output_config, pencils)
+        end
+
+        restore_fields_from_restart!(state, restart_data)
+
+        if haskey(restart_metadata, "current_time")
+            simulation_time = Float64(restart_metadata["current_time"])
+        end
+        if haskey(restart_metadata, "current_step")
+            step = Int(restart_metadata["current_step"])
+        end
+
+        state.timestep_state.time = simulation_time
+        # Set step=0 to bootstrap prev_nonlinear on first iteration (AB2 → AB1)
+        state.timestep_state.step = 0
+
+        if rank == 0
+            println("  Resuming from time = $simulation_time, step = $step")
+        end
+    else
+        initialize_enhanced_fields!(state)
+        time_tracker = create_time_tracker(output_config)
+    end
     
     # Performance monitoring
     total_start = Wtime()
@@ -530,11 +579,23 @@ end
 # ================================================================================
 
 """
-    run_master_simulation!(state::SimulationState{T})
-    
+    run_simulation!(state::SimulationState{T}; restart_file::String="", restart_dir::String="", restart_time::Float64=0.0)
+
 Run geodynamo simulation with maximum CPU parallelization optimizations.
+
+# Keyword Arguments
+- `restart_file`: Path to a specific restart NetCDF file to resume from.
+- `restart_dir`: Directory containing restart files (used with `restart_time`).
+- `restart_time`: Target simulation time to restart from (used with `restart_dir`).
+
+If neither `restart_file` nor `restart_dir` is provided, the parameters
+`s_restart_file`, `s_restart_dir`, and `d_restart_time` are checked.
+If no restart is specified, the simulation starts fresh.
 """
-function run_simulation!(state::SimulationState{T}) where T
+function run_simulation!(state::SimulationState{T};
+                         restart_file::String="",
+                         restart_dir::String="",
+                         restart_time::Float64=0.0) where T
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
@@ -542,19 +603,79 @@ function run_simulation!(state::SimulationState{T}) where T
     if rank == 0
         print_geodynamo_banner(state.shtns_config, nprocs, Threads.nthreads())
     end
-    
-    # Initialize fields with perturbations
-    initialize_master_fields!(state)
-    
+
+    # Resolve restart parameters: keyword args take priority over global parameters
+    params = get_parameters()
+    _restart_file = !isempty(restart_file) ? restart_file : params.s_restart_file
+    _restart_dir = !isempty(restart_dir) ? restart_dir : params.s_restart_dir
+    _restart_time = restart_time > 0.0 ? restart_time : params.d_restart_time
+
     # Create enhanced output configuration
     output_config = create_enhanced_output_config(state)
-    time_tracker = create_time_tracker(output_config)
-    
-    # Main timestepping loop with advanced features
+
+    # Verify parallel NetCDF (MPI-IO) is available
+    check_parallel_netcdf_support(comm)
+
+    # Determine whether to restart or initialize fresh
+    is_restart = !isempty(_restart_file) || !isempty(_restart_dir)
+
     step = 0
     simulation_time = d_time
     dt = d_timestep
-    
+
+    if is_restart
+        # --- RESTART MODE ---
+        time_tracker = create_time_tracker(output_config)
+
+        pencils = state.shtns_config.pencils
+        if !isempty(_restart_file)
+            # Load from a specific file
+            if rank == 0
+                println("="^80)
+                println("  RESTARTING FROM FILE: $_restart_file")
+                println("="^80)
+            end
+            restart_data, restart_metadata = _load_restart_file(
+                _restart_file, time_tracker, output_config; pencils=pencils)
+        else
+            # Load from directory + target time
+            if rank == 0
+                println("="^80)
+                println("  RESTARTING FROM DIR: $_restart_dir (target time=$_restart_time)")
+                println("="^80)
+            end
+            restart_data, restart_metadata = read_restart!(
+                time_tracker, _restart_dir, _restart_time, output_config, pencils)
+        end
+
+        # Restore fields from the restart data
+        restore_fields_from_restart!(state, restart_data)
+
+        # Set simulation time and step from restart metadata
+        if haskey(restart_metadata, "current_time")
+            simulation_time = Float64(restart_metadata["current_time"])
+        end
+        if haskey(restart_metadata, "current_step")
+            step = Int(restart_metadata["current_step"])
+        end
+
+        # Update timestep state
+        state.timestep_state.time = simulation_time
+        # Temporarily set step to 0 so that apply_implicit_step! will bootstrap
+        # prev_nonlinear from the first computed nonlinear terms (AB2 → AB1 for first step).
+        # The correct step count is restored at the end of the first loop iteration.
+        state.timestep_state.step = 0
+
+        if rank == 0
+            println("  Resuming from time = $simulation_time, step = $step")
+            println("="^80)
+        end
+    else
+        # --- FRESH START ---
+        initialize_master_fields!(state)
+        time_tracker = create_time_tracker(output_config)
+    end
+
     # Performance monitoring
     total_start = Wtime()
     last_output_time = simulation_time
@@ -597,7 +718,7 @@ function run_simulation!(state::SimulationState{T}) where T
         integrate_start = Wtime()
         
         # Apply implicit time integration with advanced solvers
-        apply_master_implicit_step!(state, dt)
+        apply_implicit_step!(state, dt)
         
         integrate_time = Wtime() - integrate_start
         
@@ -811,15 +932,139 @@ function initialize_fields!(state::SimulationState{T}) where T
     end
 end
 
+"""
+    restore_fields_from_restart!(state::SimulationState{T}, restart_data::Dict{String,Any})
+
+Restore simulation state fields from restart data loaded by `read_restart!`.
+Copies spectral coefficients from the restart data Dict into the state's field arrays.
+"""
+function restore_fields_from_restart!(state::SimulationState{T}, restart_data::Dict{String,Any}) where T
+    rank = get_rank()
+
+    # --- Velocity toroidal ---
+    if haskey(restart_data, "velocity_toroidal")
+        vt = restart_data["velocity_toroidal"]
+        _copy_spectral_to_field!(state.velocity.𝒯, vt["real"], vt["imag"])
+        if rank == 0
+            println("  Restored velocity toroidal field")
+        end
+    end
+
+    # --- Velocity poloidal ---
+    if haskey(restart_data, "velocity_poloidal")
+        vp = restart_data["velocity_poloidal"]
+        _copy_spectral_to_field!(state.velocity.𝒫, vp["real"], vp["imag"])
+        if rank == 0
+            println("  Restored velocity poloidal field")
+        end
+    end
+
+    # --- Magnetic toroidal ---
+    if haskey(restart_data, "magnetic_toroidal")
+        mt = restart_data["magnetic_toroidal"]
+        _copy_spectral_to_field!(state.magnetic.𝒯, mt["real"], mt["imag"])
+        if rank == 0
+            println("  Restored magnetic toroidal field")
+        end
+    end
+
+    # --- Magnetic poloidal ---
+    if haskey(restart_data, "magnetic_poloidal")
+        mp = restart_data["magnetic_poloidal"]
+        _copy_spectral_to_field!(state.magnetic.𝒫, mp["real"], mp["imag"])
+        if rank == 0
+            println("  Restored magnetic poloidal field")
+        end
+    end
+
+    # --- Temperature (spectral) ---
+    if haskey(restart_data, "temperature_spectral")
+        ts = restart_data["temperature_spectral"]
+        _copy_spectral_to_field!(state.temperature.spectral, ts["real"], ts["imag"])
+        if rank == 0
+            println("  Restored temperature field (spectral)")
+        end
+    end
+
+    # --- Composition (spectral) ---
+    if state.composition !== nothing && haskey(restart_data, "composition_spectral")
+        cs = restart_data["composition_spectral"]
+        _copy_spectral_to_field!(state.composition.spectral, cs["real"], cs["imag"])
+        if rank == 0
+            println("  Restored composition field (spectral)")
+        end
+    end
+
+    if rank == 0
+        println("  Field restoration from restart complete.")
+    end
+end
+
+"""
+    _copy_spectral_to_field!(field::SHTnsSpecField{T}, real_data::AbstractArray, imag_data::AbstractArray)
+
+Copy restart spectral data into a SHTnsSpecField. Handles the dimension mismatch between
+the restart file format [nlm, nr] and the field storage format [nlm, 1, nr].
+"""
+function _copy_spectral_to_field!(field::SHTnsSpecField{T}, real_data::AbstractArray, imag_data::AbstractArray) where T
+    dest_real = parent(field.data_real)
+    dest_imag = parent(field.data_imag)
+
+    if ndims(real_data) == 2
+        # Restart data is [nlm, nr], field is [nlm, 1, nr]
+        nlm_file, nr_file = size(real_data)
+        nlm_field = size(dest_real, 1)
+        nr_field = size(dest_real, 3)
+
+        nlm_copy = min(nlm_file, nlm_field)
+        nr_copy = min(nr_file, nr_field)
+
+        # Zero out first, then copy available modes
+        fill!(dest_real, zero(T))
+        fill!(dest_imag, zero(T))
+
+        for r in 1:nr_copy
+            for lm in 1:nlm_copy
+                dest_real[lm, 1, r] = T(real_data[lm, r])
+                dest_imag[lm, 1, r] = T(imag_data[lm, r])
+            end
+        end
+    elseif ndims(real_data) == 3
+        # Already in [nlm, 1, nr] format
+        nlm_file = size(real_data, 1)
+        nr_file = size(real_data, 3)
+        nlm_field = size(dest_real, 1)
+        nr_field = size(dest_real, 3)
+
+        nlm_copy = min(nlm_file, nlm_field)
+        nr_copy = min(nr_file, nr_field)
+
+        fill!(dest_real, zero(T))
+        fill!(dest_imag, zero(T))
+
+        for r in 1:nr_copy
+            for lm in 1:nlm_copy
+                dest_real[lm, 1, r] = T(real_data[lm, 1, r])
+                dest_imag[lm, 1, r] = T(imag_data[lm, 1, r])
+            end
+        end
+    else
+        error("Unexpected restart data dimensions: $(ndims(real_data))")
+    end
+end
+
 function compute_all_nonlinear_terms!(state::SimulationState{T}) where T
     # Compute nonlinear terms for all equations using SHTns transforms
-    compute_velocity_nonlinear!(state.velocity, state.temperature, 
+    compute_velocity_nonlinear!(state.velocity, state.temperature,
                                 state.composition, state.magnetic, state.𝒟ᵒᶜ)
-    
-    compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.𝒟ᵒᶜ, state.𝒟ⁱᶜ, 0.0)  # No inner core rotation for now
-    
+
+    # Compute magnetic nonlinear terms only if magnetic field is enabled
+    if i_B == 1 && state.magnetic !== nothing
+        compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.𝒟ᵒᶜ, state.𝒟ⁱᶜ, 0.0)
+    end
+
     compute_temperature_nonlinear!(state.temperature, state.velocity, state.𝒟ᵒᶜ)
-    
+
     # Compute compositional advection if composition is present
     if state.composition !== nothing
         compute_composition_nonlinear!(state.composition, state.velocity, state.𝒟ᵒᶜ)
@@ -873,7 +1118,7 @@ function predictor_step!(state::SimulationState{T}) where T
     solve_magnetic_implicit_step!(state.magnetic.𝒫, rhs_mag_pol,
                                   state.implicit_matrices[:magnetic_pol], :poloidal)
     
-    # Temperature - BCs embedded in matrix (Fortran DD_2DCODE approach)
+    # Temperature - BCs embedded in matrix
     rhs_temp = similar(state.temperature.spectral)
     apply_explicit_operator!(rhs_temp, state.temperature.spectral,
                              state.temperature.nonlinear, state.𝒟ᵒᶜ,
@@ -886,7 +1131,7 @@ function predictor_step!(state::SimulationState{T}) where T
                                       bc_inner=tmp_bc.inner_real, bc_outer=tmp_bc.outer_real,
                                       bc_inner_imag=tmp_bc.inner_imag, bc_outer_imag=tmp_bc.outer_imag)
 
-    # Composition (if present) - BCs embedded in matrix (Fortran DD_2DCODE approach)
+    # Composition (if present) - BCs embedded in matrix
     if state.composition !== nothing
         rhs_comp = similar(state.composition.spectral)
         apply_explicit_operator!(rhs_comp, state.composition.spectral,
@@ -994,7 +1239,7 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
     # Use enhanced sparse solvers with preconditioning
     # This would integrate with advanced linear algebra libraries
     
-    # Temperature - BCs embedded in matrix (Fortran DD_2DCODE approach)
+    # Temperature - BCs embedded in matrix
     tmp_bc = bcs.get_bc_vectors_from_field(state.temperature)
     solve_temperature_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
                                       state.implicit_matrices[:temperature];
@@ -1019,7 +1264,7 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
                                       state.implicit_matrices[:magnetic_pol], :poloidal)
     end
 
-    # Composition (if enabled) - BCs embedded in matrix (Fortran DD_2DCODE approach)
+    # Composition (if enabled) - BCs embedded in matrix
     if state.composition !== nothing
         cmp_bc = bcs.get_bc_vectors_from_field(state.composition)
         solve_composition_implicit_step!(state.composition.spectral, state.composition.nonlinear,
@@ -1039,17 +1284,14 @@ function create_enhanced_output_config(state::SimulationState{T}) where T
 
     return OutputConfig(
         base_config.output_space,
-        base_config.naming_scheme,
         "./enhanced_output",   # Output directory
         "geodynamo_opt",        # Filename prefix
-        9,                      # Maximum compression for storage efficiency
         base_config.include_metadata,
         base_config.include_grid,
         base_config.include_diagnostics,
         base_config.output_precision,
         base_config.spectral_lmax_output,
         base_config.overwrite_files,
-        base_config.independent_writes,
         0.01,                   # More frequent output for monitoring
         0.1,                    # Regular restart intervals
         Inf,                    # No time limit
@@ -1060,7 +1302,58 @@ end
 # Helper functions (simplified implementations)
 initialize_enhanced_fields!(state) = initialize_fields!(state)
 initialize_master_fields!(state) = initialize_fields!(state)
-extract_all_fields(state) = Dict("temperature" => rand(32, 64, 20))
+
+"""
+    extract_all_fields(state::SimulationState)
+
+Extract all field data from the simulation state for output/restart writing.
+Returns a Dict with spectral field data (real/imag parts) for velocity, magnetic,
+temperature, and composition fields.
+"""
+function extract_all_fields(state::SimulationState{T}) where T
+    fields = Dict{String, Any}()
+
+    # Velocity toroidal (spectral)
+    fields["velocity_toroidal"] = Dict(
+        "real" => copy(parent(state.velocity.𝒯.data_real)),
+        "imag" => copy(parent(state.velocity.𝒯.data_imag))
+    )
+
+    # Velocity poloidal (spectral)
+    fields["velocity_poloidal"] = Dict(
+        "real" => copy(parent(state.velocity.𝒫.data_real)),
+        "imag" => copy(parent(state.velocity.𝒫.data_imag))
+    )
+
+    # Magnetic toroidal (spectral)
+    fields["magnetic_toroidal"] = Dict(
+        "real" => copy(parent(state.magnetic.𝒯.data_real)),
+        "imag" => copy(parent(state.magnetic.𝒯.data_imag))
+    )
+
+    # Magnetic poloidal (spectral)
+    fields["magnetic_poloidal"] = Dict(
+        "real" => copy(parent(state.magnetic.𝒫.data_real)),
+        "imag" => copy(parent(state.magnetic.𝒫.data_imag))
+    )
+
+    # Temperature (spectral)
+    fields["temperature_spectral"] = Dict(
+        "real" => copy(parent(state.temperature.spectral.data_real)),
+        "imag" => copy(parent(state.temperature.spectral.data_imag))
+    )
+
+    # Composition (spectral, if present)
+    if state.composition !== nothing
+        fields["composition_spectral"] = Dict(
+            "real" => copy(parent(state.composition.spectral.data_real)),
+            "imag" => copy(parent(state.composition.spectral.data_imag))
+        )
+    end
+
+    return fields
+end
+
 extract_all_fields_enhanced(state) = extract_all_fields(state)
 create_enhanced_metadata(state, time, step) = Dict(
     "current_time" => time,
@@ -1076,7 +1369,6 @@ get_parallel_efficiency(monitor) = 0.85
 get_thread_utilization(threading) = 0.92
 finalize_enhanced_simulation!(state) = nothing
 finalize_master_simulation!(state) = finalize_enhanced_simulation!(state)
-update_tracker!(tracker, time, config, output, restart) = nothing
 
 # Advanced computation functions
 function compute_velocity_nonlinear_master!(state, magnetic, temperature, domain)
@@ -1420,8 +1712,9 @@ end
 # ================================================================================
 
 function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where T
-    # Prepare caches and stage buffers for all active fields (rotation time scaling)
-    temp_cache = get_erk2_cache!(state.erk2_caches, :temperature, 1.0/d_Pr, T,
+    # Prepare caches and stage buffers for all active fields (magnetic diffusion time scaling)
+    # Diffusivities: Temperature = Pm/Pr, Velocity = E, Magnetic = 1.0, Composition = Pm/Sc
+    temp_cache = get_erk2_cache!(state.erk2_caches, :temperature, d_Pm/d_Pr, T,
                                  state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
     temp_buffers = ERK2FieldBuffers(state.temperature.spectral, state.temperature.nonlinear, temp_cache)
     erk2_prepare_field!(temp_buffers, state.temperature.spectral, state.temperature.nonlinear,
@@ -1444,13 +1737,13 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
     mag_tor_cache = nothing
     mag_pol_cache = nothing
     if i_B == 1 && state.magnetic !== nothing
-        mag_tor_cache = get_erk2_cache!(state.erk2_caches, :magnetic_toroidal, 1.0/d_Pm, T,
+        mag_tor_cache = get_erk2_cache!(state.erk2_caches, :magnetic_toroidal, 1.0, T,
                                         state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
         mag_tor_buffers = ERK2FieldBuffers(state.magnetic.𝒯, state.magnetic.nlᵀ, mag_tor_cache)
         erk2_prepare_field!(mag_tor_buffers, state.magnetic.𝒯, state.magnetic.nlᵀ,
                             mag_tor_cache, state.shtns_config, dt)
 
-        mag_pol_cache = get_erk2_cache!(state.erk2_caches, :magnetic_poloidal, 1.0/d_Pm, T,
+        mag_pol_cache = get_erk2_cache!(state.erk2_caches, :magnetic_poloidal, 1.0, T,
                                         state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
         mag_pol_buffers = ERK2FieldBuffers(state.magnetic.𝒫, state.magnetic.nlᴾ, mag_pol_cache)
         erk2_prepare_field!(mag_pol_buffers, state.magnetic.𝒫, state.magnetic.nlᴾ,
@@ -1460,7 +1753,7 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
     comp_buffers = nothing
     comp_cache = nothing
     if state.composition !== nothing
-        comp_cache = get_erk2_cache!(state.erk2_caches, :composition, 1.0/d_Sc, T,
+        comp_cache = get_erk2_cache!(state.erk2_caches, :composition, d_Pm/d_Sc, T,
                                      state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
         comp_buffers = ERK2FieldBuffers(state.composition.spectral, state.composition.nonlinear, comp_cache)
         erk2_prepare_field!(comp_buffers, state.composition.spectral, state.composition.nonlinear,
@@ -1481,8 +1774,7 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
 
     # ========================================================================
     # Temperature, composition, velocity, and magnetic BCs are now all
-    # embedded in the implicit matrix solve (Fortran DD_2DCODE approach).
-    # No post-processing needed.
+    # embedded in the implicit matrix solve. No post-processing needed.
 
     # Evaluate nonlinear terms at the stage state for all coupled equations
     compute_all_nonlinear_terms!(state)
@@ -1528,8 +1820,8 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
     check_solenoidal_constraint!(state)
     report_solenoidal_constraint(state.timestep_state.step; interval=100)
 
-    # Refresh nonlinear terms at the new solution for the next step
-    compute_all_nonlinear_terms!(state)
+    # Note: nonlinear terms are recomputed by the main simulation loop at the
+    # start of each step, so no refresh is needed here.
 end
 
 # ================================================================================
@@ -1562,7 +1854,7 @@ end
 #   - Scalars use Pm/Pr and Pm/Sc
 #
 # ================================================================================
-function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) where T
+function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
     # For CNAB2 and ERK2: bootstrap prev_nonlinear on first step so AB2 reduces to AB1
     if (ts_scheme === :cnab2 || ts_scheme === :erk2) && state.timestep_state.step == 0
         parent(state.temperature.prev_nonlinear.data_real) .= parent(state.temperature.nonlinear.data_real)
@@ -1751,8 +2043,7 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
     end
 
     # All BCs (velocity, magnetic, temperature, composition) are now embedded
-    # in the implicit matrix solve (Fortran DD_2DCODE approach).
-    # No post-processing needed.
+    # in the implicit matrix solve. No post-processing needed.
 
     # Roll nonlinear histories for CNAB2, EAB2, and ERK2
     if ts_scheme === :cnab2 || ts_scheme === :eab2 || ts_scheme === :erk2
@@ -1805,22 +2096,18 @@ function analyze_master_performance(state::SimulationState)
 end
 
 function create_master_output_config(state::SimulationState{T}) where T
-    # Reuse the existing enhanced output config
     base_config = output_config_from_parameters()
 
     return OutputConfig(
         base_config.output_space,
-        base_config.naming_scheme,
         "./master_output",   # Output directory
         "geodynamo_master",      # Filename prefix
-        9,                      # Maximum compression for storage efficiency
         base_config.include_metadata,
         base_config.include_grid,
         base_config.include_diagnostics,
         base_config.output_precision,
         base_config.spectral_lmax_output,
         base_config.overwrite_files,
-        base_config.independent_writes,
         0.01,                   # More frequent output for monitoring
         0.1,                    # Regular restart intervals
         Inf,                    # No time limit

@@ -1,10 +1,9 @@
 # ================================================================================
-# Temperature Boundary Conditions - Matrix-Embedded Approach (Fortran DD_2DCODE style)
+# Temperature Boundary Conditions - Matrix-Embedded Approach
 # ================================================================================
 #
 # This file implements temperature boundary conditions by embedding them directly
-# in the LHS implicit system matrix, matching the Fortran DD_2DCODE approach
-# (subroutines tmp_bc_T, tmp_setbc, tmp_predictor, tmp_corrector).
+# in the LHS implicit system matrix.
 #
 # Boundary condition types controlled by i_tmp_bc parameter:
 #   1: Fixed T on both ICB and CMB (Dirichlet-Dirichlet)

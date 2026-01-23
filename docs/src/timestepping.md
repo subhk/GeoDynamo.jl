@@ -489,7 +489,7 @@ end
     end
     ```
 
-    This is handled automatically by `apply_master_implicit_step!`.
+    This is handled automatically by `apply_implicit_step!`.
 
 ---
 

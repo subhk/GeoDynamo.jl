@@ -246,7 +246,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
                                 boundary_condition_set, boundary_cache, boundary_time_index)
 end
 
-# Include matrix-embedded magnetic BC functions (Fortran DD_2DCODE style)
+# Include matrix-embedded magnetic BC functions
 include("bcs/magnetic_bc.jl")
 
 # ========================================================

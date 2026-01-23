@@ -151,7 +151,6 @@ params = GeoDynamoParameters(
 
     # Output
     output_precision = :float32,
-    independent_output_files = true,
 )
 
 # === Initialize & Run ===

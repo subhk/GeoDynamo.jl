@@ -1,9 +1,9 @@
 # ================================================================================
-# Velocity Boundary Conditions - Matrix-Embedded Approach (Fortran DD_2DCODE style)
+# Velocity Boundary Conditions - Matrix-Embedded Approach
 # ================================================================================
 #
 # This file implements velocity boundary conditions by embedding them directly
-# in the LHS implicit system matrix, matching the Fortran DD_2DCODE approach.
+# in the LHS implicit system matrix.
 # This ensures the implicit solver satisfies BCs exactly, rather than applying
 # them as post-processing.
 #
@@ -54,7 +54,7 @@
                                       theta, i_vel_bc, T)
 
 Create implicit time-stepping matrices for the toroidal velocity component with
-boundary conditions embedded in the matrix rows (matching Fortran DD_2DCODE approach).
+boundary conditions embedded in the matrix rows.
 
 The boundary rows of the system matrix are replaced with the BC equations:
 - No-slip: identity row (T = value)
@@ -159,7 +159,7 @@ end
                                       theta, i_vel_bc, T)
 
 Create implicit time-stepping matrices for the poloidal velocity component with
-boundary conditions embedded in the matrix rows (matching Fortran DD_2DCODE approach).
+boundary conditions embedded in the matrix rows.
 
 The boundary rows of the system matrix are replaced with the BC equations:
 - No-slip: first derivative row (∂P/∂r = value)

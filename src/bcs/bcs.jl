@@ -68,7 +68,7 @@
 # ================================================================================
 #
 # Boundary conditions are embedded in the implicit LHS matrices following
-# the DD_2DCODE Fortran approach. BC types are controlled by parameters:
+# the matrix-embedded approach. BC types are controlled by parameters:
 #   - i_tmp_bc: Temperature BC type (1=DD, 2=DN, 3=ND, 4=NN)
 #   - i_cmp_bc: Composition BC type (1=DD, 2=DN, 3=ND, 4=NN)
 #   - i_vel_bc: Velocity BC type (1=no-slip, 2=stress-free, etc.)

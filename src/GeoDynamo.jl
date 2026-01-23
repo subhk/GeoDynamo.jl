@@ -11,7 +11,6 @@ module GeoDynamo
     using NCDatasets
     using Statistics
     using Dates
-    using NetCDF
     using Printf
 
     # exports shtnskit_transforms.jl (new SHTnsKit-based implementation)
@@ -142,11 +141,12 @@ module GeoDynamo
     # exports outputs_writer.jl
     export OutputConfig, FieldInfo, TimeTracker
     export default_config, output_config_from_parameters, resolve_output_precision
-    export with_output_precision, with_independent_writes
+    export with_output_precision
     export create_time_tracker, should_output_now, should_restart_now
     export write_fields!, write_restart!, read_restart!
     export create_shtns_aware_output_config, validate_output_compatibility
-    export get_time_series, find_files_in_time_range, cleanup_old_files
+    export check_parallel_netcdf_support, verify_all_ranks_wrote
+    export get_time_series, cleanup_old_files
 
     # exports spectral_to_physical.jl (from extras)
     export SpectralToPhysicalConverter

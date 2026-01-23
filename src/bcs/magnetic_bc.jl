@@ -1,9 +1,9 @@
 # ================================================================================
-# Magnetic Boundary Conditions - Matrix-Embedded Approach (Fortran DD_2DCODE style)
+# Magnetic Boundary Conditions - Matrix-Embedded Approach
 # ================================================================================
 #
 # This file implements magnetic boundary conditions by embedding them directly
-# in the LHS implicit system matrix, matching the Fortran DD_2DCODE approach.
+# in the LHS implicit system matrix.
 # This ensures the implicit solver satisfies BCs exactly, rather than applying
 # them as post-processing.
 #

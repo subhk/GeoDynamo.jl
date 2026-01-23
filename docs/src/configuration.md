@@ -16,7 +16,7 @@ GeoDynamo.GeoDynamoParameters
     - **Geometry**: `geometry`, `i_N`, `i_L`, `i_M`
     - **Physics**: `d_E`, `d_Ra`, `d_Pr`, `d_Pm`
     - **Time**: `ts_scheme`, `d_timestep`
-    - **Output**: `output_precision`, `independent_output_files`
+    - **Output**: `output_precision`
 
 ---
 
@@ -263,8 +263,10 @@ read_restart!("output/geodynamo_shell_rank_0000_restart_1.nc")
 | Parameter | Type | Description |
 |:----------|:-----|:------------|
 | `output_precision` | Symbol | `:float32` or `:float64` for NetCDF data |
-| `independent_output_files` | Bool | Each MPI rank writes its own files (no synchronization) |
 | `i_save_rate2` | Int | Output cadence in steps (legacy; prefer `outputs_writer` tracker) |
+
+!!! note "Parallel I/O"
+    All ranks write concurrently to a single shared NetCDF file via parallel HDF5 (MPI-IO). The `independent_output_files` parameter is deprecated and ignored.
 
 !!! tip "Storage Optimization"
     Use `output_precision = :float32` to halve disk usage. Diagnostics remain in `Float64` where accuracy is required.
