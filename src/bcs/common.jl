@@ -385,6 +385,41 @@ function get_nprocs()
     end
 end
 
+"""
+    find_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
+
+Find the appropriate time index for the current simulation time.
+Used by field-specific boundary condition modules.
+"""
+function find_boundary_time_index(boundary_set::BoundaryConditionSet, current_time::Float64)
+    # Use time coordinates from inner boundary (both should be compatible)
+    time_coords = boundary_set.inner_boundary.time
+
+    if time_coords === nothing
+        return 1  # Time-independent
+    end
+
+    # Find closest time index
+    if current_time <= time_coords[1]
+        return 1
+    elseif current_time >= time_coords[end]
+        return length(time_coords)
+    else
+        # Linear search for closest time
+        for i in 1:(length(time_coords)-1)
+            if time_coords[i] <= current_time <= time_coords[i+1]
+                if abs(current_time - time_coords[i]) <= abs(current_time - time_coords[i+1])
+                    return i
+                else
+                    return i + 1
+                end
+            end
+        end
+    end
+
+    return 1  # Fallback
+end
+
 # ================================================================================
 # Export common utilities
 # ================================================================================
@@ -394,4 +429,5 @@ export create_boundary_data, validate_boundary_compatibility
 export get_boundary_statistics, print_boundary_data_info, print_boundary_info
 export determine_field_type_from_name, get_default_units, get_default_boundary_type
 export cache_boundary_data!, get_cached_data, clear_boundary_cache!
+export find_boundary_time_index
 export get_comm, get_rank, get_nprocs

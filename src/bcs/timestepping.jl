@@ -60,16 +60,10 @@ function apply_boundary_conditions_to_rhs!(rhs, state, field_type::FieldType)
         return rhs  # No boundary conditions to apply
     end
     
-    # Apply boundary conditions based on field type
-    if field_type == TEMPERATURE
-        apply_temperature_bc_to_rhs!(rhs, field)
-    elseif field_type == COMPOSITION
-        apply_composition_bc_to_rhs!(rhs, field)
-    elseif field_type == VELOCITY
-        apply_velocity_bc_to_rhs!(rhs, field)
-    elseif field_type == MAGNETIC
-        apply_magnetic_bc_to_rhs!(rhs, field)
-    end
+    # All BCs (temperature, composition, velocity, magnetic) are now embedded
+    # in the implicit matrix system (Fortran DD_2DCODE approach).
+    # RHS boundary values are set by the solve functions (set_*_rhs_bc!).
+    # No post-processing needed here.
     
     return rhs
 end
@@ -81,35 +75,17 @@ Get boundary data from field using unified interface with fallback support.
 """
 function get_boundary_data(field, field_type::FieldType)
     if field_type == TEMPERATURE
-        if hasfield(typeof(field), :boundary_condition_set)
-            return field.boundary_condition_set, field.boundary_interpolation_cache
-        else
-            # Use fallback cache system if available
-            if isdefined(@__MODULE__, :_temperature_boundary_cache)
-                field_id = objectid(field)
-                if haskey(_temperature_boundary_cache, field_id)
-                    data = _temperature_boundary_cache[field_id]
-                    return data[:boundary_set], data[:interpolation_cache]
-                end
-            end
-        end
+        # Temperature BCs are embedded in the implicit matrix system (see bcs/thermal_bc.jl)
+        return nothing, nothing
     elseif field_type == COMPOSITION
-        if hasfield(typeof(field), :boundary_condition_set)
-            return field.boundary_condition_set, field.boundary_interpolation_cache
-        else
-            # Use fallback cache system if available
-            if isdefined(@__MODULE__, :_composition_boundary_cache)
-                field_id = objectid(field)
-                if haskey(_composition_boundary_cache, field_id)
-                    data = _composition_boundary_cache[field_id]
-                    return data[:boundary_set], data[:interpolation_cache]
-                end
-            end
-        end
+        # Composition BCs are embedded in the implicit matrix system (see bcs/compositional_bc.jl)
+        return nothing, nothing
     elseif field_type == VELOCITY
-        return get_velocity_boundary_data(field)
+        # Velocity BCs are embedded in the implicit matrix system (see bcs/velocity_bc.jl)
+        return nothing, nothing
     elseif field_type == MAGNETIC
-        return get_magnetic_boundary_data(field)
+        # Magnetic BCs are embedded in the implicit matrix system (see bcs/magnetic_bc.jl)
+        return nothing, nothing
     end
     return nothing, nothing
 end
@@ -121,29 +97,11 @@ Get current time index from field using unified interface with fallback support.
 """
 function get_time_index(field, field_type::FieldType)
     if field_type == TEMPERATURE
-        if hasfield(typeof(field), :boundary_time_index)
-            return field.boundary_time_index[]
-        else
-            # Use fallback cache system if available
-            if isdefined(@__MODULE__, :_temperature_boundary_cache)
-                field_id = objectid(field)
-                if haskey(_temperature_boundary_cache, field_id)
-                    return _temperature_boundary_cache[field_id][:time_index]
-                end
-            end
-        end
+        # Temperature BCs are embedded in the implicit matrix system
+        return 1
     elseif field_type == COMPOSITION
-        if hasfield(typeof(field), :boundary_time_index)
-            return field.boundary_time_index[]
-        else
-            # Use fallback cache system if available
-            if isdefined(@__MODULE__, :_composition_boundary_cache)
-                field_id = objectid(field)
-                if haskey(_composition_boundary_cache, field_id)
-                    return _composition_boundary_cache[field_id][:time_index]
-                end
-            end
-        end
+        # Composition BCs are embedded in the implicit matrix system
+        return 1
     elseif field_type == VELOCITY
         if hasfield(typeof(field), :boundary_time_index)
             return field.boundary_time_index[]

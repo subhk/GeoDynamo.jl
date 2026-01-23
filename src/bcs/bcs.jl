@@ -179,11 +179,8 @@ include("netcdf_io.jl")        # NetCDF file I/O functionality
 include("interpolation.jl")    # Grid interpolation utilities
 include("programmatic.jl")     # Programmatic boundary generation
 
-# Field-specific boundary condition modules
-include("thermal.jl")          # Temperature boundary conditions
-include("composition.jl")      # Composition boundary conditions
-include("velocity.jl")         # Velocity boundary conditions
-include("magnetic.jl")         # Magnetic field boundary conditions
+# Temperature and composition BCs are now embedded in the implicit matrix
+# (see bcs/thermal_bc.jl and bcs/compositional_bc.jl, included by thermal.jl/compositional.jl)
 
 # Integration modules
 include("integration.jl")      # Integration with field structures
@@ -230,13 +227,17 @@ Unified interface to load boundary conditions for any field type.
 
 function load_boundary_conditions!(field, field_type::FieldType, boundary_specs::Dict)
     if field_type == TEMPERATURE
-        return load_temperature_boundary_conditions!(field, boundary_specs)
+        @warn "Temperature BCs are now embedded in the implicit matrix system (see bcs/thermal_bc.jl). File-based loading is not supported."
+        return field
     elseif field_type == COMPOSITION
-        return load_composition_boundary_conditions!(field, boundary_specs)
+        @warn "Composition BCs are now embedded in the implicit matrix system (see bcs/compositional_bc.jl). File-based loading is not supported."
+        return field
     elseif field_type == VELOCITY
-        return load_velocity_boundary_conditions!(field, boundary_specs)
+        @warn "Velocity BCs are now embedded in the implicit matrix system (see bcs/velocity_bc.jl). File-based loading is not supported."
+        return field
     elseif field_type == MAGNETIC
-        return load_magnetic_boundary_conditions!(field, boundary_specs)
+        @warn "Magnetic BCs are now embedded in the implicit matrix system (see bcs/magnetic_bc.jl). File-based loading is not supported."
+        return field
     else
         throw(ArgumentError("Unknown field type: $field_type"))
     end
@@ -249,13 +250,17 @@ Update time-dependent boundary conditions for any field type.
 """
 function update_time_dependent_boundaries!(field, field_type::FieldType, current_time::Float64)
     if field_type == TEMPERATURE
-        return update_time_dependent_temperature_boundaries!(field, current_time)
+        # Temperature BCs are embedded in the implicit matrix system (see bcs/thermal_bc.jl)
+        return field
     elseif field_type == COMPOSITION
-        return update_time_dependent_composition_boundaries!(field, current_time)
+        # Composition BCs are embedded in the implicit matrix system (see bcs/compositional_bc.jl)
+        return field
     elseif field_type == VELOCITY
-        return update_time_dependent_velocity_boundaries!(field, current_time)
+        # Velocity BCs are embedded in the implicit matrix system (see bcs/velocity_bc.jl)
+        return field
     elseif field_type == MAGNETIC
-        return update_time_dependent_magnetic_boundaries!(field, current_time)
+        # Magnetic BCs are embedded in the implicit matrix system (see bcs/magnetic_bc.jl)
+        return field
     else
         return field  # No updates for unknown field types
     end
@@ -268,13 +273,17 @@ Validate boundary condition files for any field type.
 """
 function validate_boundary_files(field_type::FieldType, boundary_specs::Dict, config)
     if field_type == TEMPERATURE
-        return validate_temperature_boundary_files(boundary_specs, config)
+        # Temperature BCs are embedded in the implicit matrix system (see bcs/thermal_bc.jl)
+        return true
     elseif field_type == COMPOSITION
-        return validate_composition_boundary_files(boundary_specs, config)
+        # Composition BCs are embedded in the implicit matrix system (see bcs/compositional_bc.jl)
+        return true
     elseif field_type == VELOCITY
-        return validate_velocity_boundary_files(boundary_specs, config)
+        # Velocity BCs are embedded in the implicit matrix system (see bcs/velocity_bc.jl)
+        return true
     elseif field_type == MAGNETIC
-        return validate_magnetic_boundary_files(boundary_specs, config)
+        # Magnetic BCs are embedded in the implicit matrix system (see bcs/magnetic_bc.jl)
+        return true
     else
         throw(ArgumentError("Unknown field type: $field_type"))
     end
@@ -287,13 +296,17 @@ Get current boundary values for any field type.
 """
 function get_current_boundaries(field, field_type::FieldType)
     if field_type == TEMPERATURE
-        return get_current_temperature_boundaries(field)
+        # Temperature BCs are embedded in the implicit matrix system (see bcs/thermal_bc.jl)
+        return Dict(:info => "Temperature BCs are embedded in implicit matrices")
     elseif field_type == COMPOSITION
-        return get_current_composition_boundaries(field)
+        # Composition BCs are embedded in the implicit matrix system (see bcs/compositional_bc.jl)
+        return Dict(:info => "Composition BCs are embedded in implicit matrices")
     elseif field_type == VELOCITY
-        return get_current_velocity_boundaries(field)
+        # Velocity BCs are embedded in the implicit matrix system (see bcs/velocity_bc.jl)
+        return Dict(:info => "Velocity BCs are embedded in implicit matrices")
     elseif field_type == MAGNETIC
-        return get_current_magnetic_boundaries(field)
+        # Magnetic BCs are embedded in the implicit matrix system (see bcs/magnetic_bc.jl)
+        return Dict(:info => "Magnetic BCs are embedded in implicit matrices")
     else
         return Dict(:error => "Unknown field type: $field_type")
     end
@@ -338,8 +351,8 @@ end
 export load_boundary_conditions!, update_time_dependent_boundaries!
 export validate_boundary_files, get_current_boundaries, print_boundary_summary
 
-# Re-export field-specific convenience functions from submodules
-export apply_temperature_boundaries!, apply_composition_boundaries!
+# Temperature and composition BCs are now embedded in the implicit matrix system.
+# See bcs/thermal_bc.jl and bcs/compositional_bc.jl (included by their respective field modules).
 
 # ================================================================================
 # Module-wide utilities

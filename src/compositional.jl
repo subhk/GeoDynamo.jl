@@ -232,71 +232,8 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     )
 end
 
-"""
-    enforce_composition_boundary_values!(field)
-
-Anchor spectral boundary modes to stored Dirichlet values when applicable.
-"""
-function enforce_composition_boundary_values!(𝔽::SHTnsCompositionField{T}) where T
-    spec_real = parent(𝔽.spectral.data_real)
-    spec_imag = parent(𝔽.spectral.data_imag)
-
-    lm_range = range_local(𝔽.config.pencils.spec, 1)
-    r_range  = range_local(𝔽.config.pencils.spec, 3)
-
-    has_inner = 1 in r_range && 𝔽.domain.r[1, 4] > 0
-    has_outer = 𝔽.domain.N in r_range
-
-    inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
-    outer_idx = has_outer ? (𝔽.domain.N - first(r_range) + 1) : 0
-
-    dirichlet = Int(bcs.DIRICHLET)
-
-    for lm_idx in lm_range
-        if lm_idx <= 𝔽.config.nlm
-            local_lm = lm_idx - first(lm_range) + 1
-
-            if has_inner && 1 <= inner_idx <= size(spec_real, 3) && 𝔽.bc_type_inner[lm_idx] == dirichlet
-                spec_real[local_lm, 1, inner_idx] = 𝔽.boundary_values[1, lm_idx]
-                spec_imag[local_lm, 1, inner_idx] = zero(T)
-            end
-
-            if has_outer && 1 <= outer_idx <= size(spec_real, 3) && 𝔽.bc_type_outer[lm_idx] == dirichlet
-                spec_real[local_lm, 1, outer_idx] = 𝔽.boundary_values[2, lm_idx]
-                spec_imag[local_lm, 1, outer_idx] = zero(T)
-            end
-        end
-    end
-
-    return field
-end
-
-"""
-    apply_composition_boundary_conditions!(field; time_index=nothing)
-
-Refresh composition boundary values from the bcs subsystem and
-enforce Dirichlet data in spectral space.
-"""
-function apply_composition_boundary_conditions!(𝔽::SHTnsCompositionField{T};
-                                                 time_index::Union{Nothing,Int}=nothing) where T
-    if 𝔽.boundary_condition_set === nothing
-        return field
-    end
-
-    if time_index === nothing
-        bcs.apply_composition_boundary_conditions!(field)
-    else
-        bcs.apply_composition_boundary_conditions!(field, time_index)
-    end
-
-    enforce_composition_boundary_values!(field)
-
-    if 𝔽.domain.r[1, 4] == 0.0
-        apply_ball_composition_regularity!(field)
-    end
-
-    return field
-end
+# Matrix-embedded composition BC functions (Fortran DD_2DCODE style)
+include("bcs/compositional_bc.jl")
 
 # ================================================================================
 # Main Nonlinear Computation
@@ -367,9 +304,6 @@ function compute_composition_nonlinear!(𝔽::SHTnsCompositionField{T},
     end
     𝔽.transform_time[] += MPI.Wtime() - t_transform
 
-    # Step 5: Apply boundary conditions in spectral space
-    apply_composition_boundary_conditions!(𝔽)
-    apply_composition_boundary_conditions_spectral!(𝔽, 𝒟ᵒᶜ)
 
     if ENABLE_TIMING[]
         𝔽.computation_time[] += MPI.Wtime() - t_start
@@ -383,78 +317,6 @@ zero_composition_work_arrays!(𝔽::SHTnsCompositionField{T}) where T = zero_sca
 # NOTE: Gradient computation functions moved to scalar_field_common.jl
 # NOTE: Batched transform operations moved to scalar_field_common.jl
 # ================================================================================
-
-# ================================================================================
-# Boundary conditions in spectral space
-# ================================================================================
-
-function apply_composition_boundary_conditions_spectral!(𝔽::SHTnsCompositionField{T}, 
-                                                         domain::RadialDomain) where T
-    # Apply boundary conditions in spectral space
-    
-    spec_real = parent(𝔽.spectral.data_real)
-    spec_imag = parent(𝔽.spectral.data_imag)
-    
-    lm_range = range_local(𝔽.config.pencils.spec, 1)
-    r_range  = range_local(𝔽.config.pencils.spec, 3)
-    
-    # Check which boundaries are local
-    has_inner = 1 in r_range
-    has_outer = domain.N in r_range
-    
-    if has_inner || has_outer
-        for (local_lm, lm_idx) in enumerate(lm_range)
-            bc_inner = 𝔽.bc_type_inner[lm_idx]
-            bc_outer = 𝔽.bc_type_outer[lm_idx]
-            
-            # Apply inner boundary condition (skip at r=0 for ball)
-            if has_inner && domain.r[1,4] > 0
-                r_local = 1
-                if bc_inner == Int(DIRICHLET)  # Fixed composition
-                    spec_real[local_lm, 1, r_local] = 𝔽.boundary_values[1, lm_idx]
-                    spec_imag[local_lm, 1, r_local] = 0.0  # Fixed values are real
-                elseif bc_inner == Int(NEUMANN)  # No-flux (zero gradient)
-                    # Defer to full no-flux enforcement after loop
-                end
-            end
-            
-            # Apply outer boundary condition
-            if has_outer
-                r_local = domain.N - first(r_range) + 1
-                if r_local <= size(spec_real, 3)
-                    if bc_outer == Int(DIRICHLET)  # Fixed composition
-                        spec_real[local_lm, 1, r_local] = 𝔽.boundary_values[2, lm_idx]
-                        spec_imag[local_lm, 1, r_local] = 0.0  # Fixed values are real
-                    elseif bc_outer == Int(NEUMANN)  # No-flux (zero gradient)
-                        # Defer to full no-flux enforcement after loop
-                    end
-                end
-            end
-        end
-    end
-    # Apply flux boundary conditions using the common scalar field implementation
-    if any(𝔽.bc_type_inner .== Int(NEUMANN)) || any(𝔽.bc_type_outer .== Int(NEUMANN))
-        # Use the robust tau method for flux boundary conditions
-        apply_scalar_flux_bc_spectral!(𝔽, domain; method=:tau)
-    end
-
-    if domain.r[1, 4] == 0.0
-        apply_ball_composition_regularity!(𝔽)
-    end
-end
-
-# ================================================================================
-# Flux Boundary Conditions - NOW USING scalar_field_common.jl
-# ================================================================================
-# The compositional field now uses the same robust boundary condition methods
-# as the thermal field (tau method, influence matrix, direct) via the common 
-# apply_scalar_flux_bc_spectral! function.
-#
-# This provides:
-# - Prescribed flux values (not just zero-flux) 
-# - Multiple robust enforcement methods (tau, influence matrix, direct)
-# - Consistent implementation across all scalar fields
-# - Superior numerical accuracy compared to the old matrix-based approach
 
 # ================================================================================
 # Validation and Testing

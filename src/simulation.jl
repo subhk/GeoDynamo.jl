@@ -163,12 +163,24 @@ function initialize_enhanced_simulation(::Type{T}=Float64;
     # Create implicit matrices for each equation (magnetic diffusion time scaling)
     # Velocity: E, Temperature: Pm/Pr, Magnetic: 1, Composition: Pm/Sc
     implicit_matrices = Dict{Symbol, SHTnsImplicitMatrices{T}}()
+    # Velocity uses separate toroidal/poloidal matrices with BCs embedded (Fortran approach)
+    implicit_matrices[:velocity_tor] = create_velocity_toroidal_matrices(shtns_config, 𝒟ᵒᶜ, d_E, d_timestep;
+                                                                          i_vel_bc=get_parameters().i_vel_bc)
+    implicit_matrices[:velocity_pol] = create_velocity_poloidal_matrices(shtns_config, 𝒟ᵒᶜ, d_E, d_timestep;
+                                                                          i_vel_bc=get_parameters().i_vel_bc)
+    # Keep generic velocity matrices for backward compatibility (used by RHS builder)
     implicit_matrices[:velocity] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_E, d_timestep)
+    # Magnetic uses separate toroidal/poloidal matrices with BCs embedded (Fortran approach)
+    implicit_matrices[:magnetic_tor] = create_magnetic_toroidal_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
+    implicit_matrices[:magnetic_pol] = create_magnetic_poloidal_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
+    # Keep generic magnetic matrices for backward compatibility (used by RHS builder)
     implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
-    implicit_matrices[:temperature] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Pr, d_timestep)
+    # Temperature uses matrix-embedded BCs (Fortran DD_2DCODE approach)
+    implicit_matrices[:temperature] = create_temperature_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Pr, d_timestep)
 
     if include_composition
-        implicit_matrices[:composition] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Sc, d_timestep)
+        # Composition uses matrix-embedded BCs (Fortran DD_2DCODE approach)
+        implicit_matrices[:composition] = create_composition_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Sc, d_timestep)
     end
 
     # Create a unified master parallelizer from the hybrid components
@@ -272,12 +284,22 @@ function initialize_simulation(::Type{T}=Float64;
     # Create implicit matrices for each equation (magnetic diffusion time scaling)
     # Velocity: E, Temperature: Pm/Pr, Magnetic: 1, Composition: Pm/Sc
     implicit_matrices = Dict{Symbol, SHTnsImplicitMatrices{T}}()
+    # Velocity uses separate toroidal/poloidal matrices with BCs embedded (Fortran approach)
+    implicit_matrices[:velocity_tor] = create_velocity_toroidal_matrices(shtns_config, 𝒟ᵒᶜ, d_E, d_timestep;
+                                                                          i_vel_bc=get_parameters().i_vel_bc)
+    implicit_matrices[:velocity_pol] = create_velocity_poloidal_matrices(shtns_config, 𝒟ᵒᶜ, d_E, d_timestep;
+                                                                          i_vel_bc=get_parameters().i_vel_bc)
     implicit_matrices[:velocity] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_E, d_timestep)
+    # Magnetic uses separate toroidal/poloidal matrices with BCs embedded (Fortran approach)
+    implicit_matrices[:magnetic_tor] = create_magnetic_toroidal_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
+    implicit_matrices[:magnetic_pol] = create_magnetic_poloidal_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
     implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
-    implicit_matrices[:temperature] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Pr, d_timestep)
+    # Temperature uses matrix-embedded BCs (Fortran DD_2DCODE approach)
+    implicit_matrices[:temperature] = create_temperature_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Pr, d_timestep)
 
     if include_composition
-        implicit_matrices[:composition] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Sc, d_timestep)
+        # Composition uses matrix-embedded BCs (Fortran DD_2DCODE approach)
+        implicit_matrices[:composition] = create_composition_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Sc, d_timestep)
     end
 
     return SimulationState{T}(
@@ -860,64 +882,61 @@ end
 function predictor_step!(state::SimulationState{T}) where T
     # Predictor step for all fields using SHTns matrices
     
-    # Velocity (toroidal component)
+    # Velocity (toroidal component) - BCs embedded in matrix (Fortran approach)
     rhs_tor = similar(state.velocity.𝒯)
     apply_explicit_operator!(rhs_tor, state.velocity.𝒯,
                              state.velocity.nlᵀ, state.𝒟ᵒᶜ,
                              d_Pm, state.timestep_state.dt;
                              nl_prev=state.velocity.prev_nlᵀ,
                              matrices=state.implicit_matrices[:velocity])
-    solve_implicit_step!(state.velocity.𝒯, rhs_tor, 
-                        state.implicit_matrices[:velocity])
-    
-    # Velocity (poloidal component)
+    solve_velocity_implicit_step!(state.velocity.𝒯, rhs_tor,
+                                  state.implicit_matrices[:velocity_tor], :toroidal;
+                                  i_vel_bc=get_parameters().i_vel_bc,
+                                  domain=state.𝒟ᵒᶜ)
+
+    # Velocity (poloidal component) - BCs embedded in matrix (Fortran approach)
     rhs_pol = similar(state.velocity.𝒫)
     apply_explicit_operator!(rhs_pol, state.velocity.𝒫,
                              state.velocity.nlᴾ, state.𝒟ᵒᶜ,
                              d_Pm, state.timestep_state.dt;
                              nl_prev=state.velocity.prev_nlᴾ,
                              matrices=state.implicit_matrices[:velocity])
-    solve_implicit_step!(state.velocity.𝒫, rhs_pol,
-                        state.implicit_matrices[:velocity])
+    solve_velocity_implicit_step!(state.velocity.𝒫, rhs_pol,
+                                  state.implicit_matrices[:velocity_pol], :poloidal;
+                                  i_vel_bc=get_parameters().i_vel_bc,
+                                  domain=state.𝒟ᵒᶜ)
 
-    # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
-    # Using :tau method for high-order accurate enforcement of ∂T/∂r = T/r
-    apply_velocity_flux_bc_spectral!(state.velocity, state.𝒟ᵒᶜ; method=:tau)
-
-    # Enforce Dirichlet boundary conditions for velocity
-    enforce_velocity_boundary_values!(state.velocity)
-
-    # Magnetic field (toroidal)
+    # Magnetic field (toroidal) - BCs embedded in matrix (Fortran approach)
     rhs_mag_tor = similar(state.magnetic.𝒯)
     apply_explicit_operator!(rhs_mag_tor, state.magnetic.𝒯,
                              state.magnetic.nlᵀ, state.𝒟ᵒᶜ,
                              1.0, state.timestep_state.dt;
                              nl_prev=state.magnetic.prev_nlᵀ,
                              matrices=state.implicit_matrices[:magnetic])
-    solve_implicit_step!(state.magnetic.𝒯, rhs_mag_tor, 
-                        state.implicit_matrices[:magnetic])
-    
-    # Magnetic field (poloidal)
+    solve_magnetic_implicit_step!(state.magnetic.𝒯, rhs_mag_tor,
+                                  state.implicit_matrices[:magnetic_tor], :toroidal)
+
+    # Magnetic field (poloidal) - BCs embedded in matrix (Fortran approach)
     rhs_mag_pol = similar(state.magnetic.𝒫)
     apply_explicit_operator!(rhs_mag_pol, state.magnetic.𝒫,
                              state.magnetic.nlᴾ, state.𝒟ᵒᶜ,
                              1.0, state.timestep_state.dt;
                              nl_prev=state.magnetic.prev_nlᴾ,
                              matrices=state.implicit_matrices[:magnetic])
-    solve_implicit_step!(state.magnetic.𝒫, rhs_mag_pol, 
-                        state.implicit_matrices[:magnetic])
+    solve_magnetic_implicit_step!(state.magnetic.𝒫, rhs_mag_pol,
+                                  state.implicit_matrices[:magnetic_pol], :poloidal)
     
-    # Temperature
+    # Temperature - BCs embedded in matrix (Fortran DD_2DCODE approach)
     rhs_temp = similar(state.temperature.spectral)
     apply_explicit_operator!(rhs_temp, state.temperature.spectral,
                              state.temperature.nonlinear, state.𝒟ᵒᶜ,
                              d_Pm/d_Pr, state.timestep_state.dt;
                              nl_prev=state.temperature.prev_nonlinear,
                              matrices=state.implicit_matrices[:temperature])
-    solve_implicit_step!(state.temperature.spectral, rhs_temp, 
-                        state.implicit_matrices[:temperature])
-    
-    # Composition (if present)
+    solve_temperature_implicit_step!(state.temperature.spectral, rhs_temp,
+                                      state.implicit_matrices[:temperature])
+
+    # Composition (if present) - BCs embedded in matrix (Fortran DD_2DCODE approach)
     if state.composition !== nothing
         rhs_comp = similar(state.composition.spectral)
         apply_explicit_operator!(rhs_comp, state.composition.spectral,
@@ -925,8 +944,8 @@ function predictor_step!(state::SimulationState{T}) where T
                                  d_Pm/d_Sc, state.timestep_state.dt;
                                  nl_prev=state.composition.prev_nonlinear,
                                  matrices=state.implicit_matrices[:composition])
-        solve_implicit_step!(state.composition.spectral, rhs_comp, 
-                            state.implicit_matrices[:composition])
+        solve_composition_implicit_step!(state.composition.spectral, rhs_comp,
+                                          state.implicit_matrices[:composition])
     end
 end
 
@@ -984,17 +1003,27 @@ function update_implicit_matrices!(state::SimulationState{T}) where T
     # Update implicit matrices with new timestep (magnetic diffusion time scaling)
     # Velocity: E, Temperature: Pm/Pr, Magnetic: 1, Composition: Pm/Sc
     dt = state.timestep_state.dt
+    vel_bc = get_parameters().i_vel_bc
 
+    # Velocity-specific matrices with BCs embedded (Fortran approach)
+    state.implicit_matrices[:velocity_tor] = create_velocity_toroidal_matrices(
+        state.shtns_config, state.𝒟ᵒᶜ, d_E, dt; i_vel_bc=vel_bc)
+    state.implicit_matrices[:velocity_pol] = create_velocity_poloidal_matrices(
+        state.shtns_config, state.𝒟ᵒᶜ, d_E, dt; i_vel_bc=vel_bc)
     state.implicit_matrices[:velocity] = create_shtns_timestepping_matrices(
         state.shtns_config, state.𝒟ᵒᶜ, d_E, dt)
+    state.implicit_matrices[:magnetic_tor] = create_magnetic_toroidal_matrices(
+        state.shtns_config, state.𝒟ᵒᶜ, 1.0, dt)
+    state.implicit_matrices[:magnetic_pol] = create_magnetic_poloidal_matrices(
+        state.shtns_config, state.𝒟ᵒᶜ, 1.0, dt)
     state.implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(
         state.shtns_config, state.𝒟ᵒᶜ, 1.0, dt)
-    state.implicit_matrices[:temperature] = create_shtns_timestepping_matrices(
+    state.implicit_matrices[:temperature] = create_temperature_matrices(
         state.shtns_config, state.𝒟ᵒᶜ, d_Pm/d_Pr, dt)
 
     # Update compositional matrix if composition is present
     if state.composition !== nothing
-        state.implicit_matrices[:composition] = create_shtns_timestepping_matrices(
+        state.implicit_matrices[:composition] = create_composition_matrices(
             state.shtns_config, state.𝒟ᵒᶜ, d_Pm/d_Sc, dt)
     end
 end
@@ -1012,35 +1041,32 @@ function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) w
     # Use enhanced sparse solvers with preconditioning
     # This would integrate with advanced linear algebra libraries
     
-    # Temperature
-    solve_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
-                        state.implicit_matrices[:temperature], dt)
+    # Temperature - BCs embedded in matrix (Fortran DD_2DCODE approach)
+    solve_temperature_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
+                                      state.implicit_matrices[:temperature])
     
-    # Velocity
-    solve_implicit_step!(state.velocity.𝒯, state.velocity.nlᵀ,
-                        state.implicit_matrices[:velocity], dt)
-    solve_implicit_step!(state.velocity.𝒫, state.velocity.nlᴾ,
-                        state.implicit_matrices[:velocity], dt)
+    # Velocity - BCs embedded in matrix (Fortran approach)
+    solve_velocity_implicit_step!(state.velocity.𝒯, state.velocity.nlᵀ,
+                                  state.implicit_matrices[:velocity_tor], :toroidal;
+                                  i_vel_bc=get_parameters().i_vel_bc,
+                                  domain=state.𝒟ᵒᶜ)
+    solve_velocity_implicit_step!(state.velocity.𝒫, state.velocity.nlᴾ,
+                                  state.implicit_matrices[:velocity_pol], :poloidal;
+                                  i_vel_bc=get_parameters().i_vel_bc,
+                                  domain=state.𝒟ᵒᶜ)
 
-    # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
-    # Using :tau method for high-order accurate enforcement of ∂T/∂r = T/r
-    apply_velocity_flux_bc_spectral!(state.velocity, state.𝒟ᵒᶜ; method=:tau)
-
-    # Enforce Dirichlet boundary conditions for velocity
-    enforce_velocity_boundary_values!(state.velocity)
-
-    # Magnetic (if enabled)
+    # Magnetic (if enabled) - BCs embedded in matrix (Fortran approach)
     if i_B == 1
-        solve_implicit_step!(state.magnetic.𝒯, state.magnetic.nlᵀ,
-                            state.implicit_matrices[:magnetic], dt)
-        solve_implicit_step!(state.magnetic.𝒫, state.magnetic.nlᴾ,
-                            state.implicit_matrices[:magnetic], dt)
+        solve_magnetic_implicit_step!(state.magnetic.𝒯, state.magnetic.nlᵀ,
+                                      state.implicit_matrices[:magnetic_tor], :toroidal)
+        solve_magnetic_implicit_step!(state.magnetic.𝒫, state.magnetic.nlᴾ,
+                                      state.implicit_matrices[:magnetic_pol], :poloidal)
     end
     
-    # Composition (if enabled)
+    # Composition (if enabled) - BCs embedded in matrix (Fortran DD_2DCODE approach)
     if state.composition !== nothing
-        solve_implicit_step!(state.composition.spectral, state.composition.nonlinear,
-                            state.implicit_matrices[:composition], dt)
+        solve_composition_implicit_step!(state.composition.spectral, state.composition.nonlinear,
+                                          state.implicit_matrices[:composition])
     end
 end
 
@@ -1495,16 +1521,9 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
     end
 
     # ========================================================================
-    # CRITICAL: Enforce boundary conditions after stage evaluation
-    # This ensures the stage solution satisfies BCs before nonlinear evaluation
-    # Recommendation from ERK2 stability analysis
-    # ========================================================================
-    apply_temperature_boundary_conditions!(state.temperature)
-    if state.composition !== nothing
-        apply_composition_boundary_conditions!(state.composition)
-    end
-    # Note: Velocity and magnetic BCs are enforced within their respective
-    # nonlinear term computations via boundary constraint enforcement
+    # Temperature, composition, velocity, and magnetic BCs are now all
+    # embedded in the implicit matrix solve (Fortran DD_2DCODE approach).
+    # No post-processing needed.
 
     # Evaluate nonlinear terms at the stage state for all coupled equations
     compute_all_nonlinear_terms!(state)
@@ -1605,9 +1624,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         end
     end
     
-    # Update time-dependent boundary conditions if enabled
-    update_time_dependent_temperature_boundaries!(state.temperature, state.timestep_state.time)
-    
+    # Note: Temperature and composition BCs are now embedded in the implicit matrix.
+    # Time-dependent BC updates would require matrix re-factorization if needed.
+
     if ts_scheme === :erk2
         erk2_integrate_full_step!(state, dt)
     else
@@ -1623,8 +1642,8 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             build_rhs_cnab2!(state.temperature.work_spectral, state.temperature.spectral,
                              state.temperature.nonlinear, state.temperature.prev_nonlinear,
                              dt, state.implicit_matrices[:temperature])
-            solve_implicit_step!(state.temperature.spectral, state.temperature.work_spectral,
-                                 state.implicit_matrices[:temperature])
+            solve_temperature_implicit_step!(state.temperature.spectral, state.temperature.work_spectral,
+                                              state.implicit_matrices[:temperature])
         elseif ts_scheme === :eab2
             etd = haskey(state.etd_caches, :temperature) ? state.etd_caches[:temperature] : nothing
             if etd === nothing || etd.dt != dt
@@ -1635,8 +1654,8 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             eab2_update!(state.temperature.spectral, state.temperature.nonlinear,
                          state.temperature.prev_nonlinear, etd, state.shtns_config, dt)
         else
-            solve_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
-                                 state.implicit_matrices[:temperature])
+            solve_temperature_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
+                                              state.implicit_matrices[:temperature])
         end
     end)
     
@@ -1649,8 +1668,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             build_rhs_cnab2!(state.velocity.work_tor, state.velocity.𝒯,
                              state.velocity.nlᵀ, state.velocity.prev_nlᵀ,
                              dt, state.implicit_matrices[:velocity])
-            solve_implicit_step!(state.velocity.𝒯, state.velocity.work_tor,
-                                 state.implicit_matrices[:velocity])
+            solve_velocity_implicit_step!(state.velocity.𝒯, state.velocity.work_tor,
+                                          state.implicit_matrices[:velocity_tor], :toroidal;
+                                          i_vel_bc=get_parameters().i_vel_bc,
+                                          domain=state.𝒟ᵒᶜ)
         elseif ts_scheme === :eab2
             # Velocity diffusivity = E (Ekman number)
             alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_toroidal, d_E, T, state.𝒟ᵒᶜ)
@@ -1658,8 +1679,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                        state.velocity.prev_nlᵀ, alu_map, state.𝒟ᵒᶜ, d_E,
                                        state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
         else
-            solve_implicit_step!(state.velocity.𝒯, state.velocity.nlᵀ,
-                                 state.implicit_matrices[:velocity])
+            solve_velocity_implicit_step!(state.velocity.𝒯, state.velocity.nlᵀ,
+                                          state.implicit_matrices[:velocity_tor], :toroidal;
+                                          i_vel_bc=get_parameters().i_vel_bc,
+                                          domain=state.𝒟ᵒᶜ)
         end
     end)
 
@@ -1668,8 +1691,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
             build_rhs_cnab2!(state.velocity.work_pol, state.velocity.𝒫,
                              state.velocity.nlᴾ, state.velocity.prev_nlᴾ,
                              dt, state.implicit_matrices[:velocity])
-            solve_implicit_step!(state.velocity.𝒫, state.velocity.work_pol,
-                                 state.implicit_matrices[:velocity])
+            solve_velocity_implicit_step!(state.velocity.𝒫, state.velocity.work_pol,
+                                          state.implicit_matrices[:velocity_pol], :poloidal;
+                                          i_vel_bc=get_parameters().i_vel_bc,
+                                          domain=state.𝒟ᵒᶜ)
         elseif ts_scheme === :eab2
             # Velocity diffusivity = E (Ekman number)
             alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_poloidal, d_E, T, state.𝒟ᵒᶜ)
@@ -1677,8 +1702,10 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                        state.velocity.prev_nlᴾ, alu_map, state.𝒟ᵒᶜ, d_E,
                                        state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
         else
-            solve_implicit_step!(state.velocity.𝒫, state.velocity.nlᴾ,
-                                 state.implicit_matrices[:velocity])
+            solve_velocity_implicit_step!(state.velocity.𝒫, state.velocity.nlᴾ,
+                                          state.implicit_matrices[:velocity_pol], :poloidal;
+                                          i_vel_bc=get_parameters().i_vel_bc,
+                                          domain=state.𝒟ᵒᶜ)
         end
     end)
     
@@ -1692,8 +1719,8 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 build_rhs_cnab2!(state.magnetic.work_tor, state.magnetic.𝒯,
                                  state.magnetic.nlᵀ, state.magnetic.prev_nlᵀ,
                                  dt, state.implicit_matrices[:magnetic])
-                solve_implicit_step!(state.magnetic.𝒯, state.magnetic.work_tor,
-                                     state.implicit_matrices[:magnetic])
+                solve_magnetic_implicit_step!(state.magnetic.𝒯, state.magnetic.work_tor,
+                                              state.implicit_matrices[:magnetic_tor], :toroidal)
             elseif ts_scheme === :eab2
                 # Magnetic diffusivity = 1 (magnetic diffusion time scaling)
                 alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_toroidal, 1.0, T, state.𝒟ᵒᶜ)
@@ -1701,8 +1728,8 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                            state.magnetic.prev_nlᵀ, alu_map, state.𝒟ᵒᶜ, 1.0,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
-                solve_implicit_step!(state.magnetic.𝒯, state.magnetic.nlᵀ,
-                                     state.implicit_matrices[:magnetic])
+                solve_magnetic_implicit_step!(state.magnetic.𝒯, state.magnetic.nlᵀ,
+                                              state.implicit_matrices[:magnetic_tor], :toroidal)
             end
         end)
         add_task!(task_graph, () -> begin
@@ -1710,8 +1737,8 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 build_rhs_cnab2!(state.magnetic.work_pol, state.magnetic.𝒫,
                                  state.magnetic.nlᴾ, state.magnetic.prev_nlᴾ,
                                  dt, state.implicit_matrices[:magnetic])
-                solve_implicit_step!(state.magnetic.𝒫, state.magnetic.work_pol,
-                                     state.implicit_matrices[:magnetic])
+                solve_magnetic_implicit_step!(state.magnetic.𝒫, state.magnetic.work_pol,
+                                              state.implicit_matrices[:magnetic_pol], :poloidal)
             elseif ts_scheme === :eab2
                 # Magnetic diffusivity = 1 (magnetic diffusion time scaling)
                 alu_map = get_eab2_alu_cache!(state.etd_caches, :magnetic_poloidal, 1.0, T, state.𝒟ᵒᶜ)
@@ -1719,8 +1746,8 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                            state.magnetic.prev_nlᴾ, alu_map, state.𝒟ᵒᶜ, 1.0,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
-                solve_implicit_step!(state.magnetic.𝒫, state.magnetic.nlᴾ,
-                                     state.implicit_matrices[:magnetic])
+                solve_magnetic_implicit_step!(state.magnetic.𝒫, state.magnetic.nlᴾ,
+                                              state.implicit_matrices[:magnetic_pol], :poloidal)
             end
         end)
     end
@@ -1735,8 +1762,8 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                 build_rhs_cnab2!(state.composition.work_spectral, state.composition.spectral,
                                  state.composition.nonlinear, state.composition.prev_nonlinear,
                                  dt, state.implicit_matrices[:composition])
-                solve_implicit_step!(state.composition.spectral, state.composition.work_spectral,
-                                     state.implicit_matrices[:composition])
+                solve_composition_implicit_step!(state.composition.spectral, state.composition.work_spectral,
+                                                  state.implicit_matrices[:composition])
             elseif ts_scheme === :eab2
                 # Composition diffusivity = Pm/Sc (magnetic diffusion time scaling)
                 alu_map = get_eab2_alu_cache!(state.etd_caches, :composition, d_Pm/d_Sc, T, state.𝒟ᵒᶜ)
@@ -1744,8 +1771,8 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
                                            state.composition.prev_nonlinear, alu_map, state.𝒟ᵒᶜ, d_Pm/d_Sc,
                                            state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
             else
-                solve_implicit_step!(state.composition.spectral, state.composition.nonlinear,
-                                     state.implicit_matrices[:composition])
+                solve_composition_implicit_step!(state.composition.spectral, state.composition.nonlinear,
+                                                  state.implicit_matrices[:composition])
             end
         end)
     end
@@ -1754,18 +1781,9 @@ function apply_master_implicit_step!(state::SimulationState{T}, dt::Float64) whe
         execute_task_graph!(task_graph, state.master_parallelizer.cpu_parallelizer.thread_manager)
     end
 
-    # Apply flux boundary conditions for velocity (stress-free or other Neumann BCs)
-    # Using :tau method for high-order accurate enforcement of ∂T/∂r = T/r
-    apply_velocity_flux_bc_spectral!(state.velocity, state.𝒟ᵒᶜ; method=:tau)
-
-    # Apply Dirichlet boundary conditions for velocity
-    apply_velocity_boundary_conditions!(state.velocity)
-    if i_B == 1 && state.magnetic !== nothing
-        apply_magnetic_boundary_conditions!(state.magnetic)
-    end
-    if state.composition !== nothing
-        apply_composition_boundary_conditions!(state.composition)
-    end
+    # All BCs (velocity, magnetic, temperature, composition) are now embedded
+    # in the implicit matrix solve (Fortran DD_2DCODE approach).
+    # No post-processing needed.
 
     # Roll nonlinear histories for CNAB2, EAB2, and ERK2
     if ts_scheme === :cnab2 || ts_scheme === :eab2 || ts_scheme === :erk2

@@ -192,70 +192,8 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     )
 end
 
-"""
-    enforce_temperature_boundary_values!(field)
-
-Anchor spectral boundary coefficients to stored Dirichlet values when needed.
-"""
-function enforce_temperature_boundary_values!(𝔽::SHTnsTemperatureField{T}) where T
-    spec_real = parent(𝔽.spectral.data_real)
-    spec_imag = parent(𝔽.spectral.data_imag)
-
-    lm_range = range_local(𝔽.config.pencils.spec, 1)
-    r_range  = range_local(𝔽.config.pencils.spec, 3)
-
-    has_inner = 1 in r_range && 𝔽.domain.r[1, 4] > 0
-    has_outer = 𝔽.domain.N in r_range
-
-    inner_idx = has_inner ? (1 - first(r_range) + 1) : 0
-    outer_idx = has_outer ? (𝔽.domain.N - first(r_range) + 1) : 0
-
-    dirichlet = Int(DIRICHLET)
-
-    for lm_idx in lm_range
-        if lm_idx <= 𝔽.config.nlm
-            local_lm = lm_idx - first(lm_range) + 1
-
-            if has_inner && 1 <= inner_idx <= size(spec_real, 3) && 𝔽.bc_type_inner[lm_idx] == dirichlet
-                spec_real[local_lm, 1, inner_idx] = 𝔽.boundary_values[1, lm_idx]
-                spec_imag[local_lm, 1, inner_idx] = zero(T)
-            end
-
-            if has_outer && 1 <= outer_idx <= size(spec_real, 3) && 𝔽.bc_type_outer[lm_idx] == dirichlet
-                spec_real[local_lm, 1, outer_idx] = 𝔽.boundary_values[2, lm_idx]
-                spec_imag[local_lm, 1, outer_idx] = zero(T)
-            end
-        end
-    end
-
-    return field
-end
-
-"""
-    apply_temperature_boundary_conditions!(field; time_index=nothing)
-
-Refresh cached boundary values through the bcs subsystem and
-enforce Dirichlet data directly in spectral space when appropriate.
-"""
-function apply_temperature_boundary_conditions!(𝔽::SHTnsTemperatureField{T};
-                                                 time_index::Union{Nothing,Int}=nothing) where T
-    boundary_set, _ = bcs.get_temperature_boundary_data(field)
-    boundary_set === nothing && return field
-
-    if time_index === nothing
-        bcs.apply_temperature_boundary_conditions!(field)
-    else
-        bcs.apply_temperature_boundary_conditions!(field, time_index)
-    end
-
-    enforce_temperature_boundary_values!(field)
-
-    if 𝔽.domain.r[1, 4] == 0.0
-        apply_ball_temperature_regularity!(field)
-    end
-
-    return field
-end
+# Matrix-embedded temperature BC functions (Fortran DD_2DCODE style)
+include("bcs/thermal_bc.jl")
 
 # ================================================================================
 # Main nonlinear computation with full spectral optimization
@@ -294,10 +232,6 @@ function compute_temperature_nonlinear!(temp_𝔽::SHTnsTemperatureField{T},
         shtnskit_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
     end
     temp_field.transform_time[] += MPI.Wtime() - t_transform
-    
-    # Step 6: Apply boundary conditions in spectral space
-    apply_temperature_boundary_conditions!(temp_field)
-    apply_temperature_boundary_conditions_spectral!(temp_field, 𝒟ᵒᶜ)
     
     if ENABLE_TIMING[]
         temp_field.computation_time[] += MPI.Wtime() - t_start
@@ -389,78 +323,7 @@ function add_internal_sources_local!(temp_𝔽::SHTnsTemperatureField{T},
     end
 end
 
-# ================================================================================
-# Boundary conditions in spectral space
-# ================================================================================
-function apply_temperature_boundary_conditions_spectral!(temp_𝔽::SHTnsTemperatureField{T}, 
-                                                        domain::RadialDomain) where T
-    """
-    Apply boundary conditions in spectral space
-    """
-    spec_real = parent(temp_field.spectral.data_real)
-    spec_imag = parent(temp_field.spectral.data_imag)
-    
-    lm_range = range_local(temp_field.config.pencils.spec, 1)
-    r_range  = range_local(temp_field.config.pencils.spec, 3)
-    
-    # Check which boundaries are local
-    has_inner = 1 in r_range
-    has_outer = domain.N in r_range
-    
-    @inbounds for lm_idx in lm_range
-        if lm_idx <= temp_𝔽.config.nlm
-            local_lm = lm_idx - first(lm_range) + 1
-            
-            # Inner boundary (skip at r=0 for ball geometry)
-            if has_inner && domain.r[1, 4] > 0
-                if temp_𝔽.bc_type_inner[lm_idx] == Int(DIRICHLET)
-                    local_r = 1 - first(r_range) + 1
-                    spec_real[local_lm, 1, local_r] = temp_𝔽.boundary_values[1, lm_idx]
-                    spec_imag[local_lm, 1, local_r] = 0.0
-                elseif temp_𝔽.bc_type_inner[lm_idx] == Int(NEUMANN)
-                    # Defer to full flux BC application after loop
-                    # (handled by apply_flux_bc_spectral!(temp_field, domain))
-                end
-            end
 
-            # Outer boundary
-            if has_outer
-                if temp_𝔽.bc_type_outer[lm_idx] == Int(DIRICHLET)
-                    local_r = domain.N - first(r_range) + 1
-                    spec_real[local_lm, 1, local_r] = temp_𝔽.boundary_values[2, lm_idx]
-                    spec_imag[local_lm, 1, local_r] = 0.0
-                elseif temp_𝔽.bc_type_outer[lm_idx] == Int(NEUMANN)
-                    # Defer to full flux BC application after loop
-                end
-            end
-        end
-    end
-    # If any Neumann BCs present, apply the complete spectral flux BC correction
-    if any(temp_𝔽.bc_type_inner .== Int(NEUMANN)) || any(temp_𝔽.bc_type_outer .== Int(NEUMANN))
-        apply_flux_bc_spectral!(temp_field, domain)
-    end
-
-    if domain.r[1, 4] == 0.0
-        apply_ball_temperature_regularity!(temp_field)
-    end
-end
-
-
-# ================================================================================
-# Complete Flux Boundary Condition Implementation for Spectral Methods
-# ================================================================================
-
-"""
-    apply_flux_bc_spectral_complete!(temp_field, domain)
-
-Complete implementation of flux boundary conditions in spectral space.
-This modifies the spectral coefficients to satisfy ∂T/∂r = prescribed_flux.
-"""
-function apply_flux_bc_spectral!(temp_𝔽::SHTnsTemperatureField{T}, 
-                                         domain::RadialDomain) where T
-    # Use the common flux BC implementation with tau method (most robust)
-    apply_scalar_flux_bc_spectral!(temp_field, domain; method=:tau)
-end
 
 # ================================================================================
 # Boundary Condition Implementation - MOVED TO scalar_field_common.jl

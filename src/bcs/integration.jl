@@ -116,13 +116,17 @@ function apply_boundary_conditions!(𝔽, field_type::FieldType, solver_state)
 
     # Apply boundary conditions based on field type
     if field_type == TEMPERATURE
-        apply_temperature_boundary_conditions!(𝔽)
+        # Temperature BCs are embedded in the implicit matrix system (see bcs/thermal_bc.jl)
+        # No post-processing needed here
     elseif field_type == COMPOSITION
-        apply_composition_boundary_conditions!(𝔽)
+        # Composition BCs are embedded in the implicit matrix system (see bcs/compositional_bc.jl)
+        # No post-processing needed here
     elseif field_type == VELOCITY
-        apply_velocity_boundary_conditions!(𝔽)
+        # Velocity BCs are embedded in the implicit matrix system (see bcs/velocity_bc.jl)
+        # No post-processing needed here
     elseif field_type == MAGNETIC
-        apply_magnetic_boundary_conditions!(𝔽)
+        # Magnetic BCs are embedded in the implicit matrix system (see bcs/magnetic_bc.jl)
+        # No post-processing needed here
     end
 
     return 𝔽

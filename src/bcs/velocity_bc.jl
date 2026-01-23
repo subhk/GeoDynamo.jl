@@ -1,455 +1,462 @@
 # ================================================================================
-# Velocity Boundary Conditions (Workspace-based, zero-allocation)
+# Velocity Boundary Conditions - Matrix-Embedded Approach (Fortran DD_2DCODE style)
 # ================================================================================
 #
-# This file contains workspace-based versions of velocity BC functions that
-# avoid allocating temporary arrays for each mode.
+# This file implements velocity boundary conditions by embedding them directly
+# in the LHS implicit system matrix, matching the Fortran DD_2DCODE approach.
+# This ensures the implicit solver satisfies BCs exactly, rather than applying
+# them as post-processing.
 #
-# Performance improvement: ~10-100x faster for BC application depending on nlm
+# Boundary condition types (i_vel_bc):
+#   1 = No-slip at both boundaries
+#   2 = No-slip at inner, stress-free at outer
+#   3 = Stress-free at inner, no-slip at outer
+#   4 = Stress-free at both boundaries
 #
-# Usage: Create and register workspace before time loop:
-#   ws = create_velocity_workspace(Float64, nr)
-#   set_velocity_workspace!(ws)
+# Toroidal BCs:
+#   No-slip:     T = 0              (identity row in matrix)
+#   Stress-free: ∂T/∂r - T/r = 0   (derivative row minus 1/r)
 #
-# The BC functions will automatically use the workspace if available.
+# Poloidal BCs:
+#   No-slip:     ∂P/∂r = 0          (first derivative row)
+#   Stress-free: ∂²P/∂r² = 0        (second derivative row)
 #
-# Included by: src/velocity.jl
-#
-# ================================================================================
-# ALGORITHM OVERVIEW
-# ================================================================================
-#
-# Three methods are provided for applying stress-free boundary conditions:
-#
-# 1. DIRECT METHOD (apply_velocity_flux_bc_direct_ws!)
-#    - Simple first-order finite difference
-#    - Fast but less accurate
-#    - Good for initial testing
-#
-# 2. PHYSICAL STRESS METHOD (apply_velocity_flux_bc_physical_stress_ws!)
-#    - Same as direct but with clearer physics naming
-#    - Implements ∂T/∂r = T/r exactly at boundary points
-#
-# 3. TAU METHOD (apply_velocity_flux_bc_tau_ws!)
-#    - Higher-order accurate using Chebyshev tau correction
-#    - Adds polynomial correction to enforce BC exactly
-#    - Recommended for production simulations
+# Included by: src/velocity.jl (after VelocityWorkspace is defined)
 #
 # ================================================================================
-# DATA FLOW (for each l,m mode)
+# ALGORITHM (matching Fortran vel_matrices / vel_bc_Tor / vel_bc_Pol)
 # ================================================================================
 #
-#   1. GATHER: Extract radial profile from distributed spectral data
-#      - Only owning process fills the profile array
-#      - Other processes have zeros
+#   1. Construct LHS matrix: X = (1/dt)I - θ·L  for each harmonic degree l
+#      where L = diffusivity * (∂²/∂r² + 2/r ∂/∂r - l(l+1)/r²)
 #
-#   2. ALLREDUCE: Combine profiles across all processes
-#      - MPI.Allreduce!(profile, MPI.SUM, comm)
-#      - After this, ALL processes have the complete profile
+#   2. Zero boundary rows of X (first and last rows of banded matrix)
 #
-#   3. APPLY BC: Modify boundary values
-#      - All processes compute the same BC modification
-#      - This ensures consistency across processes
+#   3. Fill boundary rows with BC equations:
+#      - Toroidal no-slip:     identity row → T[boundary] = rhs
+#      - Toroidal stress-free: ∂/∂r - 1/r row → (∂T/∂r - T/r)[boundary] = rhs
+#      - Poloidal no-slip:     ∂/∂r row → (∂P/∂r)[boundary] = rhs
+#      - Poloidal stress-free: ∂²/∂r² row → (∂²P/∂r²)[boundary] = rhs
 #
-#   4. SCATTER: Store modified profile back to distributed data
-#      - Only owning process stores the result
-#      - Other processes discard (their copy was just for computation)
+#   4. LU factorize the modified matrix
 #
-# ================================================================================
-# DEBUGGING TIPS
-# ================================================================================
+#   5. Before solving, set RHS boundary values:
+#      - Typically 0 (homogeneous BCs)
+#      - For rotating inner core: T(l=1,m=0) = rot_omega * r[1]
 #
-# 1. MPI Deadlock: If simulation hangs, check that all processes call these
-#    functions the same number of times. Use global loop bounds in caller.
-#
-# 2. Wrong BC values: Check that owns_mode is correctly computed as
-#    `owns_mode = lm_idx in lm_range` where lm_range is the local range.
-#
-# 3. NaN at boundaries: Check for division by zero when r[1] ≈ 0 (ball geometry).
-#    The code handles this but may need adjustment for extreme grids.
-#
-# 4. Performance issues: Ensure workspace is registered before time loop.
-#    Check with: `@time apply_velocity_flux_bc_spectral!(...)` in single-process.
+#   6. Solve: X * solution = RHS
+#      The solution automatically satisfies BCs.
 #
 # ================================================================================
 
 """
-    apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                      apply_inner, apply_outer, boundary_values,
-                                      domain, r_range, ws, tid, owns_mode)
+    create_velocity_toroidal_matrices(config, domain, diffusivity, dt;
+                                      theta, i_vel_bc, T)
 
-Workspace-based version of direct stress-free BC (zero allocation).
-Uses pre-allocated buffers from workspace `ws` for thread `tid`.
+Create implicit time-stepping matrices for the toroidal velocity component with
+boundary conditions embedded in the matrix rows (matching Fortran DD_2DCODE approach).
 
-# Stress-Free Boundary Condition Physics
-For the toroidal velocity potential T in spherical coordinates, the stress-free
-(free-slip) boundary condition requires zero tangential stress at the boundary.
+The boundary rows of the system matrix are replaced with the BC equations:
+- No-slip: identity row (T = value)
+- Stress-free: ∂T/∂r - T/r = 0
 
-The tangential stress tensor component is:
-    σ_rθ ∝ r ∂/∂r(v_θ/r) + (1/r)∂v_r/∂θ
-
-For toroidal flow (v_r = 0), this reduces to:
-    σ_rθ ∝ r ∂/∂r(v_θ/r) = ∂v_θ/∂r - v_θ/r
-
-Setting σ_rθ = 0 gives: ∂v_θ/∂r = v_θ/r
-
-Since v_θ ∝ T for toroidal flow, this becomes:
-    ∂T/∂r = T/r
-
-This is NOT the same as simple Neumann (∂T/∂r = 0)!
-
-# Implementation
-Using first-order finite difference at boundary:
-    (T[2] - T[1])/Δr = T[1]/r[1]
-
-Solving for T[1]:
-    T[1] = T[2] / (1 + Δr/r[1])
-
-Similarly for outer boundary:
-    (T[nr] - T[nr-1])/Δr = T[nr]/r[nr]
-    T[nr] = T[nr-1] / (1 - Δr/r[nr])
-
-# MPI Safety
-The `owns_mode` parameter indicates whether this process owns the lm mode.
-All processes must call this function for each mode to ensure Allreduce is called
-the same number of times by all processes (prevents deadlock).
+This ensures the implicit solve enforces BCs exactly rather than applying them
+as post-processing.
 """
-function apply_velocity_flux_bc_direct_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                          apply_inner, apply_outer,
-                                          boundary_values::AbstractMatrix,
-                                          domain, r_range, ws::VelocityWorkspace{T}, tid::Int, owns_mode::Bool) where T
-    nr = domain.N
-    r = domain.r[:, 4]  # Radial coordinates
+function create_velocity_toroidal_matrices(config::SHTnsKitConfig,
+                                            domain::RadialDomain,
+                                            diffusivity::Float64,
+                                            dt::Float64;
+                                            theta::Float64=d_implicit,
+                                            i_vel_bc::Int=get_parameters().i_vel_bc,
+                                            T::Type{<:Number}=Float64)
+    unique_l = unique(config.l_values)
+    laplacian = create_radial_laplacian(domain)
+    r_inv_sq = @views domain.r[1:domain.N, 2]
 
-    # Use pre-allocated buffers from workspace (no allocation!)
-    profile_real = ws.bc_profile_real[tid]
-    profile_imag = ws.bc_profile_imag[tid]
+    base_data = T.(diffusivity .* laplacian.data)
+    system_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
+    linear_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
+    factorizations = Vector{BandedLU{T}}(undef, length(unique_l))
+    l_values = Vector{Int}(undef, length(unique_l))
+    lookup = Dict{Int,Int}()
 
-    # Clear buffers
-    fill!(profile_real, zero(T))
-    fill!(profile_imag, zero(T))
+    # Create first derivative matrix for stress-free BC
+    d1_matrix = create_derivative_matrix(T, 1, domain)
+    bw = i_KL
+    N = domain.N
 
-    # Extract radial profile (only if this process owns the mode)
-    if owns_mode
-        @inbounds for r_idx in r_range
-            local_r = r_idx - first(r_range) + 1
-            if local_r <= size(spec_real, 3)
-                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
-                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
-            end
+    inv_dt = T(1 / dt)
+    θ_T = T(theta)
+    minus_θ = -θ_T
+
+    for (idx, l) in enumerate(unique_l)
+        l_values[idx] = l
+        lookup[l] = idx
+
+        # Build linear operator: L = diffusivity * (d²/dr² + 2/r d/dr - l(l+1)/r²)
+        linear_data = copy(base_data)
+        l_factor = Float64(l * (l + 1))
+        @inbounds for n in 1:N
+            linear_data[bw + 1, n] -= T(diffusivity * l_factor * r_inv_sq[n])
         end
-    end
 
-    # MPI gather (ALL processes call this for synchronization)
-    comm = bcs.get_comm()
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        Allreduce!(profile_real, MPI.SUM, comm)
-        Allreduce!(profile_imag, MPI.SUM, comm)
-    end
+        linear_matrix = BandedMatrix{T}(copy(linear_data), bw, N)
 
-    # Apply BC: ∂T/∂r = T/r (physically correct stress-free condition)
-    # This ensures zero tangential stress at boundaries
-    if apply_inner
-        Δr = r[2] - r[1]
-        rhs_inner = boundary_values[1, lm_idx]
-        # Handle r[1] = 0 case (ball geometry) - use L'Hôpital's rule limit
-        if r[1] < 1e-14
-            # At r=0, regularity requires T → 0 for smooth fields
-            # This is handled by ball regularity enforcement elsewhere
-            @inbounds profile_real[1] = profile_real[2]
-            if any(x -> abs(x) > 1e-12, profile_imag)
-                @inbounds profile_imag[1] = profile_imag[2]
-            end
+        # Build system matrix: X = (1/dt)I - θ*L
+        system_data = copy(linear_data)
+        system_data .*= minus_θ
+        system_data[bw + 1, :] .+= inv_dt
+
+        # Zero boundary rows (matching Fortran tim_lumesh_X)
+        # Inner boundary (row 1): zero columns 1 to 1+bw
+        @inbounds for j in 1:(1 + bw)
+            system_data[bw + 1 + 1 - j, j] = zero(T)
+        end
+        # Outer boundary (row N): zero columns N-bw to N
+        @inbounds for j in (N - bw):N
+            system_data[bw + 1 + N - j, j] = zero(T)
+        end
+
+        # Apply toroidal BC at inner boundary
+        # i_vel_bc == 1 or 2: no-slip at inner (identity row)
+        if i_vel_bc == 1 || i_vel_bc == 2
+            system_data[bw + 1, 1] = one(T)  # T[1] = rhs
         else
-            scaling_factor = 1.0 / (1.0 + Δr / r[1])
-            @inbounds profile_real[1] = (profile_real[2] - rhs_inner * Δr) * scaling_factor
-            if any(x -> abs(x) > 1e-12, profile_imag)
-                @inbounds profile_imag[1] = profile_imag[2] * scaling_factor
+            # Stress-free at inner: ∂T/∂r - T/r = 0
+            # Copy first derivative row and subtract 1/r[1] on diagonal
+            @inbounds for j in 1:(1 + bw)
+                system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
             end
+            system_data[bw + 1, 1] -= T(domain.r[1, 3])  # subtract 1/r[1]
         end
+
+        # Apply toroidal BC at outer boundary
+        # i_vel_bc == 1 or 3: no-slip at outer (identity row)
+        if i_vel_bc == 1 || i_vel_bc == 3
+            system_data[bw + 1, N] = one(T)  # T[N] = rhs
+        else
+            # Stress-free at outer: ∂T/∂r - T/r = 0
+            # Copy first derivative row and subtract 1/r[N] on diagonal
+            @inbounds for j in (N - bw):N
+                system_data[bw + 1 + N - j, j] = d1_matrix.data[bw + 1 + N - j, j]
+            end
+            system_data[bw + 1, N] -= T(domain.r[N, 3])  # subtract 1/r[N]
+        end
+
+        system_matrix = BandedMatrix{T}(system_data, bw, N)
+        system_matrices[idx] = system_matrix
+        linear_matrices[idx] = linear_matrix
+        factorizations[idx] = factorize_banded(system_matrix)
     end
 
-    if apply_outer
-        Δr = r[nr] - r[nr-1]
-        scaling_factor = 1.0 / (1.0 - Δr / r[nr])
-        rhs_outer = boundary_values[2, lm_idx]
-        @inbounds profile_real[nr] = (profile_real[nr-1] + rhs_outer * Δr) * scaling_factor
-        if any(x -> abs(x) > 1e-12, profile_imag)
-            @inbounds profile_imag[nr] = profile_imag[nr-1] * scaling_factor
-        end
-    end
-
-    # Store back (only if this process owns the mode)
-    if owns_mode
-        @inbounds for r_idx in r_range
-            local_r = r_idx - first(r_range) + 1
-            if local_r <= size(spec_real, 3)
-                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
-                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
-            end
-        end
-    end
+    return SHTnsImplicitMatrices{T}(system_matrices, factorizations,
+                                    linear_matrices, l_values, lookup, theta)
 end
 
 """
-    apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                               apply_inner, apply_outer, boundary_values,
-                                               domain, r_range, ws, tid, owns_mode)
+    create_velocity_poloidal_matrices(config, domain, diffusivity, dt;
+                                      theta, i_vel_bc, T)
 
-Workspace-based version of physical stress BC (zero allocation).
-Enforces ∂T/∂r = T/r for proper stress-free boundaries.
+Create implicit time-stepping matrices for the poloidal velocity component with
+boundary conditions embedded in the matrix rows (matching Fortran DD_2DCODE approach).
 
-# MPI Safety
-The `owns_mode` parameter indicates whether this process owns the lm mode.
-All processes must call this function for each mode to ensure Allreduce is called
-the same number of times by all processes (prevents deadlock).
+The boundary rows of the system matrix are replaced with the BC equations:
+- No-slip: first derivative row (∂P/∂r = value)
+- Stress-free: second derivative row (∂²P/∂r² = value)
 """
-function apply_velocity_flux_bc_physical_stress_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                                    apply_inner, apply_outer,
-                                                    boundary_values::AbstractMatrix,
-                                                    domain, r_range, ws::VelocityWorkspace{T}, tid::Int, owns_mode::Bool) where T
-    nr = domain.N
-    r = domain.r[:, 4]
+function create_velocity_poloidal_matrices(config::SHTnsKitConfig,
+                                            domain::RadialDomain,
+                                            diffusivity::Float64,
+                                            dt::Float64;
+                                            theta::Float64=d_implicit,
+                                            i_vel_bc::Int=get_parameters().i_vel_bc,
+                                            T::Type{<:Number}=Float64)
+    unique_l = unique(config.l_values)
+    laplacian = create_radial_laplacian(domain)
+    r_inv_sq = @views domain.r[1:domain.N, 2]
 
-    # Use pre-allocated buffers (no allocation!)
-    profile_real = ws.bc_profile_real[tid]
-    profile_imag = ws.bc_profile_imag[tid]
+    base_data = T.(diffusivity .* laplacian.data)
+    system_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
+    linear_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
+    factorizations = Vector{BandedLU{T}}(undef, length(unique_l))
+    l_values = Vector{Int}(undef, length(unique_l))
+    lookup = Dict{Int,Int}()
 
-    # Clear buffers
-    fill!(profile_real, zero(T))
-    fill!(profile_imag, zero(T))
+    # Create derivative matrices for BCs
+    d1_matrix = create_derivative_matrix(T, 1, domain)
+    d2_matrix = create_derivative_matrix(T, 2, domain)
+    bw = i_KL
+    N = domain.N
 
-    # Extract radial profile (only if this process owns the mode)
-    if owns_mode
-        @inbounds for r_idx in r_range
-            local_r = r_idx - first(r_range) + 1
-            if local_r <= size(spec_real, 3)
-                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
-                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
-            end
+    inv_dt = T(1 / dt)
+    θ_T = T(theta)
+    minus_θ = -θ_T
+
+    for (idx, l) in enumerate(unique_l)
+        l_values[idx] = l
+        lookup[l] = idx
+
+        # Build linear operator: L = diffusivity * (d²/dr² + 2/r d/dr - l(l+1)/r²)
+        linear_data = copy(base_data)
+        l_factor = Float64(l * (l + 1))
+        @inbounds for n in 1:N
+            linear_data[bw + 1, n] -= T(diffusivity * l_factor * r_inv_sq[n])
         end
-    end
 
-    # MPI gather (ALL processes call this for synchronization)
-    comm = bcs.get_comm()
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        Allreduce!(profile_real, MPI.SUM, comm)
-        Allreduce!(profile_imag, MPI.SUM, comm)
-    end
+        linear_matrix = BandedMatrix{T}(copy(linear_data), bw, N)
 
-    # Apply BC: ∂T/∂r = T/r (physically correct for stress-free)
-    if apply_inner
-        Δr = r[2] - r[1]
-        rhs_inner = boundary_values[1, lm_idx]
-        # Handle r[1] = 0 case (ball geometry) - use L'Hôpital's rule limit
-        if r[1] < 1e-14
-            # At r=0, regularity requires T → 0 for smooth fields
-            # This is handled by ball regularity enforcement elsewhere
-            @inbounds profile_real[1] = profile_real[2]
-            if any(x -> abs(x) > 1e-12, profile_imag)
-                @inbounds profile_imag[1] = profile_imag[2]
+        # Build system matrix: X = (1/dt)I - θ*L
+        system_data = copy(linear_data)
+        system_data .*= minus_θ
+        system_data[bw + 1, :] .+= inv_dt
+
+        # Zero boundary rows (matching Fortran tim_lumesh_X)
+        # Inner boundary (row 1): zero columns 1 to 1+bw
+        @inbounds for j in 1:(1 + bw)
+            system_data[bw + 1 + 1 - j, j] = zero(T)
+        end
+        # Outer boundary (row N): zero columns N-bw to N
+        @inbounds for j in (N - bw):N
+            system_data[bw + 1 + N - j, j] = zero(T)
+        end
+
+        # Apply poloidal BC at inner boundary
+        # i_vel_bc == 1 or 2: no-slip at inner (first derivative row: ∂P/∂r = value)
+        if i_vel_bc == 1 || i_vel_bc == 2
+            @inbounds for j in 1:(1 + bw)
+                system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
             end
         else
-            scaling_factor = 1.0 / (1.0 + Δr / r[1])
-            @inbounds profile_real[1] = (profile_real[2] - rhs_inner * Δr) * scaling_factor
-            if any(x -> abs(x) > 1e-12, profile_imag)
-                @inbounds profile_imag[1] = profile_imag[2] * scaling_factor
+            # Stress-free at inner: second derivative row (∂²P/∂r² = value)
+            @inbounds for j in 1:(1 + bw)
+                system_data[bw + 1 + 1 - j, j] = d2_matrix.data[bw + 1 + 1 - j, j]
             end
         end
-    end
 
-    if apply_outer
-        Δr = r[nr] - r[nr-1]
-        rhs_outer = boundary_values[2, lm_idx]
-        scaling_factor = 1.0 / (1.0 - Δr / r[nr])
-        @inbounds profile_real[nr] = (profile_real[nr-1] + rhs_outer * Δr) * scaling_factor
-
-        if any(x -> abs(x) > 1e-12, profile_imag)
-            @inbounds profile_imag[nr] = profile_imag[nr-1] * scaling_factor
-        end
-    end
-
-    # Store back (only if this process owns the mode)
-    if owns_mode
-        @inbounds for r_idx in r_range
-            local_r = r_idx - first(r_range) + 1
-            if local_r <= size(spec_real, 3)
-                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
-                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
+        # Apply poloidal BC at outer boundary
+        # i_vel_bc == 1 or 3: no-slip at outer (first derivative row: ∂P/∂r = value)
+        if i_vel_bc == 1 || i_vel_bc == 3
+            @inbounds for j in (N - bw):N
+                system_data[bw + 1 + N - j, j] = d1_matrix.data[bw + 1 + N - j, j]
+            end
+        else
+            # Stress-free at outer: second derivative row (∂²P/∂r² = value)
+            @inbounds for j in (N - bw):N
+                system_data[bw + 1 + N - j, j] = d2_matrix.data[bw + 1 + N - j, j]
             end
         end
+
+        system_matrix = BandedMatrix{T}(system_data, bw, N)
+        system_matrices[idx] = system_matrix
+        linear_matrices[idx] = linear_matrix
+        factorizations[idx] = factorize_banded(system_matrix)
     end
+
+    return SHTnsImplicitMatrices{T}(system_matrices, factorizations,
+                                    linear_matrices, l_values, lookup, theta)
 end
 
 """
-    apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                   apply_inner, apply_outer, boundary_values, ∂r,
-                                   domain, r_range, ws, tid, owns_mode)
+    create_velocity_green_matrices(config, domain, diffusivity;
+                                    theta, T)
 
-Workspace-based version of tau method stress-free BC (zero allocation).
-Uses pre-allocated buffers for profiles, derivatives, and corrections.
-
-# Stress-Free Boundary Condition Physics
-For the toroidal velocity potential T in spherical coordinates, the stress-free
-(free-slip) boundary condition requires zero tangential stress at the boundary.
-
-The correct condition is: ∂T/∂r = T/r + boundary_values
-
-This means the target flux at each boundary is NOT zero, but T/r:
-- Inner boundary: target_flux = T[1]/r[1]
-- Outer boundary: target_flux = T[nr]/r[nr]
-
-The tau method adds a correction polynomial to enforce this condition exactly.
-
-# MPI Safety
-The `owns_mode` parameter indicates whether this process owns the lm mode.
-All processes must call this function for each mode to ensure Allreduce is called
-the same number of times by all processes (prevents deadlock).
+Create Green's function matrices for the influence matrix method (poloidal pressure).
+These use Dirichlet BCs (identity rows) at both boundaries, matching Fortran vel_bc_Gre.
 """
-function apply_velocity_flux_bc_tau_ws!(spec_real, spec_imag, local_lm, lm_idx,
-                                       apply_inner, apply_outer,
-                                       boundary_values::AbstractMatrix,
-                                       ∂r::BandedMatrix, domain, r_range,
-                                       ws::VelocityWorkspace{T}, tid::Int, owns_mode::Bool) where T
-    nr = domain.N
-    r = domain.r[:, 4]  # Radial coordinates
+function create_velocity_green_matrices(config::SHTnsKitConfig,
+                                         domain::RadialDomain,
+                                         diffusivity::Float64;
+                                         theta::Float64=d_implicit,
+                                         T::Type{<:Number}=Float64)
+    unique_l = unique(config.l_values)
+    laplacian = create_radial_laplacian(domain)
+    r_inv_sq = @views domain.r[1:domain.N, 2]
 
-    # Use pre-allocated buffers (no allocation!)
-    profile_real = ws.bc_profile_real[tid]
-    profile_imag = ws.bc_profile_imag[tid]
-    dprofile_real = ws.bc_dprofile_real[tid]
-    dprofile_imag = ws.bc_dprofile_imag[tid]
-    correction = ws.bc_correction[tid]
+    base_data = T.(diffusivity .* laplacian.data)
+    system_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
+    linear_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
+    factorizations = Vector{BandedLU{T}}(undef, length(unique_l))
+    l_values = Vector{Int}(undef, length(unique_l))
+    lookup = Dict{Int,Int}()
 
-    # Clear buffers
-    fill!(profile_real, zero(T))
-    fill!(profile_imag, zero(T))
+    bw = i_KL
+    N = domain.N
 
-    # Extract radial profile (only if this process owns the mode)
-    if owns_mode
-        @inbounds for r_idx in r_range
-            local_r = r_idx - first(r_range) + 1
-            if local_r <= size(spec_real, 3)
-                profile_real[r_idx] = spec_real[local_lm, 1, local_r]
-                profile_imag[r_idx] = spec_imag[local_lm, 1, local_r]
+    # For Green's functions: c1=0, c2=1/d_implicit → system = -L (pure diffusion)
+    inv_impl = T(theta > 0 ? 1.0 / theta : 1.0)
+
+    for (idx, l) in enumerate(unique_l)
+        l_values[idx] = l
+        lookup[l] = idx
+
+        # Build operator: -diffusivity * (d²/dr² + 2/r d/dr - l(l+1)/r²)
+        linear_data = copy(base_data)
+        l_factor = Float64(l * (l + 1))
+        @inbounds for n in 1:N
+            linear_data[bw + 1, n] -= T(diffusivity * l_factor * r_inv_sq[n])
+        end
+        linear_matrix = BandedMatrix{T}(copy(linear_data), bw, N)
+
+        # System matrix for Green's function: -inv_impl * L
+        system_data = copy(linear_data)
+        system_data .*= T(-inv_impl)
+
+        # Zero boundary rows
+        @inbounds for j in 1:(1 + bw)
+            system_data[bw + 1 + 1 - j, j] = zero(T)
+        end
+        @inbounds for j in (N - bw):N
+            system_data[bw + 1 + N - j, j] = zero(T)
+        end
+
+        # Dirichlet BCs at both boundaries (identity rows)
+        system_data[bw + 1, 1] = one(T)
+        system_data[bw + 1, N] = one(T)
+
+        system_matrix = BandedMatrix{T}(system_data, bw, N)
+        system_matrices[idx] = system_matrix
+        linear_matrices[idx] = linear_matrix
+        factorizations[idx] = factorize_banded(system_matrix)
+    end
+
+    return SHTnsImplicitMatrices{T}(system_matrices, factorizations,
+                                    linear_matrices, l_values, lookup, theta)
+end
+
+"""
+    set_velocity_rhs_bc_toroidal!(rhs_real, rhs_imag, local_lm, nr;
+                                   inner_value=0.0, outer_value=0.0)
+
+Set boundary values in the RHS vector for the toroidal velocity solve.
+Matches Fortran vel_setbc_Tor: sets RHS boundary rows to zero (or prescribed value).
+
+For no-slip: RHS boundary = 0 (or prescribed velocity, e.g., rotating inner core)
+For stress-free: RHS boundary = 0 (homogeneous condition ∂T/∂r - T/r = 0)
+"""
+function set_velocity_rhs_bc_toroidal!(rhs_real::AbstractArray{T}, rhs_imag::AbstractArray{T},
+                                        local_lm::Int, nr::Int;
+                                        inner_value::T=zero(T),
+                                        outer_value::T=zero(T)) where T
+    # Set boundary rows of RHS to prescribed values
+    # Inner boundary (radial index 1)
+    @inbounds rhs_real[local_lm, 1, 1] = inner_value
+    @inbounds rhs_imag[local_lm, 1, 1] = zero(T)
+    # Outer boundary (radial index nr)
+    @inbounds rhs_real[local_lm, 1, nr] = outer_value
+    @inbounds rhs_imag[local_lm, 1, nr] = zero(T)
+end
+
+"""
+    set_velocity_rhs_bc_poloidal!(rhs_real, rhs_imag, local_lm, nr;
+                                   inner_value=0.0, outer_value=0.0)
+
+Set boundary values in the RHS vector for the poloidal velocity solve.
+Matches Fortran: sets RHS boundary rows to zero for homogeneous BCs.
+
+For no-slip: RHS boundary = 0 (∂P/∂r = 0)
+For stress-free: RHS boundary = 0 (∂²P/∂r² = 0)
+"""
+function set_velocity_rhs_bc_poloidal!(rhs_real::AbstractArray{T}, rhs_imag::AbstractArray{T},
+                                        local_lm::Int, nr::Int;
+                                        inner_value::T=zero(T),
+                                        outer_value::T=zero(T)) where T
+    # Set boundary rows of RHS to prescribed values
+    @inbounds rhs_real[local_lm, 1, 1] = inner_value
+    @inbounds rhs_imag[local_lm, 1, 1] = zero(T)
+    @inbounds rhs_real[local_lm, 1, nr] = outer_value
+    @inbounds rhs_imag[local_lm, 1, nr] = zero(T)
+end
+
+"""
+    solve_velocity_implicit_step!(solution, rhs, matrices, component;
+                                   i_vel_bc=1, domain=nothing,
+                                   rot_omega=0.0, current_field=nothing)
+
+Solve the implicit velocity system with boundary conditions embedded in the matrix.
+Before solving, sets the RHS boundary values appropriately.
+
+This matches the Fortran approach:
+1. RHS boundary rows are set to BC values (typically 0)
+2. The matrix solve (with BC rows in the matrix) produces a solution satisfying BCs
+
+# Arguments
+- `solution`: Output spectral field
+- `rhs`: Input RHS spectral field (modified in place for BCs)
+- `matrices`: SHTnsImplicitMatrices with BCs embedded
+- `component`: `:toroidal` or `:poloidal`
+- `i_vel_bc`: Velocity BC type (1-4)
+- `domain`: RadialDomain (needed for rotating IC boundary)
+- `rot_omega`: Inner core rotation rate (for no-slip toroidal l=1,m=0)
+- `current_field`: Current velocity field (for incremental form of rotating IC BC)
+"""
+function solve_velocity_implicit_step!(solution::SHTnsSpecField{T},
+                                        rhs::SHTnsSpecField{T},
+                                        matrices::SHTnsImplicitMatrices{T},
+                                        component::Symbol;
+                                        i_vel_bc::Int=1,
+                                        domain::Union{RadialDomain,Nothing}=nothing,
+                                        rot_omega::Float64=0.0,
+                                        current_field::Union{SHTnsSpecField{T},Nothing}=nothing) where T
+    sol_real = parent(solution.data_real)
+    sol_imag = parent(solution.data_imag)
+    rhs_real = parent(rhs.data_real)
+    rhs_imag = parent(rhs.data_imag)
+
+    lm_range = get_local_range(solution.pencil, 1)
+    nr = size(rhs_real, 3)
+    tmp_r = Vector{T}(undef, nr)
+    tmp_i = Vector{T}(undef, nr)
+
+    for lm_idx in lm_range
+        if lm_idx <= solution.nlm
+            l = solution.config.l_values[lm_idx]
+            m = solution.config.m_values[lm_idx]
+            idx = get(matrices.lookup, l, nothing)
+            idx === nothing && continue
+
+            local_lm = lm_idx - first(lm_range) + 1
+            local_lm <= size(rhs_real, 1) || continue
+
+            # Set RHS boundary values (matching Fortran vel_setbc_Tor / tim_zerobc)
+            if component == :toroidal
+                inner_val = zero(T)
+                outer_val = zero(T)
+
+                # For no-slip inner (i_vel_bc ≤ 2) with rotating IC:
+                # T(l=1,m=0) at inner boundary = rot_omega * r[1]
+                if (i_vel_bc == 1 || i_vel_bc == 2) && l == 1 && m == 0 && domain !== nothing
+                    inner_val = T(rot_omega * domain.r[1, 4])
+                    # If not first step, subtract current field value (incremental form)
+                    if current_field !== nothing
+                        cur_real = parent(current_field.data_real)
+                        if local_lm <= size(cur_real, 1)
+                            inner_val -= cur_real[local_lm, 1, 1]
+                        end
+                    end
+                end
+
+                set_velocity_rhs_bc_toroidal!(rhs_real, rhs_imag, local_lm, nr;
+                                               inner_value=inner_val, outer_value=outer_val)
+            else  # :poloidal
+                set_velocity_rhs_bc_poloidal!(rhs_real, rhs_imag, local_lm, nr)
+            end
+
+            # Solve the banded system (with BCs embedded in matrix)
+            @inbounds for k in 1:nr
+                tmp_r[k] = rhs_real[local_lm, 1, k]
+                tmp_i[k] = rhs_imag[local_lm, 1, k]
+            end
+
+            solve_banded!(tmp_r, matrices.factorizations[idx], tmp_r)
+            solve_banded!(tmp_i, matrices.factorizations[idx], tmp_i)
+
+            @inbounds for k in 1:nr
+                sol_real[local_lm, 1, k] = tmp_r[k]
+                sol_imag[local_lm, 1, k] = tmp_i[k]
             end
         end
     end
 
-    # MPI gather (ALL processes call this for synchronization)
-    comm = bcs.get_comm()
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        Allreduce!(profile_real, MPI.SUM, comm)
-        Allreduce!(profile_imag, MPI.SUM, comm)
-    end
-
-    # Compute current fluxes (∂T/∂r)
-    apply_∂r!(dprofile_real, ∂r, profile_real)
-    current_flux_inner_real = dprofile_real[1]
-    current_flux_outer_real = dprofile_real[nr]
-
-    # Target flux for stress-free: ∂T/∂r = T/r + boundary_values (if provided)
-    # Handle r=0 case (ball geometry) - at r=0, regularity enforces T=0 for l≥1
-    rhs_inner = boundary_values[1, lm_idx]
-    rhs_outer = boundary_values[2, lm_idx]
-
-    if r[1] < 1e-14
-        # At r=0, the condition ∂T/∂r = T/r is indeterminate (0/0)
-        # By L'Hôpital's rule and regularity, we use ∂T/∂r = 0 at r=0
-        target_flux_inner_real = T(0) + rhs_inner
-    else
-        target_flux_inner_real = profile_real[1] / r[1] + rhs_inner
-    end
-    target_flux_outer_real = profile_real[nr] / r[nr] + rhs_outer
-
-    # Apply tau corrections (in-place, no allocation!)
-    if apply_inner && apply_outer
-        compute_tau_correction_both_boundaries!(correction,
-                                               target_flux_inner_real - current_flux_inner_real,
-                                               target_flux_outer_real - current_flux_outer_real,
-                                               domain)
-        @inbounds for i in 1:nr
-            profile_real[i] += correction[i]
-        end
-
-        if any(x -> abs(x) > 1e-12, profile_imag)
-            apply_∂r!(dprofile_imag, ∂r, profile_imag)
-            current_flux_inner_imag = dprofile_imag[1]
-            current_flux_outer_imag = dprofile_imag[nr]
-
-            # Target flux for imaginary part
-            if r[1] < 1e-14
-                target_flux_inner_imag = T(0)
-            else
-                target_flux_inner_imag = profile_imag[1] / r[1]
-            end
-            target_flux_outer_imag = profile_imag[nr] / r[nr]
-
-            compute_tau_correction_both_boundaries!(correction,
-                                                   target_flux_inner_imag - current_flux_inner_imag,
-                                                   target_flux_outer_imag - current_flux_outer_imag,
-                                                   domain)
-            @inbounds for i in 1:nr
-                profile_imag[i] += correction[i]
-            end
-        end
-
-    elseif apply_inner
-        compute_tau_correction_inner_boundary!(correction,
-                                              target_flux_inner_real - current_flux_inner_real,
-                                              domain)
-        @inbounds for i in 1:nr
-            profile_real[i] += correction[i]
-        end
-
-        if any(x -> abs(x) > 1e-12, profile_imag)
-            apply_∂r!(dprofile_imag, ∂r, profile_imag)
-            current_flux_inner_imag = dprofile_imag[1]
-
-            if r[1] < 1e-14
-                target_flux_inner_imag = T(0)
-            else
-                target_flux_inner_imag = profile_imag[1] / r[1]
-            end
-
-            compute_tau_correction_inner_boundary!(correction,
-                                                  target_flux_inner_imag - current_flux_inner_imag,
-                                                  domain)
-            @inbounds for i in 1:nr
-                profile_imag[i] += correction[i]
-            end
-        end
-
-    elseif apply_outer
-        compute_tau_correction_outer_boundary!(correction,
-                                              target_flux_outer_real - current_flux_outer_real,
-                                              domain)
-        @inbounds for i in 1:nr
-            profile_real[i] += correction[i]
-        end
-
-        if any(x -> abs(x) > 1e-12, profile_imag)
-            apply_∂r!(dprofile_imag, ∂r, profile_imag)
-            current_flux_outer_imag = dprofile_imag[nr]
-            target_flux_outer_imag = profile_imag[nr] / r[nr]
-
-            compute_tau_correction_outer_boundary!(correction,
-                                                  target_flux_outer_imag - current_flux_outer_imag,
-                                                  domain)
-            @inbounds for i in 1:nr
-                profile_imag[i] += correction[i]
-            end
-        end
-    end
-
-    # Store corrected profile back (only if this process owns the mode)
-    if owns_mode
-        @inbounds for r_idx in r_range
-            local_r = r_idx - first(r_range) + 1
-            if local_r <= size(spec_real, 3)
-                spec_real[local_lm, 1, local_r] = profile_real[r_idx]
-                spec_imag[local_lm, 1, local_r] = profile_imag[r_idx]
-            end
-        end
-    end
+    return solution
 end

@@ -56,7 +56,7 @@ Base.@kwdef mutable struct GeoDynamoParameters
     independent_output_files::Bool = true    # Each rank writes its own files without barriers
     
     # Boundary condition flags
-    i_vel_bc::Int = 1             # Velocity BC: 1=no-slip, 2=stress-free
+    i_vel_bc::Int = 1             # Velocity BC: 1=no-slip both, 2=no-slip inner/stress-free outer, 3=stress-free inner/no-slip outer, 4=stress-free both
     i_tmp_bc::Int = 1             # Temperature BC
     i_cmp_bc::Int = 1             # Composition BC
     
@@ -539,7 +539,7 @@ function save_parameters(params::GeoDynamoParameters, filename::String)
         println(io)
         
         println(io, "# Boundary condition flags")
-        println(io, "const i_vel_bc = $(params.i_vel_bc)            # Velocity BC: 1=no-slip, 2=stress-free")
+        println(io, "const i_vel_bc = $(params.i_vel_bc)            # Velocity BC: 1=no-slip both, 2=NS inner/SF outer, 3=SF inner/NS outer, 4=SF both")
         println(io, "const i_tmp_bc = $(params.i_tmp_bc)            # Temperature BC")
         println(io, "const i_cmp_bc = $(params.i_cmp_bc)            # Composition BC")
         println(io, "const i_poloidal_stress_iters = $(params.i_poloidal_stress_iters)  # Iterations for poloidal stress-free correction")

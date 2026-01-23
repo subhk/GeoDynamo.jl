@@ -818,6 +818,8 @@ function create_shtns_timestepping_matrices(config::SHTnsKitConfig,
                                     linear_matrices, l_values, lookup, theta)
 end
 
+# Velocity-specific matrix construction with embedded BCs is in src/bcs/velocity_bc.jl
+
 function banded_to_dense(matrix::BandedMatrix{T}) where T
     # Convert banded matrix to dense for LU factorization
     N = matrix.size

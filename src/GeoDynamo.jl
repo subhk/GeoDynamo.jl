@@ -78,6 +78,8 @@ module GeoDynamo
 
     # exports timestep.jl
     export TimestepState, SHTnsImplicitMatrices, create_shtns_timestepping_matrices
+    export create_velocity_toroidal_matrices, create_velocity_poloidal_matrices
+    export create_velocity_green_matrices, solve_velocity_implicit_step!
     export apply_explicit_operator!, solve_implicit_step!, compute_timestep_error
 
     # exports velocity.jl
@@ -86,12 +88,14 @@ module GeoDynamo
     export compute_velocity_nonlinear!, compute_vorticity_spectral_full!
     export compute_kinetic_energy, compute_reynolds_stress
     export zero_velocity_work_arrays!
-    export apply_velocity_boundary_conditions!, add_thermal_buoyancy_force!
+    export add_thermal_buoyancy_force!
     export add_buoyancy_force!, add_lorentz_force!, validate_velocity_configuration
 
     # exports magnetic.jl
     export SHTnsMagneticFields, create_shtns_magnetic_fields, compute_magnetic_nonlinear!
     export compute_current_density_spectral!
+    export create_magnetic_toroidal_matrices, create_magnetic_poloidal_matrices
+    export solve_magnetic_implicit_step!
 
     # exports thermal.jl
     export SHTnsTemperatureField, create_shtns_temperature_field
@@ -100,7 +104,8 @@ module GeoDynamo
     export compute_surface_flux, get_temperature_statistics
     export zero_temperature_work_arrays!
     export set_temperature_ic!, set_boundary_conditions!, set_internal_heating!
-    export batch_transform_to_physical!, apply_temperature_boundary_conditions_spectral!
+    export batch_transform_to_physical!
+    export create_temperature_matrices, solve_temperature_implicit_step!
 
     # exports compositional.jl
     export SHTnsCompositionField, create_shtns_composition_field
@@ -108,7 +113,7 @@ module GeoDynamo
     export compute_composition_rms, compute_composition_energy
     export get_composition_statistics, zero_composition_work_arrays!
     export set_composition_ic!, set_composition_boundary_conditions!
-    export apply_composition_boundary_conditions!, apply_composition_boundary_conditions_spectral!
+    export create_composition_matrices, solve_composition_implicit_step!
     
     # exports bcs module
     export AbstractBoundaryCondition
