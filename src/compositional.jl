@@ -89,11 +89,6 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     work_physical::SHTnsPhysField{T}
     advection_physical::SHTnsPhysField{T}
 
-    # Gradient spectral components for efficiency
-    ∇θ_spec::SHTnsSpecField{T}
-    ∇φ_spec::SHTnsSpecField{T}
-    ∇r_spec::SHTnsSpecField{T}
-
     # Boundary conditions
     boundary_values::Matrix{T}         # [2, nlm] for ICB and CMB
     bc_type_inner::Vector{Int}         # BC type for each mode at inner
@@ -191,11 +186,6 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     work_physical      = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
     advection_physical = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
 
-    # Gradient spectral components
-    ∇θ_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    ∇φ_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    ∇r_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-
     # Boundary conditions
     boundary_values  = zeros(T, 2, config.nlm)
 
@@ -221,7 +211,6 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     return SHTnsCompositionField{T}(
         composition, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
-        ∇θ_spec, ∇φ_spec, ∇r_spec,
         boundary_values, bc_type_inner, bc_type_outer,
         nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
         ℓ_factors, config,
@@ -273,21 +262,23 @@ The advection term -u·∇C is computed using the following optimized workflow:
 - Physical space operations are embarrassingly parallel
 """
 function compute_composition_nonlinear!(𝔽::SHTnsCompositionField{T},
-                                        vel_fields, 𝒟ᵒᶜ::RadialDomain;
+                                        vel_fields, 𝒟ᵒᶜ::RadialDomain,
+                                        ws::GradientWorkspace{T};
                                         geometry::Symbol = get_parameters().geometry) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
 
-    # Zero work arrays
+    # Zero work arrays and gradient workspace
     zero_scalar_work_arrays!(𝔽)
+    zero_gradient_workspace!(ws)
 
     # Step 1: Compute ALL gradients in spectral space (NO COMMUNICATION!)
     t_spectral = MPI.Wtime()
-    compute_all_gradients_spectral!(𝔽, 𝒟ᵒᶜ)
+    compute_all_gradients_spectral!(𝔽, 𝒟ᵒᶜ, ws)
     𝔽.spectral_time[] += MPI.Wtime() - t_spectral
 
     # Step 2: Single batched transform of composition and gradients to physical
     t_transform = MPI.Wtime()
-    transform_field_and_gradients_to_physical!(𝔽)
+    transform_field_and_gradients_to_physical!(𝔽, ws)
     𝔽.transform_time[] += MPI.Wtime() - t_transform
 
     # Step 3: Compute advection term -u·∇C in physical space (local operation)

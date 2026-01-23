@@ -115,6 +115,44 @@ function get_mode_index(config::SHTnsKitConfig, l::Int, m::Int)
 end
 
 # ================================================================================
+# Shared Gradient Workspace (memory optimization)
+# ================================================================================
+
+"""
+    GradientWorkspace{T}
+
+Shared workspace for transient gradient spectral fields.
+Reused across scalar field computations that run sequentially (temperature, composition).
+These arrays are zeroed and recomputed every timestep, so sharing is safe.
+"""
+struct GradientWorkspace{T}
+    ∇θ_spec::SHTnsSpecField{T}
+    ∇φ_spec::SHTnsSpecField{T}
+    ∇r_spec::SHTnsSpecField{T}
+end
+
+function create_gradient_workspace(::Type{T}, config::SHTnsKitConfig,
+                                   domain::RadialDomain, pencil_spec=nothing) where T
+    if pencil_spec === nothing
+        pencil_spec = config.pencils.spec
+    end
+    GradientWorkspace{T}(
+        create_shtns_spectral_field(T, config, domain, pencil_spec),
+        create_shtns_spectral_field(T, config, domain, pencil_spec),
+        create_shtns_spectral_field(T, config, domain, pencil_spec),
+    )
+end
+
+function zero_gradient_workspace!(ws::GradientWorkspace{T}) where T
+    fill!(parent(ws.∇θ_spec.data_real), zero(T))
+    fill!(parent(ws.∇θ_spec.data_imag), zero(T))
+    fill!(parent(ws.∇φ_spec.data_real), zero(T))
+    fill!(parent(ws.∇φ_spec.data_imag), zero(T))
+    fill!(parent(ws.∇r_spec.data_real), zero(T))
+    fill!(parent(ws.∇r_spec.data_imag), zero(T))
+end
+
+# ================================================================================
 # Pre-computation of spectral derivative operators (SHARED)
 # ================================================================================
 
@@ -200,16 +238,16 @@ end
 # ================================================================================
 
 """
-    compute_theta_gradient_spectral!(𝔽::AbstractScalarField{T}) where T
+    compute_theta_gradient_spectral!(𝔽::AbstractScalarField{T}, ws::GradientWorkspace{T}) where T
 
 Compute ∂field/∂θ using spherical harmonic recurrence relations (local operation).
 This is generic and works for any scalar field.
 """
-function compute_theta_gradient_spectral!(𝔽::AbstractScalarField{T}) where T
+function compute_theta_gradient_spectral!(𝔽::AbstractScalarField{T}, ws::GradientWorkspace{T}) where T
     spec_real   = parent(𝔽.spectral.data_real)
     spec_imag   = parent(𝔽.spectral.data_imag)
-    ∇θ_real = parent(𝔽.∇θ_spec.data_real) 
-    ∇θ_imag = parent(𝔽.∇θ_spec.data_imag)
+    ∇θ_real = parent(ws.∇θ_spec.data_real)
+    ∇θ_imag = parent(ws.∇θ_spec.data_imag)
     
     lm_range = range_local(𝔽.config.pencils.spec, 1)
     r_range  = range_local(𝔽.config.pencils.spec, 3)
@@ -268,16 +306,16 @@ function compute_theta_gradient_spectral!(𝔽::AbstractScalarField{T}) where T
 end
 
 """
-    compute_phi_gradient_spectral!(𝔽::AbstractScalarField{T}) where T
+    compute_phi_gradient_spectral!(𝔽::AbstractScalarField{T}, ws::GradientWorkspace{T}) where T
 
 Compute ∂field/∂φ using spherical harmonic properties (local operation).
 This is generic and works for any scalar field.
 """
-function compute_phi_gradient_spectral!(𝔽::AbstractScalarField{T}) where T
+function compute_phi_gradient_spectral!(𝔽::AbstractScalarField{T}, ws::GradientWorkspace{T}) where T
     spec_real   = parent(𝔽.spectral.data_real)
     spec_imag   = parent(𝔽.spectral.data_imag)
-    ∇φ_real = parent(𝔽.∇φ_spec.data_real)
-    ∇φ_imag = parent(𝔽.∇φ_spec.data_imag)
+    ∇φ_real = parent(ws.∇φ_spec.data_real)
+    ∇φ_imag = parent(ws.∇φ_spec.data_imag)
     
     lm_range = range_local(𝔽.config.pencils.spec, 1)
     r_range  = range_local(𝔽.config.pencils.spec, 3)
@@ -308,7 +346,7 @@ function compute_phi_gradient_spectral!(𝔽::AbstractScalarField{T}) where T
 end
 
 """
-    compute_radial_gradient_spectral!(𝔽::AbstractScalarField{T}, domain::RadialDomain) where T
+    compute_radial_gradient_spectral!(𝔽::AbstractScalarField{T}, domain::RadialDomain, ws::GradientWorkspace{T}) where T
 
 Compute ∂field/∂r using banded matrix derivative operator in spectral space.
 This uses the pre-computed derivative matrices from the field for optimal accuracy and efficiency.
@@ -316,11 +354,11 @@ This uses the pre-computed derivative matrices from the field for optimal accura
 Note: Radial data is always local (not MPI distributed). Only spectral (lm) modes
 are distributed across MPI processes.
 """
-function compute_radial_gradient_spectral!(𝔽::AbstractScalarField{T}, domain::RadialDomain) where T
+function compute_radial_gradient_spectral!(𝔽::AbstractScalarField{T}, domain::RadialDomain, ws::GradientWorkspace{T}) where T
     spec_real = parent(𝔽.spectral.data_real)
     spec_imag = parent(𝔽.spectral.data_imag)
-    ∇r_real   = parent(𝔽.∇r_spec.data_real)
-    ∇r_imag   = parent(𝔽.∇r_spec.data_imag)
+    ∇r_real   = parent(ws.∇r_spec.data_real)
+    ∇r_imag   = parent(ws.∇r_spec.data_imag)
 
     lm_range = range_local(𝔽.config.pencils.spec, 1)
     r_range  = range_local(𝔽.config.pencils.spec, 3)
@@ -361,16 +399,16 @@ function compute_radial_gradient_spectral!(𝔽::AbstractScalarField{T}, domain:
 end
 
 """
-    apply_geometric_factors_spectral!(𝔽::AbstractScalarField{T}, domain::RadialDomain) where T
+    apply_geometric_factors_spectral!(ws::GradientWorkspace{T}, 𝔽::AbstractScalarField{T}, domain::RadialDomain) where T
 
 Apply geometric factors (1/r, 1/(r sin θ)) in spectral space.
 For gradients in spherical coordinates. This is generic.
 """
-function apply_geometric_factors_spectral!(𝔽::AbstractScalarField{T}, domain::RadialDomain) where T
-    ∇θ_real = parent(𝔽.∇θ_spec.data_real)
-    ∇θ_imag = parent(𝔽.∇θ_spec.data_imag)
-    ∇φ_real = parent(𝔽.∇φ_spec.data_real)
-    ∇φ_imag = parent(𝔽.∇φ_spec.data_imag)
+function apply_geometric_factors_spectral!(ws::GradientWorkspace{T}, 𝔽::AbstractScalarField{T}, domain::RadialDomain) where T
+    ∇θ_real = parent(ws.∇θ_spec.data_real)
+    ∇θ_imag = parent(ws.∇θ_spec.data_imag)
+    ∇φ_real = parent(ws.∇φ_spec.data_real)
+    ∇φ_imag = parent(ws.∇φ_spec.data_imag)
     
     r_range  = range_local(𝔽.config.pencils.spec, 3)
     lm_range = range_local(𝔽.config.pencils.spec, 1)
@@ -411,21 +449,21 @@ function apply_geometric_factors_spectral!(𝔽::AbstractScalarField{T}, domain:
 end
 
 """
-    compute_all_gradients_spectral!(𝔽::AbstractScalarField{T}, domain::RadialDomain) where T
+    compute_all_gradients_spectral!(𝔽::AbstractScalarField{T}, domain::RadialDomain, ws::GradientWorkspace{T}) where T
 
 Compute all gradient components (θ, φ, r) in spectral space.
 This is the main driver function that works for any scalar field.
 """
-function compute_all_gradients_spectral!(𝔽::AbstractScalarField{T}, domain::RadialDomain) where T
-    # Compute θ and φ gradients using SH derivatives (local operation)  
-    compute_theta_gradient_spectral!(field)
-    compute_phi_gradient_spectral!(field)
-    
+function compute_all_gradients_spectral!(𝔽::AbstractScalarField{T}, domain::RadialDomain, ws::GradientWorkspace{T}) where T
+    # Compute θ and φ gradients using SH derivatives (local operation)
+    compute_theta_gradient_spectral!(𝔽, ws)
+    compute_phi_gradient_spectral!(𝔽, ws)
+
     # Compute radial gradient using banded matrix derivative operator (local operation)
-    compute_radial_gradient_spectral!(field, domain)
-    
+    compute_radial_gradient_spectral!(𝔽, domain, ws)
+
     # Apply geometric factors for spherical coordinates (local operation)
-    apply_geometric_factors_spectral!(field, domain)
+    apply_geometric_factors_spectral!(ws, 𝔽, domain)
 end
 
 # ================================================================================
@@ -433,26 +471,26 @@ end
 # ================================================================================
 
 """
-    transform_field_and_gradients_to_physical!(𝔽::AbstractScalarField{T}) where T
+    transform_field_and_gradients_to_physical!(𝔽::AbstractScalarField{T}, ws::GradientWorkspace{T}) where T
 
 Transform scalar field and all gradient components to physical space
 in a single batched operation to minimize communication.
 """
-function transform_field_and_gradients_to_physical!(𝔽::AbstractScalarField{T}) where T
+function transform_field_and_gradients_to_physical!(𝔽::AbstractScalarField{T}, ws::GradientWorkspace{T}) where T
     # Create arrays of fields to transform
     spectral_fields = [𝔽.spectral,
-                       𝔽.∇θ_spec,
-                       𝔽.∇φ_spec,
-                       𝔽.∇r_spec]
-    
+                       ws.∇θ_spec,
+                       ws.∇φ_spec,
+                       ws.∇r_spec]
+
     # Determine physical field based on field type
-    main_physical_field = get_main_physical_field(field)
-    
+    main_physical_field = get_main_physical_field(𝔽)
+
     physical_fields = [main_physical_field,
                        𝔽.gradient.θ_component,
                        𝔽.gradient.φ_component,
                        𝔽.gradient.r_component]
-    
+
     # Single batched transform with one MPI communication
     batch_spectral_to_physical!(spectral_fields, physical_fields)
 end
@@ -606,12 +644,6 @@ function zero_scalar_work_arrays!(𝔽::AbstractScalarField{T}) where T
     fill!(parent(𝔽.work_spectral.data_imag), zero(T))
     fill!(parent(𝔽.work_physical.data), zero(T))
     fill!(parent(𝔽.advection_physical.data), zero(T))
-    fill!(parent(𝔽.∇θ_spec.data_real), zero(T))
-    fill!(parent(𝔽.∇θ_spec.data_imag), zero(T))
-    fill!(parent(𝔽.∇φ_spec.data_real), zero(T))
-    fill!(parent(𝔽.∇φ_spec.data_imag), zero(T))
-    fill!(parent(𝔽.∇r_spec.data_real), zero(T))
-    fill!(parent(𝔽.∇r_spec.data_imag), zero(T))
     fill!(parent(𝔽.nonlinear.data_real), zero(T))
     fill!(parent(𝔽.nonlinear.data_imag), zero(T))
 end
@@ -910,14 +942,14 @@ This is a generic version that works with any scalar field.
 """
 function get_flux_value(lm_idx::Int, boundary::Int, 𝔽::AbstractScalarField)
     # Check if field has boundary_values matrix
-    if hasfield(typeof(field), :boundary_values)
+    if hasfield(typeof(𝔽), :boundary_values)
         # Return flux value from boundary_values matrix
         # boundary_values[boundary, lm_idx] where boundary: 1=inner, 2=outer
         return 𝔽.boundary_values[boundary, lm_idx]
     else
         # Fallback: get from l,m values if available
-        if hasfield(typeof(field), :config) && 
-           hasfield(typeof(𝔽.config), :l_values) && 
+        if hasfield(typeof(𝔽), :config) &&
+           hasfield(typeof(𝔽.config), :l_values) &&
            hasfield(typeof(𝔽.config), :m_values)
             
             l = 𝔽.config.l_values[lm_idx]
@@ -980,8 +1012,8 @@ function apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
     end
 
     # Get prescribed flux values
-    flux_inner = apply_inner ? get_flux_value(lm_idx, 1, field) : T(0)
-    flux_outer = apply_outer ? get_flux_value(lm_idx, 2, field) : T(0)
+    flux_inner = apply_inner ? get_flux_value(lm_idx, 1, 𝔽) : T(0)
+    flux_outer = apply_outer ? get_flux_value(lm_idx, 2, 𝔽) : T(0)
 
     # Compute current fluxes at boundaries
     current_flux_inner, current_flux_outer = compute_boundary_fluxes(
@@ -1127,8 +1159,8 @@ function apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
     infl = _get_influence_cache(domain, 𝔽.∂r)
 
     # Get prescribed and current flux values
-    flux_prescribed = [get_flux_value(lm_idx, 1, field),
-                      get_flux_value(lm_idx, 2, field)]
+    flux_prescribed = [get_flux_value(lm_idx, 1, 𝔽),
+                      get_flux_value(lm_idx, 2, 𝔽)]
 
     # Extract and gather radial profile (only if this process owns the mode)
     nr = domain.N
@@ -1196,13 +1228,13 @@ function apply_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
     
     # Get prescribed flux
     if 1 in r_range
-        flux_inner = get_flux_value(lm_idx, 1, field)
-        modify_for_flux_inner!(spec_real, spec_imag, local_lm, flux_inner, 
+        flux_inner = get_flux_value(lm_idx, 1, 𝔽)
+        modify_for_flux_inner!(spec_real, spec_imag, local_lm, flux_inner,
                               𝔽.∂r, domain, r_range)
     end
-    
+
     if domain.N in r_range
-        flux_outer = get_flux_value(lm_idx, 2, field)
+        flux_outer = get_flux_value(lm_idx, 2, 𝔽)
         modify_for_flux_outer!(spec_real, spec_imag, local_lm, flux_outer,
                               𝔽.∂r, domain, r_range)
     end
@@ -1301,15 +1333,15 @@ function apply_scalar_flux_bc_spectral!(𝔽::AbstractScalarField{T}, domain::Ra
             # ALL processes call these functions for MPI synchronization (Allreduce inside)
             if method == :tau
                 apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
-                                  apply_inner, apply_outer, field, domain, r_range, owns_mode)
+                                  apply_inner, apply_outer, 𝔽, domain, r_range, owns_mode)
             elseif method == :influence_matrix
                 apply_flux_bc_influence_matrix!(spec_real, spec_imag, local_lm, lm_idx,
-                                               apply_inner, apply_outer, field, domain, r_range, owns_mode)
+                                               apply_inner, apply_outer, 𝔽, domain, r_range, owns_mode)
             elseif method == :direct
                 # Direct method doesn't use MPI collectives, only apply if owns_mode
                 if owns_mode
                     apply_flux_bc_direct!(spec_real, spec_imag, local_lm, lm_idx,
-                                         field, domain, r_range)
+                                         𝔽, domain, r_range)
                 end
             else
                 error("Unknown flux BC method: $method. Use :tau, :influence_matrix, or :direct")

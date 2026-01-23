@@ -1098,6 +1098,196 @@ end
 # Exponential 2nd Order Runge-Kutta (ERK2) Implementation
 # ================================================================================
 
+# ---- ERK2 Boundary Condition Specification ----
+
+"""
+    ERK2BoundarySide{T}
+
+Encodes how to enforce a boundary condition at one boundary (inner or outer)
+for the ERK2 exponential integrator.
+
+All BC types are expressed as a linear constraint:
+    sum_j stencil[j] * u[j] + l_correction * u[b] = value
+
+which is solved for u[b]:
+    u[b] = (value - sum_{j≠b} stencil[j] * u[j]) / (stencil[b] + l_correction)
+
+BC types and their encoding:
+  - :dirichlet         → stencil = delta_{b}, value = BC_val  (u[b] = BC_val)
+  - :neumann           → stencil = d1[b,:], value = q         (du/dr = q)
+  - :stress_free_tor   → stencil = d1[b,:], l_correction = -1/r_b  (dT/dr - T/r = 0)
+  - :noslip_pol        → stencil = d1[b,:], value = 0         (dP/dr = 0)
+  - :stress_free_pol   → stencil = d2[b,:], value = 0         (d²P/dr² = 0)
+  - :insulating_inner  → stencil = d1[b,:], l_correction = -l/r_b  (d/dr - l/r)P = 0
+  - :insulating_outer  → stencil = d1[b,:], l_correction = +(l+1)/r_b  (d/dr + (l+1)/r)P = 0
+"""
+struct ERK2BoundarySide{T}
+    type::Symbol              # BC type identifier
+    value::T                  # Prescribed RHS value (BC_val for Dirichlet, flux for Neumann)
+    stencil::Vector{T}        # Dense derivative stencil row (length nr)
+    r_inv::T                  # 1/r at this boundary
+    l_sign::T                 # Sign/multiplier for l-dependent correction (+1, -1, or 0)
+    use_l_correction::Bool    # Whether correction is l-dependent
+    fixed_correction::T       # Fixed additive correction to diagonal (e.g., -1/r for stress-free tor)
+    l0_dirichlet::Bool        # Override to Dirichlet for l=0 (avoids underdetermined NN systems)
+end
+
+"""
+    ERK2BoundarySpec{T}
+
+Complete boundary condition specification for both boundaries.
+
+`inner_mode_values` and `outer_mode_values` are optional per-mode value overrides
+(indexed by lm_idx). When provided, they override `bc_side.value` for specific modes.
+Used e.g. for rotating inner core: T(l=1,m=0) = rot_omega * r_inner.
+"""
+struct ERK2BoundarySpec{T}
+    inner::ERK2BoundarySide{T}
+    outer::ERK2BoundarySide{T}
+    inner_mode_values::Union{Nothing, Vector{T}}
+    outer_mode_values::Union{Nothing, Vector{T}}
+end
+
+# Convenience constructor without per-mode values
+function ERK2BoundarySpec{T}(inner::ERK2BoundarySide{T}, outer::ERK2BoundarySide{T}) where T
+    return ERK2BoundarySpec{T}(inner, outer, nothing, nothing)
+end
+
+"""
+    enforce_erk2_bc!(result, bc_side, boundary_idx, l, nr)
+
+Enforce a boundary condition on the result vector at the given boundary index.
+Modifies `result[boundary_idx]` to satisfy the linear constraint encoded in `bc_side`.
+"""
+function enforce_erk2_bc!(result::AbstractVector{T}, bc_side::ERK2BoundarySide{T},
+                          boundary_idx::Int, l::Int, nr::Int;
+                          value_override::Union{T, Nothing}=nothing) where T
+    b = boundary_idx
+    effective_value = value_override !== nothing ? value_override : bc_side.value
+
+    # l=0 override: use Dirichlet to avoid underdetermined NN systems
+    # (matches CNAB2 treatment: pin value at inner boundary for l=0 when both are Neumann)
+    if bc_side.l0_dirichlet && l == 0
+        result[b] = effective_value
+        return
+    end
+
+    # Dirichlet: just set the value directly
+    if bc_side.type === :dirichlet
+        result[b] = effective_value
+        return
+    end
+
+    # Compute the effective diagonal coefficient at boundary:
+    # self_coeff = stencil[b] + fixed_correction + l_sign * l * r_inv (if l-dependent)
+    self_coeff = bc_side.stencil[b] + bc_side.fixed_correction
+    if bc_side.use_l_correction
+        self_coeff += bc_side.l_sign * T(l) * bc_side.r_inv
+    end
+
+    # Compute the off-diagonal contribution: sum_{j≠b} stencil[j] * result[j]
+    off_diag_sum = zero(T)
+    @inbounds for j in 1:nr
+        if j != b
+            off_diag_sum += bc_side.stencil[j] * result[j]
+        end
+    end
+
+    # Solve: self_coeff * u[b] + off_diag_sum = value
+    # → u[b] = (value - off_diag_sum) / self_coeff
+    if abs(self_coeff) > eps(T) * T(100)
+        result[b] = (effective_value - off_diag_sum) / self_coeff
+    else
+        # Degenerate case (e.g., l=0 with insulating BC): fall back to value
+        result[b] = effective_value
+    end
+end
+
+"""
+    create_dirichlet_bc(T, nr, value) -> ERK2BoundarySide{T}
+
+Create a Dirichlet BC side (u = value at boundary).
+"""
+function create_dirichlet_bc(::Type{T}, nr::Int, value::T=zero(T)) where T
+    stencil = zeros(T, nr)
+    return ERK2BoundarySide{T}(:dirichlet, value, stencil, zero(T), zero(T), false, zero(T), false)
+end
+
+"""
+    create_neumann_bc(T, d1_row, value) -> ERK2BoundarySide{T}
+
+Create a Neumann BC side (du/dr = value at boundary).
+"""
+function create_neumann_bc(::Type{T}, d1_row::Vector{T}, value::T=zero(T); l0_dirichlet::Bool=false) where T
+    nr = length(d1_row)
+    return ERK2BoundarySide{T}(:neumann, value, copy(d1_row), zero(T), zero(T), false, zero(T), l0_dirichlet)
+end
+
+"""
+    create_stress_free_tor_bc(T, d1_row, r_inv) -> ERK2BoundarySide{T}
+
+Create a stress-free toroidal BC side: dT/dr - T/r = 0.
+"""
+function create_stress_free_tor_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where T
+    return ERK2BoundarySide{T}(:stress_free_tor, zero(T), copy(d1_row), r_inv, zero(T), false, -r_inv, false)
+end
+
+"""
+    create_noslip_pol_bc(T, d1_row) -> ERK2BoundarySide{T}
+
+Create a no-slip poloidal BC side: dP/dr = 0.
+"""
+function create_noslip_pol_bc(::Type{T}, d1_row::Vector{T}) where T
+    return ERK2BoundarySide{T}(:noslip_pol, zero(T), copy(d1_row), zero(T), zero(T), false, zero(T), false)
+end
+
+"""
+    create_stress_free_pol_bc(T, d2_row) -> ERK2BoundarySide{T}
+
+Create a stress-free poloidal BC side: d²P/dr² = 0.
+"""
+function create_stress_free_pol_bc(::Type{T}, d2_row::Vector{T}) where T
+    return ERK2BoundarySide{T}(:stress_free_pol, zero(T), copy(d2_row), zero(T), zero(T), false, zero(T), false)
+end
+
+"""
+    create_insulating_inner_bc(T, d1_row, r_inv) -> ERK2BoundarySide{T}
+
+Create an insulating magnetic poloidal inner BC: (d/dr - l/r)P = 0.
+The l-factor is applied dynamically during enforcement.
+"""
+function create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where T
+    return ERK2BoundarySide{T}(:insulating_inner, zero(T), copy(d1_row), r_inv, -one(T), true, zero(T), false)
+end
+
+"""
+    create_insulating_outer_bc(T, d1_row, r_inv) -> ERK2BoundarySide{T}
+
+Create an insulating magnetic poloidal outer BC: (d/dr + (l+1)/r)P = 0.
+The (l+1) factor is split: fixed_correction = +1/r (the "+1" part),
+and l_sign = +1 with use_l_correction = true (the "l" part).
+Total correction = l_sign*l*r_inv + fixed_correction = (l+1)/r.
+"""
+function create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where T
+    return ERK2BoundarySide{T}(:insulating_outer, zero(T), copy(d1_row), r_inv, one(T), true, r_inv, false)
+end
+
+"""
+    extract_dense_row(banded::BandedMatrix{T}, row::Int) -> Vector{T}
+
+Extract a full dense row from a banded matrix.
+"""
+function extract_dense_row(data::Matrix{T}, bandwidth::Int, nr::Int, row::Int) where T
+    result = zeros(T, nr)
+    @inbounds for j in max(1, row - bandwidth):min(nr, row + bandwidth)
+        band_idx = bandwidth + 1 + row - j
+        if 1 <= band_idx <= 2*bandwidth + 1
+            result[j] = data[band_idx, j]
+        end
+    end
+    return result
+end
+
 """
     ERK2Cache{T}
 
@@ -1182,13 +1372,19 @@ let env_val = get(ENV, "GEODYNAMO_ERK2_DIAGNOSTICS", nothing)
 end
 
 """
-    create_erk2_cache(config, domain, diffusivity, dt; use_krylov=false, m=20, tol=1e-8)
+    create_erk2_cache(config, domain, diffusivity, dt; use_krylov=false, m=20, tol=1e-8, bc_spec=nothing)
 
 Create ERK2 cache with precomputed matrix functions for all spherical harmonic modes.
+
+Boundary rows of A are zeroed only for l=0 (where the spherical Laplacian has a null
+space, making A singular). For l≥1, the full operator is retained (non-singular due to
+the -l(l+1)/r² term), enabling accurate LU-based phi1/phi2 computation and O(h³)
+enforcement corrections per step.
 """
 function create_erk2_cache(::Type{T}, config::SHTnsKitConfig, domain::RadialDomain,
                           diffusivity::Float64, dt::Float64;
-                          use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T
+                          use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8,
+                          bc_spec::Union{ERK2BoundarySpec{T}, Nothing}=nothing) where T
     
     lap = create_radial_laplacian(domain)
     nr = domain.N
@@ -1215,11 +1411,16 @@ function create_erk2_cache(::Type{T}, config::SHTnsKitConfig, domain::RadialDoma
             Adense[n, n] -= diffusivity * lfac * r_inv2[n]
         end
 
-        # Zero boundary rows to enforce homogeneous Dirichlet BCs.
-        # This ensures exp(hA) preserves boundary values (rows become identity)
-        # and phi functions don't propagate boundary errors into the interior.
-        Adense[1, :] .= zero(Float64)
-        Adense[nr, :] .= zero(Float64)
+        # Zero boundary rows ONLY for l=0 where the spherical Laplacian
+        # (d²/dr² + 2/r d/dr) has a null space (constant function), making A singular.
+        # For l≥1, the -l(l+1)/r² term ensures A is non-singular, so the LU-based
+        # phi1/phi2 computation works correctly and gives O(h³) enforcement corrections.
+        # Zeroing for l≥1 would make A singular, forcing fallback to the Taylor series
+        # and degrading boundary accuracy from O(h³) to O(h) per step.
+        if l == 0
+            Adense[1, :] .= zero(Float64)
+            Adense[nr, :] .= zero(Float64)
+        end
 
         if use_krylov
             # For large problems, we'll use Krylov methods during timestepping
@@ -1247,7 +1448,7 @@ function create_erk2_cache(::Type{T}, config::SHTnsKitConfig, domain::RadialDoma
             push!(phi1_full, Matrix{T}(phi1_full_l))
 
             # Compute φ2 function: φ2(z) = (exp(z) - I - z) / z²
-            phi2_full_l = compute_phi2_function(Adt_full, E_full_l)
+            phi2_full_l = compute_phi2_function(Adt_full, E_full_l; l=l)
             push!(phi2_full, Matrix{T}(phi2_full_l))
             
         end
@@ -1568,7 +1769,8 @@ Type-stable version using concrete ERK2Cache{T} type.
 """
 function get_erk2_cache!(caches::Dict{Symbol, ERK2Cache{T}}, key::Symbol, diffusivity::Float64,
                         ::Type{T}, config::SHTnsKitConfig, domain::RadialDomain, dt::Float64;
-                        use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T
+                        use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8,
+                        bc_spec::Union{ERK2BoundarySpec{T}, Nothing}=nothing) where T
     nr = domain.N
     cache = get(caches, key, nothing)
 
@@ -1585,7 +1787,7 @@ function get_erk2_cache!(caches::Dict{Symbol, ERK2Cache{T}}, key::Symbol, diffus
         end
 
         cache = create_erk2_cache(T, config, domain, diffusivity, dt;
-                                  use_krylov=use_krylov, m=m, tol=tol)
+                                  use_krylov=use_krylov, m=m, tol=tol, bc_spec=bc_spec)
     end
 
     caches[key] = cache
@@ -1723,7 +1925,8 @@ the same number of times, preventing deadlock with uneven lm distribution.
 """
 function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T},
                              nl::SHTnsSpecField{T}, cache::ERK2Cache{T},
-                             config::SHTnsKitConfig, dt::Float64) where T
+                             config::SHTnsKitConfig, dt::Float64;
+                             bc_spec::Union{ERK2BoundarySpec{T}, Nothing}=nothing) where T
     cache.use_krylov && error("Krylov-based ERK2 caches are not supported in staged integration")
 
     u_real = parent(u.data_real)
@@ -1818,9 +2021,18 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T},
         mul!(stage_tmp, E_half, ur)
         mul!(stage_phi_tmp, phi1_half, nr_vec)
         @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
-        # Enforce homogeneous Dirichlet BCs at boundaries
-        stage_tmp[1] = zero(T)
-        stage_tmp[nr] = zero(T)
+        # Enforce boundary conditions (real part)
+        if bc_spec !== nothing
+            inner_val = bc_spec.inner_mode_values !== nothing && lm_idx <= length(bc_spec.inner_mode_values) ?
+                        bc_spec.inner_mode_values[lm_idx] : nothing
+            outer_val = bc_spec.outer_mode_values !== nothing && lm_idx <= length(bc_spec.outer_mode_values) ?
+                        bc_spec.outer_mode_values[lm_idx] : nothing
+            enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr; value_override=inner_val)
+            enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr; value_override=outer_val)
+        else
+            stage_tmp[1] = zero(T)
+            stage_tmp[nr] = zero(T)
+        end
 
         # Scatter stage results only if this process owns the mode
         if owns_mode
@@ -1853,9 +2065,14 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T},
         mul!(stage_tmp, E_half, ui)
         mul!(stage_phi_tmp, phi1_half, ni_vec)
         @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
-        # Enforce homogeneous Dirichlet BCs at boundaries
-        stage_tmp[1] = zero(T)
-        stage_tmp[nr] = zero(T)
+        # Enforce boundary conditions
+        if bc_spec !== nothing
+            enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr)
+            enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr)
+        else
+            stage_tmp[1] = zero(T)
+            stage_tmp[nr] = zero(T)
+        end
 
         # Scatter imaginary stage results only if this process owns the mode
         if owns_mode
@@ -1897,7 +2114,8 @@ Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
 the same number of times, preventing deadlock with uneven lm distribution.
 """
 function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T},
-                              cache::ERK2Cache{T}, config::SHTnsKitConfig, dt::Float64) where T
+                              cache::ERK2Cache{T}, config::SHTnsKitConfig, dt::Float64;
+                              bc_spec::Union{ERK2BoundarySpec{T}, Nothing}=nothing) where T
     cache.use_krylov && error("Krylov-based ERK2 caches are not supported in staged integration")
 
     u_real = parent(u.data_real)
@@ -1965,9 +2183,18 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T}
         @. delta = delta - tmp_Nn
         mul!(correction, phi2, delta)
         @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
-        # Enforce homogeneous Dirichlet BCs at boundaries
-        result[1] = zero(T)
-        result[nr] = zero(T)
+        # Enforce boundary conditions (real part)
+        if bc_spec !== nothing
+            inner_val = bc_spec.inner_mode_values !== nothing && lm_idx <= length(bc_spec.inner_mode_values) ?
+                        bc_spec.inner_mode_values[lm_idx] : nothing
+            outer_val = bc_spec.outer_mode_values !== nothing && lm_idx <= length(bc_spec.outer_mode_values) ?
+                        bc_spec.outer_mode_values[lm_idx] : nothing
+            enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr; value_override=inner_val)
+            enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr; value_override=outer_val)
+        else
+            result[1] = zero(T)
+            result[nr] = zero(T)
+        end
 
         # Scatter back only if this process owns the mode (REAL part)
         if owns_mode
@@ -2014,9 +2241,14 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T}
         @. delta = delta - tmp_Nn
         mul!(correction, phi2, delta)
         @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
-        # Enforce homogeneous Dirichlet BCs at boundaries
-        result[1] = zero(T)
-        result[nr] = zero(T)
+        # Enforce boundary conditions
+        if bc_spec !== nothing
+            enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr)
+            enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr)
+        else
+            result[1] = zero(T)
+            result[nr] = zero(T)
+        end
 
         # Scatter back only if this process owns the mode (IMAG part)
         if owns_mode

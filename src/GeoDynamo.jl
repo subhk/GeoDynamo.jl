@@ -96,6 +96,9 @@ module GeoDynamo
     export create_magnetic_toroidal_matrices, create_magnetic_poloidal_matrices
     export solve_magnetic_implicit_step!
 
+    # exports scalar_field_common.jl
+    export GradientWorkspace, create_gradient_workspace, zero_gradient_workspace!
+
     # exports thermal.jl
     export SHTnsTemperatureField, create_shtns_temperature_field
     export compute_temperature_nonlinear!

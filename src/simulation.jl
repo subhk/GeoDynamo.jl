@@ -74,6 +74,9 @@ struct SimulationState{T}
     temperature::SHTnsTemperatureField{T}
     composition::Union{SHTnsCompositionField{T}, Nothing}
 
+    # Shared gradient workspace (memory optimization)
+    gradient_workspace::GradientWorkspace{T}
+
     # Geometric data
     shtns_config::SHTnsKitConfig
     𝒟ᵒᶜ::RadialDomain
@@ -206,8 +209,12 @@ function initialize_simulation(::Type{T}=Float64;
         implicit_matrices[:composition] = create_composition_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Sc, d_timestep)
     end
 
+    # Shared gradient workspace for temperature and composition (memory optimization)
+    gradient_workspace = create_gradient_workspace(T, shtns_config, 𝒟ᵒᶜ)
+
     state = SimulationState{T}(
         velocity, magnetic, temperature, composition,
+        gradient_workspace,
         shtns_config, 𝒟ᵒᶜ, 𝒟ⁱᶜ,
         master_parallelizer,
         timestep_state, implicit_matrices,
@@ -483,9 +490,10 @@ function run_enhanced_simulation!(state::SimulationState{T};
         
         # Compositional evolution (if enabled)
         if state.composition !== nothing
-            compute_composition_nonlinear!(state.composition, state.velocity, state.𝒟ᵒᶜ)
+            compute_composition_nonlinear!(state.composition, state.velocity, state.𝒟ᵒᶜ,
+                                           state.gradient_workspace)
         end
-        
+
         compute_time = Wtime() - compute_start
         
         # 2. Enhanced time integration
@@ -694,8 +702,8 @@ function run_simulation!(state::SimulationState{T};
         compute_start = Wtime()
         
         # Temperature evolution with maximum CPU optimizations
-        compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, state.temperature, 
-                                   state.velocity, state.𝒟ᵒᶜ)
+        compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, state.temperature,
+                                   state.velocity, state.𝒟ᵒᶜ, state.gradient_workspace)
         
         # Velocity evolution with task-based parallelism
         if state.velocity !== nothing
@@ -709,7 +717,8 @@ function run_simulation!(state::SimulationState{T};
         
         # Compositional evolution (if enabled) with memory optimization
         if state.composition !== nothing
-            compute_composition_nonlinear_master!(state, state.velocity, state.𝒟ᵒᶜ)
+            compute_composition_nonlinear_master!(state, state.velocity, state.𝒟ᵒᶜ,
+                                                  state.gradient_workspace)
         end
         
         compute_time = Wtime() - compute_start
@@ -1063,11 +1072,13 @@ function compute_all_nonlinear_terms!(state::SimulationState{T}) where T
         compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.𝒟ᵒᶜ, state.𝒟ⁱᶜ, 0.0)
     end
 
-    compute_temperature_nonlinear!(state.temperature, state.velocity, state.𝒟ᵒᶜ)
+    compute_temperature_nonlinear!(state.temperature, state.velocity, state.𝒟ᵒᶜ,
+                                    state.gradient_workspace)
 
     # Compute compositional advection if composition is present
     if state.composition !== nothing
-        compute_composition_nonlinear!(state.composition, state.velocity, state.𝒟ᵒᶜ)
+        compute_composition_nonlinear!(state.composition, state.velocity, state.𝒟ᵒᶜ,
+                                       state.gradient_workspace)
     end
 end
 
@@ -1373,7 +1384,8 @@ finalize_master_simulation!(state) = finalize_enhanced_simulation!(state)
 # Advanced computation functions
 function compute_velocity_nonlinear_master!(state, magnetic, temperature, domain)
     # Use enhanced CPU parallelization for velocity computation
-    compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, temperature, state.velocity, domain)
+    compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, temperature, state.velocity, domain,
+                       state.gradient_workspace)
 end
 
 function compute_magnetic_nonlinear_master!(state, velocity, 𝒟ᵒᶜ, 𝒟ⁱᶜ)
@@ -1381,10 +1393,10 @@ function compute_magnetic_nonlinear_master!(state, velocity, 𝒟ᵒᶜ, 𝒟ⁱ
     compute_magnetic_nonlinear!(state.magnetic, velocity, 𝒟ᵒᶜ, 𝒟ⁱᶜ)
 end
 
-function compute_composition_nonlinear_master!(state, velocity, domain)
+function compute_composition_nonlinear_master!(state, velocity, domain, ws::GradientWorkspace)
     # Use memory-efficient compositional computation
     if state.composition !== nothing
-        compute_composition_nonlinear!(state.composition, velocity, domain)
+        compute_composition_nonlinear!(state.composition, velocity, domain, ws)
     end
 end
 
@@ -1708,56 +1720,204 @@ function reset_solenoidal_monitor!()
 end
 
 # ================================================================================
+# ERK2 BOUNDARY CONDITION SPEC BUILDERS
+# ================================================================================
+
+"""
+    build_erk2_bc_spec_scalar(T, domain, i_bc) -> ERK2BoundarySpec{T}
+
+Build ERK2 boundary spec for a scalar field (temperature or composition).
+i_bc encoding: 1=DD, 2=DN, 3=ND, 4=NN.
+"""
+function build_erk2_bc_spec_scalar(::Type{T}, domain::RadialDomain, i_bc::Int) where T
+    nr = domain.N
+    d1 = create_derivative_matrix(T, 1, domain)
+    d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
+    d1_outer = extract_dense_row(d1.data, d1.bandwidth, nr, nr)
+
+    # Inner boundary
+    if i_bc == 1 || i_bc == 2  # Dirichlet inner
+        inner = create_dirichlet_bc(T, nr)
+    else  # Neumann inner (i_bc == 3 or 4)
+        # For i_bc=4 (both Neumann), override inner to Dirichlet at l=0
+        # to avoid underdetermined system (matching CNAB2 treatment)
+        inner = create_neumann_bc(T, d1_inner; l0_dirichlet=(i_bc == 4))
+    end
+
+    # Outer boundary
+    if i_bc == 1 || i_bc == 3  # Dirichlet outer
+        outer = create_dirichlet_bc(T, nr)
+    else  # Neumann outer (i_bc == 2 or 4)
+        outer = create_neumann_bc(T, d1_outer)
+    end
+
+    return ERK2BoundarySpec{T}(inner, outer)
+end
+
+"""
+    build_erk2_bc_spec_velocity_tor(T, domain, i_vel_bc; config=nothing, rot_omega=0.0) -> ERK2BoundarySpec{T}
+
+Build ERK2 boundary spec for the velocity toroidal component.
+i_vel_bc: 1=no-slip both, 2=no-slip inner/stress-free outer,
+          3=stress-free inner/no-slip outer, 4=stress-free both.
+
+If `rot_omega ≠ 0` and inner BC is no-slip, the inner boundary value for
+(l=1, m=0) is set to `rot_omega * r_inner` (rotating inner core).
+"""
+function build_erk2_bc_spec_velocity_tor(::Type{T}, domain::RadialDomain, i_vel_bc::Int;
+                                          config::Union{SHTnsKitConfig, Nothing}=nothing,
+                                          rot_omega::Float64=0.0) where T
+    nr = domain.N
+    d1 = create_derivative_matrix(T, 1, domain)
+    d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
+    d1_outer = extract_dense_row(d1.data, d1.bandwidth, nr, nr)
+    r_inv_inner = T(domain.r[1, 3])
+    r_inv_outer = T(domain.r[nr, 3])
+
+    # Inner boundary
+    if i_vel_bc == 1 || i_vel_bc == 2  # No-slip inner: T = 0 (Dirichlet)
+        inner = create_dirichlet_bc(T, nr)
+    else  # Stress-free inner: dT/dr - T/r = 0
+        inner = create_stress_free_tor_bc(T, d1_inner, r_inv_inner)
+    end
+
+    # Outer boundary
+    if i_vel_bc == 1 || i_vel_bc == 3  # No-slip outer: T = 0 (Dirichlet)
+        outer = create_dirichlet_bc(T, nr)
+    else  # Stress-free outer: dT/dr - T/r = 0
+        outer = create_stress_free_tor_bc(T, d1_outer, r_inv_outer)
+    end
+
+    # Build per-mode value overrides for rotating inner core
+    inner_mode_values = nothing
+    if rot_omega != 0.0 && (i_vel_bc == 1 || i_vel_bc == 2) && config !== nothing
+        r_inner = T(domain.r[1, 4])  # r at inner boundary
+        nlm = length(config.l_values)
+        inner_mode_values = zeros(T, nlm)
+        for lm_idx in 1:nlm
+            if config.l_values[lm_idx] == 1 && config.m_values[lm_idx] == 0
+                inner_mode_values[lm_idx] = T(rot_omega) * r_inner
+            end
+        end
+    end
+
+    return ERK2BoundarySpec{T}(inner, outer, inner_mode_values, nothing)
+end
+
+"""
+    build_erk2_bc_spec_velocity_pol(T, domain, i_vel_bc) -> ERK2BoundarySpec{T}
+
+Build ERK2 boundary spec for the velocity poloidal component.
+
+The no-penetration condition (u_r = l(l+1)/r² · P = 0) requires P = 0 at both
+boundaries regardless of no-slip or stress-free. The CNAB2 scheme uses derivative
+BCs in the matrix plus the influence matrix method to enforce P = 0. Since ERK2
+doesn't have influence matrix infrastructure, we directly enforce P = 0 (Dirichlet).
+"""
+function build_erk2_bc_spec_velocity_pol(::Type{T}, domain::RadialDomain, i_vel_bc::Int) where T
+    nr = domain.N
+    # No-penetration: P = 0 at both boundaries for all velocity BC types
+    return ERK2BoundarySpec{T}(create_dirichlet_bc(T, nr), create_dirichlet_bc(T, nr))
+end
+
+"""
+    build_erk2_bc_spec_magnetic_tor(T, nr) -> ERK2BoundarySpec{T}
+
+Build ERK2 boundary spec for magnetic toroidal field (insulating: BT = 0 at both).
+"""
+function build_erk2_bc_spec_magnetic_tor(::Type{T}, nr::Int) where T
+    return ERK2BoundarySpec{T}(create_dirichlet_bc(T, nr), create_dirichlet_bc(T, nr))
+end
+
+"""
+    build_erk2_bc_spec_magnetic_pol(T, domain) -> ERK2BoundarySpec{T}
+
+Build ERK2 boundary spec for magnetic poloidal field (insulating BCs, l-dependent).
+Inner: (d/dr - l/r)P = 0. Outer: (d/dr + (l+1)/r)P = 0.
+"""
+function build_erk2_bc_spec_magnetic_pol(::Type{T}, domain::RadialDomain) where T
+    nr = domain.N
+    d1 = create_derivative_matrix(T, 1, domain)
+    d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
+    d1_outer = extract_dense_row(d1.data, d1.bandwidth, nr, nr)
+    r_inv_inner = T(domain.r[1, 3])
+    r_inv_outer = T(domain.r[nr, 3])
+
+    inner = create_insulating_inner_bc(T, d1_inner, r_inv_inner)
+    outer = create_insulating_outer_bc(T, d1_outer, r_inv_outer)
+
+    return ERK2BoundarySpec{T}(inner, outer)
+end
+
+# ================================================================================
 # ERK2 INTEGRATION WITH VALIDATION
 # ================================================================================
 
-function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where T
+function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64;
+                                    rot_omega::Float64=0.0) where T
+    # Build BC specifications for all fields
+    params = get_parameters()
+    domain = state.𝒟ᵒᶜ
+    nr = domain.N
+    temp_bc = build_erk2_bc_spec_scalar(T, domain, params.i_tmp_bc)
+    vel_tor_bc = build_erk2_bc_spec_velocity_tor(T, domain, params.i_vel_bc;
+                                                   config=state.shtns_config, rot_omega=rot_omega)
+    vel_pol_bc = build_erk2_bc_spec_velocity_pol(T, domain, params.i_vel_bc)
+
     # Prepare caches and stage buffers for all active fields (magnetic diffusion time scaling)
     # Diffusivities: Temperature = Pm/Pr, Velocity = E, Magnetic = 1.0, Composition = Pm/Sc
     temp_cache = get_erk2_cache!(state.erk2_caches, :temperature, d_Pm/d_Pr, T,
-                                 state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
+                                 state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false, bc_spec=temp_bc)
     temp_buffers = ERK2FieldBuffers(state.temperature.spectral, state.temperature.nonlinear, temp_cache)
     erk2_prepare_field!(temp_buffers, state.temperature.spectral, state.temperature.nonlinear,
-                        temp_cache, state.shtns_config, dt)
+                        temp_cache, state.shtns_config, dt; bc_spec=temp_bc)
 
     vel_tor_cache = get_erk2_cache!(state.erk2_caches, :velocity_toroidal, d_E, T,
-                                    state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
+                                    state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false, bc_spec=vel_tor_bc)
     vel_tor_buffers = ERK2FieldBuffers(state.velocity.𝒯, state.velocity.nlᵀ, vel_tor_cache)
     erk2_prepare_field!(vel_tor_buffers, state.velocity.𝒯, state.velocity.nlᵀ,
-                        vel_tor_cache, state.shtns_config, dt)
+                        vel_tor_cache, state.shtns_config, dt; bc_spec=vel_tor_bc)
 
     vel_pol_cache = get_erk2_cache!(state.erk2_caches, :velocity_poloidal, d_E, T,
-                                    state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
+                                    state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false, bc_spec=vel_pol_bc)
     vel_pol_buffers = ERK2FieldBuffers(state.velocity.𝒫, state.velocity.nlᴾ, vel_pol_cache)
     erk2_prepare_field!(vel_pol_buffers, state.velocity.𝒫, state.velocity.nlᴾ,
-                        vel_pol_cache, state.shtns_config, dt)
+                        vel_pol_cache, state.shtns_config, dt; bc_spec=vel_pol_bc)
 
     mag_tor_buffers = nothing
     mag_pol_buffers = nothing
     mag_tor_cache = nothing
     mag_pol_cache = nothing
+    mag_tor_bc = nothing
+    mag_pol_bc = nothing
     if i_B == 1 && state.magnetic !== nothing
+        mag_tor_bc = build_erk2_bc_spec_magnetic_tor(T, nr)
+        mag_pol_bc = build_erk2_bc_spec_magnetic_pol(T, domain)
+
         mag_tor_cache = get_erk2_cache!(state.erk2_caches, :magnetic_toroidal, 1.0, T,
-                                        state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
+                                        state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false, bc_spec=mag_tor_bc)
         mag_tor_buffers = ERK2FieldBuffers(state.magnetic.𝒯, state.magnetic.nlᵀ, mag_tor_cache)
         erk2_prepare_field!(mag_tor_buffers, state.magnetic.𝒯, state.magnetic.nlᵀ,
-                            mag_tor_cache, state.shtns_config, dt)
+                            mag_tor_cache, state.shtns_config, dt; bc_spec=mag_tor_bc)
 
         mag_pol_cache = get_erk2_cache!(state.erk2_caches, :magnetic_poloidal, 1.0, T,
-                                        state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
+                                        state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false, bc_spec=mag_pol_bc)
         mag_pol_buffers = ERK2FieldBuffers(state.magnetic.𝒫, state.magnetic.nlᴾ, mag_pol_cache)
         erk2_prepare_field!(mag_pol_buffers, state.magnetic.𝒫, state.magnetic.nlᴾ,
-                            mag_pol_cache, state.shtns_config, dt)
+                            mag_pol_cache, state.shtns_config, dt; bc_spec=mag_pol_bc)
     end
 
     comp_buffers = nothing
     comp_cache = nothing
+    comp_bc = nothing
     if state.composition !== nothing
+        comp_bc = build_erk2_bc_spec_scalar(T, domain, params.i_cmp_bc)
+
         comp_cache = get_erk2_cache!(state.erk2_caches, :composition, d_Pm/d_Sc, T,
-                                     state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
+                                     state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false, bc_spec=comp_bc)
         comp_buffers = ERK2FieldBuffers(state.composition.spectral, state.composition.nonlinear, comp_cache)
         erk2_prepare_field!(comp_buffers, state.composition.spectral, state.composition.nonlinear,
-                            comp_cache, state.shtns_config, dt)
+                            comp_cache, state.shtns_config, dt; bc_spec=comp_bc)
     end
 
     # Apply stage solution to all fields
@@ -1771,10 +1931,6 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
     if comp_buffers !== nothing
         erk2_apply_stage!(comp_buffers, state.composition.spectral)
     end
-
-    # ========================================================================
-    # Temperature, composition, velocity, and magnetic BCs are now all
-    # embedded in the implicit matrix solve. No post-processing needed.
 
     # Evaluate nonlinear terms at the stage state for all coupled equations
     compute_all_nonlinear_terms!(state)
@@ -1797,16 +1953,22 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64) where
         maybe_log_erk2_stage_residual!(:composition, comp_buffers, state.timestep_state.step)
     end
 
-    # Finalize each field using stage data
-    erk2_finalize_field!(temp_buffers, state.temperature.spectral, temp_cache, state.shtns_config, dt)
-    erk2_finalize_field!(vel_tor_buffers, state.velocity.𝒯, vel_tor_cache, state.shtns_config, dt)
-    erk2_finalize_field!(vel_pol_buffers, state.velocity.𝒫, vel_pol_cache, state.shtns_config, dt)
+    # Finalize each field using stage data with BC enforcement
+    erk2_finalize_field!(temp_buffers, state.temperature.spectral, temp_cache, state.shtns_config, dt;
+                         bc_spec=temp_bc)
+    erk2_finalize_field!(vel_tor_buffers, state.velocity.𝒯, vel_tor_cache, state.shtns_config, dt;
+                         bc_spec=vel_tor_bc)
+    erk2_finalize_field!(vel_pol_buffers, state.velocity.𝒫, vel_pol_cache, state.shtns_config, dt;
+                         bc_spec=vel_pol_bc)
     if mag_tor_buffers !== nothing
-        erk2_finalize_field!(mag_tor_buffers, state.magnetic.𝒯, mag_tor_cache, state.shtns_config, dt)
-        erk2_finalize_field!(mag_pol_buffers, state.magnetic.𝒫, mag_pol_cache, state.shtns_config, dt)
+        erk2_finalize_field!(mag_tor_buffers, state.magnetic.𝒯, mag_tor_cache, state.shtns_config, dt;
+                             bc_spec=mag_tor_bc)
+        erk2_finalize_field!(mag_pol_buffers, state.magnetic.𝒫, mag_pol_cache, state.shtns_config, dt;
+                             bc_spec=mag_pol_bc)
     end
     if comp_buffers !== nothing
-        erk2_finalize_field!(comp_buffers, state.composition.spectral, comp_cache, state.shtns_config, dt)
+        erk2_finalize_field!(comp_buffers, state.composition.spectral, comp_cache, state.shtns_config, dt;
+                             bc_spec=comp_bc)
     end
 
     # Report φ₂ conditioning statistics periodically (every 100 steps)

@@ -1149,18 +1149,19 @@ function hybrid_compute_nonlinear!(parallelizer::HybridParallelizer{T},
 end
 
 """
-    compute_nonlinear!(parallelizer, temp_field, vel_fields, domain)
-    
+    compute_nonlinear!(parallelizer, temp_field, vel_fields, domain, ws)
+
 Advanced CPU computation with SIMD, NUMA, and task-based parallelism.
 """
 function compute_nonlinear!(parallelizer::CPUParallelizer{T},
-                                    temp_field, vel_fields, domain) where T
-    
+                                    temp_field, vel_fields, domain,
+                                    ws::GradientWorkspace{T}) where T
+
     start_time = time()
-    
+
     # Stage 1: SIMD gradient computation with NUMA awareness
     gradient_start = time()
-    compute_gradients_advanced!(parallelizer, temp_field, domain)
+    compute_gradients_advanced!(parallelizer, temp_field, domain, ws)
     gradient_time = time() - gradient_start
     
     # Stage 2: Task-based advection computation
@@ -1174,8 +1175,9 @@ function compute_nonlinear!(parallelizer::CPUParallelizer{T},
     update_cpu_performance_metrics!(parallelizer, gradient_time, advection_time, total_time)
 end
 
-function compute_gradients_advanced!(parallelizer::CPUParallelizer{T}, 
-                                 temp_field, domain) where T
+function compute_gradients_advanced!(parallelizer::CPUParallelizer{T},
+                                 temp_field, domain,
+                                 ws::GradientWorkspace{T}) where T
     # Create task graph for parallel gradient computation
     task_graph = create_task_graph()
     

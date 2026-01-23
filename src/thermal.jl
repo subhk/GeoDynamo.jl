@@ -77,11 +77,6 @@ mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
     work_physical::SHTnsPhysField{T}
     advection_physical::SHTnsPhysField{T}
 
-    # Gradient spectral components for efficiency
-    ∇θ_spec::SHTnsSpecField{T}
-    ∇φ_spec::SHTnsSpecField{T}
-    ∇r_spec::SHTnsSpecField{T}
-
     # Sources and boundary conditions
     internal_sources::Vector{T}        # Radial profile of heating
     boundary_values::Matrix{T}         # [2, nlm] for ICB and CMB
@@ -148,11 +143,6 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     work_physical      = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
     advection_physical = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
 
-    # Gradient spectral components
-    ∇θ_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    ∇φ_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    ∇r_spec = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    
     # Sources and boundary conditions
     internal_sources = zeros(T, 𝒟ᵒᶜ.N)
     boundary_values  = zeros(T, 2, config.nlm)
@@ -180,7 +170,6 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     return SHTnsTemperatureField{T}(
         temperature, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
-        ∇θ_spec, ∇φ_spec, ∇r_spec,
         internal_sources, boundary_values,
         bc_type_inner, bc_type_outer,
         nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
@@ -198,43 +187,45 @@ include("bcs/thermal_bc.jl")
 # ================================================================================
 # Main nonlinear computation with full spectral optimization
 # ================================================================================
-function compute_temperature_nonlinear!(temp_𝔽::SHTnsTemperatureField{T}, 
-                                        vel_fields, 𝒟ᵒᶜ::RadialDomain; 
+function compute_temperature_nonlinear!(temp_𝔽::SHTnsTemperatureField{T},
+                                        vel_fields, 𝒟ᵒᶜ::RadialDomain,
+                                        ws::GradientWorkspace{T};
                                         geometry::Symbol = get_parameters().geometry) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
-    
-    # Zero work arrays
-    zero_scalar_work_arrays!(temp_field)
-    
+
+    # Zero work arrays and gradient workspace
+    zero_scalar_work_arrays!(temp_𝔽)
+    zero_gradient_workspace!(ws)
+
     # Step 1: Compute ALL gradients in spectral space (NO COMMUNICATION!)
     t_spectral = MPI.Wtime()
-    compute_all_gradients_spectral!(temp_field, 𝒟ᵒᶜ)
-    temp_field.spectral_time[] += MPI.Wtime() - t_spectral
-    
+    compute_all_gradients_spectral!(temp_𝔽, 𝒟ᵒᶜ, ws)
+    temp_𝔽.spectral_time[] += MPI.Wtime() - t_spectral
+
     # Step 2: Single batched transform of temperature and gradients to physical
     t_transform = MPI.Wtime()
-    transform_field_and_gradients_to_physical!(temp_field)
-    temp_field.transform_time[] += MPI.Wtime() - t_transform
-    
+    transform_field_and_gradients_to_physical!(temp_𝔽, ws)
+    temp_𝔽.transform_time[] += MPI.Wtime() - t_transform
+
     # Step 3: Compute advection term -u·∇T in physical space (local operation)
     if vel_fields !== nothing
-        compute_scalar_advection_local!(temp_field, vel_fields)
+        compute_scalar_advection_local!(temp_𝔽, vel_fields)
     end
-    
+
     # Step 4: Add internal heat sources (local operation)
-    add_internal_sources_local!(temp_field, 𝒟ᵒᶜ)
-    
+    add_internal_sources_local!(temp_𝔽, 𝒟ᵒᶜ)
+
     # Step 5: Transform advection + sources back to spectral space
     t_transform = MPI.Wtime()
     if geometry === :ball
-        ball_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
+        ball_physical_to_spectral!(temp_𝔽.advection_physical, temp_𝔽.nonlinear)
     else
-        shtnskit_physical_to_spectral!(temp_field.advection_physical, temp_field.nonlinear)
+        shtnskit_physical_to_spectral!(temp_𝔽.advection_physical, temp_𝔽.nonlinear)
     end
-    temp_field.transform_time[] += MPI.Wtime() - t_transform
-    
+    temp_𝔽.transform_time[] += MPI.Wtime() - t_transform
+
     if ENABLE_TIMING[]
-        temp_field.computation_time[] += MPI.Wtime() - t_start
+        temp_𝔽.computation_time[] += MPI.Wtime() - t_start
     end
 end
 
@@ -274,41 +265,38 @@ function compute_temperature_advection_local!(temp_𝔽::SHTnsTemperatureField{T
     uᵣ = parent(vel_fields.velocity.r_component.data)
     uθ = parent(vel_fields.velocity.θ_component.data)
     uφ = parent(vel_fields.velocity.φ_component.data)
-    
-    ∇r = parent(temp_field.gradient.r_component.data)
-    ∇θ = parent(temp_field.gradient.θ_component.data)
-    ∇φ = parent(temp_field.gradient.φ_component.data)
-    
-    advection = parent(temp_field.advection_physical.data)
-    
+
+    ∇r = parent(temp_𝔽.gradient.r_component.data)
+    ∇θ = parent(temp_𝔽.gradient.θ_component.data)
+    ∇φ = parent(temp_𝔽.gradient.φ_component.data)
+
+    advection = parent(temp_𝔽.advection_physical.data)
+
     @inbounds @simd for idx in eachindex(advection)
         if idx <= length(uᵣ) && idx <= length(∇r)
-            advection[idx] = -(uᵣ[idx] * ∇r[idx] + 
-                              uθ[idx] * ∇θ[idx] + 
+            advection[idx] = -(uᵣ[idx] * ∇r[idx] +
+                              uθ[idx] * ∇θ[idx] +
                               uφ[idx] * ∇φ[idx])
         end
     end
 end
 
-function add_internal_sources_local!(temp_𝔽::SHTnsTemperatureField{T}, 
+function add_internal_sources_local!(temp_𝔽::SHTnsTemperatureField{T},
                                     domain::RadialDomain) where T
-    """
-    Add volumetric heating (completely local operation)
-    """
-    advection = parent(temp_field.advection_physical.data)
-    
-    if !all(iszero, temp_field.internal_sources)
+    advection = parent(temp_𝔽.advection_physical.data)
+
+    if !all(iszero, temp_𝔽.internal_sources)
         # Get local physical dimensions
-        local_shape = size(temp_field.advection_physical.data)
+        local_shape = size(temp_𝔽.advection_physical.data)
         nlat_local, nlon_local, nr_local = local_shape
-        
-        r_range = range_local(temp_field.config.pencils.r, 3)
-        
+
+        r_range = range_local(temp_𝔽.config.pencils.r, 3)
+
         @inbounds for k in 1:nr_local
             r_idx = k + first(r_range) - 1
-            if r_idx <= length(temp_field.internal_sources)
-                source_value = temp_field.internal_sources[r_idx]
-                
+            if r_idx <= length(temp_𝔽.internal_sources)
+                source_value = temp_𝔽.internal_sources[r_idx]
+
                 # Add uniformly at this radius
                 @simd for j in 1:nlon_local
                     for i in 1:nlat_local
@@ -347,11 +335,11 @@ function validate_flux_bc(temp_field, domain)
     max_error = 0.0
     
     for lm_idx in lm_range
-        if lm_idx <= temp_𝔽.config.nlm
+        if lm_idx <= temp_field.config.nlm
             local_lm = lm_idx - first(lm_range) + 1
-            
+
             # Check inner boundary
-            if temp_𝔽.bc_type_inner[lm_idx] == Int(NEUMANN)
+            if temp_field.bc_type_inner[lm_idx] == Int(NEUMANN)
                 prescribed = get_flux_value(lm_idx, 1, temp_field)
                 actual = compute_flux_at_boundary(spec_real, spec_imag, local_lm,
                                                  1, temp_field, domain)
@@ -360,7 +348,7 @@ function validate_flux_bc(temp_field, domain)
             end
 
             # Check outer boundary
-            if temp_𝔽.bc_type_outer[lm_idx] == Int(NEUMANN)
+            if temp_field.bc_type_outer[lm_idx] == Int(NEUMANN)
                 prescribed = get_flux_value(lm_idx, 2, temp_field)
                 actual = compute_flux_at_boundary(spec_real, spec_imag, local_lm,
                                                  domain.N, temp_field, domain)
@@ -389,15 +377,12 @@ end
 # ================================================================================
 function compute_nusselt_number(temp_𝔽::SHTnsTemperatureField{T},
                                domain::RadialDomain) where T
-    """
-    Compute Nusselt number from heat flux at boundaries
-    """
     # Compute heat flux from radial gradient
-    ∇r = temp_field.gradient.r_component
+    ∇r = temp_𝔽.gradient.r_component
 
     # Get flux at boundaries (requires communication)
-    flux_inner = compute_surface_flux(∇r, 1, temp_field.config)
-    flux_outer = compute_surface_flux(∇r, domain.N, temp_field.config)
+    flux_inner = compute_surface_flux(∇r, 1, temp_𝔽.config)
+    flux_outer = compute_surface_flux(∇r, domain.N, temp_𝔽.config)
 
     # Nusselt number
     conductive_flux = 4π * domain.r[1, 4]^2
@@ -408,32 +393,29 @@ end
 
 
 function compute_thermal_energy(temp_𝔽::SHTnsTemperatureField{T}) where T
-    """
-    Compute total thermal energy in spectral space
-    """
-    spec_real = parent(temp_field.spectral.data_real)
-    spec_imag = parent(temp_field.spectral.data_imag)
-    
+    spec_real = parent(temp_𝔽.spectral.data_real)
+    spec_imag = parent(temp_𝔽.spectral.data_imag)
+
     # Local energy computation
     local_energy = 0.0
-    
-    lm_range = range_local(temp_field.config.pencils.spec, 1)
-    r_range  = range_local(temp_field.config.pencils.spec, 3)
-    
+
+    lm_range = range_local(temp_𝔽.config.pencils.spec, 1)
+    r_range  = range_local(temp_𝔽.config.pencils.spec, 3)
+
     @inbounds for lm_idx in lm_range
         if lm_idx <= temp_𝔽.config.nlm
             local_lm = lm_idx - first(lm_range) + 1
-            
+
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(spec_real, 3)
-                    local_energy += (spec_real[local_lm, 1, local_r]^2 + 
+                    local_energy += (spec_real[local_lm, 1, local_r]^2 +
                                    spec_imag[local_lm, 1, local_r]^2)
                 end
             end
         end
     end
-    
+
     # Global sum across all processes
     return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
 end
@@ -444,7 +426,7 @@ function compute_surface_flux(field::SHTnsPhysField{T}, r_level::Int,
     """
     Compute surface integral of flux at given radial level
     """
-    data = parent(𝔽.data)
+    data = parent(field.data)
     
     # Local contribution
     local_flux = 0.0
@@ -480,13 +462,10 @@ end
 # ================================================================================
 # Performance monitoring and statistics
 # ================================================================================
-function get_temperature_statistics(temp_𝔽::SHTnsTemperatureField{T}, 
+function get_temperature_statistics(temp_𝔽::SHTnsTemperatureField{T},
                                    domain::RadialDomain) where T
-    """
-    Compute various temperature field statistics
-    """
     # Min/max temperature
-    temp_data = parent(temp_field.temperature.data)
+    temp_data = parent(temp_𝔽.temperature.data)
     local_min = minimum(temp_data)
     local_max = maximum(temp_data)
 
@@ -499,15 +478,15 @@ function get_temperature_statistics(temp_𝔽::SHTnsTemperatureField{T},
 
     global_sum = MPI.Allreduce(local_sum, MPI.SUM, get_comm())
     global_count = MPI.Allreduce(local_count, MPI.SUM, get_comm())
-    
+
     rms_temp = sqrt(global_sum / global_count)
-    
+
     # Nusselt number
-    Nu = compute_nusselt_number(temp_field, domain)
-    
+    Nu = compute_nusselt_number(temp_𝔽, domain)
+
     # Total energy
-    energy = compute_thermal_energy(temp_field)
-    
+    energy = compute_thermal_energy(temp_𝔽)
+
     return (min = global_min,
             max = global_max,
             rms = rms_temp,
@@ -519,38 +498,26 @@ end
 # Utility functions
 # ================================================================================
 function zero_temperature_work_arrays!(temp_𝔽::SHTnsTemperatureField{T}) where T
-    """
-    Efficiently zero all work arrays
-    """
-    fill!(parent(temp_field.work_spectral.data_real), zero(T))
-    fill!(parent(temp_field.work_spectral.data_imag), zero(T))
-    fill!(parent(temp_field.work_physical.data), zero(T))
-    fill!(parent(temp_field.advection_physical.data), zero(T))
-    fill!(parent(temp_field.∇θ_spec.data_real), zero(T))
-    fill!(parent(temp_field.∇θ_spec.data_imag), zero(T))
-    fill!(parent(temp_field.∇φ_spec.data_real), zero(T))
-    fill!(parent(temp_field.∇φ_spec.data_imag), zero(T))
-    fill!(parent(temp_field.∇r_spec.data_real), zero(T))
-    fill!(parent(temp_field.∇r_spec.data_imag), zero(T))
+    fill!(parent(temp_𝔽.work_spectral.data_real), zero(T))
+    fill!(parent(temp_𝔽.work_spectral.data_imag), zero(T))
+    fill!(parent(temp_𝔽.work_physical.data), zero(T))
+    fill!(parent(temp_𝔽.advection_physical.data), zero(T))
 end
 
-function set_temperature_ic!(temp_𝔽::SHTnsTemperatureField{T}, 
+function set_temperature_ic!(temp_𝔽::SHTnsTemperatureField{T},
                             domain::RadialDomain;
                             perturbation_amplitude::T = T(1e-3)) where T
-    """
-    Set initial condition for temperature field
-    """
-    spec_real = parent(temp_field.spectral.data_real)
-    spec_imag = parent(temp_field.spectral.data_imag)
-    
-    lm_range = range_local(temp_field.config.pencils.spec, 1)
-    r_range = range_local(temp_field.config.pencils.spec, 3)
-    
+    spec_real = parent(temp_𝔽.spectral.data_real)
+    spec_imag = parent(temp_𝔽.spectral.data_imag)
+
+    lm_range = range_local(temp_𝔽.config.pencils.spec, 1)
+    r_range = range_local(temp_𝔽.config.pencils.spec, 3)
+
     @inbounds for lm_idx in lm_range
         if lm_idx <= temp_𝔽.config.nlm
             local_lm = lm_idx - first(lm_range) + 1
-            l = temp_field.config.l_values[lm_idx]
-            m = temp_field.config.m_values[lm_idx]
+            l = temp_𝔽.config.l_values[lm_idx]
+            m = temp_𝔽.config.m_values[lm_idx]
             
             for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
@@ -593,7 +560,7 @@ function set_boundary_conditions!(temp_𝔽::SHTnsTemperatureField{T};
     fill!(temp_𝔽.bc_type_outer, outer_bc_type)
     
     # Set boundary values for l=0, m=0 mode (mean temperature)
-    l0m0_idx = get_mode_index(temp_field.config, 0, 0)
+    l0m0_idx = get_mode_index(temp_𝔽.config, 0, 0)
     if l0m0_idx > 0
         temp_𝔽.boundary_values[1, l0m0_idx] = inner_value
         temp_𝔽.boundary_values[2, l0m0_idx] = outer_value
@@ -606,35 +573,32 @@ function set_boundary_conditions!(temp_𝔽::SHTnsTemperatureField{T};
     end
 end
 
-function set_internal_heating!(temp_𝔽::SHTnsTemperatureField{T}, 
+function set_internal_heating!(temp_𝔽::SHTnsTemperatureField{T},
                               domain::RadialDomain;
                               heating_type::Symbol = :uniform,
                               amplitude::T = T(1.0)) where T
-    """
-    Set internal heating profile
-    """
     if heating_type == :uniform
         # Uniform volumetric heating
-        fill!(temp_field.internal_sources, amplitude)
+        fill!(temp_𝔽.internal_sources, amplitude)
     elseif heating_type == :gaussian
         # Gaussian heating profile centered at mid-radius
         r_mid = 0.5 * (domain.r[1, 4] + domain.r[end, 4])
         sigma = 0.1 * (domain.r[end, 4] - domain.r[1, 4])
-        
+
         for i in 1:domain.N
             r = domain.r[i, 4]
-            temp_field.internal_sources[i] = amplitude * exp(-((r - r_mid)/sigma)^2)
+            temp_𝔽.internal_sources[i] = amplitude * exp(-((r - r_mid)/sigma)^2)
         end
     elseif heating_type == :bottom
         # Heating concentrated near bottom
         for i in 1:domain.N
             r = domain.r[i, 4]
             r_norm = (r - domain.r[1, 4]) / (domain.r[end, 4] - domain.r[1, 4])
-            temp_field.internal_sources[i] = amplitude * exp(-5.0 * r_norm)
+            temp_𝔽.internal_sources[i] = amplitude * exp(-5.0 * r_norm)
         end
     else
         # No heating
-        fill!(temp_field.internal_sources, zero(T))
+        fill!(temp_𝔽.internal_sources, zero(T))
     end
 end
 
