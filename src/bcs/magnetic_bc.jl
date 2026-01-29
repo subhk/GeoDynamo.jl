@@ -241,9 +241,12 @@ end
 Solve the implicit magnetic system with boundary conditions embedded in the matrix.
 Before solving, sets the RHS boundary values appropriately.
 
-This matches the Fortran approach:
-1. RHS boundary rows are set to 0 (insulating BCs)
-2. The matrix solve (with BC rows in the matrix) produces a solution satisfying BCs
+This matches the Fortran DD_2DCODE approach where each rank has full radial profiles
+for its subset of (l,m) modes:
+1. Loop over local lm modes
+2. Set RHS boundary rows to 0 (insulating BCs)
+3. Solve banded system with BC rows in matrix
+4. Solution automatically satisfies BCs
 
 # Arguments
 - `solution`: Output spectral field
@@ -265,52 +268,56 @@ function solve_magnetic_implicit_step!(solution::SHTnsSpecField{T},
     rhs_imag = parent(rhs.data_imag)
 
     lm_range = get_local_range(solution.pencil, 1)
-    nr = size(rhs_real, 3)
+    nr = matrices.system_matrices[1].size  # Full radial size (local = global for spectral)
+
+    # Allocate buffers for the radial profile
     tmp_r = Vector{T}(undef, nr)
     tmp_i = Vector{T}(undef, nr)
 
-    for lm_idx in lm_range
-        if lm_idx <= solution.nlm
-            l = solution.config.l_values[lm_idx]
-            idx = get(matrices.lookup, l, nothing)
-            idx === nothing && continue
+    # Loop over local lm modes only (radial is fully local, matching DD_2DCODE)
+    @inbounds for lm_idx in lm_range
+        local_lm = lm_idx - first(lm_range) + 1
 
-            local_lm = lm_idx - first(lm_range) + 1
-            local_lm <= size(rhs_real, 1) || continue
+        l = solution.config.l_values[lm_idx]
+        idx = get(matrices.lookup, l, nothing)
+        idx === nothing && continue
 
-            # Set RHS boundary values (matching Fortran mag_setbc_Tor / tim_zerobc)
-            inner_val = zero(T)
-            outer_val = zero(T)
+        # Copy RHS radial profile to work buffer
+        for ir in 1:nr
+            tmp_r[ir] = rhs_real[local_lm, 1, ir]
+            tmp_i[ir] = rhs_imag[local_lm, 1, ir]
+        end
 
-            # For conducting inner core case (toroidal only):
-            # inner boundary gets mag_bc value (from nonlinear correction)
-            if component == :toroidal && mag_bc_inner !== nothing
-                m_idx = lm_idx  # mode index in the bc array
-                if m_idx <= length(mag_bc_inner)
-                    inner_val = mag_bc_inner[m_idx]
-                    # Incremental form: subtract previous step's BC
-                    if prev_bc_inner !== nothing && m_idx <= length(prev_bc_inner)
-                        inner_val -= prev_bc_inner[m_idx]
-                    end
+        # Set RHS boundary values (matching Fortran mag_setbc_Tor / tim_zerobc)
+        inner_val = zero(T)
+        outer_val = zero(T)
+
+        # For conducting inner core case (toroidal only):
+        # inner boundary gets mag_bc value (from nonlinear correction)
+        if component == :toroidal && mag_bc_inner !== nothing
+            if lm_idx <= length(mag_bc_inner)
+                inner_val = mag_bc_inner[lm_idx]
+                # Incremental form: subtract previous step's BC
+                if prev_bc_inner !== nothing && lm_idx <= length(prev_bc_inner)
+                    inner_val -= prev_bc_inner[lm_idx]
                 end
             end
+        end
 
-            set_magnetic_rhs_bc!(rhs_real, rhs_imag, local_lm, nr;
-                                  inner_value=inner_val, outer_value=outer_val)
+        # Set boundary values
+        tmp_r[1] = inner_val
+        tmp_i[1] = zero(T)
+        tmp_r[nr] = outer_val
+        tmp_i[nr] = zero(T)
 
-            # Solve the banded system (with BCs embedded in matrix)
-            @inbounds for k in 1:nr
-                tmp_r[k] = rhs_real[local_lm, 1, k]
-                tmp_i[k] = rhs_imag[local_lm, 1, k]
-            end
+        # Solve the banded system (matching Fortran tim_invX)
+        solve_banded!(tmp_r, matrices.factorizations[idx], tmp_r)
+        solve_banded!(tmp_i, matrices.factorizations[idx], tmp_i)
 
-            solve_banded!(tmp_r, matrices.factorizations[idx], tmp_r)
-            solve_banded!(tmp_i, matrices.factorizations[idx], tmp_i)
-
-            @inbounds for k in 1:nr
-                sol_real[local_lm, 1, k] = tmp_r[k]
-                sol_imag[local_lm, 1, k] = tmp_i[k]
-            end
+        # Store solution back
+        for ir in 1:nr
+            sol_real[local_lm, 1, ir] = tmp_r[ir]
+            sol_imag[local_lm, 1, ir] = tmp_i[ir]
         end
     end
 

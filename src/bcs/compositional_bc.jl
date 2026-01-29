@@ -197,9 +197,12 @@ end
 Solve the implicit composition system with boundary conditions embedded in the matrix.
 Before solving, sets the RHS boundary values appropriately.
 
-This matches the Fortran approach:
-1. RHS boundary rows are set to prescribed values (cmp_setbc)
-2. The matrix solve (with BC rows in the matrix) produces a solution satisfying BCs
+This matches the Fortran DD_2DCODE approach where each rank has full radial profiles
+for its subset of (l,m) modes:
+1. Loop over local lm modes
+2. Set RHS boundary rows to prescribed values (cmp_setbc)
+3. Solve banded system with BC rows in matrix
+4. Solution automatically satisfies BCs
 
 # Arguments
 - `solution`: Output spectral field
@@ -223,42 +226,46 @@ function solve_composition_implicit_step!(solution::SHTnsSpecField{T},
     rhs_imag = parent(rhs.data_imag)
 
     lm_range = get_local_range(solution.pencil, 1)
-    nr = size(rhs_real, 3)
+    nr = matrices.system_matrices[1].size  # Full radial size (local = global for spectral)
+
+    # Allocate buffers for the radial profile
     tmp_r = Vector{T}(undef, nr)
     tmp_i = Vector{T}(undef, nr)
 
-    for lm_idx in lm_range
-        if lm_idx <= solution.nlm
-            l = solution.config.l_values[lm_idx]
-            idx = get(matrices.lookup, l, nothing)
-            idx === nothing && continue
+    # Loop over local lm modes only (radial is fully local, matching DD_2DCODE)
+    @inbounds for lm_idx in lm_range
+        local_lm = lm_idx - first(lm_range) + 1
 
-            local_lm = lm_idx - first(lm_range) + 1
-            local_lm <= size(rhs_real, 1) || continue
+        l = solution.config.l_values[lm_idx]
+        idx = get(matrices.lookup, l, nothing)
+        idx === nothing && continue
 
-            # Set RHS boundary values (matching Fortran cmp_setbc)
-            inner_val = bc_inner !== nothing && lm_idx <= length(bc_inner) ? bc_inner[lm_idx] : zero(T)
-            outer_val = bc_outer !== nothing && lm_idx <= length(bc_outer) ? bc_outer[lm_idx] : zero(T)
-            inner_val_i = bc_inner_imag !== nothing && lm_idx <= length(bc_inner_imag) ? bc_inner_imag[lm_idx] : zero(T)
-            outer_val_i = bc_outer_imag !== nothing && lm_idx <= length(bc_outer_imag) ? bc_outer_imag[lm_idx] : zero(T)
+        # Copy RHS radial profile to work buffer
+        for ir in 1:nr
+            tmp_r[ir] = rhs_real[local_lm, 1, ir]
+            tmp_i[ir] = rhs_imag[local_lm, 1, ir]
+        end
 
-            set_composition_rhs_bc!(rhs_real, rhs_imag, local_lm, nr;
-                                     inner_value=inner_val, outer_value=outer_val,
-                                     inner_value_imag=inner_val_i, outer_value_imag=outer_val_i)
+        # Set RHS boundary values (matching Fortran cmp_setbc)
+        inner_val = bc_inner !== nothing && lm_idx <= length(bc_inner) ? bc_inner[lm_idx] : zero(T)
+        outer_val = bc_outer !== nothing && lm_idx <= length(bc_outer) ? bc_outer[lm_idx] : zero(T)
+        inner_val_i = bc_inner_imag !== nothing && lm_idx <= length(bc_inner_imag) ? bc_inner_imag[lm_idx] : zero(T)
+        outer_val_i = bc_outer_imag !== nothing && lm_idx <= length(bc_outer_imag) ? bc_outer_imag[lm_idx] : zero(T)
 
-            # Solve the banded system (with BCs embedded in matrix)
-            @inbounds for k in 1:nr
-                tmp_r[k] = rhs_real[local_lm, 1, k]
-                tmp_i[k] = rhs_imag[local_lm, 1, k]
-            end
+        # Set boundary values
+        tmp_r[1] = inner_val
+        tmp_i[1] = inner_val_i
+        tmp_r[nr] = outer_val
+        tmp_i[nr] = outer_val_i
 
-            solve_banded!(tmp_r, matrices.factorizations[idx], tmp_r)
-            solve_banded!(tmp_i, matrices.factorizations[idx], tmp_i)
+        # Solve the banded system (matching Fortran tim_invX)
+        solve_banded!(tmp_r, matrices.factorizations[idx], tmp_r)
+        solve_banded!(tmp_i, matrices.factorizations[idx], tmp_i)
 
-            @inbounds for k in 1:nr
-                sol_real[local_lm, 1, k] = tmp_r[k]
-                sol_imag[local_lm, 1, k] = tmp_i[k]
-            end
+        # Store solution back
+        for ir in 1:nr
+            sol_real[local_lm, 1, ir] = tmp_r[ir]
+            sol_imag[local_lm, 1, ir] = tmp_i[ir]
         end
     end
 

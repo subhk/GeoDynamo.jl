@@ -90,6 +90,7 @@ struct SimulationState{T}
     implicit_matrices::Dict{Symbol, SHTnsImplicitMatrices{T}}
     etd_caches::Dict{Symbol, EAB2ALUCacheEntry{T}}  # Type-stable ETD caches
     erk2_caches::Dict{Symbol, ERK2Cache{T}}  # Type-stable ERK2 caches
+    erk2_influence_matrices::Dict{Symbol, Dict{Int, ERK2InfluenceMatrix{T}}}  # Influence matrices for ERK2
 
     # Enhanced I/O
     output_counter::Int
@@ -220,6 +221,7 @@ function initialize_simulation(::Type{T}=Float64;
         timestep_state, implicit_matrices,
         Dict{Symbol, EAB2ALUCacheEntry{T}}(),  # Type-stable etd_caches
         Dict{Symbol, ERK2Cache{T}}(),  # Type-stable erk2_caches
+        Dict{Symbol, Dict{Int, ERK2InfluenceMatrix{T}}}(),  # ERK2 influence matrices
         0, auto_optimize, adaptive_threading, geom
     )
 
@@ -1809,15 +1811,41 @@ end
 
 Build ERK2 boundary spec for the velocity poloidal component.
 
-The no-penetration condition (u_r = l(l+1)/r² · P = 0) requires P = 0 at both
-boundaries regardless of no-slip or stress-free. The CNAB2 scheme uses derivative
-BCs in the matrix plus the influence matrix method to enforce P = 0. Since ERK2
-doesn't have influence matrix infrastructure, we directly enforce P = 0 (Dirichlet).
+Uses proper derivative boundary conditions matching DD_2DCODE:
+- No-slip: ∂P/∂r = 0 (first derivative)
+- Stress-free: ∂²P/∂r² = 0 (second derivative)
+
+The no-penetration condition (P = 0 at boundaries) is enforced separately
+via the influence matrix method, which is applied after the exponential
+operator in erk2_finalize_velocity_poloidal!.
+
+i_vel_bc: 1=no-slip both, 2=no-slip inner/stress-free outer,
+          3=stress-free inner/no-slip outer, 4=stress-free both.
 """
 function build_erk2_bc_spec_velocity_pol(::Type{T}, domain::RadialDomain, i_vel_bc::Int) where T
     nr = domain.N
-    # No-penetration: P = 0 at both boundaries for all velocity BC types
-    return ERK2BoundarySpec{T}(create_dirichlet_bc(T, nr), create_dirichlet_bc(T, nr))
+    d1 = create_derivative_matrix(T, 1, domain)
+    d2 = create_derivative_matrix(T, 2, domain)
+    d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
+    d1_outer = extract_dense_row(d1.data, d1.bandwidth, nr, nr)
+    d2_inner = extract_dense_row(d2.data, d2.bandwidth, nr, 1)
+    d2_outer = extract_dense_row(d2.data, d2.bandwidth, nr, nr)
+
+    # Inner boundary
+    if i_vel_bc == 1 || i_vel_bc == 2  # No-slip inner: ∂P/∂r = 0
+        inner = create_noslip_pol_bc(T, d1_inner)
+    else  # Stress-free inner: ∂²P/∂r² = 0
+        inner = create_stress_free_pol_bc(T, d2_inner)
+    end
+
+    # Outer boundary
+    if i_vel_bc == 1 || i_vel_bc == 3  # No-slip outer: ∂P/∂r = 0
+        outer = create_noslip_pol_bc(T, d1_outer)
+    else  # Stress-free outer: ∂²P/∂r² = 0
+        outer = create_stress_free_pol_bc(T, d2_outer)
+    end
+
+    return ERK2BoundarySpec{T}(inner, outer)
 end
 
 """
@@ -1850,6 +1878,87 @@ function build_erk2_bc_spec_magnetic_pol(::Type{T}, domain::RadialDomain) where 
 end
 
 # ================================================================================
+# ERK2 INFLUENCE MATRIX MANAGEMENT
+# ================================================================================
+
+"""
+    get_erk2_influence_matrices!(cache, key, T, config, domain, diffusivity, dt, i_vel_bc; theta)
+
+Get or create ERK2 influence matrices for poloidal velocity.
+Caches matrices by key for reuse across timesteps.
+"""
+function get_erk2_influence_matrices!(cache::Dict{Symbol, Dict{Int, ERK2InfluenceMatrix{T}}},
+                                       key::Symbol,
+                                       ::Type{T},
+                                       config::SHTnsKitConfig,
+                                       domain::RadialDomain,
+                                       diffusivity::Float64,
+                                       dt::Float64,
+                                       i_vel_bc::Int;
+                                       theta::Float64=d_implicit) where T
+    if !haskey(cache, key)
+        cache[key] = create_velocity_poloidal_influence_matrices(T, config, domain,
+                                                                  diffusivity, dt, i_vel_bc;
+                                                                  theta=theta)
+    end
+    return cache[key]
+end
+
+"""
+    apply_velocity_poloidal_influence_correction!(field, influence_matrices, config)
+
+Apply influence matrix correction to enforce P = 0 at boundaries for velocity poloidal.
+This is called after erk2_finalize_field! to enforce the no-penetration condition
+while preserving the derivative BC constraints used in the exponential operator.
+
+Matches DD_2DCODE's influence matrix method for velocity poloidal.
+"""
+function apply_velocity_poloidal_influence_correction!(field::SHTnsSpecField{T},
+                                                        influence_matrices::Dict{Int, ERK2InfluenceMatrix{T}},
+                                                        config::SHTnsKitConfig) where T
+    u_real = parent(field.data_real)
+    u_imag = parent(field.data_imag)
+
+    lm_range = get_local_range(field.pencil, 1)
+    nr = size(u_real, 3)
+
+    # Temporary buffer for radial profile
+    tmp = Vector{T}(undef, nr)
+
+    # Loop over local lm modes
+    @inbounds for lm_idx in lm_range
+        local_lm = lm_idx - first(lm_range) + 1
+        l = config.l_values[lm_idx]
+
+        # Skip l=0 (no poloidal component) and modes without influence matrix
+        l == 0 && continue
+        !haskey(influence_matrices, l) && continue
+
+        influence = influence_matrices[l]
+
+        # Apply correction to real part
+        for ir in 1:nr
+            tmp[ir] = u_real[local_lm, 1, ir]
+        end
+        apply_influence_matrix_correction!(tmp, influence, zero(T), zero(T))
+        for ir in 1:nr
+            u_real[local_lm, 1, ir] = tmp[ir]
+        end
+
+        # Apply correction to imaginary part
+        for ir in 1:nr
+            tmp[ir] = u_imag[local_lm, 1, ir]
+        end
+        apply_influence_matrix_correction!(tmp, influence, zero(T), zero(T))
+        for ir in 1:nr
+            u_imag[local_lm, 1, ir] = tmp[ir]
+        end
+    end
+
+    return field
+end
+
+# ================================================================================
 # ERK2 INTEGRATION WITH VALIDATION
 # ================================================================================
 
@@ -1864,10 +1973,19 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64;
                                                    config=state.shtns_config, rot_omega=rot_omega)
     vel_pol_bc = build_erk2_bc_spec_velocity_pol(T, domain, params.i_vel_bc)
 
+    # Get or create influence matrices for poloidal velocity (matching DD_2DCODE)
+    vel_pol_influence = get_erk2_influence_matrices!(state.erk2_influence_matrices,
+                                                      :velocity_poloidal, T,
+                                                      state.shtns_config, domain,
+                                                      d_E, dt, params.i_vel_bc)
+
     # Prepare caches and stage buffers for all active fields (magnetic diffusion time scaling)
     # Diffusivities: Temperature = Pm/Pr, Velocity = E, Magnetic = 1.0, Composition = Pm/Sc
-    temp_cache = get_erk2_cache!(state.erk2_caches, :temperature, d_Pm/d_Pr, T,
-                                 state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false, bc_spec=temp_bc)
+
+    # Temperature: use specialized cache with embedded BCs (matching DD_2DCODE tmp_bc_T)
+    temp_cache = get_erk2_temperature_cache!(state.erk2_caches, d_Pm/d_Pr, T,
+                                              state.shtns_config, state.𝒟ᵒᶜ, dt, params.i_tmp_bc;
+                                              use_krylov=false)
     temp_buffers = ERK2FieldBuffers(state.temperature.spectral, state.temperature.nonlinear, temp_cache)
     erk2_prepare_field!(temp_buffers, state.temperature.spectral, state.temperature.nonlinear,
                         temp_cache, state.shtns_config, dt; bc_spec=temp_bc)
@@ -1891,17 +2009,22 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64;
     mag_tor_bc = nothing
     mag_pol_bc = nothing
     if i_B == 1 && state.magnetic !== nothing
+        # Build BC specs for post-evolution enforcement (safety measure)
         mag_tor_bc = build_erk2_bc_spec_magnetic_tor(T, nr)
         mag_pol_bc = build_erk2_bc_spec_magnetic_pol(T, domain)
 
-        mag_tor_cache = get_erk2_cache!(state.erk2_caches, :magnetic_toroidal, 1.0, T,
-                                        state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false, bc_spec=mag_tor_bc)
+        # Use specialized caches with embedded insulating BCs (matching DD_2DCODE)
+        # Toroidal: Dirichlet BCs (BT = 0) at both boundaries
+        mag_tor_cache = get_erk2_magnetic_toroidal_cache!(state.erk2_caches, 1.0, T,
+                                                          state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
         mag_tor_buffers = ERK2FieldBuffers(state.magnetic.𝒯, state.magnetic.nlᵀ, mag_tor_cache)
         erk2_prepare_field!(mag_tor_buffers, state.magnetic.𝒯, state.magnetic.nlᵀ,
                             mag_tor_cache, state.shtns_config, dt; bc_spec=mag_tor_bc)
 
-        mag_pol_cache = get_erk2_cache!(state.erk2_caches, :magnetic_poloidal, 1.0, T,
-                                        state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false, bc_spec=mag_pol_bc)
+        # Poloidal: l-dependent insulating BCs
+        # Inner: (∂/∂r - l/r)P = 0, Outer: (∂/∂r + (l+1)/r)P = 0
+        mag_pol_cache = get_erk2_magnetic_poloidal_cache!(state.erk2_caches, 1.0, T,
+                                                          state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false)
         mag_pol_buffers = ERK2FieldBuffers(state.magnetic.𝒫, state.magnetic.nlᴾ, mag_pol_cache)
         erk2_prepare_field!(mag_pol_buffers, state.magnetic.𝒫, state.magnetic.nlᴾ,
                             mag_pol_cache, state.shtns_config, dt; bc_spec=mag_pol_bc)
@@ -1911,10 +2034,13 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64;
     comp_cache = nothing
     comp_bc = nothing
     if state.composition !== nothing
+        # Build BC spec for post-evolution enforcement (safety measure)
         comp_bc = build_erk2_bc_spec_scalar(T, domain, params.i_cmp_bc)
 
-        comp_cache = get_erk2_cache!(state.erk2_caches, :composition, d_Pm/d_Sc, T,
-                                     state.shtns_config, state.𝒟ᵒᶜ, dt; use_krylov=false, bc_spec=comp_bc)
+        # Composition: use specialized cache with embedded BCs (matching DD_2DCODE cmp_bc_C)
+        comp_cache = get_erk2_composition_cache!(state.erk2_caches, d_Pm/d_Sc, T,
+                                                  state.shtns_config, state.𝒟ᵒᶜ, dt, params.i_cmp_bc;
+                                                  use_krylov=false)
         comp_buffers = ERK2FieldBuffers(state.composition.spectral, state.composition.nonlinear, comp_cache)
         erk2_prepare_field!(comp_buffers, state.composition.spectral, state.composition.nonlinear,
                             comp_cache, state.shtns_config, dt; bc_spec=comp_bc)
@@ -1960,6 +2086,9 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64;
                          bc_spec=vel_tor_bc)
     erk2_finalize_field!(vel_pol_buffers, state.velocity.𝒫, vel_pol_cache, state.shtns_config, dt;
                          bc_spec=vel_pol_bc)
+    # Apply influence matrix correction to enforce P = 0 at boundaries (matching DD_2DCODE)
+    apply_velocity_poloidal_influence_correction!(state.velocity.𝒫, vel_pol_influence, state.shtns_config)
+
     if mag_tor_buffers !== nothing
         erk2_finalize_field!(mag_tor_buffers, state.magnetic.𝒯, mag_tor_cache, state.shtns_config, dt;
                              bc_spec=mag_tor_bc)

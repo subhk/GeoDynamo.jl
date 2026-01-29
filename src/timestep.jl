@@ -994,31 +994,34 @@ function solve_implicit_step!(solution::SHTnsSpecField{T},
     rhs_imag = parent(rhs.data_imag)
 
     lm_range = get_local_range(solution.pencil, 1)
-    nr = size(rhs_real, 3)
+    nr = matrices.system_matrices[1].size  # Full radial size (local = global for spectral)
+
+    # Allocate buffers for the radial profile
     tmp_r = Vector{T}(undef, nr)
     tmp_i = Vector{T}(undef, nr)
 
-    for lm_idx in lm_range
-        if lm_idx <= solution.nlm
-            l = solution.config.l_values[lm_idx]
-            idx = get(matrices.lookup, l, nothing)
-            idx === nothing && continue
+    # Loop over local lm modes only (radial is fully local, matching DD_2DCODE)
+    @inbounds for lm_idx in lm_range
+        local_lm = lm_idx - first(lm_range) + 1
 
-            local_lm = lm_idx - first(lm_range) + 1
-            local_lm <= size(rhs_real, 1) || continue
+        l = solution.config.l_values[lm_idx]
+        idx = get(matrices.lookup, l, nothing)
+        idx === nothing && continue
 
-            @inbounds for k in 1:nr
-                tmp_r[k] = rhs_real[local_lm, 1, k]
-                tmp_i[k] = rhs_imag[local_lm, 1, k]
-            end
+        # Copy RHS radial profile to work buffer
+        for ir in 1:nr
+            tmp_r[ir] = rhs_real[local_lm, 1, ir]
+            tmp_i[ir] = rhs_imag[local_lm, 1, ir]
+        end
 
-            solve_banded!(tmp_r, matrices.factorizations[idx], tmp_r)
-            solve_banded!(tmp_i, matrices.factorizations[idx], tmp_i)
+        # Solve the banded system (matching Fortran tim_invX)
+        solve_banded!(tmp_r, matrices.factorizations[idx], tmp_r)
+        solve_banded!(tmp_i, matrices.factorizations[idx], tmp_i)
 
-            @inbounds for k in 1:nr
-                sol_real[local_lm, 1, k] = tmp_r[k]
-                sol_imag[local_lm, 1, k] = tmp_i[k]
-            end
+        # Store solution back
+        for ir in 1:nr
+            sol_real[local_lm, 1, ir] = tmp_r[ir]
+            sol_imag[local_lm, 1, ir] = tmp_i[ir]
         end
     end
 
@@ -1272,6 +1275,243 @@ function create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) wher
     return ERK2BoundarySide{T}(:insulating_outer, zero(T), copy(d1_row), r_inv, one(T), true, r_inv, false)
 end
 
+# ================================================================================
+# ERK2 INFLUENCE MATRIX FOR POLOIDAL VELOCITY
+# ================================================================================
+# The influence matrix method enforces P = 0 at boundaries while using derivative
+# BCs (∂P/∂r = 0 for no-slip, ∂²P/∂r² = 0 for stress-free) in the exponential operator.
+#
+# Algorithm (matching DD_2DCODE vel_matrices):
+# 1. Create "Green's function" problem with Dirichlet BCs at boundaries
+# 2. Set RHS = [1,0,...,0] for inner Green's function, [0,...,0,1] for outer
+# 3. Solve with Dirichlet system → get Green's function responses G₁(r), G₂(r)
+# 4. Apply these through the derivative BC system → get final Green's functions
+# 5. Construct 2×2 influence matrix: invG[i,j] = Gⱼ at boundary i
+# 6. Invert the influence matrix
+# 7. During timestepping: compute correction = invG * [P(r_inner), P(r_outer)]
+#    and subtract Green's function * correction from the solution
+# ================================================================================
+
+"""
+    ERK2InfluenceMatrix{T}
+
+Precomputed influence matrix data for enforcing P = 0 at boundaries while
+using derivative boundary conditions in the exponential operator.
+
+This matches the Fortran DD_2DCODE influence matrix method for poloidal velocity.
+"""
+struct ERK2InfluenceMatrix{T}
+    # Green's functions: Gre[:, 1] = response to inner BC, Gre[:, 2] = response to outer BC
+    Gre::Matrix{T}           # (nr, 2) Green's function radial profiles
+    invG::Matrix{T}          # (2, 2) inverse influence matrix
+    l::Int                   # spherical harmonic degree
+end
+
+"""
+    create_velocity_poloidal_influence_matrices(T, config, domain, diffusivity, dt, i_vel_bc; theta)
+
+Create influence matrices for poloidal velocity to enforce P = 0 at boundaries
+while using derivative BCs (∂P/∂r = 0 or ∂²P/∂r² = 0) in the implicit/exponential system.
+
+This matches DD_2DCODE's vel_matrices routine.
+"""
+function create_velocity_poloidal_influence_matrices(::Type{T},
+                                                      config::SHTnsKitConfig,
+                                                      domain::RadialDomain,
+                                                      diffusivity::Float64,
+                                                      dt::Float64,
+                                                      i_vel_bc::Int;
+                                                      theta::Float64=d_implicit) where T
+    unique_l = unique(config.l_values)
+    nr = domain.N
+    bw = i_KL
+
+    # Create derivative matrices
+    d1 = create_derivative_matrix(T, 1, domain)
+    d2 = create_derivative_matrix(T, 2, domain)
+    laplacian = create_radial_laplacian(domain)
+    r_inv_sq = @views domain.r[1:nr, 2]
+
+    # Diffusion operator base
+    base_data = T.(diffusivity .* laplacian.data)
+
+    influence_matrices = Dict{Int, ERK2InfluenceMatrix{T}}()
+
+    for l in unique_l
+        l == 0 && continue  # l=0 has no poloidal component
+
+        # Build the diffusion operator for this l: A_l = ν * (∇² - l(l+1)/r²)
+        A_data = copy(base_data)
+        l_factor = Float64(l * (l + 1))
+        @inbounds for n in 1:nr
+            A_data[bw + 1, n] -= T(diffusivity * l_factor * r_inv_sq[n])
+        end
+
+        # ========================================
+        # Step 1: Create Green's function system with Dirichlet BCs
+        # ========================================
+        # System matrix: X = (1/dt)I - θ*A
+        inv_dt = T(1 / dt)
+        θ_T = T(theta)
+
+        Xgre_data = copy(A_data)
+        Xgre_data .*= -θ_T
+        Xgre_data[bw + 1, :] .+= inv_dt
+
+        # Zero boundary rows
+        @inbounds for j in 1:(1 + bw)
+            Xgre_data[bw + 1 + 1 - j, j] = zero(T)
+        end
+        @inbounds for j in (nr - bw):nr
+            Xgre_data[bw + 1 + nr - j, j] = zero(T)
+        end
+
+        # Dirichlet BCs (identity rows) at both boundaries
+        Xgre_data[bw + 1, 1] = one(T)
+        Xgre_data[bw + 1, nr] = one(T)
+
+        Xgre = BandedMatrix{T}(Xgre_data, bw, nr)
+        Xgre_lu = factorize_banded(Xgre)
+
+        # ========================================
+        # Step 2: Create physical BC system (derivative BCs)
+        # ========================================
+        Xpol_data = copy(A_data)
+        Xpol_data .*= -θ_T
+        Xpol_data[bw + 1, :] .+= inv_dt
+
+        # Zero boundary rows
+        @inbounds for j in 1:(1 + bw)
+            Xpol_data[bw + 1 + 1 - j, j] = zero(T)
+        end
+        @inbounds for j in (nr - bw):nr
+            Xpol_data[bw + 1 + nr - j, j] = zero(T)
+        end
+
+        # Apply poloidal derivative BCs (matching DD_2DCODE vel_bc_Pol)
+        # Inner boundary
+        if i_vel_bc == 1 || i_vel_bc == 2  # No-slip: ∂P/∂r = 0
+            @inbounds for j in 1:(1 + bw)
+                Xpol_data[bw + 1 + 1 - j, j] = d1.data[bw + 1 + 1 - j, j]
+            end
+        else  # Stress-free: ∂²P/∂r² = 0
+            @inbounds for j in 1:(1 + bw)
+                Xpol_data[bw + 1 + 1 - j, j] = d2.data[bw + 1 + 1 - j, j]
+            end
+        end
+
+        # Outer boundary
+        if i_vel_bc == 1 || i_vel_bc == 3  # No-slip: ∂P/∂r = 0
+            @inbounds for j in (nr - bw):nr
+                Xpol_data[bw + 1 + nr - j, j] = d1.data[bw + 1 + nr - j, j]
+            end
+        else  # Stress-free: ∂²P/∂r² = 0
+            @inbounds for j in (nr - bw):nr
+                Xpol_data[bw + 1 + nr - j, j] = d2.data[bw + 1 + nr - j, j]
+            end
+        end
+
+        Xpol = BandedMatrix{T}(Xpol_data, bw, nr)
+        Xpol_lu = factorize_banded(Xpol)
+
+        # ========================================
+        # Step 3: Compute Green's functions
+        # ========================================
+        Gre = zeros(T, nr, 2)
+
+        # Green's function for inner boundary perturbation
+        rhs = zeros(T, nr)
+        rhs[1] = one(T)   # Unit perturbation at inner
+        solve_banded!(rhs, Xgre_lu, rhs)  # Solve Dirichlet problem
+
+        # Zero the BCs (matching Fortran tim_zerobc)
+        rhs[1] = zero(T)
+        rhs[nr] = zero(T)
+
+        # Solve with physical (derivative) BCs
+        solve_banded!(rhs, Xpol_lu, rhs)
+        Gre[:, 1] = rhs
+
+        # Green's function for outer boundary perturbation
+        fill!(rhs, zero(T))
+        rhs[nr] = one(T)  # Unit perturbation at outer
+        solve_banded!(rhs, Xgre_lu, rhs)  # Solve Dirichlet problem
+
+        # Zero the BCs
+        rhs[1] = zero(T)
+        rhs[nr] = zero(T)
+
+        # Solve with physical BCs
+        solve_banded!(rhs, Xpol_lu, rhs)
+        Gre[:, 2] = rhs
+
+        # ========================================
+        # Step 4: Build and invert influence matrix
+        # ========================================
+        invG = zeros(T, 2, 2)
+        invG[1, 1] = Gre[1, 1]   # Inner response to inner perturbation
+        invG[1, 2] = Gre[1, 2]   # Inner response to outer perturbation
+        invG[2, 1] = Gre[nr, 1]  # Outer response to inner perturbation
+        invG[2, 2] = Gre[nr, 2]  # Outer response to outer perturbation
+
+        # Invert the 2×2 matrix
+        det = invG[1, 1] * invG[2, 2] - invG[1, 2] * invG[2, 1]
+        if abs(det) > eps(T) * T(100)
+            inv_det = one(T) / det
+            tmp = invG[1, 1]
+            invG[1, 1] = invG[2, 2] * inv_det
+            invG[2, 2] = tmp * inv_det
+            invG[1, 2] = -invG[1, 2] * inv_det
+            invG[2, 1] = -invG[2, 1] * inv_det
+        else
+            # Singular matrix - use identity (no correction)
+            invG[1, 1] = one(T)
+            invG[2, 2] = one(T)
+            invG[1, 2] = zero(T)
+            invG[2, 1] = zero(T)
+        end
+
+        influence_matrices[l] = ERK2InfluenceMatrix{T}(Gre, invG, l)
+    end
+
+    return influence_matrices
+end
+
+"""
+    apply_influence_matrix_correction!(result, influence, bc_inner_val, bc_outer_val)
+
+Apply influence matrix correction to enforce P = 0 at boundaries.
+This subtracts the Green's function response that would give non-zero boundary values.
+
+After this correction, result[1] ≈ bc_inner_val and result[nr] ≈ bc_outer_val
+(typically both zero for no-penetration).
+"""
+function apply_influence_matrix_correction!(result::AbstractVector{T},
+                                             influence::ERK2InfluenceMatrix{T},
+                                             bc_inner_val::T=zero(T),
+                                             bc_outer_val::T=zero(T)) where T
+    nr = length(result)
+
+    # Current boundary values (before correction)
+    P_inner = result[1]
+    P_outer = result[nr]
+
+    # Deviation from desired values
+    delta_inner = P_inner - bc_inner_val
+    delta_outer = P_outer - bc_outer_val
+
+    # Compute correction coefficients: c = invG * [delta_inner; delta_outer]
+    c1 = influence.invG[1, 1] * delta_inner + influence.invG[1, 2] * delta_outer
+    c2 = influence.invG[2, 1] * delta_inner + influence.invG[2, 2] * delta_outer
+
+    # Subtract Green's function response: result -= c1*G1 + c2*G2
+    @inbounds for i in 1:nr
+        result[i] -= c1 * influence.Gre[i, 1] + c2 * influence.Gre[i, 2]
+    end
+
+    return result
+end
+
 """
     extract_dense_row(banded::BandedMatrix{T}, row::Int) -> Vector{T}
 
@@ -1456,10 +1696,311 @@ function create_erk2_cache(::Type{T}, config::SHTnsKitConfig, domain::RadialDoma
     
     # Ensure MPI consistency
     MPI.Barrier(get_comm())
-    
+
     return ERK2Cache{T}(dt, diffusivity, nr, lvals, E_half, E_full, phi1_half, phi1_full,
                        phi2_full, use_krylov, m, tol, true)
 end
+
+"""
+    create_erk2_cache_magnetic_poloidal(T, config, domain, diffusivity, dt; use_krylov=false, m=20, tol=1e-8)
+
+Create ERK2 cache for magnetic poloidal field with insulating BCs embedded in the matrix A.
+
+This matches DD_2DCODE's approach where the matrix has:
+- Inner boundary row: (∂/∂r - l/r) operator → insulating interior
+- Outer boundary row: (∂/∂r + (l+1)/r) operator → insulating exterior
+
+Embedding BCs in A ensures exp(dt*A) automatically preserves solutions satisfying the
+insulating constraints, rather than requiring post-evolution correction.
+"""
+function create_erk2_cache_magnetic_poloidal(::Type{T}, config::SHTnsKitConfig, domain::RadialDomain,
+                                              diffusivity::Float64, dt::Float64;
+                                              use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T
+    lap = create_radial_laplacian(domain)
+    d1 = create_derivative_matrix(T, 1, domain)
+    nr = domain.N
+    bw = i_KL
+    r_inv2 = @views domain.r[1:nr, 2]
+    r_inv = @views domain.r[1:nr, 3]  # 1/r values
+    lvals = unique(config.l_values)
+
+    E_half = Matrix{T}[]
+    E_full = Matrix{T}[]
+    phi1_half = Matrix{T}[]
+    phi1_full = Matrix{T}[]
+    phi2_full = Matrix{T}[]
+
+    if get_rank() == 0
+        @info "Creating ERK2 cache for magnetic poloidal with insulating BCs embedded"
+    end
+
+    for l in lvals
+        # Build A_l = diffusivity * (d²/dr² + (2/r)d/dr - l(l+1)/r²)
+        Adata = diffusivity .* lap.data
+        Adense = banded_to_dense(BandedMatrix(Adata, bw, nr))
+        lfac = Float64(l * (l + 1))
+
+        @inbounds for n in 1:nr
+            Adense[n, n] -= diffusivity * lfac * r_inv2[n]
+        end
+
+        # Zero boundary rows before embedding BCs
+        Adense[1, :] .= zero(T)
+        Adense[nr, :] .= zero(T)
+
+        # Embed insulating BC at inner boundary: (∂/∂r - l/r)P = 0
+        # Copy first derivative row and subtract l/r on diagonal
+        for j in max(1, 1 - bw):min(nr, 1 + bw)
+            band_idx = bw + 1 + 1 - j
+            if 1 <= band_idx <= 2 * bw + 1
+                Adense[1, j] = T(d1.data[band_idx, j])
+            end
+        end
+        Adense[1, 1] -= T(l) * r_inv[1]
+
+        # Embed insulating BC at outer boundary: (∂/∂r + (l+1)/r)P = 0
+        # Copy first derivative row and add (l+1)/r on diagonal
+        for j in max(1, nr - bw):min(nr, nr + bw)
+            band_idx = bw + 1 + nr - j
+            if 1 <= band_idx <= 2 * bw + 1
+                Adense[nr, j] = T(d1.data[band_idx, j])
+            end
+        end
+        Adense[nr, nr] += T(l + 1) * r_inv[nr]
+
+        if use_krylov
+            push!(E_half, Adense)
+            push!(E_full, Adense)
+            push!(phi1_half, Adense)
+            push!(phi1_full, Adense)
+            push!(phi2_full, Adense)
+        else
+            # Dense computation of matrix functions
+            Adt_half = (dt / 2) .* Adense
+            Adt_full = dt .* Adense
+
+            # Compute exp(dt/2 * A) and exp(dt * A)
+            E_half_l = exp(Adt_half)
+            E_full_l = exp(Adt_full)
+            push!(E_half, Matrix{T}(E_half_l))
+            push!(E_full, Matrix{T}(E_full_l))
+
+            # Compute φ1 functions
+            phi1_half_l = compute_phi1_function(Adt_half, E_half_l)
+            phi1_full_l = compute_phi1_function(Adt_full, E_full_l)
+            push!(phi1_half, Matrix{T}(phi1_half_l))
+            push!(phi1_full, Matrix{T}(phi1_full_l))
+
+            # Compute φ2 function
+            phi2_full_l = compute_phi2_function(Adt_full, E_full_l; l=l)
+            push!(phi2_full, Matrix{T}(phi2_full_l))
+        end
+    end
+
+    MPI.Barrier(get_comm())
+
+    return ERK2Cache{T}(dt, diffusivity, nr, lvals, E_half, E_full, phi1_half, phi1_full,
+                        phi2_full, use_krylov, m, tol, true)
+end
+
+"""
+    create_erk2_cache_magnetic_toroidal(T, config, domain, diffusivity, dt; use_krylov=false, m=20, tol=1e-8)
+
+Create ERK2 cache for magnetic toroidal field with insulating BCs embedded in the matrix A.
+
+This matches DD_2DCODE's approach where the matrix has:
+- Inner boundary row: identity → BT = 0
+- Outer boundary row: identity → BT = 0
+
+For Dirichlet BCs (BT = 0), we zero the boundary rows except for the diagonal (identity),
+which makes exp(dt*A)|_boundary = identity, preserving BT = 0.
+"""
+function create_erk2_cache_magnetic_toroidal(::Type{T}, config::SHTnsKitConfig, domain::RadialDomain,
+                                              diffusivity::Float64, dt::Float64;
+                                              use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T
+    lap = create_radial_laplacian(domain)
+    nr = domain.N
+    bw = i_KL
+    r_inv2 = @views domain.r[1:nr, 2]
+    lvals = unique(config.l_values)
+
+    E_half = Matrix{T}[]
+    E_full = Matrix{T}[]
+    phi1_half = Matrix{T}[]
+    phi1_full = Matrix{T}[]
+    phi2_full = Matrix{T}[]
+
+    if get_rank() == 0
+        @info "Creating ERK2 cache for magnetic toroidal with Dirichlet BCs embedded"
+    end
+
+    for l in lvals
+        # Build A_l = diffusivity * (d²/dr² + (2/r)d/dr - l(l+1)/r²)
+        Adata = diffusivity .* lap.data
+        Adense = banded_to_dense(BandedMatrix(Adata, bw, nr))
+        lfac = Float64(l * (l + 1))
+
+        @inbounds for n in 1:nr
+            Adense[n, n] -= diffusivity * lfac * r_inv2[n]
+        end
+
+        # Zero boundary rows (Dirichlet: BT = 0)
+        # This makes exp(dt*A)|_boundary = identity, preserving BT = 0
+        Adense[1, :] .= zero(T)
+        Adense[nr, :] .= zero(T)
+
+        if use_krylov
+            push!(E_half, Adense)
+            push!(E_full, Adense)
+            push!(phi1_half, Adense)
+            push!(phi1_full, Adense)
+            push!(phi2_full, Adense)
+        else
+            Adt_half = (dt / 2) .* Adense
+            Adt_full = dt .* Adense
+
+            E_half_l = exp(Adt_half)
+            E_full_l = exp(Adt_full)
+            push!(E_half, Matrix{T}(E_half_l))
+            push!(E_full, Matrix{T}(E_full_l))
+
+            phi1_half_l = compute_phi1_function(Adt_half, E_half_l)
+            phi1_full_l = compute_phi1_function(Adt_full, E_full_l)
+            push!(phi1_half, Matrix{T}(phi1_half_l))
+            push!(phi1_full, Matrix{T}(phi1_full_l))
+
+            phi2_full_l = compute_phi2_function(Adt_full, E_full_l; l=l)
+            push!(phi2_full, Matrix{T}(phi2_full_l))
+        end
+    end
+
+    MPI.Barrier(get_comm())
+
+    return ERK2Cache{T}(dt, diffusivity, nr, lvals, E_half, E_full, phi1_half, phi1_full,
+                        phi2_full, use_krylov, m, tol, true)
+end
+
+"""
+    create_erk2_cache_scalar(T, config, domain, diffusivity, dt, i_bc; use_krylov=false, m=20, tol=1e-8)
+
+Create ERK2 cache for scalar fields (temperature or composition) with boundary rows
+zeroed in the matrix A.
+
+Boundary condition types (matching DD_2DCODE tmp_bc_T / cmp_bc_C):
+- i_bc = 1: Dirichlet-Dirichlet (fixed value both boundaries)
+- i_bc = 2: Dirichlet-Neumann (fixed value inner, fixed flux outer)
+- i_bc = 3: Neumann-Dirichlet (fixed flux inner, fixed value outer)
+- i_bc = 4: Neumann-Neumann (fixed flux both, l=0 inner uses Dirichlet)
+
+For exponential integrators, boundary rows are always zeroed:
+- exp(dt*A)[boundary,:] = [1, 0, ..., 0] → preserves boundary value
+- Actual BC enforcement (Dirichlet/Neumann) is done via post-processing
+  in erk2_prepare_field! and erk2_finalize_field! using enforce_erk2_bc!
+"""
+function create_erk2_cache_scalar(::Type{T}, config::SHTnsKitConfig, domain::RadialDomain,
+                                   diffusivity::Float64, dt::Float64, i_bc::Int;
+                                   use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T
+    lap = create_radial_laplacian(domain)
+    d1 = create_derivative_matrix(T, 1, domain)
+    nr = domain.N
+    bw = i_KL
+    r_inv2 = @views domain.r[1:nr, 2]
+    lvals = unique(config.l_values)
+
+    E_half = Matrix{T}[]
+    E_full = Matrix{T}[]
+    phi1_half = Matrix{T}[]
+    phi1_full = Matrix{T}[]
+    phi2_full = Matrix{T}[]
+
+    bc_desc = ["DD", "DN", "ND", "NN"][clamp(i_bc, 1, 4)]
+    if get_rank() == 0
+        @info "Creating ERK2 cache for scalar field with embedded BCs (type=$bc_desc, ν=$diffusivity)"
+    end
+
+    for l in lvals
+        # Build A_l = diffusivity * (d²/dr² + (2/r)d/dr - l(l+1)/r²)
+        Adata = diffusivity .* lap.data
+        Adense = banded_to_dense(BandedMatrix(Adata, bw, nr))
+        lfac = Float64(l * (l + 1))
+
+        @inbounds for n in 1:nr
+            Adense[n, n] -= diffusivity * lfac * r_inv2[n]
+        end
+
+        # Zero boundary rows for exponential integrator
+        # For exp(dt*A), zeroing the boundary row means:
+        #   exp(dt*A)[boundary,:] = [1, 0, 0, ..., 0] (or [..., 0, 0, 1])
+        # This preserves the boundary value during exponential evolution.
+        # Actual BC enforcement is done via post-processing (enforce_erk2_bc!).
+        #
+        # This differs from implicit schemes where:
+        #   Dirichlet → identity row (diagonal=1)
+        #   Neumann → derivative row
+        # For exponential integrators, we always zero boundary rows and rely
+        # on post-processing to enforce the constraint.
+        Adense[1, :] .= zero(T)
+        Adense[nr, :] .= zero(T)
+
+        # Note: BC type (Dirichlet/Neumann) and special l=0 handling for i_bc=4
+        # are handled by the bc_spec post-processing in erk2_prepare_field! and
+        # erk2_finalize_field! via enforce_erk2_bc!.
+
+        if use_krylov
+            push!(E_half, Adense)
+            push!(E_full, Adense)
+            push!(phi1_half, Adense)
+            push!(phi1_full, Adense)
+            push!(phi2_full, Adense)
+        else
+            Adt_half = (dt / 2) .* Adense
+            Adt_full = dt .* Adense
+
+            E_half_l = exp(Adt_half)
+            E_full_l = exp(Adt_full)
+            push!(E_half, Matrix{T}(E_half_l))
+            push!(E_full, Matrix{T}(E_full_l))
+
+            phi1_half_l = compute_phi1_function(Adt_half, E_half_l)
+            phi1_full_l = compute_phi1_function(Adt_full, E_full_l)
+            push!(phi1_half, Matrix{T}(phi1_half_l))
+            push!(phi1_full, Matrix{T}(phi1_full_l))
+
+            phi2_full_l = compute_phi2_function(Adt_full, E_full_l; l=l)
+            push!(phi2_full, Matrix{T}(phi2_full_l))
+        end
+    end
+
+    MPI.Barrier(get_comm())
+
+    return ERK2Cache{T}(dt, diffusivity, nr, lvals, E_half, E_full, phi1_half, phi1_full,
+                        phi2_full, use_krylov, m, tol, true)
+end
+
+# Convenience aliases for temperature and composition
+"""
+    create_erk2_cache_temperature(T, config, domain, diffusivity, dt, i_tmp_bc; kwargs...)
+
+Create ERK2 cache for temperature field with embedded BCs.
+Wrapper around create_erk2_cache_scalar with temperature-specific defaults.
+"""
+create_erk2_cache_temperature(::Type{T}, config::SHTnsKitConfig, domain::RadialDomain,
+                               diffusivity::Float64, dt::Float64, i_tmp_bc::Int;
+                               use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T =
+    create_erk2_cache_scalar(T, config, domain, diffusivity, dt, i_tmp_bc;
+                              use_krylov=use_krylov, m=m, tol=tol)
+
+"""
+    create_erk2_cache_composition(T, config, domain, diffusivity, dt, i_cmp_bc; kwargs...)
+
+Create ERK2 cache for composition field with embedded BCs.
+Wrapper around create_erk2_cache_scalar with composition-specific defaults.
+"""
+create_erk2_cache_composition(::Type{T}, config::SHTnsKitConfig, domain::RadialDomain,
+                               diffusivity::Float64, dt::Float64, i_cmp_bc::Int;
+                               use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T =
+    create_erk2_cache_scalar(T, config, domain, diffusivity, dt, i_cmp_bc;
+                              use_krylov=use_krylov, m=m, tol=tol)
 
 """
     compute_phi1_function(A, expA)
@@ -1792,6 +2333,140 @@ function get_erk2_cache!(caches::Dict{Symbol, ERK2Cache{T}}, key::Symbol, diffus
 
     caches[key] = cache
     return cache::ERK2Cache{T}  # Type assertion for compiler optimization
+end
+
+"""
+    get_erk2_magnetic_toroidal_cache!(caches, diffusivity, T, config, domain, dt; use_krylov=false, m=20, tol=1e-8)
+
+Retrieve or create ERK2 cache for magnetic toroidal field with embedded insulating BCs.
+Uses Dirichlet BCs (BT = 0) at both boundaries, matching DD_2DCODE's mag_bc_Tor.
+"""
+function get_erk2_magnetic_toroidal_cache!(caches::Dict{Symbol, ERK2Cache{T}}, diffusivity::Float64,
+                                           ::Type{T}, config::SHTnsKitConfig, domain::RadialDomain, dt::Float64;
+                                           use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T
+    key = :magnetic_toroidal_embedded
+    nr = domain.N
+    cache = get(caches, key, nothing)
+
+    needs_rebuild = cache === nothing ||
+                    cache.diffusivity != diffusivity ||
+                    cache.nr != nr ||
+                    cache.dt != dt ||
+                    cache.use_krylov != use_krylov ||
+                    !cache.mpi_consistent
+
+    if needs_rebuild
+        if get_rank() == 0
+            @info "Creating magnetic toroidal ERK2 cache with embedded insulating BCs (ν=$diffusivity, nr=$nr, dt=$dt)"
+        end
+        cache = create_erk2_cache_magnetic_toroidal(T, config, domain, diffusivity, dt;
+                                                     use_krylov=use_krylov, m=m, tol=tol)
+    end
+
+    caches[key] = cache
+    return cache::ERK2Cache{T}
+end
+
+"""
+    get_erk2_magnetic_poloidal_cache!(caches, diffusivity, T, config, domain, dt; use_krylov=false, m=20, tol=1e-8)
+
+Retrieve or create ERK2 cache for magnetic poloidal field with embedded insulating BCs.
+Uses l-dependent insulating BCs matching DD_2DCODE's mag_bc_Pol:
+- Inner boundary: (∂/∂r - l/r)P = 0
+- Outer boundary: (∂/∂r + (l+1)/r)P = 0
+"""
+function get_erk2_magnetic_poloidal_cache!(caches::Dict{Symbol, ERK2Cache{T}}, diffusivity::Float64,
+                                           ::Type{T}, config::SHTnsKitConfig, domain::RadialDomain, dt::Float64;
+                                           use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T
+    key = :magnetic_poloidal_embedded
+    nr = domain.N
+    cache = get(caches, key, nothing)
+
+    needs_rebuild = cache === nothing ||
+                    cache.diffusivity != diffusivity ||
+                    cache.nr != nr ||
+                    cache.dt != dt ||
+                    cache.use_krylov != use_krylov ||
+                    !cache.mpi_consistent
+
+    if needs_rebuild
+        if get_rank() == 0
+            @info "Creating magnetic poloidal ERK2 cache with embedded insulating BCs (ν=$diffusivity, nr=$nr, dt=$dt)"
+        end
+        cache = create_erk2_cache_magnetic_poloidal(T, config, domain, diffusivity, dt;
+                                                     use_krylov=use_krylov, m=m, tol=tol)
+    end
+
+    caches[key] = cache
+    return cache::ERK2Cache{T}
+end
+
+"""
+    get_erk2_temperature_cache!(caches, diffusivity, T, config, domain, dt, i_tmp_bc; use_krylov=false, m=20, tol=1e-8)
+
+Retrieve or create ERK2 cache for temperature field with embedded BCs.
+Uses BC type specified by i_tmp_bc (1=DD, 2=DN, 3=ND, 4=NN), matching DD_2DCODE's tmp_bc_T.
+"""
+function get_erk2_temperature_cache!(caches::Dict{Symbol, ERK2Cache{T}}, diffusivity::Float64,
+                                      ::Type{T}, config::SHTnsKitConfig, domain::RadialDomain,
+                                      dt::Float64, i_tmp_bc::Int;
+                                      use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T
+    key = Symbol(:temperature_embedded_bc, i_tmp_bc)
+    nr = domain.N
+    cache = get(caches, key, nothing)
+
+    needs_rebuild = cache === nothing ||
+                    cache.diffusivity != diffusivity ||
+                    cache.nr != nr ||
+                    cache.dt != dt ||
+                    cache.use_krylov != use_krylov ||
+                    !cache.mpi_consistent
+
+    if needs_rebuild
+        bc_desc = ["DD", "DN", "ND", "NN"][clamp(i_tmp_bc, 1, 4)]
+        if get_rank() == 0
+            @info "Creating temperature ERK2 cache with embedded BCs (type=$bc_desc, ν=$diffusivity, nr=$nr, dt=$dt)"
+        end
+        cache = create_erk2_cache_temperature(T, config, domain, diffusivity, dt, i_tmp_bc;
+                                               use_krylov=use_krylov, m=m, tol=tol)
+    end
+
+    caches[key] = cache
+    return cache::ERK2Cache{T}
+end
+
+"""
+    get_erk2_composition_cache!(caches, diffusivity, T, config, domain, dt, i_cmp_bc; use_krylov=false, m=20, tol=1e-8)
+
+Retrieve or create ERK2 cache for composition field with embedded BCs.
+Uses BC type specified by i_cmp_bc (1=DD, 2=DN, 3=ND, 4=NN), matching DD_2DCODE's cmp_bc_C.
+"""
+function get_erk2_composition_cache!(caches::Dict{Symbol, ERK2Cache{T}}, diffusivity::Float64,
+                                      ::Type{T}, config::SHTnsKitConfig, domain::RadialDomain,
+                                      dt::Float64, i_cmp_bc::Int;
+                                      use_krylov::Bool=false, m::Int=20, tol::Float64=1e-8) where T
+    key = Symbol(:composition_embedded_bc, i_cmp_bc)
+    nr = domain.N
+    cache = get(caches, key, nothing)
+
+    needs_rebuild = cache === nothing ||
+                    cache.diffusivity != diffusivity ||
+                    cache.nr != nr ||
+                    cache.dt != dt ||
+                    cache.use_krylov != use_krylov ||
+                    !cache.mpi_consistent
+
+    if needs_rebuild
+        bc_desc = ["DD", "DN", "ND", "NN"][clamp(i_cmp_bc, 1, 4)]
+        if get_rank() == 0
+            @info "Creating composition ERK2 cache with embedded BCs (type=$bc_desc, ν=$diffusivity, nr=$nr, dt=$dt)"
+        end
+        cache = create_erk2_cache_composition(T, config, domain, diffusivity, dt, i_cmp_bc;
+                                               use_krylov=use_krylov, m=m, tol=tol)
+    end
+
+    caches[key] = cache
+    return cache::ERK2Cache{T}
 end
 
 function _normalize_erk2_cache_entry(entry)

@@ -24,6 +24,15 @@ module GeoDynamo
     export erk2_stage_residual_stats, save_erk2_cache_bundle, load_erk2_cache_bundle
     export install_erk2_cache_bundle!, load_erk2_cache_bundle!
     export validate_pencil_decomposition, create_erk2_config
+    # ERK2 influence matrix exports (for velocity poloidal no-penetration enforcement)
+    export ERK2InfluenceMatrix, create_velocity_poloidal_influence_matrices
+    export apply_influence_matrix_correction!, apply_velocity_poloidal_influence_correction!
+    # ERK2 magnetic cache exports (with embedded insulating BCs)
+    export create_erk2_cache_magnetic_toroidal, create_erk2_cache_magnetic_poloidal
+    export get_erk2_magnetic_toroidal_cache!, get_erk2_magnetic_poloidal_cache!
+    # ERK2 scalar cache exports (temperature/composition with embedded Dirichlet/Neumann BCs)
+    export create_erk2_cache_scalar, create_erk2_cache_temperature, create_erk2_cache_composition
+    export get_erk2_temperature_cache!, get_erk2_composition_cache!
 
     # exports SHTnsKit v1.1.15+ enhanced features
     export SHTNSKIT_USE_DISTRIBUTED, SHTNSKIT_USE_QST, SHTNSKIT_USE_SCRATCH_BUFFERS
