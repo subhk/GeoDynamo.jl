@@ -12,6 +12,7 @@ module GeoDynamo
     using Statistics
     using Dates
     using Printf
+    using JLD2
 
     # exports shtnskit_transforms.jl (new SHTnsKit-based implementation)
     export SHTnsKitConfig, create_shtnskit_config
@@ -209,7 +210,16 @@ module GeoDynamo
 
     include("scalar_field_common.jl")  # Depends on BandedMatrix definitions
     
-    include("timestep.jl")
+    # Timestepping modules (refactored from timestep.jl)
+    include("timestep/state.jl")
+    include("timestep/eab2.jl")
+    include("timestep/cnab2.jl")
+    include("timestep/erk2/boundaries.jl")
+    include("timestep/erk2/influence_matrix.jl")
+    include("timestep/erk2/matrix_functions.jl")
+    include("timestep/erk2/cache.jl")
+    include("timestep/erk2/cache_io.jl")
+    include("timestep/erk2/staging.jl")
     include("magnetic.jl")
     include("velocity.jl")
     include("thermal.jl")
