@@ -345,16 +345,14 @@ function create_radial_domain(nr::Union{Int,Nothing}=nothing;
 end
 
 
-# Helper functions for working with local portions of PencilArrays
-function get_local_range(pencil::Pencil{3}, dim::Int)
-    return pencil.axes_local[dim]
-end
-
 # range_local helper mirroring PencilArrays API but returning the logical-order
 # ranges directly from the pencil metadata.
 function range_local(pencil::Pencil{3}, dim::Int)
     return pencil.axes_local[dim]
 end
+
+# Alias for compatibility - delegates to range_local
+get_local_range(pencil::Pencil{3}, dim::Int) = range_local(pencil, dim)
 
 function range_local(pencil::Pencil{3})
     return pencil.axes_local

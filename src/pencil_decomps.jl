@@ -22,7 +22,7 @@ end
 # Global MPI state management
 mutable struct MPIState
     initialized::Bool
-    comm::Any       # defer concrete MPI type to runtime to avoid loading MPI during precompile
+    comm::Union{Nothing, MPI.Comm}
     rank::Int
     nprocs::Int
 end

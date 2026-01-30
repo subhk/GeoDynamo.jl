@@ -68,7 +68,7 @@ Manages computational device selection and array allocation for GeoDynamo.jl
 mutable struct GeoDynamoDevice
     device_type::DeviceType
     device_name::String
-    backend::Any  # KernelAbstractions backend
+    backend::KernelAbstractions.Device
     array_type::Type
     max_memory_gb::Float64
     compute_capability::String

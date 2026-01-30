@@ -32,7 +32,7 @@ mutable struct GauntTensorCache{T<:AbstractFloat}
     G::Dict{NTuple{6,Int}, T}           # (ℓ,m,ℓ',m',L,M) -> value
     G_∇::Dict{NTuple{6,Int}, T}      # Gradient Gaunt
     G_cross::Dict{NTuple{6,Int}, T}     # Cross Gaunt
-    sht_config::Any                      # SHTnsKit configuration
+    sht_config::SHTnsKit.SHTConfig       # SHTnsKit configuration
     nlat::Int                            # Number of latitude points
     nlon::Int                            # Number of longitude points
     theta::Vector{T}                     # Gauss-Legendre theta points
