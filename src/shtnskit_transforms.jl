@@ -44,9 +44,9 @@ using LinearAlgebra
 using Base.Threads
 
 # ================================================================================
-# SHTnsKit v1.1.15+ Feature Flags
+# SHTnsKit v1.2+ Feature Flags
 # ================================================================================
-# These flags indicate which v1.1.15 features are available and should be used
+# These flags indicate which v1.2+ features are available and should be used
 
 const SHTNSKIT_USE_DISTRIBUTED = true      # Use dist_analysis/dist_synthesis
 const SHTNSKIT_USE_QST = true              # Use SHqst_to_spat/spat_to_SHqst for 3D vectors
@@ -500,9 +500,11 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
 
     # Create spectral space pencil
     # nlm = total number of (l,m) mode pairs
+    # Only distribute lm dimension (1), keep radial (3) local on each rank
+    # This matches DD_2DCODE where each rank has full radial profiles for its subset of (l,m) modes
     nlm = sht_config.nlm
     spec_dims = (nlm, 1, nr)  # Middle dimension is dummy (size 1)
-    pencil_spec = Pencil(topology, spec_dims, (1, 3))
+    pencil_spec = Pencil(topology, spec_dims, (1,))
 
     # Mixed pencil for intermediate computations
     mixed_dims = (nlm, nlat, nr)
