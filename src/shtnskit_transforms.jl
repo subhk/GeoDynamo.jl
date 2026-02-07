@@ -399,18 +399,36 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
         print_shtnskit_config_summary(nlat, nlon, nr, lmax, mmax, nlm, nprocs, memory_estimate)
     end
 
-    # Step 8: Initialize buffer cache with SHTnsKit v1.1.15 scratch buffers
+    # Step 8: Initialize buffer cache with pre-allocated transform buffers
     buffer_cache = Dict{Symbol, Any}()
+
+    # Create SHTPlan for allocation-free per-radial-level transforms
+    # This pre-allocates all working arrays (Legendre, FFT, scratch) once
+    try
+        sht_plan = SHTnsKit.SHTPlan(sht_config)
+        buffer_cache[:sht_plan] = sht_plan
+        if get_rank() == 0
+            @info "SHTnsKit SHTPlan created for allocation-free transforms"
+        end
+    catch e
+        if get_rank() == 0
+            @warn "Could not create SHTPlan (falling back to allocating transforms): $e"
+        end
+    end
+
+    # Pre-allocate output buffers for in-place transforms (reused every radial level)
+    buffer_cache[:synth_out] = zeros(Float64, nlat, nlon)           # synthesis! output
+    buffer_cache[:anal_out] = zeros(ComplexF64, lmax+1, mmax+1)     # analysis! output
+    buffer_cache[:vt_out] = zeros(Float64, nlat, nlon)              # vector synthesis Vθ
+    buffer_cache[:vp_out] = zeros(Float64, nlat, nlon)              # vector synthesis Vφ
+    buffer_cache[:slm_out] = zeros(ComplexF64, lmax+1, mmax+1)     # vector analysis S
+    buffer_cache[:tlm_out] = zeros(ComplexF64, lmax+1, mmax+1)     # vector analysis T
+
     if SHTNSKIT_USE_SCRATCH_BUFFERS
         try
-            # Use SHTnsKit's native scratch buffer allocation for better memory management
             buffer_cache[:spatial_scratch] = SHTnsKit.scratch_spatial(sht_config, Float64)
             buffer_cache[:fft_scratch] = SHTnsKit.scratch_fft(sht_config, ComplexF64)
-            if get_rank() == 0
-                @info "SHTnsKit v1.1.15 scratch buffers allocated"
-            end
         catch e
-            # Fallback for older SHTnsKit versions
             if get_rank() == 0
                 @debug "Could not allocate SHTnsKit scratch buffers: $e"
             end

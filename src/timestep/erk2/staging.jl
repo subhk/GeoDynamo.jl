@@ -15,6 +15,8 @@ struct ERK2FieldBuffers{T}
     stage_nl_imag::Array{T,3}
     cache_lookup::Dict{Int,Int}
     nr::Int
+    # Pre-allocated per-mode workspace vectors (reused across timesteps)
+    _ws::Vector{Vector{T}}  # 8 workspace vectors of length nr
 end
 
 function ERK2FieldBuffers(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T}, cache::ERK2Cache{T}) where T
@@ -25,13 +27,14 @@ function ERK2FieldBuffers(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T}, cache::ER
     nl_imag = parent(nl.data_imag)
     cache_lookup = Dict{Int,Int}(l => idx for (idx, l) in enumerate(cache.l_values))
     nr = size(cache.E_full[1], 1)
+    ws = [zeros(T, nr) for _ in 1:8]
     return ERK2FieldBuffers{T}(
         similar(real_data), similar(imag_data),
         similar(real_data), similar(imag_data),
         similar(real_data), similar(imag_data),
         similar(nl_real), similar(nl_imag),
         similar(nl_real), similar(nl_imag),
-        cache_lookup, nr
+        cache_lookup, nr, ws
     )
 end
 
@@ -62,14 +65,9 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T},
     r_range = get_local_range(u.pencil, 3)
 
     nr = buffers.nr
-    ur = zeros(T, nr)
-    ui = similar(ur)
-    nr_vec = similar(ur)
-    ni_vec = similar(ur)
-    linear_tmp = similar(ur)
-    k1_tmp = similar(ur)
-    stage_tmp = similar(ur)
-    stage_phi_tmp = similar(ur)
+    # Reuse pre-allocated workspace vectors (no allocation per timestep)
+    ur, ui, nr_vec, ni_vec = buffers._ws[1], buffers._ws[2], buffers._ws[3], buffers._ws[4]
+    linear_tmp, k1_tmp, stage_tmp, stage_phi_tmp = buffers._ws[5], buffers._ws[6], buffers._ws[7], buffers._ws[8]
     half_dt = T(dt) / T(2)
 
     comm = get_comm()
@@ -246,13 +244,9 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T}
     r_range = get_local_range(u.pencil, 3)
 
     nr = buffers.nr
-    tmp_linear = zeros(T, nr)
-    tmp_k1 = similar(tmp_linear)
-    tmp_Nn = similar(tmp_linear)
-    tmp_stage = similar(tmp_linear)
-    delta = similar(tmp_linear)
-    correction = similar(tmp_linear)
-    result = similar(tmp_linear)
+    # Reuse pre-allocated workspace vectors (no allocation per timestep)
+    tmp_linear, tmp_k1, tmp_Nn, tmp_stage = buffers._ws[1], buffers._ws[2], buffers._ws[3], buffers._ws[4]
+    delta, correction, result = buffers._ws[5], buffers._ws[6], buffers._ws[7]
 
     comm = get_comm()
     multi = MPI.Comm_size(comm) > 1

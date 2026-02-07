@@ -60,10 +60,8 @@ function shtnskit_spectral_to_physical!(spec::SHTnsSpecField{T},
     config = spec.config
 
     # Use direct synthesis method (processes each radial level)
+    # MPI synchronization is handled by Allreduce inside extract_coefficients_for_shtnskit
     perform_synthesis_direct!(spec, phys, config)
-
-    # Ensure all MPI processes complete before returning
-    MPI.Barrier(get_comm())
 end
 
 """
@@ -91,18 +89,21 @@ function perform_synthesis_phi_local!(spec::SHTnsSpecField{T},
     spec_imag_data = parent(spec.data_imag)
     phys_data = parent(phys.data)
 
+    # Get pre-allocated plan and output buffer (allocation-free path)
+    plan = get(config._buffer_cache, :sht_plan, nothing)
+    synth_out = get(config._buffer_cache, :synth_out, nothing)
+
     # Process each radial level independently (embarrassingly parallel in r)
     for r_local in axes(phys_data, 3)
-        # Step 1: Gather spectral coefficients into SHTnsKit's expected format
-        # Returns a (lmax+1) × (mmax+1) complex matrix
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
 
-        # Step 2: Perform the actual spherical harmonic synthesis
-        # SHTnsKit handles both Legendre transform and longitude FFT internally
-        phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
-
-        # Step 3: Store result in the physical array at this radial level
-        store_physical_slice_phi_local!(phys_data, phys_slice, r_local, config)
+        if plan !== nothing && synth_out !== nothing
+            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
+            store_physical_slice_phi_local!(phys_data, synth_out, r_local, config)
+        else
+            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
+            store_physical_slice_phi_local!(phys_data, phys_slice, r_local, config)
+        end
     end
 end
 
@@ -126,14 +127,15 @@ ensures the FFT can operate on contiguous local data.
 function perform_synthesis_with_transpose!(spec::SHTnsSpecField{T},
                                          phys::SHTnsPhysField{T},
                                          config, back_plan) where T
-    # Allocate temporary array in phi-pencil orientation
-    phys_phi = PencilArray{T}(undef, config.pencils.phi)
+    # Reuse cached temporary phi-pencil array (avoids allocation every call)
+    phys_phi = get_cached_buffer!(config, :transpose_phi_tmp) do
+        PencilArray{T}(undef, config.pencils.phi)
+    end
 
     # Perform synthesis with longitude local (optimal for SHTnsKit)
     perform_synthesis_to_phi_pencil!(spec, phys_phi, config)
 
     # Redistribute data to match target pencil orientation
-    # back_plan encodes the MPI communication pattern
     mul!(phys.data, back_plan, phys_phi)
 end
 
@@ -155,16 +157,21 @@ function perform_synthesis_to_phi_pencil!(spec::SHTnsSpecField{T},
     spec_imag_data = parent(spec.data_imag)
     phys_phi_data = parent(phys_phi)
 
+    # Get pre-allocated plan and output buffer (allocation-free path)
+    plan = get(config._buffer_cache, :sht_plan, nothing)
+    synth_out = get(config._buffer_cache, :synth_out, nothing)
+
     # Loop over radial levels (each level is independent)
     for r_local in axes(phys_phi_data, 3)
-        # Prepare spectral coefficients in SHTnsKit format
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
 
-        # SHTnsKit synthesis: spectral → physical for this radial slice
-        phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
-
-        # Copy result to output array
-        store_physical_slice_phi_local!(phys_phi_data, phys_slice, r_local, config)
+        if plan !== nothing && synth_out !== nothing
+            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
+            store_physical_slice_phi_local!(phys_phi_data, synth_out, r_local, config)
+        else
+            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
+            store_physical_slice_phi_local!(phys_phi_data, phys_slice, r_local, config)
+        end
     end
 end
 
@@ -191,16 +198,24 @@ function perform_synthesis_direct!(spec::SHTnsSpecField{T},
     spec_imag_data = parent(spec.data_imag)
     phys_data = parent(phys.data)
 
+    # Get pre-allocated plan and output buffer (allocation-free path)
+    plan = get(config._buffer_cache, :sht_plan, nothing)
+    synth_out = get(config._buffer_cache, :synth_out, nothing)
+
     # Process each radial level
     for r_local in axes(phys_data, 3)
         # Gather spectral coefficients for this radial level
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
 
-        # Perform SHTnsKit synthesis (Legendre + FFT)
-        phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
-
-        # Store using generic method (works for any pencil orientation)
-        store_physical_slice_generic!(phys_data, phys_slice, r_local, config)
+        if plan !== nothing && synth_out !== nothing
+            # Allocation-free path: use pre-allocated plan and output buffer
+            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
+            store_physical_slice_generic!(phys_data, synth_out, r_local, config)
+        else
+            # Fallback: allocating path
+            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
+            store_physical_slice_generic!(phys_data, phys_slice, r_local, config)
+        end
     end
 end
 
@@ -234,10 +249,8 @@ function shtnskit_physical_to_spectral!(phys::SHTnsPhysField{T},
     config = spec.config
 
     # Use direct analysis method (processes each radial level)
+    # MPI synchronization is handled by Allreduce inside extract_physical_slice_generic
     perform_analysis_direct!(phys, spec, config)
-
-    # Ensure all MPI processes complete before returning
-    MPI.Barrier(get_comm())
 end
 
 """
@@ -250,26 +263,31 @@ This is the most efficient analysis path because:
 2. SHTnsKit's FFT operates entirely in local memory
 3. No MPI communication needed during the transform itself
 """
-function perform_analysis_phi_local!(phys::SHTnsPhysField{T}, 
-                                    spec::SHTnsSpecField{T}, 
+function perform_analysis_phi_local!(phys::SHTnsPhysField{T},
+                                    spec::SHTnsSpecField{T},
                                     config) where T
     sht_config = config.sht_config
-    
+
     # Get local data
     phys_data = parent(phys.data)
     spec_real_data = parent(spec.data_real)
     spec_imag_data = parent(spec.data_imag)
-    
+
+    # Get pre-allocated plan and output buffer
+    plan = get(config._buffer_cache, :sht_plan, nothing)
+    anal_out = get(config._buffer_cache, :anal_out, nothing)
+
     # Process each radial level
     for r_local in axes(phys_data, 3)
-        # Extract physical slice
         phys_slice = extract_physical_slice_phi_local(phys_data, r_local, config)
-        
-        # Perform SHTnsKit analysis
-        coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
-        
-        # Store spectral coefficients
-        store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
+
+        if plan !== nothing && anal_out !== nothing
+            SHTnsKit.analysis!(plan, anal_out, phys_slice)
+            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, anal_out, r_local, config)
+        else
+            coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
+            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
+        end
     end
 end
 
@@ -281,7 +299,10 @@ Perform analysis with transpose to phi-pencil.
 function perform_analysis_with_transpose!(phys::SHTnsPhysField{T},
                                         spec::SHTnsSpecField{T},
                                         config, to_phi_plan) where T
-    phys_phi = PencilArray{T}(undef, config.pencils.phi)
+    # Reuse cached temporary phi-pencil array (avoids allocation every call)
+    phys_phi = get_cached_buffer!(config, :transpose_phi_tmp) do
+        PencilArray{T}(undef, config.pencils.phi)
+    end
     # Transpose to phi-pencil using pre-computed plan
     mul!(phys_phi, to_phi_plan, phys.data)
     perform_analysis_from_phi_pencil!(phys_phi, spec, config)
@@ -292,26 +313,31 @@ end
 
 Perform analysis from phi-pencil data.
 """
-function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T,3}, 
-                                         spec::SHTnsSpecField{T}, 
+function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T,3},
+                                         spec::SHTnsSpecField{T},
                                          config) where T
     sht_config = config.sht_config
-    
+
     # Get data arrays
     phys_phi_data = parent(phys_phi)
     spec_real_data = parent(spec.data_real)
     spec_imag_data = parent(spec.data_imag)
-    
+
+    # Get pre-allocated plan and output buffer
+    plan = get(config._buffer_cache, :sht_plan, nothing)
+    anal_out = get(config._buffer_cache, :anal_out, nothing)
+
     # Process each radial level
     for r_local in axes(phys_phi_data, 3)
-        # Extract physical slice
         phys_slice = extract_physical_slice_phi_local(phys_phi_data, r_local, config)
-        
-        # Perform analysis
-        coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
-        
-        # Store coefficients
-        store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
+
+        if plan !== nothing && anal_out !== nothing
+            SHTnsKit.analysis!(plan, anal_out, phys_slice)
+            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, anal_out, r_local, config)
+        else
+            coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
+            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
+        end
     end
 end
 
@@ -330,16 +356,21 @@ function perform_analysis_direct!(phys::SHTnsPhysField{T},
     spec_real_data = parent(spec.data_real)
     spec_imag_data = parent(spec.data_imag)
 
+    # Get pre-allocated plan and output buffer
+    plan = get(config._buffer_cache, :sht_plan, nothing)
+    anal_out = get(config._buffer_cache, :anal_out, nothing)
+
     # Process each radial level
     for r_local in axes(phys_data, 3)
-        # Extract physical slice (generic extraction)
         phys_slice = extract_physical_slice_generic(phys_data, r_local, config)
 
-        # Perform analysis
-        coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
-
-        # Store coefficients
-        store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
+        if plan !== nothing && anal_out !== nothing
+            SHTnsKit.analysis!(plan, anal_out, phys_slice)
+            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, anal_out, r_local, config)
+        else
+            coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
+            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
+        end
     end
 end
 
@@ -393,19 +424,28 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
     # Get local radial range
     r_range = get_local_range(pol_spec.pencil, 3)
 
+    # Get pre-allocated plan and output buffers (allocation-free path)
+    plan = get(config._buffer_cache, :sht_plan, nothing)
+    vt_out = get(config._buffer_cache, :vt_out, nothing)
+    vp_out = get(config._buffer_cache, :vp_out, nothing)
+    synth_out = get(config._buffer_cache, :synth_out, nothing)
+
     # Process each radial level
     for r_local in axes(tor_real, 3)
         # Extract toroidal and poloidal coefficients efficiently (includes MPI gathering)
-        # Uses optimized pair extraction to reduce memory allocations
         tor_coeffs, pol_coeffs = extract_coefficients_pair_for_shtnskit(
             tor_real, tor_imag, pol_real, pol_imag, r_local, config)
 
         # Perform vector synthesis using SHTnsKit (tangential components only)
-        vt_field, vp_field = SHTnsKit.SHsphtor_to_spat(sht_config, pol_coeffs, tor_coeffs;
-                                                      real_output=true)
-
-        # Store tangential vector components
-        store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config)
+        if plan !== nothing && vt_out !== nothing && vp_out !== nothing
+            # Allocation-free path: in-place vector synthesis
+            SHTnsKit.synthesis_sphtor!(plan, vt_out, vp_out, pol_coeffs, tor_coeffs; real_output=true)
+            store_vector_components_generic!(v_theta, v_phi, vt_out, vp_out, r_local, config)
+        else
+            vt_field, vp_field = SHTnsKit.SHsphtor_to_spat(sht_config, pol_coeffs, tor_coeffs;
+                                                          real_output=true)
+            store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config)
+        end
 
         # ========================================================================
         # CRITICAL: Compute radial component from poloidal scalar
@@ -414,22 +454,18 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
         # ========================================================================
 
         if domain !== nothing
-            # Get global radial index
             r_idx_global = r_local + first(r_range) - 1
 
-            # Bounds check for domain.r access
             if r_idx_global >= 1 && r_idx_global <= domain.N
-                r_val = domain.r[r_idx_global, 4]  # Actual radius value
+                r_val = domain.r[r_idx_global, 4]
 
-                if r_val > 1e-15  # Avoid division by zero at r=0
-                    # Scale poloidal coefficients by l(l+1)/r
+                if r_val > 1e-15
                     lmax, mmax = config.lmax, config.mmax
 
-                    # Use cached buffer to avoid allocations in loop
                     pol_rad_coeffs = get_cached_buffer!(config, :pol_rad_coeffs_buffer) do
                         zeros(ComplexF64, lmax+1, mmax+1)
                     end
-                    fill!(pol_rad_coeffs, zero(ComplexF64))  # Clear for reuse
+                    fill!(pol_rad_coeffs, zero(ComplexF64))
 
                     for l in 0:lmax
                         l_factor = l * (l + 1) / r_val
@@ -438,24 +474,22 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
                         end
                     end
 
-                    # Synthesize radial component
-                    vr_field = SHTnsKit.synthesis(sht_config, pol_rad_coeffs; real_output=true)
-
-                    # Store radial component
-                    store_scalar_component_generic!(v_r, vr_field, r_local, config)
+                    # Synthesize radial component (allocation-free if plan available)
+                    if plan !== nothing && synth_out !== nothing
+                        SHTnsKit.synthesis!(plan, synth_out, pol_rad_coeffs; real_output=true)
+                        store_scalar_component_generic!(v_r, synth_out, r_local, config)
+                    else
+                        vr_field = SHTnsKit.synthesis(sht_config, pol_rad_coeffs; real_output=true)
+                        store_scalar_component_generic!(v_r, vr_field, r_local, config)
+                    end
                 else
-                    # At r=0 (ball geometry), v_r must be zero for regularity
                     store_zero_component_generic!(v_r, r_local, config)
                 end
             end
         else
-            # No domain provided - set v_r to zero for all points at this radial level
-            # This is used in tests that don't have domain information
             store_zero_component_generic!(v_r, r_local, config)
         end
     end
-
-    MPI.Barrier(get_comm())
 end
 
 """
@@ -516,10 +550,14 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
     # Get local radial range
     r_range = get_local_range(pol_spec.pencil, 3)
 
+    # Get pre-allocated plan and output buffers (allocation-free path)
+    plan = get(config._buffer_cache, :sht_plan, nothing)
+    slm_out = get(config._buffer_cache, :slm_out, nothing)
+    tlm_out = get(config._buffer_cache, :tlm_out, nothing)
+
     # Process each radial level
     for r_local in axes(v_theta, 3)
         # Extract vector components using SEPARATE buffers to avoid overwriting
-        # (extract_vector_component_generic uses a shared cached buffer)
         nlat, nlon = config.nlat, config.nlon
         vt_buffer = get_cached_buffer!(config, :vector_component_buffer_vt) do
             zeros(eltype(v_theta), nlat, nlon)
@@ -531,59 +569,17 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
         vp_field = extract_vector_component_generic!(vp_buffer, v_phi, r_local, config)
 
         # Perform vector analysis using SHTnsKit (tangential components)
-        # This returns P and T assuming solenoidal constraint
-        pol_coeffs, tor_coeffs = SHTnsKit.spat_to_SHsphtor(sht_config, vt_field, vp_field)
-
-        # Store spectral coefficients
-        store_coefficients_from_shtnskit!(pol_real, pol_imag, pol_coeffs, r_local, config)
-        store_coefficients_from_shtnskit!(tor_real, tor_imag, tor_coeffs, r_local, config)
-
-        # ========================================================================
-        # OPTIONAL: Verify solenoidal constraint using radial component
-        # This is a consistency check, not used in the decomposition
-        # Only performed if domain is provided and verify_solenoidal is true
-        # ========================================================================
-        if verify_solenoidal && domain !== nothing
-            r_idx_global = r_local + first(r_range) - 1
-            # Bounds check for domain.r access
-            if r_idx_global >= 1 && r_idx_global <= domain.N
-                r_val = domain.r[r_idx_global, 4]
-                if r_val > 1e-15
-                    # Extract radial component
-                    vr_field = extract_vector_component_generic(v_r, r_local, config)
-
-                    # Compute what P should be from v_r: P = r/(l(l+1)) * v_r
-                    lmax, mmax = config.lmax, config.mmax
-
-                    # Use cached buffer to avoid allocations in loop
-                    pol_from_vr = get_cached_buffer!(config, :pol_from_vr_buffer) do
-                        zeros(ComplexF64, lmax+1, mmax+1)
-                    end
-                    fill!(pol_from_vr, zero(ComplexF64))  # Clear for reuse
-
-                    # Analysis of v_r
-                    vr_coeffs = SHTnsKit.analysis(sht_config, vr_field)
-
-                    # Scale by r/l(l+1) to get P
-                    for l in 1:lmax  # Skip l=0 which has no radial component
-                        l_factor = r_val / (l * (l + 1))
-                        for m in 0:min(l, mmax)
-                            # Bounds check on vr_coeffs for defensive programming
-                            if l+1 <= size(vr_coeffs, 1) && m+1 <= size(vr_coeffs, 2)
-                                pol_from_vr[l+1, m+1] = vr_coeffs[l+1, m+1] * l_factor
-                            end
-                        end
-                    end
-
-                    # Compare with pol_coeffs from tangential analysis
-                    # If solenoidal, these should match
-                    # (In practice, accumulate error metrics if needed)
-                end
-            end
+        if plan !== nothing && slm_out !== nothing && tlm_out !== nothing
+            # Allocation-free path: in-place vector analysis
+            SHTnsKit.analysis_sphtor!(plan, slm_out, tlm_out, vt_field, vp_field)
+            store_coefficients_from_shtnskit!(pol_real, pol_imag, slm_out, r_local, config)
+            store_coefficients_from_shtnskit!(tor_real, tor_imag, tlm_out, r_local, config)
+        else
+            pol_coeffs, tor_coeffs = SHTnsKit.spat_to_SHsphtor(sht_config, vt_field, vp_field)
+            store_coefficients_from_shtnskit!(pol_real, pol_imag, pol_coeffs, r_local, config)
+            store_coefficients_from_shtnskit!(tor_real, tor_imag, tor_coeffs, r_local, config)
         end
     end
-
-    MPI.Barrier(get_comm())
 end
 
 # ================================================================================
@@ -723,9 +719,9 @@ function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config
     # Each process contributes its local portion; summing gives complete matrix
     Allreduce!(coeffs_buffer, coeffs_gathered, MPI.SUM, get_comm())
 
-    # Return copy to avoid aliasing issues with buffer reuse
-    # This is necessary when multiple extractions are done sequentially (e.g., vector transforms)
-    return copy(coeffs_gathered)
+    # Return the gathered buffer directly (no copy needed since callers consume
+    # the result immediately via synthesis! or store_coefficients_from_shtnskit!)
+    return coeffs_gathered
 end
 
 """
@@ -769,9 +765,8 @@ function extract_coefficients_pair_for_shtnskit(spec1_real, spec1_imag,
     Allreduce!(coeffs_buffer1, coeffs_gathered1, MPI.SUM, get_comm())
     Allreduce!(coeffs_buffer2, coeffs_gathered2, MPI.SUM, get_comm())
 
-    # Only one copy needed (for the first matrix) since we use separate buffers
-    # The second buffer won't be overwritten until next pair extraction
-    return copy(coeffs_gathered1), coeffs_gathered2
+    # No copies needed - separate buffer keys ensure no aliasing
+    return coeffs_gathered1, coeffs_gathered2
 end
 
 """
