@@ -518,11 +518,12 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
 
     # Create spectral space pencil
     # nlm = total number of (l,m) mode pairs
-    # Only distribute lm dimension (1), keep radial (3) local on each rank
+    # Distribute lm (dim 1) and dummy (dim 2, size 1), keep radial (dim 3) local on each rank
+    # decomp_dims must be a 2-tuple to match MPITopology{2}
     # This matches DD_2DCODE where each rank has full radial profiles for its subset of (l,m) modes
     nlm = sht_config.nlm
     spec_dims = (nlm, 1, nr)  # Middle dimension is dummy (size 1)
-    pencil_spec = Pencil(topology, spec_dims, (1,))
+    pencil_spec = Pencil(topology, spec_dims, (1, 2))
 
     # Mixed pencil for intermediate computations
     mixed_dims = (nlm, nlat, nr)

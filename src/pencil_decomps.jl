@@ -192,10 +192,11 @@ function create_computation_pencils(topology, dims::Tuple{Int,Int,Int}, config)
     pencil_r = Pencil(topology, dims, (1, 2))  # Contiguous in r (radius)
     
     # Spectral space pencil (for l,m modes)
-    # Only distribute lm dimension (1), keep radial (3) local on each rank
+    # Distribute lm (dim 1) and dummy (dim 2, size 1), keep radial (dim 3) local on each rank
+    # decomp_dims must be a 2-tuple to match MPITopology{2}
     # This matches DD_2DCODE where each rank has full radial profiles for its subset of (l,m) modes
     spec_dims = (config.nlm, 1, nr)
-    pencil_spec = Pencil(topology, spec_dims, (1,))  # Only decompose lm modes, radial stays local
+    pencil_spec = Pencil(topology, spec_dims, (1, 2))
     
     # Create enhanced pencil for mixed operations
     # This is useful for operations that need both spectral and physical access

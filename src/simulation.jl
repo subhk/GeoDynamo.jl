@@ -97,16 +97,11 @@ struct SimulationState{T}
     auto_optimization::Bool
     adaptive_threading::Bool
     geometry::Symbol
+
 end
 
 # ================================================================================
-# BASIC SIMULATION INITIALIZATION
-# ================================================================================
-
-initialize_shtns_simulation(::Type{T}=Float64; include_composition::Bool=true) where T = initialize_simulation(T; include_composition)
-
-# ================================================================================
-# MASTER SIMULATION INITIALIZATION
+# SIMULATION INITIALIZATION
 # ================================================================================
 
 """
@@ -270,127 +265,16 @@ function _load_file_bcs!(state::SimulationState{T}) where T
 end
 
 # ================================================================================
-# BASIC SIMULATION RUNNER
-# ================================================================================
-
-## Backward-compatibility thin wrappers (optional, non-exported)
-function run_shtns_simulation!(state)
-    run_simulation!(state)
-
-    comm = get_comm()
-    rank = get_rank()
-
-    if rank == 0
-        println("Starting geodynamo simulation with SHTnsKit...")
-        println("SHTns Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(state.𝒟ᵒᶜ.N)")
-        println("Spectral modes: $(state.shtns_config.nlm)")
-        println("lmax: $(state.shtns_config.lmax), mmax: $(state.shtns_config.mmax)")
-        println("Geometry: $(state.geometry)")
-    end
-
-    # Initialize fields with some perturbation
-    initialize_fields!(state)
-    
-    # Main timestepping loop
-    while state.timestep_state.step < i_maxtstep && 
-            state.timestep_state.time < 1.0
-        
-        # Predictor-corrector iterations
-        state.timestep_state.iteration = 1
-        state.timestep_state.error = Inf
-        state.timestep_state.converged = false
-        
-        # Store previous state for error computation
-        prev_velocity = deepcopy(state.velocity.𝒯)
-        prev_magnetic = deepcopy(state.magnetic.𝒯)
-        prev_temperature = deepcopy(state.temperature.spectral)
-        prev_composition = state.composition !== nothing ? deepcopy(state.composition.spectral) : nothing
-        
-        while state.timestep_state.iteration <= 10 && 
-                state.timestep_state.error > d_dterr
-            
-            # Compute nonlinear terms
-            compute_all_nonlinear_terms!(state)
-            
-            # Timestepping (predictor or corrector)
-            if state.timestep_state.iteration == 1
-                predictor_step!(state)
-            else
-                corrector_step!(state)
-            end
-            
-            # Compute convergence error
-            error_vel  = compute_timestep_error(state.velocity.𝒯, prev_velocity)
-            error_mag  = compute_timestep_error(state.magnetic.𝒯, prev_magnetic)
-            error_temp = compute_timestep_error(state.temperature.spectral, prev_temperature)
-            
-            error_comp = 0.0
-            if state.composition !== nothing && prev_composition !== nothing
-                error_comp = compute_timestep_error(state.composition.spectral, prev_composition)
-            end
-            
-            state.timestep_state.error = max(error_vel, error_mag, error_temp, error_comp)
-            
-            if state.timestep_state.error < d_dterr
-                state.timestep_state.converged = true
-                break
-            end
-            
-            # Update previous state (copy underlying data arrays)
-            parent(prev_velocity.data_real) .= parent(state.velocity.𝒯.data_real)
-            parent(prev_velocity.data_imag) .= parent(state.velocity.𝒯.data_imag)
-            parent(prev_magnetic.data_real) .= parent(state.magnetic.𝒯.data_real)
-            parent(prev_magnetic.data_imag) .= parent(state.magnetic.𝒯.data_imag)
-            parent(prev_temperature.data_real) .= parent(state.temperature.spectral.data_real)
-            parent(prev_temperature.data_imag) .= parent(state.temperature.spectral.data_imag)
-
-            if state.composition !== nothing && prev_composition !== nothing
-                parent(prev_composition.data_real) .= parent(state.composition.spectral.data_real)
-                parent(prev_composition.data_imag) .= parent(state.composition.spectral.data_imag)
-            end
-            
-            state.timestep_state.iteration += 1
-        end
-        
-        # Advance time
-        state.timestep_state.time += state.timestep_state.dt
-        state.timestep_state.step += 1
-        
-        # Adaptive timestepping
-        compute_cfl_timestep!(state)
-        
-        # Update implicit matrices if timestep changed
-        if abs(state.timestep_state.dt - d_timestep) > 1e-10
-            update_implicit_matrices!(state)
-        end
-        
-        # Output
-        if state.timestep_state.step % i_save_rate2 == 0
-            if rank == 0
-                println("Step: $(state.timestep_state.step), " *
-                        "Time: $(state.timestep_state.time), " *
-                        "dt: $(state.timestep_state.dt), " *
-                        "Error: $(state.timestep_state.error)")
-            end
-        end
-    end
-    
-    if rank == 0
-        println("SHTns simulation completed!")
-    end
-end
-
-# ================================================================================
-# ENHANCED SIMULATION RUNNER
+# SIMULATION RUNNER
 # ================================================================================
 
 """
-    run_enhanced_simulation!(state::SimulationState{T}; restart_file::String="", restart_dir::String="", restart_time::Float64=0.0)
+    run_simulation!(state::SimulationState{T}; restart_file::String="", restart_dir::String="", restart_time::Float64=0.0)
 
 Run geodynamo simulation with all parallelization optimizations.
 Supports restarting from a saved NetCDF restart file.
 """
-function run_enhanced_simulation!(state::SimulationState{T};
+function run_simulation!(state::SimulationState{T};
                                   restart_file::String="",
                                   restart_dir::String="",
                                   restart_time::Float64=0.0) where T
@@ -399,7 +283,7 @@ function run_enhanced_simulation!(state::SimulationState{T};
     nprocs = get_nprocs()
 
     if rank == 0
-        println("\nStarting enhanced geodynamo simulation...")
+        println("\nStarting geodynamo simulation...")
         println("Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
         println("Spectral modes: $(state.shtns_config.nlm) (lmax=$(state.shtns_config.lmax))")
         println("Parallel configuration: $nprocs MPI × $(Threads.nthreads()) threads")
@@ -459,7 +343,7 @@ function run_enhanced_simulation!(state::SimulationState{T};
             println("  Resuming from time = $simulation_time, step = $step")
         end
     else
-        initialize_enhanced_fields!(state)
+        initialize_fields!(state)
         time_tracker = create_time_tracker(output_config)
     end
     
@@ -471,25 +355,25 @@ function run_enhanced_simulation!(state::SimulationState{T};
         step += 1
         step_start = Wtime()
         
-        # === ENHANCED PHYSICS COMPUTATION ===
-        
-        # 1. Hybrid nonlinear computation (MPI + Threads)
+        # === PHYSICS COMPUTATION ===
+
+        # 1. Compute nonlinear terms for all equations
         compute_start = Wtime()
-        
-        # Temperature evolution with all optimizations
-        hybrid_compute_nonlinear!(state.master_parallelizer, state.temperature, 
-                                 state.velocity, state.𝒟ᵒᶜ)
-        
+
         # Velocity evolution
         if state.velocity !== nothing
             compute_velocity_nonlinear!(state.velocity, state.magnetic, state.temperature, state.𝒟ᵒᶜ)
         end
-        
-        # Magnetic field evolution  
+
+        # Magnetic field evolution
         if i_B == 1 && state.magnetic !== nothing
             compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.𝒟ᵒᶜ, state.𝒟ⁱᶜ)
         end
-        
+
+        # Temperature evolution
+        compute_temperature_nonlinear!(state.temperature, state.velocity, state.𝒟ᵒᶜ,
+                                        state.gradient_workspace)
+
         # Compositional evolution (if enabled)
         if state.composition !== nothing
             compute_composition_nonlinear!(state.composition, state.velocity, state.𝒟ᵒᶜ,
@@ -501,8 +385,8 @@ function run_enhanced_simulation!(state::SimulationState{T};
         # 2. Enhanced time integration
         integrate_start = Wtime()
         
-        # Apply implicit time integration with enhanced solvers
-        apply_enhanced_implicit_step!(state, dt)
+        # Apply implicit time integration (supports CNAB2, EAB2, ERK2)
+        apply_implicit_step!(state, dt)
         
         integrate_time = Wtime() - integrate_start
         
@@ -523,23 +407,12 @@ function run_enhanced_simulation!(state::SimulationState{T};
         
         io_time = Wtime() - io_start
         
-        # 4. Performance monitoring and adaptive optimization
+        # 4. Dynamic load balancing and auto-tuning
         if state.auto_optimization && step % 50 == 0
-            monitor_start = Wtime()
-            
-            # Update performance metrics
-            update_performance_metrics!(state.master_parallelizer.performance_monitor, step, 
-                                      compute_time, integrate_time, io_time)
-            
-            # Dynamic load balancing check
             adaptive_rebalance!(state.master_parallelizer.load_balancer, state.temperature)
-            
-            # Auto-tuning of parameters
             if step % 200 == 0
                 auto_tune_parameters!(state)
             end
-            
-            monitor_time = Wtime() - monitor_start
         end
         
         # Update simulation state
@@ -557,303 +430,21 @@ function run_enhanced_simulation!(state::SimulationState{T};
     
     total_time = Wtime() - total_start
     
-    # Final performance analysis
+    # Final summary
     if rank == 0
-        analyze_parallel_performance(state.master_parallelizer.performance_monitor)
-        
         println("\n" * "="^80)
         println("         SIMULATION COMPLETED SUCCESSFULLY")
         println("="^80)
         println("Total steps: $step")
         println("Final time: $(round(simulation_time, digits=4))")
         println("Total wall time: $(round(total_time, digits=2)) seconds")
-        println("Average time per step: $(round(total_time/step*1000, digits=2)) ms")
-        
-        # Parallel efficiency summary
-        parallel_efficiency = get_parallel_efficiency(state.master_parallelizer.performance_monitor)
-        println("Parallel efficiency: $(round(parallel_efficiency*100, digits=1))%")
-        
-        # Thread utilization
-        thread_utilization = get_thread_utilization(state.master_parallelizer.threading_accelerator)
-        println("Thread utilization: $(round(thread_utilization*100, digits=1))%")
-        
+        if step > 0
+            println("Average time per step: $(round(total_time/step*1000, digits=2)) ms")
+        end
         println("="^80)
     end
-    
-    # Cleanup
-    finalize_enhanced_simulation!(state)
 end
 
-# ================================================================================
-# MASTER SIMULATION RUNNER
-# ================================================================================
-
-"""
-    run_simulation!(state::SimulationState{T}; restart_file::String="", restart_dir::String="", restart_time::Float64=0.0)
-
-Run geodynamo simulation with maximum CPU parallelization optimizations.
-
-# Keyword Arguments
-- `restart_file`: Path to a specific restart NetCDF file to resume from.
-- `restart_dir`: Directory containing restart files (used with `restart_time`).
-- `restart_time`: Target simulation time to restart from (used with `restart_dir`).
-
-If neither `restart_file` nor `restart_dir` is provided, the parameters
-`s_restart_file`, `s_restart_dir`, and `d_restart_time` are checked.
-If no restart is specified, the simulation starts fresh.
-"""
-function run_simulation!(state::SimulationState{T};
-                         restart_file::String="",
-                         restart_dir::String="",
-                         restart_time::Float64=0.0) where T
-    comm = get_comm()
-    rank = get_rank()
-    nprocs = get_nprocs()
-
-    if rank == 0
-        print_geodynamo_banner(state.shtns_config, nprocs, Threads.nthreads())
-    end
-
-    # Resolve restart parameters: keyword args take priority over global parameters
-    params = get_parameters()
-    _restart_file = !isempty(restart_file) ? restart_file : params.s_restart_file
-    _restart_dir = !isempty(restart_dir) ? restart_dir : params.s_restart_dir
-    _restart_time = restart_time > 0.0 ? restart_time : params.d_restart_time
-
-    # Create enhanced output configuration
-    output_config = create_enhanced_output_config(state)
-
-    # Verify parallel NetCDF (MPI-IO) is available
-    check_parallel_netcdf_support(comm)
-
-    # Determine whether to restart or initialize fresh
-    is_restart = !isempty(_restart_file) || !isempty(_restart_dir)
-
-    step = 0
-    simulation_time = d_time
-    dt = d_timestep
-
-    if is_restart
-        # --- RESTART MODE ---
-        time_tracker = create_time_tracker(output_config)
-
-        pencils = state.shtns_config.pencils
-        if !isempty(_restart_file)
-            # Load from a specific file
-            if rank == 0
-                println("="^80)
-                println("  RESTARTING FROM FILE: $_restart_file")
-                println("="^80)
-            end
-            restart_data, restart_metadata = _load_restart_file(
-                _restart_file, time_tracker, output_config; pencils=pencils)
-        else
-            # Load from directory + target time
-            if rank == 0
-                println("="^80)
-                println("  RESTARTING FROM DIR: $_restart_dir (target time=$_restart_time)")
-                println("="^80)
-            end
-            restart_data, restart_metadata = read_restart!(
-                time_tracker, _restart_dir, _restart_time, output_config, pencils)
-        end
-
-        # Restore fields from the restart data
-        restore_fields_from_restart!(state, restart_data)
-
-        # Set simulation time and step from restart metadata
-        if haskey(restart_metadata, "current_time")
-            simulation_time = Float64(restart_metadata["current_time"])
-        end
-        if haskey(restart_metadata, "current_step")
-            step = Int(restart_metadata["current_step"])
-        end
-
-        # Update timestep state
-        state.timestep_state.time = simulation_time
-        # Temporarily set step to 0 so that apply_implicit_step! will bootstrap
-        # prev_nonlinear from the first computed nonlinear terms (AB2 → AB1 for first step).
-        # The correct step count is restored at the end of the first loop iteration.
-        state.timestep_state.step = 0
-
-        if rank == 0
-            println("  Resuming from time = $simulation_time, step = $step")
-            println("="^80)
-        end
-    else
-        # --- FRESH START ---
-        initialize_master_fields!(state)
-        time_tracker = create_time_tracker(output_config)
-    end
-
-    # Performance monitoring
-    total_start = Wtime()
-    last_output_time = simulation_time
-    
-    # Adaptive threading state
-    thread_efficiency_history = Float64[]
-    optimal_thread_count = Threads.nthreads()
-    
-    while simulation_time < 1.0 && step < i_maxtstep
-        step += 1
-        step_start = Wtime()
-        
-        # === ADVANCED PHYSICS COMPUTATION ===
-        
-        # 1. Advanced nonlinear computation (CPU + SIMD + Task-based)
-        compute_start = Wtime()
-        
-        # Temperature evolution with maximum CPU optimizations
-        compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, state.temperature,
-                                   state.velocity, state.𝒟ᵒᶜ, state.gradient_workspace)
-        
-        # Velocity evolution with task-based parallelism
-        if state.velocity !== nothing
-            compute_velocity_nonlinear_master!(state, state.magnetic, state.temperature, state.𝒟ᵒᶜ)
-        end
-        
-        # Magnetic field evolution with SIMD optimization
-        if i_B == 1 && state.magnetic !== nothing
-            compute_magnetic_nonlinear_master!(state, state.velocity, state.𝒟ᵒᶜ, state.𝒟ⁱᶜ)
-        end
-        
-        # Compositional evolution (if enabled) with memory optimization
-        if state.composition !== nothing
-            compute_composition_nonlinear_master!(state, state.velocity, state.𝒟ᵒᶜ,
-                                                  state.gradient_workspace)
-        end
-        
-        compute_time = Wtime() - compute_start
-        
-        # 2. Advanced time integration with task scheduling
-        integrate_start = Wtime()
-        
-        # Apply implicit time integration with advanced solvers
-        apply_implicit_step!(state, dt)
-        
-        integrate_time = Wtime() - integrate_start
-        
-        # 3. Asynchronous I/O with memory-aware scheduling
-        io_start = Wtime()
-        
-        if should_output_now(time_tracker, simulation_time, output_config)
-            fields = extract_all_fields_enhanced(state)
-            metadata = create_enhanced_metadata(state, simulation_time, step)
-            did_write = write_fields!(fields, time_tracker, metadata, output_config,
-                                      state.shtns_config, state.shtns_config.pencils)
-            
-            if did_write && rank == 0
-                cpu_efficiency = state.master_parallelizer.cpu_parallelizer.thread_efficiency[]
-                cache_efficiency = state.master_parallelizer.cpu_parallelizer.cache_efficiency[]
-                memory_bw = state.master_parallelizer.cpu_parallelizer.memory_bandwidth[]
-                
-                println("Step $step: t=$(round(simulation_time, digits=4)), " *
-                       "compute=$(round(compute_time*1000, digits=1))ms, " *
-                       "integrate=$(round(integrate_time*1000, digits=1))ms")
-                println("  CPU efficiency: $(round(cpu_efficiency*100, digits=1))%, " *
-                       "Cache: $(round(cache_efficiency*100, digits=1))%, " *
-                       "Memory BW: $(round(memory_bw, digits=2)) GB/s")
-            end
-        end
-        
-        io_time = Wtime() - io_start
-        
-        # 4. Advanced performance monitoring and adaptive optimization
-        if state.auto_optimization && step % 25 == 0  # More frequent optimization
-            monitor_start = Wtime()
-            
-            # Update performance metrics
-            update_performance_metrics!(state.master_parallelizer.performance_monitor, step, 
-                                      compute_time, integrate_time, io_time)
-            
-            # CPU-specific optimizations
-            current_cpu_efficiency = state.master_parallelizer.cpu_parallelizer.thread_efficiency[]
-            push!(thread_efficiency_history, current_cpu_efficiency)
-            
-            # Adaptive threading adjustment
-            if state.adaptive_threading && step % 100 == 0 && length(thread_efficiency_history) > 5
-                optimal_thread_count = adapt_thread_count!(state, thread_efficiency_history)
-                if rank == 0 && optimal_thread_count != Threads.nthreads()
-                    println("  Adaptive threading: Optimal thread count adjusted to $optimal_thread_count")
-                end
-            end
-            
-            # Dynamic load balancing with CPU awareness
-            adaptive_rebalance!(state.master_parallelizer.load_balancer, state.temperature)
-            
-            # Auto-tuning of parameters with CPU-specific heuristics
-            if step % 200 == 0
-                auto_tune_parameters_master!(state)
-            end
-            
-            # Memory optimization
-            if step % 150 == 0
-                optimize_memory_usage!(state)
-            end
-            
-            monitor_time = Wtime() - monitor_start
-        end
-        
-        # Update simulation state
-        simulation_time += dt
-        state.timestep_state.time = simulation_time
-        state.timestep_state.step = step
-        
-        step_time = Wtime() - step_start
-        
-        # Adaptive timestep with CPU-aware scaling
-        if step % 5 == 0  # More frequent timestep adaptation
-            dt = compute_adaptive_timestep_master(state, dt)
-        end
-    end
-    
-    total_time = Wtime() - total_start
-    
-    # Final detailed performance analysis
-    if rank == 0
-        analyze_master_performance(state)
-        
-        println("\n" * "="^100)
-        println("         MASTER SIMULATION COMPLETED SUCCESSFULLY")
-        println("="^100)
-        println("Total steps: $step")
-        println("Final time: $(round(simulation_time, digits=4))")
-        println("Total wall time: $(round(total_time, digits=2)) seconds")
-        println("Average time per step: $(round(total_time/step*1000, digits=2)) ms")
-        
-        # Detailed efficiency metrics
-        parallel_efficiency = get_parallel_efficiency(state.master_parallelizer.performance_monitor)
-        cpu_efficiency = state.master_parallelizer.cpu_parallelizer.thread_efficiency[]
-        cache_efficiency = state.master_parallelizer.cpu_parallelizer.cache_efficiency[]
-        memory_bandwidth = state.master_parallelizer.cpu_parallelizer.memory_bandwidth[]
-        
-        println("\nPERFORMANCE METRICS:")
-        println("  Parallel efficiency: $(round(parallel_efficiency*100, digits=1))%")
-        println("  CPU thread efficiency: $(round(cpu_efficiency*100, digits=1))%")
-        println("  Cache hit rate: $(round(cache_efficiency*100, digits=1))%")
-        println("  Memory bandwidth: $(round(memory_bandwidth, digits=2)) GB/s")
-        
-        # SIMD utilization
-        simd_opt = state.master_parallelizer.cpu_parallelizer.simd_optimizer
-        println("  SIMD vector width utilized: $(simd_opt.vector_width)")
-        println("  Memory alignment: $(simd_opt.alignment_bytes)-byte aligned")
-        
-        # Thread topology efficiency
-        cpu_mgr = state.master_parallelizer.cpu_parallelizer.thread_manager
-        avg_thread_util = sum(cpu_mgr.thread_utilization) / length(cpu_mgr.thread_utilization)
-        println("  Average thread utilization: $(round(avg_thread_util*100, digits=1))%")
-        println("  NUMA nodes utilized: $(cpu_mgr.numa_nodes)")
-        
-        # MPI efficiency
-        println("  MPI processes: $(state.master_parallelizer.mpi_nprocs)")
-        println("  Communication efficiency: $(state.master_parallelizer.async_comm.overlap_efficiency[])%")
-        
-        println("="^100)
-    end
-    
-    # Cleanup with memory deallocation
-    finalize_master_simulation!(state)
-end
 
 # ================================================================================
 # SHARED HELPER FUNCTIONS
@@ -1084,208 +675,9 @@ function compute_all_nonlinear_terms!(state::SimulationState{T}) where T
     end
 end
 
-function predictor_step!(state::SimulationState{T}) where T
-    # Predictor step for all fields using SHTns matrices
-    
-    # Velocity (toroidal component) - BCs embedded in matrix (Fortran approach)
-    rhs_tor = similar(state.velocity.𝒯)
-    apply_explicit_operator!(rhs_tor, state.velocity.𝒯,
-                             state.velocity.nlᵀ, state.𝒟ᵒᶜ,
-                             d_Pm, state.timestep_state.dt;
-                             nl_prev=state.velocity.prev_nlᵀ,
-                             matrices=state.implicit_matrices[:velocity])
-    solve_velocity_implicit_step!(state.velocity.𝒯, rhs_tor,
-                                  state.implicit_matrices[:velocity_tor], :toroidal;
-                                  i_vel_bc=get_parameters().i_vel_bc,
-                                  domain=state.𝒟ᵒᶜ)
-
-    # Velocity (poloidal component) - BCs embedded in matrix (Fortran approach)
-    rhs_pol = similar(state.velocity.𝒫)
-    apply_explicit_operator!(rhs_pol, state.velocity.𝒫,
-                             state.velocity.nlᴾ, state.𝒟ᵒᶜ,
-                             d_Pm, state.timestep_state.dt;
-                             nl_prev=state.velocity.prev_nlᴾ,
-                             matrices=state.implicit_matrices[:velocity])
-    solve_velocity_implicit_step!(state.velocity.𝒫, rhs_pol,
-                                  state.implicit_matrices[:velocity_pol], :poloidal;
-                                  i_vel_bc=get_parameters().i_vel_bc,
-                                  domain=state.𝒟ᵒᶜ)
-
-    # Magnetic field (toroidal) - BCs embedded in matrix (Fortran approach)
-    rhs_mag_tor = similar(state.magnetic.𝒯)
-    apply_explicit_operator!(rhs_mag_tor, state.magnetic.𝒯,
-                             state.magnetic.nlᵀ, state.𝒟ᵒᶜ,
-                             1.0, state.timestep_state.dt;
-                             nl_prev=state.magnetic.prev_nlᵀ,
-                             matrices=state.implicit_matrices[:magnetic])
-    solve_magnetic_implicit_step!(state.magnetic.𝒯, rhs_mag_tor,
-                                  state.implicit_matrices[:magnetic_tor], :toroidal)
-
-    # Magnetic field (poloidal) - BCs embedded in matrix (Fortran approach)
-    rhs_mag_pol = similar(state.magnetic.𝒫)
-    apply_explicit_operator!(rhs_mag_pol, state.magnetic.𝒫,
-                             state.magnetic.nlᴾ, state.𝒟ᵒᶜ,
-                             1.0, state.timestep_state.dt;
-                             nl_prev=state.magnetic.prev_nlᴾ,
-                             matrices=state.implicit_matrices[:magnetic])
-    solve_magnetic_implicit_step!(state.magnetic.𝒫, rhs_mag_pol,
-                                  state.implicit_matrices[:magnetic_pol], :poloidal)
-    
-    # Temperature - BCs embedded in matrix
-    rhs_temp = similar(state.temperature.spectral)
-    apply_explicit_operator!(rhs_temp, state.temperature.spectral,
-                             state.temperature.nonlinear, state.𝒟ᵒᶜ,
-                             d_Pm/d_Pr, state.timestep_state.dt;
-                             nl_prev=state.temperature.prev_nonlinear,
-                             matrices=state.implicit_matrices[:temperature])
-    tmp_bc = bcs.get_bc_vectors_from_field(state.temperature)
-    solve_temperature_implicit_step!(state.temperature.spectral, rhs_temp,
-                                      state.implicit_matrices[:temperature];
-                                      bc_inner=tmp_bc.inner_real, bc_outer=tmp_bc.outer_real,
-                                      bc_inner_imag=tmp_bc.inner_imag, bc_outer_imag=tmp_bc.outer_imag)
-
-    # Composition (if present) - BCs embedded in matrix
-    if state.composition !== nothing
-        rhs_comp = similar(state.composition.spectral)
-        apply_explicit_operator!(rhs_comp, state.composition.spectral,
-                                 state.composition.nonlinear, state.𝒟ᵒᶜ,
-                                 d_Pm/d_Sc, state.timestep_state.dt;
-                                 nl_prev=state.composition.prev_nonlinear,
-                                 matrices=state.implicit_matrices[:composition])
-        cmp_bc = bcs.get_bc_vectors_from_field(state.composition)
-        solve_composition_implicit_step!(state.composition.spectral, rhs_comp,
-                                          state.implicit_matrices[:composition];
-                                          bc_inner=cmp_bc.inner_real, bc_outer=cmp_bc.outer_real,
-                                          bc_inner_imag=cmp_bc.inner_imag, bc_outer_imag=cmp_bc.outer_imag)
-    end
-end
-
-function corrector_step!(state::SimulationState{T}) where T
-    # Corrector step - similar to predictor but with time-averaged nonlinear terms
-    # For simplicity, using same implementation as predictor
-    predictor_step!(state)
-end
-
-function compute_cfl_timestep!(state::SimulationState{T}) where T
-    # Compute CFL-limited timestep based on velocity magnitudes
-
-    # Convert velocity to physical space for analysis
-    shtnskit_vector_synthesis!(state.velocity.𝒯, state.velocity.𝒫, state.velocity.velocity; domain=state.𝒟ᵒᶜ)
-    
-    max_velocity = zero(Float64)
-    
-    # Get velocity data arrays
-    u_r_data = parent(state.velocity.velocity.r_component.data)
-    u_θ_data = parent(state.velocity.velocity.θ_component.data)
-    u_φ_data = parent(state.velocity.velocity.φ_component.data)
-    
-    # Find maximum velocity over local data
-    for r_idx in axes(u_r_data, 3)
-        for j_phi in axes(u_r_data, 2)
-            for i_theta in axes(u_r_data, 1)
-                u_r = u_r_data[i_theta, j_phi, r_idx]
-                u_θ = u_θ_data[i_theta, j_phi, r_idx]
-                u_φ = u_φ_data[i_theta, j_phi, r_idx]
-                
-                u_mag = sqrt(u_r^2 + u_θ^2 + u_φ^2)
-                max_velocity = max(max_velocity, u_mag)
-            end
-        end
-    end
-    
-    # Global maximum across all processes
-    comm = get_comm()
-    global_max_vel = MPI.Allreduce(max_velocity, MPI.MAX, comm)
-    
-    # Compute grid spacing (approximate)
-    dr_min = minimum(diff(state.𝒟ᵒᶜ.r[:, 4]))
-    dtheta_min = π / state.shtns_config.nlat
-    dphi_min = 2π / state.shtns_config.nlon
-    dx_min = min(dr_min, dtheta_min, dphi_min)
-    
-    # CFL condition
-    if global_max_vel > 1e-10
-        dt_cfl = d_courant * dx_min / global_max_vel
-        state.timestep_state.dt = min(state.timestep_state.dt, dt_cfl, d_timestep)
-    end
-end
-
-function update_implicit_matrices!(state::SimulationState{T}) where T
-    # Update implicit matrices with new timestep (magnetic diffusion time scaling)
-    # Velocity: E, Temperature: Pm/Pr, Magnetic: 1, Composition: Pm/Sc
-    dt = state.timestep_state.dt
-    vel_bc = get_parameters().i_vel_bc
-
-    # Velocity-specific matrices with BCs embedded (Fortran approach)
-    state.implicit_matrices[:velocity_tor] = create_velocity_toroidal_matrices(
-        state.shtns_config, state.𝒟ᵒᶜ, d_E, dt; i_vel_bc=vel_bc)
-    state.implicit_matrices[:velocity_pol] = create_velocity_poloidal_matrices(
-        state.shtns_config, state.𝒟ᵒᶜ, d_E, dt; i_vel_bc=vel_bc)
-    state.implicit_matrices[:velocity] = create_shtns_timestepping_matrices(
-        state.shtns_config, state.𝒟ᵒᶜ, d_E, dt)
-    state.implicit_matrices[:magnetic_tor] = create_magnetic_toroidal_matrices(
-        state.shtns_config, state.𝒟ᵒᶜ, 1.0, dt)
-    state.implicit_matrices[:magnetic_pol] = create_magnetic_poloidal_matrices(
-        state.shtns_config, state.𝒟ᵒᶜ, 1.0, dt)
-    state.implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(
-        state.shtns_config, state.𝒟ᵒᶜ, 1.0, dt)
-    state.implicit_matrices[:temperature] = create_temperature_matrices(
-        state.shtns_config, state.𝒟ᵒᶜ, d_Pm/d_Pr, dt)
-
-    # Update compositional matrix if composition is present
-    if state.composition !== nothing
-        state.implicit_matrices[:composition] = create_composition_matrices(
-            state.shtns_config, state.𝒟ᵒᶜ, d_Pm/d_Sc, dt)
-    end
-end
-
 # ================================================================================
-# ENHANCED SIMULATION HELPER FUNCTIONS
+# SIMULATION HELPER FUNCTIONS
 # ================================================================================
-
-"""
-    apply_enhanced_implicit_step!(state, dt)
-    
-Apply enhanced implicit time integration with advanced solvers.
-"""
-function apply_enhanced_implicit_step!(state::SimulationState{T}, dt::Float64) where T
-    # Use enhanced sparse solvers with preconditioning
-    # This would integrate with advanced linear algebra libraries
-    
-    # Temperature - BCs embedded in matrix
-    tmp_bc = bcs.get_bc_vectors_from_field(state.temperature)
-    solve_temperature_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
-                                      state.implicit_matrices[:temperature];
-                                      bc_inner=tmp_bc.inner_real, bc_outer=tmp_bc.outer_real,
-                                      bc_inner_imag=tmp_bc.inner_imag, bc_outer_imag=tmp_bc.outer_imag)
-
-    # Velocity - BCs embedded in matrix (Fortran approach)
-    solve_velocity_implicit_step!(state.velocity.𝒯, state.velocity.nlᵀ,
-                                  state.implicit_matrices[:velocity_tor], :toroidal;
-                                  i_vel_bc=get_parameters().i_vel_bc,
-                                  domain=state.𝒟ᵒᶜ)
-    solve_velocity_implicit_step!(state.velocity.𝒫, state.velocity.nlᴾ,
-                                  state.implicit_matrices[:velocity_pol], :poloidal;
-                                  i_vel_bc=get_parameters().i_vel_bc,
-                                  domain=state.𝒟ᵒᶜ)
-
-    # Magnetic (if enabled) - BCs embedded in matrix (Fortran approach)
-    if i_B == 1
-        solve_magnetic_implicit_step!(state.magnetic.𝒯, state.magnetic.nlᵀ,
-                                      state.implicit_matrices[:magnetic_tor], :toroidal)
-        solve_magnetic_implicit_step!(state.magnetic.𝒫, state.magnetic.nlᴾ,
-                                      state.implicit_matrices[:magnetic_pol], :poloidal)
-    end
-
-    # Composition (if enabled) - BCs embedded in matrix
-    if state.composition !== nothing
-        cmp_bc = bcs.get_bc_vectors_from_field(state.composition)
-        solve_composition_implicit_step!(state.composition.spectral, state.composition.nonlinear,
-                                          state.implicit_matrices[:composition];
-                                          bc_inner=cmp_bc.inner_real, bc_outer=cmp_bc.outer_real,
-                                          bc_inner_imag=cmp_bc.inner_imag, bc_outer_imag=cmp_bc.outer_imag)
-    end
-end
 
 """
     create_enhanced_output_config(state)
@@ -1312,9 +704,6 @@ function create_enhanced_output_config(state::SimulationState{T}) where T
     )
 end
 
-# Helper functions (simplified implementations)
-initialize_enhanced_fields!(state) = initialize_fields!(state)
-initialize_master_fields!(state) = initialize_fields!(state)
 
 """
     extract_all_fields(state::SimulationState)
@@ -1367,40 +756,13 @@ function extract_all_fields(state::SimulationState{T}) where T
     return fields
 end
 
-extract_all_fields_enhanced(state) = extract_all_fields(state)
 create_enhanced_metadata(state, time, step) = Dict(
     "current_time" => time,
     "current_step" => step,
     "geometry" => state.geometry,
 )
-update_performance_metrics!(monitor, step, compute_time, integrate_time, io_time) = nothing
 auto_tune_parameters!(state) = nothing
-auto_tune_parameters_master!(state) = auto_tune_parameters!(state)
 compute_adaptive_timestep(state, dt) = dt
-compute_adaptive_timestep_master(state, dt) = compute_adaptive_timestep(state, dt)
-get_parallel_efficiency(monitor) = 0.85
-get_thread_utilization(threading) = 0.92
-finalize_enhanced_simulation!(state) = nothing
-finalize_master_simulation!(state) = finalize_enhanced_simulation!(state)
-
-# Advanced computation functions
-function compute_velocity_nonlinear_master!(state, magnetic, temperature, domain)
-    # Use enhanced CPU parallelization for velocity computation
-    compute_nonlinear!(state.master_parallelizer.cpu_parallelizer, temperature, state.velocity, domain,
-                       state.gradient_workspace)
-end
-
-function compute_magnetic_nonlinear_master!(state, velocity, 𝒟ᵒᶜ, 𝒟ⁱᶜ)
-    # Use SIMD magnetic field computation
-    compute_magnetic_nonlinear!(state.magnetic, velocity, 𝒟ᵒᶜ, 𝒟ⁱᶜ)
-end
-
-function compute_composition_nonlinear_master!(state, velocity, domain, ws::GradientWorkspace)
-    # Use memory-efficient compositional computation
-    if state.composition !== nothing
-        compute_composition_nonlinear!(state.composition, velocity, domain, ws)
-    end
-end
 
 # ================================================================================
 # ENERGY CONSERVATION VALIDATION
@@ -1617,8 +979,9 @@ function compute_divergence_spectral(tor_spec::SHTnsSpecField{T},
     # Compute L2 and Linf norms of spectral coefficients as divergence proxy
     local_l2 = sqrt(sum(abs2, tor_real) + sum(abs2, tor_imag) +
                     sum(abs2, pol_real) + sum(abs2, pol_imag))
-    local_linf = maximum(vcat(abs.(tor_real[:]), abs.(tor_imag[:]),
-                               abs.(pol_real[:]), abs.(pol_imag[:])))
+    # Allocation-free Linf: take max of individual array maxima
+    local_linf = max(maximum(abs, tor_real), maximum(abs, tor_imag),
+                     maximum(abs, pol_real), maximum(abs, pol_imag))
 
     if MPI.Initialized()
         l2_norm = MPI.Allreduce(local_l2, +, MPI.COMM_WORLD)
@@ -2355,80 +1718,6 @@ function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
             parent(state.composition.prev_nonlinear.data_imag) .= parent(state.composition.nonlinear.data_imag)
         end
     end
-end
-
-function adapt_thread_count!(state::SimulationState, efficiency_history::Vector{Float64})
-    # Simple adaptive threading - could be more sophisticated
-    recent_efficiency = mean(efficiency_history[max(1, end-4):end])
-    
-    if recent_efficiency < 0.7
-        # Efficiency is low, might need fewer threads to reduce overhead
-        return max(1, state.master_parallelizer.cpu_parallelizer.thread_manager.compute_threads - 1)
-    elseif recent_efficiency > 0.9
-        # High efficiency, could potentially use more threads
-        return min(state.master_parallelizer.cpu_parallelizer.thread_manager.total_threads, 
-                  state.master_parallelizer.cpu_parallelizer.thread_manager.compute_threads + 1)
-    else
-        return state.master_parallelizer.cpu_parallelizer.thread_manager.compute_threads
-    end
-end
-
-function optimize_memory_usage!(state::SimulationState)
-    # Optimize memory layout and garbage collection
-    # This would implement more sophisticated memory optimization in practice
-    GC.gc()  # Force garbage collection to free unused memory
-end
-
-function analyze_master_performance(state::SimulationState)
-    # Comprehensive performance analysis for master simulation
-    analyze_parallel_performance(state.master_parallelizer.performance_monitor)
-    
-    # Additional CPU-specific analysis would go here
-end
-
-function create_master_output_config(state::SimulationState{T}) where T
-    base_config = output_config_from_parameters()
-
-    return OutputConfig(
-        base_config.output_space,
-        "./master_output",   # Output directory
-        "geodynamo_master",      # Filename prefix
-        base_config.include_metadata,
-        base_config.include_grid,
-        base_config.include_diagnostics,
-        base_config.output_precision,
-        base_config.spectral_lmax_output,
-        base_config.overwrite_files,
-        0.01,                   # More frequent output for monitoring
-        0.1,                    # Regular restart intervals
-        Inf,                    # No time limit
-        1e-12                   # High precision timing
-    )
-end
-
-# ================================================================================
-# MAIN ENTRY POINTS
-# ================================================================================
-
-# Main entry point for basic simulation
-function run_shtns_geodynamo_simulation()
-    state = initialize_shtns_simulation(Float64)
-    run_shtns_simulation!(state)
-    Finalize()
-end
-
-# Main entry point for enhanced simulation
-function run_enhanced_geodynamo_simulation()
-    state = initialize_simulation(Float64)
-    run_enhanced_simulation!(state)
-    Finalize()
-end
-
-# Main entry point for master simulation
-function run_master_geodynamo_simulation()
-    state = initialize_master_simulation(Float64)
-    run_master_simulation!(state)
-    Finalize()
 end
 
 # Exports are handled by the main GeoDynamo.jl module

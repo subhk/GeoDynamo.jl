@@ -168,19 +168,15 @@ module GeoDynamo
     export convert_spectral_file, batch_convert_directory
     export main_convert_file, main_batch_convert
 
-    # exports optimizations.jl (unified parallelization system)
+    # exports optimizations.jl (parallelization system)
     export AdvancedThreadManager, ThreadingAccelerator, SIMDOptimizer, TaskGraph, MemoryOptimizer
     export AsyncCommManager, DynamicLoadBalancer, ParallelIOOptimizer, PerformanceMonitor
-    export HybridParallelizer, CPUParallelizer, MasterParallelizer
+    export CPUParallelizer, MasterParallelizer
     export create_advanced_thread_manager, create_threading_accelerator, create_simd_optimizer
     export create_task_graph, create_memory_optimizer, create_async_comm_manager
     export create_dynamic_load_balancer, create_parallel_io_optimizer, create_performance_monitor
-    export create_hybrid_parallelizer, create_cpu_parallelizer, create_master_parallelizer
-    export hybrid_compute_nonlinear!, compute_nonlinear!, add_task!, execute_task_graph!
-    export async_write_fields!, analyze_parallel_performance, adaptive_rebalance!
-    export allocate_aligned_array, deallocate_aligned_array, optimize_memory_layout!
-
-    # (deprecated) enhanced/master types removed in favor of unified SimulationState
+    export create_cpu_parallelizer, create_master_parallelizer
+    export add_task!, execute_task_graph!, adaptive_rebalance!
 
     # exports InitialConditions.jl
     export set_temperature_initial_conditions!, set_velocity_initial_conditions!

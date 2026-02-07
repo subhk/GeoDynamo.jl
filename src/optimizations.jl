@@ -583,79 +583,6 @@ function create_memory_optimizer(::Type{T}) where T
     )
 end
 
-function allocate_aligned_array(optimizer::MemoryOptimizer{T}, size::Int, 
-                               numa_node::Int=1) where T
-    # Allocate cache-aligned array on specific NUMA node
-    alignment = optimizer.cache_line_size ÷ sizeof(T)
-    aligned_size = ((size + alignment - 1) ÷ alignment) * alignment
-    
-    lock(optimizer.pool_locks[numa_node]) do
-        # Try to reuse from pool
-        pools = optimizer.aligned_pools[numa_node]
-        for (i, pool) in enumerate(pools)
-            if length(pool) == aligned_size
-                # Reuse existing array
-                deleteat!(pools, i)
-                return pool
-            end
-        end
-        
-        # Allocate new aligned array
-        raw_array = Vector{T}(undef, aligned_size + alignment)
-        offset = alignment - (UInt(pointer(raw_array)) % (alignment * sizeof(T))) ÷ sizeof(T)
-        aligned_array = view(raw_array, (1+offset):(size+offset))
-        
-        return collect(aligned_array)
-    end
-end
-
-function deallocate_aligned_array(optimizer::MemoryOptimizer{T}, 
-                                 array::Vector{T}, numa_node::Int=1) where T
-    # Return array to pool for reuse
-    lock(optimizer.pool_locks[numa_node]) do
-        push!(optimizer.aligned_pools[numa_node], array)
-    end
-end
-
-function optimize_memory_layout!(data::Array{T,3}, optimizer::MemoryOptimizer{T}) where T
-    # Optimize memory layout for cache efficiency using Z-order (Morton order)
-    dims = size(data)
-    reordered = similar(data)
-    
-    @inbounds for k in 1:dims[3]
-        for j in 1:dims[2]
-            for i in 1:dims[1]
-                # Calculate Morton-ordered indices
-                morton_i, morton_j = morton_encode(i-1, j-1)
-                morton_i = min(morton_i + 1, dims[1])
-                morton_j = min(morton_j + 1, dims[2])
-                
-                reordered[morton_i, morton_j, k] = data[i, j, k]
-            end
-        end
-    end
-    
-    return reordered
-end
-
-function morton_encode(x::Int, y::Int)
-    # Simple 2D Morton encoding for spatial locality
-    result = 0
-    for i in 0:15
-        result |= (x & (1 << i)) << i | (y & (1 << i)) << (i + 1)
-    end
-    
-    # Extract coordinates from Morton code
-    x_out = 0
-    y_out = 0
-    for i in 0:15
-        x_out |= (result & (1 << (2*i))) >> i
-        y_out |= (result & (1 << (2*i + 1))) >> (i + 1)
-    end
-    
-    return x_out, y_out
-end
-
 # ================================================================================
 # 5. ASYNCHRONOUS MPI COMMUNICATION
 # ================================================================================
@@ -698,61 +625,6 @@ function create_async_comm_manager(::Type{T}, max_concurrent::Int=16) where T
         Vector{Function}(),
         Ref(0.0), Ref(0.0), Ref(0.0)
     )
-end
-
-function async_spectral_transform!(manager::AsyncCommManager{T}, 
-                                  spec_field::SHTnsSpecField{T},
-                                  phys_field::SHTnsPhysField{T}) where T
-    
-    # Start asynchronous data exchange
-    start_async_exchange!(manager, spec_field)
-    
-    # Overlap computation while communication happens
-    perform_local_transforms!(manager, spec_field, phys_field)
-    
-    # Complete communication and finish global operations
-    complete_async_transform!(manager, phys_field)
-end
-
-function start_async_exchange!(manager::AsyncCommManager{T}, 
-                              spec_field::SHTnsSpecField{T}) where T
-    comm = get_comm()
-    rank = get_rank()
-    nprocs = get_nprocs()
-    
-    # Prepare data for non-blocking sends
-    lm_range = range_local(spec_field.pencil, 1)
-    r_range = range_local(spec_field.pencil, 3)
-    
-    req_idx = 1
-    for target_rank in 0:(nprocs-1)
-        if target_rank != rank
-            # Determine data to send to target_rank
-            send_data = prepare_send_data(spec_field, target_rank, lm_range, r_range)
-            
-            # Non-blocking send
-            if !isempty(send_data)
-                manager.send_buffers[req_idx] = send_data
-                manager.send_requests[req_idx] = MPI.Isend(
-                    send_data, target_rank, 42, comm)
-                req_idx += 1
-            end
-        end
-    end
-    
-    # Post receives
-    req_idx = 1
-    for source_rank in 0:(nprocs-1)
-        if source_rank != rank
-            recv_size = compute_recv_size(source_rank, spec_field)
-            if recv_size > 0
-                resize!(manager.recv_buffers[req_idx], recv_size)
-                manager.recv_requests[req_idx] = MPI.Irecv!(
-                    manager.recv_buffers[req_idx], source_rank, 42, comm)
-                req_idx += 1
-            end
-        end
-    end
 end
 
 # ================================================================================
@@ -884,32 +756,6 @@ function create_parallel_io_optimizer(::Type{T}, config::SHTnsKitConfig) where T
     )
 end
 
-function async_write_fields!(io_optimizer::ParallelIOOptimizer{T},
-                             fields::Dict{String,Any}, 
-                             filename::String) where T
-    
-    # Create write task
-    write_task = @spawn begin
-        # Compression stage
-        compressed_fields = parallel_compress_fields(io_optimizer, fields)
-        
-        # Collective I/O write
-        if io_optimizer.collective_io
-            collective_write_netcdf!(filename, compressed_fields, io_optimizer)
-        else
-            standard_write_netcdf!(filename, compressed_fields)
-        end
-        
-        # Update performance metrics
-        update_io_performance!(io_optimizer)
-    end
-    
-    push!(io_optimizer.io_threads, write_task)
-    
-    # Clean up completed tasks
-    filter!(task -> !istaskdone(task), io_optimizer.io_threads)
-end
-
 # ================================================================================
 # 8. COMPREHENSIVE PERFORMANCE MONITORING
 # ================================================================================
@@ -953,60 +799,9 @@ function create_performance_monitor()
     )
 end
 
-function analyze_parallel_performance(monitor::PerformanceMonitor)
-    rank = get_rank()
-    if rank == 0
-        println("\n" * "="^80)
-        println("           PARALLEL PERFORMANCE ANALYSIS")
-        println("="^80)
-        
-        # Parallel efficiency analysis
-        current_efficiency = length(monitor.parallel_efficiency) > 0 ? 
-                           monitor.parallel_efficiency[end] : 0.0
-        println("Current Parallel Efficiency: $(round(current_efficiency*100, digits=1))%")
-        
-        # Bottleneck identification
-        analyze_bottlenecks!(monitor)
-        
-        # Scaling analysis
-        analyze_strong_scaling!(monitor)
-        analyze_weak_scaling!(monitor)
-        
-        # Generate optimization recommendations
-        generate_optimization_recommendations!(monitor)
-        
-        println("="^80)
-    end
-end
-
 # ================================================================================
 # 9. UNIFIED PARALLELIZATION SYSTEMS
 # ================================================================================
-
-"""
-    HybridParallelizer{T}
-    
-Coordinates MPI and threads for maximum CPU parallelization.
-"""
-struct HybridParallelizer{T}
-    # MPI level
-    mpi_comm::MPI.Comm
-    mpi_rank::Int
-    mpi_nprocs::Int
-
-    # Thread level
-    thread_count::Int
-    threading_accelerator::ThreadingAccelerator{T}
-
-    # Async communication
-    async_comm::AsyncCommManager{T}
-
-    # Dynamic load balancing
-    load_balancer::DynamicLoadBalancer
-
-    # I/O optimization
-    io_optimizer::ParallelIOOptimizer{T}
-end
 
 """
     CPUParallelizer{T}
@@ -1059,28 +854,6 @@ struct MasterParallelizer{T}
     performance_monitor::PerformanceMonitor
 end
 
-function create_hybrid_parallelizer(::Type{T}, config::SHTnsKitConfig) where T
-    # MPI setup
-    mpi_comm = get_comm()
-    mpi_rank = get_rank()
-    mpi_nprocs = get_nprocs()
-    
-    # Thread setup
-    thread_count = Threads.nthreads()
-    threading_accelerator = create_threading_accelerator(T, config)
-    
-    # Create sub-components
-    async_comm = create_async_comm_manager(T)
-    load_balancer = create_dynamic_load_balancer(config)
-    io_optimizer = create_parallel_io_optimizer(T, config)
-    
-    return HybridParallelizer{T}(
-        mpi_comm, mpi_rank, mpi_nprocs,
-        thread_count, threading_accelerator,
-        async_comm, load_balancer, io_optimizer
-    )
-end
-
 function create_cpu_parallelizer(::Type{T}) where T
     # Create advanced CPU components
     thread_manager = create_advanced_thread_manager()
@@ -1123,203 +896,20 @@ function create_master_parallelizer(::Type{T}, config::SHTnsKitConfig) where T
 end
 
 # ================================================================================
-# 10. UNIFIED COMPUTATION KERNELS
+# STUBS AND EXPORTS
 # ================================================================================
 
-"""
-    hybrid_compute_nonlinear!(parallelizer, temp_field, vel_fields, domain)
-    
-Compute nonlinear terms using hybrid MPI+threading parallelism.
-"""
-function hybrid_compute_nonlinear!(parallelizer::HybridParallelizer{T},
-                                  temp_field, vel_fields, domain) where T
-    
-    # Stage 1: Multi-threaded gradient computation
-    threaded_compute_gradients!(parallelizer.threading_accelerator, temp_field)
-    
-    # Stage 2: Asynchronous transform with communication overlap
-    async_spectral_transform!(parallelizer.async_comm, 
-                              temp_field.spectral, temp_field.temperature)
-    
-    # Stage 3: Threaded advection computation
-    threaded_compute_advection!(temp_field, vel_fields)
-    
-    # Stage 4: Dynamic load balancing check
-    adaptive_rebalance!(parallelizer.load_balancer, temp_field)
-end
-
-"""
-    compute_nonlinear!(parallelizer, temp_field, vel_fields, domain, ws)
-
-Advanced CPU computation with SIMD, NUMA, and task-based parallelism.
-"""
-function compute_nonlinear!(parallelizer::CPUParallelizer{T},
-                                    temp_field, vel_fields, domain,
-                                    ws::GradientWorkspace{T}) where T
-
-    start_time = time()
-
-    # Stage 1: SIMD gradient computation with NUMA awareness
-    gradient_start = time()
-    compute_gradients_advanced!(parallelizer, temp_field, domain, ws)
-    gradient_time = time() - gradient_start
-    
-    # Stage 2: Task-based advection computation
-    advection_start = time()
-    compute_advection_advanced!(parallelizer, temp_field, vel_fields, domain)
-    advection_time = time() - advection_start
-    
-    total_time = time() - start_time
-    
-    # Update performance metrics
-    update_cpu_performance_metrics!(parallelizer, gradient_time, advection_time, total_time)
-end
-
-function compute_gradients_advanced!(parallelizer::CPUParallelizer{T},
-                                 temp_field, domain,
-                                 ws::GradientWorkspace{T}) where T
-    # Create task graph for parallel gradient computation
-    task_graph = create_task_graph()
-    
-    # Partition work optimally across NUMA nodes
-    dims = size(temp_field.temperature.data)
-    nr, ntheta, nphi = dims
-    
-    thread_mgr = parallelizer.thread_manager
-    work_per_thread = nr ÷ thread_mgr.compute_threads
-    
-    # Add gradient computation tasks
-    gradient_tasks = Int[]
-    for tid in 1:thread_mgr.compute_threads
-        r_start = (tid - 1) * work_per_thread + 1
-        r_end = tid == thread_mgr.compute_threads ? nr : tid * work_per_thread
-        
-        numa_node = ((tid - 1) % thread_mgr.numa_nodes) + 1
-        
-        task_id = add_task!(task_graph, 
-            () -> compute_gradient_slice_simd!(
-                temp_field, r_start:r_end, domain, 
-                parallelizer.simd_optimizer, parallelizer.memory_optimizer
-            ),
-            Int[], 1.0, sizeof(T) * ntheta * nphi * (r_end - r_start + 1), numa_node
-        )
-        
-        push!(gradient_tasks, task_id)
-    end
-    
-    # Execute with advanced scheduling
-    execute_task_graph!(task_graph, thread_mgr)
-end
-
-function compute_advection_advanced!(parallelizer::CPUParallelizer{T},
-                                 temp_field, vel_fields, domain) where T
-    
-    # Use SIMD advection kernel
-    simd_opt = parallelizer.simd_optimizer
-    
-    # Get field data
-    field_data = parent(temp_field.temperature.data)
-    vr_data = parent(vel_fields.velocity.r_component.data)
-    vt_data = parent(vel_fields.velocity.θ_component.data)
-    vp_data = parent(vel_fields.velocity.φ_component.data)
-    advection_data = parent(temp_field.nonlinear.data)
-    
-    # Apply SIMD kernel
-    simd_opt.advection_kernel(advection_data, field_data, vr_data, vt_data, vp_data)
-end
-
-function compute_gradient_slice_simd!(temp_field, r_range, domain, simd_opt, memory_opt)
-    # SIMD gradient computation for a radial slice
-    for r_idx in r_range
-        # Use SIMD gradient kernel
-        field_slice = view(parent(temp_field.temperature.data), :, :, r_idx)
-        grad_r_slice = view(parent(temp_field.gradient.r_component.data), :, :, r_idx)
-        grad_θ_slice = view(parent(temp_field.gradient.θ_component.data), :, :, r_idx)
-        grad_φ_slice = view(parent(temp_field.gradient.φ_component.data), :, :, r_idx)
-        
-        # Get grid spacing
-        r = domain.r[r_idx, 4]
-        dr = r_idx < size(domain.r, 1) ? domain.r[r_idx+1, 4] - r : r - domain.r[r_idx-1, 4]
-        dtheta = π / size(field_slice, 1)
-        dphi = 2π / size(field_slice, 2)
-        
-        # Apply SIMD gradient computation
-        simd_opt.gradient_kernel(grad_r_slice, field_slice, dr, dtheta, dphi)
-    end
-end
-
-function update_cpu_performance_metrics!(parallelizer::CPUParallelizer, 
-                                       gradient_time, advection_time, total_time)
-    # Update computation times
-    if !haskey(parallelizer.computation_times, :gradient)
-        parallelizer.computation_times[:gradient] = Float64[]
-        parallelizer.computation_times[:advection] = Float64[]
-        parallelizer.computation_times[:total_nonlinear] = Float64[]
-    end
-    
-    push!(parallelizer.computation_times[:gradient], gradient_time)
-    push!(parallelizer.computation_times[:advection], advection_time)
-    push!(parallelizer.computation_times[:total_nonlinear], total_time)
-    
-    # Update efficiency metrics
-    update_cpu_efficiency_metrics!(parallelizer)
-end
-
-function update_cpu_efficiency_metrics!(parallelizer::CPUParallelizer)
-    # Calculate thread efficiency
-    thread_mgr = parallelizer.thread_manager
-    total_utilization = sum(thread_mgr.thread_utilization)
-    max_possible = thread_mgr.total_threads * maximum(thread_mgr.thread_utilization)
-    
-    parallelizer.thread_efficiency[] = max_possible > 0 ? total_utilization / max_possible : 0.0
-    
-    # Calculate cache efficiency
-    memory_opt = parallelizer.memory_optimizer
-    total_accesses = memory_opt.cache_hits + memory_opt.cache_misses
-    parallelizer.cache_efficiency[] = total_accesses > 0 ? 
-        memory_opt.cache_hits / total_accesses : 0.0
-    
-    # Estimate memory bandwidth
-    if haskey(parallelizer.computation_times, :total_nonlinear) && 
-       !isempty(parallelizer.computation_times[:total_nonlinear])
-        
-        recent_time = parallelizer.computation_times[:total_nonlinear][end]
-        estimated_data_gb = 0.1  # Simplified estimation
-        parallelizer.memory_bandwidth[] = recent_time > 0 ? estimated_data_gb / recent_time : 0.0
-    end
-end
-
-# ================================================================================
-# EXPORTS AND HELPER FUNCTIONS
-# ================================================================================
-
-# Placeholder implementations for complex functions
-prepare_send_data(field, rank, lm_range, r_range) = Float64[]
-compute_recv_size(rank, field) = 0
-perform_local_transforms!(manager, spec, phys) = nothing
-complete_async_transform!(manager, phys) = nothing
+# Stub implementations required by adaptive_rebalance!
 measure_parallel_efficiency(fields...) = 0.8
 compute_optimal_distribution(balancer, fields...) = zeros(Int, get_nprocs(), 3)
 estimate_migration_benefit(balancer, dist) = 0.1
 perform_data_migration!(balancer, dist, fields...) = nothing
-parallel_compress_fields(io, fields) = fields
-collective_write_netcdf!(file, fields, io) = nothing
-standard_write_netcdf!(file, fields) = nothing
-update_io_performance!(io) = nothing
-threaded_compute_gradients!(threading, field) = nothing
-threaded_compute_advection!(temp, vel) = nothing
-analyze_bottlenecks!(monitor) = nothing
-analyze_strong_scaling!(monitor) = nothing
-analyze_weak_scaling!(monitor) = nothing
-generate_optimization_recommendations!(monitor) = nothing
 
 export AdvancedThreadManager, ThreadingAccelerator, SIMDOptimizer, TaskGraph, MemoryOptimizer
 export AsyncCommManager, DynamicLoadBalancer, ParallelIOOptimizer, PerformanceMonitor
-export HybridParallelizer, CPUParallelizer, MasterParallelizer
+export CPUParallelizer, MasterParallelizer
 export create_advanced_thread_manager, create_threading_accelerator, create_simd_optimizer
 export create_task_graph, create_memory_optimizer, create_async_comm_manager
 export create_dynamic_load_balancer, create_parallel_io_optimizer, create_performance_monitor
-export create_hybrid_parallelizer, create_cpu_parallelizer, create_master_parallelizer
-export hybrid_compute_nonlinear!, compute_nonlinear!, add_task!, execute_task_graph!
-export async_write_fields!, analyze_parallel_performance, adaptive_rebalance!
-export allocate_aligned_array, deallocate_aligned_array, optimize_memory_layout!
+export create_cpu_parallelizer, create_master_parallelizer
+export add_task!, execute_task_graph!, adaptive_rebalance!
