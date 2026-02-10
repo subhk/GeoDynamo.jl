@@ -5,13 +5,9 @@
 # This module implements the composition field evolution for geodynamo simulations
 # using spherical harmonic transforms (SHTnsKit).
 #
-# REFERENCE: Sreenivasan & Kar (2018), Phys. Rev. Fluids 3, 093801
-#            Equation: Composition evolution (analogous to thermal)
-#
 # ================================================================================
 # GOVERNING EQUATION
 # ================================================================================
-#
 # The non-dimensional composition equation in magnetic diffusion time scaling:
 #
 #   ∂C/∂t + u·∇C = (Pm/Sc) ∇²C
