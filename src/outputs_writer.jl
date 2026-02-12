@@ -11,7 +11,17 @@ using Statistics
 using Dates
 using Printf
 
-const comm = MPI.COMM_WORLD
+# Use get_comm() from pencil_decomps.jl for lazy MPI initialization
+const _output_comm = Ref{MPI.Comm}()
+const _output_comm_initialized = Ref(false)
+
+function output_comm()
+    if !_output_comm_initialized[]
+        _output_comm[] = get_comm()
+        _output_comm_initialized[] = true
+    end
+    return _output_comm[]
+end
 
 # ================================================================================
 # Configuration
@@ -539,7 +549,7 @@ end
 Write coordinate arrays. Only rank 0 writes coordinates (they are global/shared).
 """
 function write_coordinate_data!(ds, field_info::FieldInfo, config::OutputConfig)
-    rank = MPI.Comm_rank(comm)
+    rank = MPI.Comm_rank(output_comm())
 
     # Coordinates are the same on all ranks; only rank 0 writes them
     if rank == 0
@@ -634,7 +644,7 @@ function write_field_data!(ds, fields::Dict{String,Any}, config::OutputConfig,
 end
 
 function write_time_data!(ds, time::Float64, step::Int, config::OutputConfig)
-    rank = MPI.Comm_rank(comm)
+    rank = MPI.Comm_rank(output_comm())
     # Only rank 0 writes scalar time/step data
     if rank == 0
         ds["time"][1] = config.output_precision(time)
@@ -646,7 +656,7 @@ function write_diagnostics!(ds, diagnostics::Dict{String,Float64}, config::Outpu
     if !config.include_diagnostics
         return
     end
-    rank = MPI.Comm_rank(comm)
+    rank = MPI.Comm_rank(output_comm())
     if rank == 0
         for (name, value) in diagnostics
             var_name = "diag_$(name)"
@@ -670,7 +680,7 @@ Written only once by rank 0 at the start of the simulation.
 function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
                          shtns_config::Union{SHTnsKitConfig,Nothing},
                          metadata::Dict{String,Any})
-    rank = MPI.Comm_rank(comm)
+    rank = MPI.Comm_rank(output_comm())
 
     if rank != 0
         return
@@ -884,6 +894,7 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
                         metadata::Dict{String,Any}, config::OutputConfig = output_config_from_parameters(),
                         shtns_config::Union{SHTnsKitConfig,Nothing} = nothing,
                         pencils::Union{NamedTuple,Nothing} = nothing)
+    comm = output_comm()
     rank = MPI.Comm_rank(comm)
     current_time = metadata["current_time"]
     current_step = metadata["current_step"]
@@ -977,6 +988,7 @@ end
 function write_restart!(fields::Dict{String,Any}, tracker::TimeTracker,
                         metadata::Dict{String,Any}, config::OutputConfig,
                         pencils::Union{NamedTuple,Nothing}=nothing)
+    comm = output_comm()
     rank = MPI.Comm_rank(comm)
     current_time = metadata["current_time"]
     current_step = metadata["current_step"]
@@ -1030,6 +1042,7 @@ end
 function read_restart!(tracker::TimeTracker, restart_dir::String,
                         restart_time::Float64, config::OutputConfig,
                         pencils::Union{NamedTuple,Nothing}=nothing)
+    comm = output_comm()
     rank = MPI.Comm_rank(comm)
 
     restart_files = find_restart_files(restart_dir, restart_time)
@@ -1135,6 +1148,7 @@ All ranks open the file collectively and read their local slices.
 """
 function _load_restart_file(filepath::String, tracker::TimeTracker, config::OutputConfig;
                            pencils::Union{NamedTuple,Nothing}=nothing)
+    comm = output_comm()
     rank = MPI.Comm_rank(comm)
 
     if !isfile(filepath)

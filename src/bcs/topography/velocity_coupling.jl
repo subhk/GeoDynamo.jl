@@ -425,16 +425,10 @@ end
 Convert (l, m) to spectral array index using SHTnsKit convention.
 """
 function lm_to_spectral_index(l::Int, m::Int, config)
-    # SHTnsKit uses a specific indexing convention
-    # This should match the convention used in the main simulation
-    if m >= 0
-        # For m >= 0: standard triangular storage
-        idx = l * (l + 1) ÷ 2 + m + 1
-        return min(idx, config.nlm)
-    else
-        # For m < 0: map to positive m (conjugate relationship)
-        return lm_to_spectral_index(l, -m, config)
-    end
+    # Use the canonical (l,m)->index lookup via config.l_values/m_values
+    # to match the convention used throughout the simulation
+    abs_m = abs(m)
+    return get_mode_index(config, l, abs_m)
 end
 
 """
