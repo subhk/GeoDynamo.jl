@@ -679,22 +679,27 @@ where:
 The explicit RHS entering the time integrator is:
 RHS = -(E/Pm)·(∇×ũ)×ũ - (ẑ×ũ) + (Pm/Pr)·Ra·T̃·r·r̂ + (Pm/Sc)·Ra_C·C̃·r·r̂ + (∇×B̃)×B̃
 
-Coefficients:
-  - Advection: E/Pm (= E·Pm⁻¹)
+Coefficients (Fortran DD_2DCODE convention, mass coeff = E on du/dt):
+  - Advection: E (= d_Ro = Rossby number, equals E for magnetic diffusion time)
   - Coriolis: 1 (no scaling)
   - Thermal buoyancy: (Pm/Pr) * Ra * r (with radial factor)
   - Compositional buoyancy: (Pm/Sc) * Ra_C * r (with radial factor)
-  - Lorentz: 1
+  - Lorentz: 1/Pm
 
 Viscous diffusion is treated implicitly with coefficient E (Ekman number).
+Mass coefficient E is applied in the time-stepping matrices.
 """
 function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
                                                temp_field, comp_field, mag_field,
                                                domain::RadialDomain) where T
-    # Compute all forces in a single enhanced loop (magnetic diffusion time scaling)
+    # Compute all forces (magnetic diffusion time scaling, Fortran DD_2DCODE convention).
+    # The momentum equation (mass coeff d_E on du/dt):
+    #   E·du/dt = -d_Ro·(u×ω) - (z×u) + buoyancy + (1/Pm)·(j×B) + E·∇²u
+    # where d_Ro = E (Rossby number = Ekman number for magnetic diffusion time scaling).
+    # Mass coefficient d_E is applied in the time-stepping matrices.
 
-    # Advection coefficient = E/Pm
-    advection_coeff = d_E / d_Pm
+    # Advection coefficient = d_Ro = d_E (Rossby number)
+    advection_coeff = T(d_E)
 
     # Get all data views
     vᵣ = parent(𝒰.velocity.r_component.data)
@@ -757,10 +762,11 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
                     adv_φ_val = adv_coeff * (u_r * ω_θ - u_θ * ω_r)
                     
                     # Coriolis: −(Pm/E) ẑ × u
+                    # Coriolis: -(z × u), coefficient = 1 (Fortran convention)
                     zhat_cross_r = -sin_theta * u_φ
                     zhat_cross_θ = -cos_theta * u_φ
                     zhat_cross_φ = cos_theta * u_θ + sin_theta * u_r
-                    cor_r = -zhat_cross_r  # Coriolis coefficient = 1
+                    cor_r = -zhat_cross_r
                     cor_θ = -zhat_cross_θ
                     cor_φ = -zhat_cross_φ
                     
@@ -775,6 +781,8 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
     
     # Add buoyancy forces: (Pm/Pr)*Ra*r (thermal), (Pm/Sc)*Ra_C*r (compositional)
     # Buoyancy coefficient is (Pm/Pr)·Ra (with radial factor r)
+    # Buoyancy: (Pm/Pr)·Ra (thermal), (Pm/Sc)·Ra_C (compositional)
+    # Fortran: d_PrT * qRaT * r, d_PrC * qRaC * r
     if temp_field !== nothing
         buoyancy_factor = (d_Pm / d_Pr) * d_Ra
         add_thermal_buoyancy_force!(adv_r, temp_field, buoyancy_factor, domain)
@@ -921,13 +929,14 @@ function add_lorentz_force!(𝒰::SHTnsVelocityFields{T},
     adv_θ = parent(𝒰.advection_physical.θ_component.data)
     adv_φ = parent(𝒰.advection_physical.φ_component.data)
 
-    # Fused loop for j × B (Lorentz coefficient = 1)
+    # Fused loop for j × B (Lorentz coefficient = 1/Pm, Fortran convention)
+    lorentz_coeff = T(1.0 / d_Pm)
     @inbounds @simd for idx in eachindex(j_r)
         if idx <= length(B_r)
             # Add Lorentz force to existing forces
-            adv_r[idx] += (j_θ[idx] * B_φ[idx] - j_φ[idx] * B_θ[idx])
-            adv_θ[idx] += (j_φ[idx] * B_r[idx] - j_r[idx] * B_φ[idx])
-            adv_φ[idx] += (j_r[idx] * B_θ[idx] - j_θ[idx] * B_r[idx])
+            adv_r[idx] += lorentz_coeff * (j_θ[idx] * B_φ[idx] - j_φ[idx] * B_θ[idx])
+            adv_θ[idx] += lorentz_coeff * (j_φ[idx] * B_r[idx] - j_r[idx] * B_φ[idx])
+            adv_φ[idx] += lorentz_coeff * (j_r[idx] * B_θ[idx] - j_θ[idx] * B_r[idx])
         end
     end
 end

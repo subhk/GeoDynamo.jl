@@ -56,10 +56,18 @@ function create_ball_radial_domain(nr::Int = GeoDynamo.i_N)
     end
 
     # Fill powers of r in other columns for compatibility (after any scaling)
+    # Guard against Inf at r=0 (ball center) for negative powers
     for p in 1:7
         if p != 4
             power = p - 4
-            r[:, p] = r[:, 4] .^ power
+            for i in 1:N
+                r_val = r[i, 4]
+                if r_val == 0.0 && power < 0
+                    r[i, p] = 0.0  # Regularize: treat 1/r^n as 0 at the origin
+                else
+                    r[i, p] = r_val ^ power
+                end
+            end
         end
     end
 

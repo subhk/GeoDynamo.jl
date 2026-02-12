@@ -17,6 +17,7 @@ function create_shtns_timestepping_matrices(config::SHTnsKitConfig,
                                             diffusivity::Float64,
                                             dt::Float64;
                                             theta::Float64=d_implicit,
+                                            mass_coeff::Float64=1.0,
                                             T::Type{<:Number}=Float64)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
@@ -29,7 +30,8 @@ function create_shtns_timestepping_matrices(config::SHTnsKitConfig,
     l_values = Vector{Int}(undef, length(unique_l))
     lookup = Dict{Int,Int}()
 
-    inv_dt = T(1 / dt)
+    # Mass coefficient: c1/dt (Fortran convention: c1=d_E for velocity, c1=1 for others)
+    inv_dt = T(mass_coeff / dt)
     θ_T = T(theta)
     minus_θ = -θ_T
 
@@ -132,7 +134,8 @@ the same number of times, preventing deadlock with uneven lm distribution.
 """
 function build_rhs_cnab2!(rhs::SHTnsSpecField{T}, un::SHTnsSpecField{T},
                           nl::SHTnsSpecField{T}, nl_prev::SHTnsSpecField{T},
-                          dt::Float64, matrices::SHTnsImplicitMatrices{T}) where T
+                          dt::Float64, matrices::SHTnsImplicitMatrices{T};
+                          mass_coeff::Float64=1.0) where T
     r_real = parent(rhs.data_real); r_imag = parent(rhs.data_imag)
     u_real = parent(un.data_real);  u_imag = parent(un.data_imag)
     n_real = parent(nl.data_real);  n_imag = parent(nl.data_imag)
@@ -141,7 +144,8 @@ function build_rhs_cnab2!(rhs::SHTnsSpecField{T}, un::SHTnsSpecField{T},
     lm_range = get_local_range(un.pencil, 1)
     r_range  = get_local_range(un.pencil, 3)
 
-    inv_dt = T(1 / dt)
+    # Mass coefficient: c1/dt (Fortran convention: c1=d_E for velocity, c1=1 for others)
+    inv_dt = T(mass_coeff / dt)
     three_halves = T(1.5)
     half = T(0.5)
 

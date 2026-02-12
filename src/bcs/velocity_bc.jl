@@ -69,6 +69,7 @@ function create_velocity_toroidal_matrices(config::SHTnsKitConfig,
                                             dt::Float64;
                                             theta::Float64=d_implicit,
                                             i_vel_bc::Int=get_parameters().i_vel_bc,
+                                            mass_coeff::Float64=1.0,
                                             T::Type{<:Number}=Float64)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
@@ -86,7 +87,8 @@ function create_velocity_toroidal_matrices(config::SHTnsKitConfig,
     bw = i_KL
     N = domain.N
 
-    inv_dt = T(1 / dt)
+    # Mass coefficient: c1/dt (Fortran: c1=d_E for velocity)
+    inv_dt = T(mass_coeff / dt)
     θ_T = T(theta)
     minus_θ = -θ_T
 
@@ -171,6 +173,7 @@ function create_velocity_poloidal_matrices(config::SHTnsKitConfig,
                                             dt::Float64;
                                             theta::Float64=d_implicit,
                                             i_vel_bc::Int=get_parameters().i_vel_bc,
+                                            mass_coeff::Float64=1.0,
                                             T::Type{<:Number}=Float64)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
@@ -189,7 +192,8 @@ function create_velocity_poloidal_matrices(config::SHTnsKitConfig,
     bw = i_KL
     N = domain.N
 
-    inv_dt = T(1 / dt)
+    # Mass coefficient: c1/dt (Fortran: c1=d_E for velocity)
+    inv_dt = T(mass_coeff / dt)
     θ_T = T(theta)
     minus_θ = -θ_T
 
