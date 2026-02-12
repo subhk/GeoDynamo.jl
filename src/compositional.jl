@@ -98,6 +98,9 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     # Pre-computed coefficients
     ℓ_factors::Vector{Float64}         # l(l+1) values for diffusion
 
+    # Internal sources (radial profile, matching thermal field)
+    internal_sources::Vector{T}
+
     # Configuration (SHTnsKit)
     config::SHTnsKitConfig
 
@@ -204,12 +207,15 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     ∂θ = build_∂θ(T, config)
     theta_recurrence_coeffs = compute_theta_recurrence_coefficients(T, config)
 
+    # Internal sources (radial profile, e.g. secular cooling)
+    internal_sources = zeros(T, 𝒟ᵒᶜ.N)
+
     return SHTnsCompositionField{T}(
         composition, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
         boundary_values, bc_type_inner, bc_type_outer,
         nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
-        ℓ_factors, config,
+        ℓ_factors, internal_sources, config,
         ∂r, ∂²r,
         ∂θ, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),

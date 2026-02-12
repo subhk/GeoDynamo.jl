@@ -32,6 +32,17 @@
 #
 # ================================================================================
 
+# Type-stable accessors for buffer cache (function barriers to avoid Dict{Symbol,Any} instability)
+@inline function _get_sht_plan(cache::Dict{Symbol,Any})
+    return get(cache, :sht_plan, nothing)::Union{SHTnsKit.SHTPlan, Nothing}
+end
+@inline function _get_synth_out(cache::Dict{Symbol,Any})
+    return get(cache, :synth_out, nothing)::Union{Matrix{Float64}, Nothing}
+end
+@inline function _get_anal_out(cache::Dict{Symbol,Any})
+    return get(cache, :anal_out, nothing)::Union{Matrix{ComplexF64}, Nothing}
+end
+
 """
     shtnskit_spectral_to_physical!(spec, phys)
 
@@ -90,8 +101,8 @@ function perform_synthesis_phi_local!(spec::SHTnsSpecField{T},
     phys_data = parent(phys.data)
 
     # Get pre-allocated plan and output buffer (allocation-free path)
-    plan = get(config._buffer_cache, :sht_plan, nothing)
-    synth_out = get(config._buffer_cache, :synth_out, nothing)
+    plan = _get_sht_plan(config._buffer_cache)
+    synth_out = _get_synth_out(config._buffer_cache)
 
     # Process each radial level independently (embarrassingly parallel in r)
     for r_local in axes(phys_data, 3)
@@ -158,8 +169,8 @@ function perform_synthesis_to_phi_pencil!(spec::SHTnsSpecField{T},
     phys_phi_data = parent(phys_phi)
 
     # Get pre-allocated plan and output buffer (allocation-free path)
-    plan = get(config._buffer_cache, :sht_plan, nothing)
-    synth_out = get(config._buffer_cache, :synth_out, nothing)
+    plan = _get_sht_plan(config._buffer_cache)
+    synth_out = _get_synth_out(config._buffer_cache)
 
     # Loop over radial levels (each level is independent)
     for r_local in axes(phys_phi_data, 3)
@@ -205,8 +216,8 @@ function perform_synthesis_direct!(spec::SHTnsSpecField{T},
     @assert size(phys_data, 3) == size(spec_real_data, 3) "Radial dimension mismatch: physical=$(size(phys_data,3)) vs spectral=$(size(spec_real_data,3)). SH transforms require radial to be local."
 
     # Get pre-allocated plan and output buffer (allocation-free path)
-    plan = get(config._buffer_cache, :sht_plan, nothing)
-    synth_out = get(config._buffer_cache, :synth_out, nothing)
+    plan = _get_sht_plan(config._buffer_cache)
+    synth_out = _get_synth_out(config._buffer_cache)
 
     # Process each radial level
     for r_local in axes(phys_data, 3)
@@ -280,8 +291,8 @@ function perform_analysis_phi_local!(phys::SHTnsPhysField{T},
     spec_imag_data = parent(spec.data_imag)
 
     # Get pre-allocated plan and output buffer
-    plan = get(config._buffer_cache, :sht_plan, nothing)
-    anal_out = get(config._buffer_cache, :anal_out, nothing)
+    plan = _get_sht_plan(config._buffer_cache)
+    anal_out = _get_anal_out(config._buffer_cache)
 
     # Process each radial level
     for r_local in axes(phys_data, 3)
@@ -330,8 +341,8 @@ function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T,3},
     spec_imag_data = parent(spec.data_imag)
 
     # Get pre-allocated plan and output buffer
-    plan = get(config._buffer_cache, :sht_plan, nothing)
-    anal_out = get(config._buffer_cache, :anal_out, nothing)
+    plan = _get_sht_plan(config._buffer_cache)
+    anal_out = _get_anal_out(config._buffer_cache)
 
     # Process each radial level
     for r_local in axes(phys_phi_data, 3)
@@ -366,8 +377,8 @@ function perform_analysis_direct!(phys::SHTnsPhysField{T},
     @assert size(phys_data, 3) == size(spec_real_data, 3) "Radial dimension mismatch in analysis. SH transforms require radial to be local."
 
     # Get pre-allocated plan and output buffer
-    plan = get(config._buffer_cache, :sht_plan, nothing)
-    anal_out = get(config._buffer_cache, :anal_out, nothing)
+    plan = _get_sht_plan(config._buffer_cache)
+    anal_out = _get_anal_out(config._buffer_cache)
 
     # Process each radial level
     for r_local in axes(phys_data, 3)

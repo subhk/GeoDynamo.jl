@@ -667,10 +667,15 @@ macro param(name)
 end
 
 # Define global parameter variables for direct access
-for param_name in fieldnames(GeoDynamoParameters)
-    @eval begin
-        global $(param_name)
-        $(param_name) = nothing  # Will be initialized later
+# Initialize with default values from GeoDynamoParameters() to ensure type stability
+# (avoids Union{Nothing, T} which causes dynamic dispatch on every access)
+let _defaults = GeoDynamoParameters()
+    for param_name in fieldnames(GeoDynamoParameters)
+        val = getfield(_defaults, param_name)
+        @eval begin
+            global $(param_name)
+            $(param_name) = $val
+        end
     end
 end
 

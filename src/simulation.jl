@@ -833,6 +833,19 @@ function compute_total_energy!(state::SimulationState{T}) where T
         return
     end
 
+    # Refresh physical fields from updated spectral coefficients.
+    # After implicit/ERK2 steps, spectral data is current but physical arrays are stale.
+    shtnskit_vector_synthesis!(state.velocity.𝒯, state.velocity.𝒫,
+                              state.velocity.velocity; domain=state.𝒟ᵒᶜ)
+    if state.magnetic !== nothing
+        shtnskit_vector_synthesis!(state.magnetic.𝒯, state.magnetic.𝒫,
+                                  state.magnetic.magnetic; domain=state.𝒟ᵒᶜ)
+    end
+    shtnskit_spectral_to_physical!(state.temperature.spectral, state.temperature.temperature)
+    if state.composition !== nothing
+        shtnskit_spectral_to_physical!(state.composition.spectral, state.composition.composition)
+    end
+
     # Compute kinetic energy from velocity field
     kinetic_e = compute_vector_energy(
         parent(state.velocity.velocity.r_component.data),
@@ -851,12 +864,12 @@ function compute_total_energy!(state::SimulationState{T}) where T
     end
 
     # Compute thermal energy
-    thermal_e = compute_field_energy(parent(state.temperature.physical.data))
+    thermal_e = compute_field_energy(parent(state.temperature.temperature.data))
 
     # Compute compositional energy if present
     compositional_e = 0.0
     if state.composition !== nothing
-        compositional_e = compute_field_energy(parent(state.composition.physical.data))
+        compositional_e = compute_field_energy(parent(state.composition.composition.data))
     end
 
     # Total energy
