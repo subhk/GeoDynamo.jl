@@ -523,8 +523,16 @@ end
     
 Perform halo exchange along a specific dimension using MPI point-to-point communication.
 """
-function exchange_dimension_halos!(data::Array, pencil::Pencil, dim::Int, 
+function exchange_dimension_halos!(data::Array, pencil::Pencil, dim::Int,
                                    halo_width::Int, boundaries::Symbol, comm::MPI.Comm)
+    # PencilArrays does not allocate ghost/halo regions by default.
+    # Without pre-allocated halos there is nowhere to place received data,
+    # so halo exchange is a no-op.  Spectral-method codes gather global data
+    # via Allreduce inside SHTnsKit transforms instead.
+    @debug "Skipping halo exchange for dimension $dim: PencilArrays does not allocate ghost cells. " *
+           "Use spectral transforms (Allreduce) for inter-process data coupling."
+    return nothing
+
     # Get neighbor ranks for this dimension
     left_neighbor, right_neighbor = get_dimension_neighbors(pencil, dim, boundaries)
     
@@ -645,26 +653,33 @@ end
 Calculate neighbor ranks for non-Cartesian topologies.
 """
 function calculate_linear_neighbors(rank::Int, dim::Int, proc_dims::Tuple, boundaries::Symbol)
-    # This is a simplified calculation - actual implementation would depend on 
-    # the specific process grid layout used by the topology
-    nprocs_dim = prod(proc_dims)
-    
-    # Simple linear arrangement calculation
+    # Compute coordinates in the 2D process grid (row-major: dim 1 varies fastest)
+    # For proc_dims = (P1, P2): rank = coord1 + coord2 * P1
+    coords = (rank % proc_dims[1], rank ÷ proc_dims[1])
+    coord_in_dim = coords[dim]
+    nprocs_in_dim = proc_dims[dim]
+
+    # Stride between neighbors in this dimension:
+    #   dim 1 (theta): stride = 1  (adjacent ranks in same row)
+    #   dim 2 (phi):   stride = proc_dims[1]  (jump across rows)
+    stride = dim == 1 ? 1 : proc_dims[1]
+
     # Use -1 as PROC_NULL indicator (MPI.MPI_PROC_NULL may not exist in all MPI versions)
     mpi_proc_null = isdefined(MPI, :MPI_PROC_NULL) ? MPI.MPI_PROC_NULL : -1
-    left_neighbor = (rank > 0) ? rank - 1 : mpi_proc_null
-    right_neighbor = (rank < nprocs_dim - 1) ? rank + 1 : mpi_proc_null
-    
+
+    left_neighbor  = coord_in_dim > 0                  ? rank - stride : mpi_proc_null
+    right_neighbor = coord_in_dim < nprocs_in_dim - 1  ? rank + stride : mpi_proc_null
+
     # Apply periodic boundaries if requested
     if boundaries == :periodic
-        if rank == 0
-            left_neighbor = nprocs_dim - 1
+        if coord_in_dim == 0
+            left_neighbor = rank + (nprocs_in_dim - 1) * stride
         end
-        if rank == nprocs_dim - 1
-            right_neighbor = 0
+        if coord_in_dim == nprocs_in_dim - 1
+            right_neighbor = rank - (nprocs_in_dim - 1) * stride
         end
     end
-    
+
     return left_neighbor, right_neighbor
 end
 
@@ -693,15 +708,17 @@ Create array slice for boundary data extraction.
 """
 function create_boundary_slice(size_arr::Tuple, dim::Int, side::Symbol, width::Int)
     slices = [Colon() for _ in eachindex(size_arr)]
-    
+
     if side == :left
-        slices[dim] = (width+1):(2*width)
+        # First `width` interior points (to send to left neighbor)
+        slices[dim] = 1:width
     elseif side == :right
-        slices[dim] = (size_arr[dim]-2*width+1):(size_arr[dim]-width)
+        # Last `width` interior points (to send to right neighbor)
+        slices[dim] = (size_arr[dim]-width+1):size_arr[dim]
     else
         throw(ArgumentError("side must be :left or :right, got $side"))
     end
-    
+
     return tuple(slices...)
 end
 

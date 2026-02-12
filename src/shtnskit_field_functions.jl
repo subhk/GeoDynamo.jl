@@ -198,6 +198,12 @@ function perform_synthesis_direct!(spec::SHTnsSpecField{T},
     spec_imag_data = parent(spec.data_imag)
     phys_data = parent(phys.data)
 
+    # SAFETY: The radial loop below contains MPI collectives (Allreduce).
+    # All processes MUST iterate the same number of times to avoid deadlock.
+    # This is guaranteed when dim 3 is local (r-pencil or spec-pencil).
+    # If dim 3 is distributed unevenly, processes will deadlock.
+    @assert size(phys_data, 3) == size(spec_real_data, 3) "Radial dimension mismatch: physical=$(size(phys_data,3)) vs spectral=$(size(spec_real_data,3)). SH transforms require radial to be local."
+
     # Get pre-allocated plan and output buffer (allocation-free path)
     plan = get(config._buffer_cache, :sht_plan, nothing)
     synth_out = get(config._buffer_cache, :synth_out, nothing)
@@ -355,6 +361,9 @@ function perform_analysis_direct!(phys::SHTnsPhysField{T},
     phys_data = parent(phys.data)
     spec_real_data = parent(spec.data_real)
     spec_imag_data = parent(spec.data_imag)
+
+    # SAFETY: see perform_synthesis_direct! — radial must be local for MPI safety
+    @assert size(phys_data, 3) == size(spec_real_data, 3) "Radial dimension mismatch in analysis. SH transforms require radial to be local."
 
     # Get pre-allocated plan and output buffer
     plan = get(config._buffer_cache, :sht_plan, nothing)

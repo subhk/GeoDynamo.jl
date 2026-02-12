@@ -649,12 +649,11 @@ function create_pencil_fft_plans(pencils, dims::Tuple{Int,Int,Int})
             fft_plans[:phi_backward] = FFTW.plan_ifft(parent(sample_array), 2)
         end
 
-        # Create plans for theta pencil orientation (less commonly used)
-        if haskey(pencils, :theta)
-            sample_theta = PencilArray{ComplexF64}(undef, pencils.theta)
-            fft_plans[:theta_forward] = FFTW.plan_fft(parent(sample_theta), 2)
-            fft_plans[:theta_backward] = FFTW.plan_ifft(parent(sample_theta), 2)
-        end
+        # NOTE: No FFT plans are created for the theta pencil.
+        # The theta pencil has dim 1 (theta) local and dim 2 (phi) distributed.
+        # Creating FFT plans along dim 2 would operate on a distributed dimension,
+        # which is incorrect.  SH transforms handle the theta direction via
+        # Legendre transforms (not FFTs), so theta-pencil FFT plans are not needed.
 
         if get_rank() == 0
             @info "FFT plans created successfully for $(length(fft_plans) ÷ 2) orientations"

@@ -90,7 +90,7 @@ struct SimulationState{T}
     implicit_matrices::Dict{Symbol, SHTnsImplicitMatrices{T}}
     etd_caches::Dict{Symbol, EAB2ALUCacheEntry{T}}  # Type-stable ETD caches
     erk2_caches::Dict{Symbol, ERK2Cache{T}}  # Type-stable ERK2 caches
-    erk2_influence_matrices::Dict{Symbol, Dict{Int, ERK2InfluenceMatrix{T}}}  # Influence matrices for ERK2
+    erk2_influence_matrices::Dict{Symbol, Tuple{Dict{Int, ERK2InfluenceMatrix{T}}, Float64}}  # Influence matrices for ERK2 (matrices, dt)
 
     # Enhanced I/O
     output_counter::Int
@@ -219,7 +219,7 @@ function initialize_simulation(::Type{T}=Float64;
         timestep_state, implicit_matrices,
         Dict{Symbol, EAB2ALUCacheEntry{T}}(),  # Type-stable etd_caches
         Dict{Symbol, ERK2Cache{T}}(),  # Type-stable erk2_caches
-        Dict{Symbol, Dict{Int, ERK2InfluenceMatrix{T}}}(),  # ERK2 influence matrices
+        Dict{Symbol, Tuple{Dict{Int, ERK2InfluenceMatrix{T}}, Float64}}(),  # ERK2 influence matrices (matrices, dt)
         0, auto_optimize, adaptive_threading, geom
     )
 
@@ -354,7 +354,8 @@ function run_simulation!(state::SimulationState{T};
     total_start = Wtime()
     last_output_time = simulation_time
     
-    while simulation_time < 1.0 && step < i_maxtstep
+    t_end = try get_parameters().d_t_end catch; 1.0 end
+    while simulation_time < t_end && step < i_maxtstep
         step += 1
         step_start = Wtime()
         
@@ -394,9 +395,14 @@ function run_simulation!(state::SimulationState{T};
         
         integrate_time = Wtime() - integrate_start
         
+        # Update simulation state
+        simulation_time += dt
+        state.timestep_state.time = simulation_time
+        state.timestep_state.step = step
+
         # 3. Asynchronous I/O (non-blocking)
         io_start = Wtime()
-        
+
         if should_output_now(time_tracker, simulation_time, output_config)
             fields = extract_all_fields(state)
             metadata = create_enhanced_metadata(state, simulation_time, step)
@@ -408,9 +414,9 @@ function run_simulation!(state::SimulationState{T};
                        "integrate=$(round(integrate_time*1000, digits=1))ms")
             end
         end
-        
+
         io_time = Wtime() - io_start
-        
+
         # 4. Dynamic load balancing and auto-tuning
         if state.auto_optimization && step % 50 == 0
             adaptive_rebalance!(state.master_parallelizer.load_balancer, state.temperature)
@@ -418,11 +424,6 @@ function run_simulation!(state::SimulationState{T};
                 auto_tune_parameters!(state)
             end
         end
-        
-        # Update simulation state
-        simulation_time += dt
-        state.timestep_state.time = simulation_time
-        state.timestep_state.step = step
         
         step_time = Wtime() - step_start
         
@@ -988,7 +989,7 @@ function compute_divergence_spectral(tor_spec::SHTnsSpecField{T},
                      maximum(abs, pol_real), maximum(abs, pol_imag))
 
     if MPI.Initialized()
-        l2_norm = MPI.Allreduce(local_l2, +, MPI.COMM_WORLD)
+        l2_norm = sqrt(MPI.Allreduce(local_l2^2, +, MPI.COMM_WORLD))
         linf_norm = MPI.Allreduce(local_linf, max, MPI.COMM_WORLD)
     else
         l2_norm = local_l2
@@ -1253,8 +1254,9 @@ end
 
 Get or create ERK2 influence matrices for poloidal velocity.
 Caches matrices by key for reuse across timesteps.
+Invalidates and recomputes when dt changes.
 """
-function get_erk2_influence_matrices!(cache::Dict{Symbol, Dict{Int, ERK2InfluenceMatrix{T}}},
+function get_erk2_influence_matrices!(cache::Dict{Symbol, Tuple{Dict{Int, ERK2InfluenceMatrix{T}}, Float64}},
                                        key::Symbol,
                                        ::Type{T},
                                        config::SHTnsKitConfig,
@@ -1263,12 +1265,13 @@ function get_erk2_influence_matrices!(cache::Dict{Symbol, Dict{Int, ERK2Influenc
                                        dt::Float64,
                                        i_vel_bc::Int;
                                        theta::Float64=d_implicit) where T
-    if !haskey(cache, key)
-        cache[key] = create_velocity_poloidal_influence_matrices(T, config, domain,
-                                                                  diffusivity, dt, i_vel_bc;
-                                                                  theta=theta)
+    if !haskey(cache, key) || cache[key][2] != dt
+        matrices = create_velocity_poloidal_influence_matrices(T, config, domain,
+                                                                diffusivity, dt, i_vel_bc;
+                                                                theta=theta)
+        cache[key] = (matrices, dt)
     end
-    return cache[key]
+    return cache[key][1]
 end
 
 """

@@ -196,7 +196,7 @@ struct FieldInfo
     has_pencils::Bool
     pencils::NamedTuple
     has_config::Bool
-    config::SHTnsKitConfig
+    config::Union{SHTnsKitConfig,Nothing}
 
     # Local range information
     local_ranges::Dict{Symbol, UnitRange{Int}}
@@ -204,9 +204,8 @@ end
 
 # Default constructor for FieldInfo without pencils/config
 function FieldInfo()
-    dummy_config = SHTnsKitConfig(0, 0, 0, 0, Int[], Int[], Float64[], Float64[], nothing, nothing)
     return FieldInfo(0, 0, 0, 0, Float64[], Float64[], Float64[],
-                     Int[], Int[], false, NamedTuple(), false, dummy_config, Dict{Symbol, UnitRange{Int}}())
+                     Int[], Int[], false, NamedTuple(), false, nothing, Dict{Symbol, UnitRange{Int}}())
 end
 
 # Constructor with pencils and config
@@ -268,13 +267,15 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConf
     # Create coordinate arrays
     theta = nlat > 0 ? collect(range(0, π, length=nlat)) : Float64[]
     phi = nlon > 0 ? collect(range(0, 2π, length=nlon)) : Float64[]
-    r = nr > 0 ? collect(range(0.35, 1.0, length=nr)) : Float64[]
+    rratio = try get_parameters().d_rratio catch; 0.35 end
+    r = nr > 0 ? collect(range(rratio, 1.0, length=nr)) : Float64[]
 
     # Create l,m values for spectral modes
     l_values = Int[]
     m_values = Int[]
     if nlm > 0
-        lmax = Int(sqrt(nlm)) + 1
+        # Invert nlm = (lmax+1)(lmax+2)/2 via quadratic formula
+        lmax = Int(floor((-3 + sqrt(1 + 8*nlm)) / 2))
         for l in 0:lmax
             for m in 0:l
                 if length(l_values) < nlm
@@ -314,13 +315,11 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConf
         return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values,
                          pencils, config, local_ranges)
     else
-        dummy_config = SHTnsKitConfig(nlat, nlon, nlat, nlon, l_values, m_values,
-                                      theta, phi, nothing, nothing)
         dummy_pencils = NamedTuple()
 
         return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values,
                          pencils !== nothing, pencils !== nothing ? pencils : dummy_pencils,
-                         config !== nothing, config !== nothing ? config : dummy_config,
+                         config !== nothing, config,
                          local_ranges)
     end
 end

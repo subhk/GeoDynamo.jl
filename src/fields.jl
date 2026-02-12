@@ -56,7 +56,7 @@ and outer radial boundaries. Common types:
 - `boundary_values`: Boundary values [2, nlm] for inner/outer
 """
 mutable struct SHTnsSpecField{T<:Number}
-    config::AbstractSHTnsConfig
+    config::SHTnsKitConfig
     nlm::Int
     data_real::PencilArray{T,3}   # Real part of f_l^m(r)
     data_imag::PencilArray{T,3}   # Imaginary part of f_l^m(r)
@@ -89,7 +89,7 @@ Different pencil orientations are optimal for different operations:
 - r pencil: Optimal for radial operations (all radii local)
 """
 struct SHTnsPhysField{T<:Number}
-    config::AbstractSHTnsConfig
+    config::SHTnsKitConfig
     nlat::Int                     # Number of latitude points
     nlon::Int                     # Number of longitude points
     data::PencilArray{T,3}        # Field values f(θ, φ, r)
@@ -339,7 +339,23 @@ function create_radial_domain(nr::Union{Int,Nothing}=nothing;
     # Allocate derivative matrices and integration weights
     dr_matrices         = [zeros(2*bandwidth+1, N) for _ in 1:3]
     radial_laplacian    = zeros(2*bandwidth+1, N)
+
+    # Compute Clenshaw-Curtis integration weights for Chebyshev-Lobatto points
+    # The grid is mapped from [-1,1] to [ri, ri+1] with half-interval length h = 0.5
     integration_weights = zeros(N)
+    h = 0.5  # half-interval: (ro - ri) / 2 = (ri + 1 - ri) / 2 = 0.5
+    for n in 1:N
+        # Chebyshev-Lobatto point in [-1,1]: x_n = cos(π(N-n)/(N-1))
+        # Trapezoidal weights for equally-spaced angles θ_n = π(N-n)/(N-1)
+        if n == 1 || n == N
+            integration_weights[n] = h * π / (2 * (N - 1))
+        else
+            integration_weights[n] = h * π / (N - 1)
+        end
+        # Weight includes sin(θ) factor from Chebyshev quadrature
+        theta_n = π * (N - n) / (N - 1)
+        integration_weights[n] *= sin(theta_n)
+    end
 
     return RadialDomain(N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)
 end

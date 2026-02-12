@@ -283,6 +283,10 @@ function eab2_update_krylov!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
     multi = MPI.Comm_size(comm) > 1
     nlm_total = u.nlm
 
+    # Pre-allocate work arrays outside the loop to avoid per-mode GC pressure
+    ur = zeros(T, nr); ui = zeros(T, nr)
+    nrn = zeros(T, nr); nin = zeros(T, nr)
+
     # Use GLOBAL loop bounds to ensure all processes call Allreduce same number of times
     for lm_idx in 1:nlm_total
         # Check if this process owns this lm mode
@@ -292,9 +296,9 @@ function eab2_update_krylov!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
         A_banded = build_banded_A(T, domain, diffusivity, l)
         A_lu = factorize_banded(A_banded)
 
-        # Assembled full vectors - all processes allocate
-        ur = zeros(T, nr); ui = zeros(T, nr)
-        nrn = zeros(T, nr); nin = zeros(T, nr)
+        # Reset work arrays for this iteration
+        fill!(ur, zero(T)); fill!(ui, zero(T))
+        fill!(nrn, zero(T)); fill!(nin, zero(T))
 
         # Only fill if this process owns the mode
         if owns_mode
@@ -388,6 +392,10 @@ function eab2_update_krylov_cached!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
     multi = MPI.Comm_size(comm) > 1
     nlm_total = u.nlm
 
+    # Pre-allocate work arrays outside the loop to avoid per-mode GC pressure
+    ur = zeros(T, nr); ui = zeros(T, nr)
+    nrn = zeros(T, nr); nin = zeros(T, nr)
+
     # Use GLOBAL loop bounds to ensure all processes call Allreduce same number of times
     for lm_idx in 1:nlm_total
         # Check if this process owns this lm mode
@@ -404,9 +412,9 @@ function eab2_update_krylov_cached!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
         end
         A_banded, A_lu = tup
 
-        # Assembled full vectors - all processes allocate
-        ur = zeros(T, nr); ui = zeros(T, nr)
-        nrn = zeros(T, nr); nin = zeros(T, nr)
+        # Reset work arrays for this iteration
+        fill!(ur, zero(T)); fill!(ui, zero(T))
+        fill!(nrn, zero(T)); fill!(nin, zero(T))
 
         # Only fill if this process owns the mode
         if owns_mode
@@ -481,6 +489,10 @@ function eab2_update!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
     linear_i_work = similar(linear_r_work)
     phi_tmp = similar(linear_r_work)
 
+    # Pre-allocate work arrays outside the loop to avoid per-mode GC pressure
+    ur = zeros(T, nr_full); ui = zeros(T, nr_full)
+    nrn = zeros(T, nr_full); nin = zeros(T, nr_full)
+
     # Use GLOBAL loop bounds to ensure all processes call Allreduce same number of times
     for lm_idx in 1:nlm_total
         # Check if this process owns this lm mode
@@ -491,9 +503,9 @@ function eab2_update!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
         E = etd.E[lpos]
         P1 = etd.phi1[lpos]
 
-        # Assemble full radial vectors - all processes allocate
-        ur = zeros(T, nr_full); ui = zeros(T, nr_full)
-        nrn = zeros(T, nr_full); nin = zeros(T, nr_full)
+        # Reset work arrays for this iteration
+        fill!(ur, zero(T)); fill!(ui, zero(T))
+        fill!(nrn, zero(T)); fill!(nin, zero(T))
 
         # Only fill if this process owns the mode
         if owns_mode
