@@ -362,7 +362,8 @@ function run_simulation!(state::SimulationState{T};
 
         # Velocity evolution
         if state.velocity !== nothing
-            compute_velocity_nonlinear!(state.velocity, state.magnetic, state.temperature, state.𝒟ᵒᶜ)
+            compute_velocity_nonlinear!(state.velocity, state.temperature,
+                                        state.composition, state.magnetic, state.𝒟ᵒᶜ)
         end
 
         # Magnetic field evolution

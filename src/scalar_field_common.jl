@@ -255,47 +255,51 @@ function compute_theta_gradient_spectral!(𝔽::AbstractScalarField{T}, ws::Grad
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         if local_r <= size(∇θ_real, 3)
-            
+
             for lm_idx in lm_range
                 if lm_idx <= 𝔽.config.nlm
                     local_lm = lm_idx - first(lm_range) + 1
-                    
-                    l, m = 𝔽.config.lm_mapping[lm_idx]
-                    
+
+                    l = 𝔽.config.l_values[lm_idx]
+                    m = 𝔽.config.m_values[lm_idx]
+                    abs_m = abs(m)
+
                     if local_lm <= size(∇θ_real, 1)
                         # Initialize gradient to zero
                         dtheta_real = zero(T)
                         dtheta_imag = zero(T)
-                        
-                        # Recurrence relations for ∂/∂θ
+
+                        # Recurrence relations for ∂/∂θ (4π-normalized SH)
                         # ∂Y_l^m/∂θ = A_+^{l,m} Y_{l+1}^m + A_-^{l,m} Y_{l-1}^m
-                        
-                        # Contribution from Y_{l+1}^m (if exists)
-                        if l+1 <= 𝔽.config.lmax
-                            lm_plus = 𝔽.config.get_lm_index(l+1, m)
-                            if lm_plus !== nothing && lm_plus in lm_range
+
+                        # Contribution from Y_{l+1}^m (forward coupling)
+                        if l < 𝔽.config.lmax
+                            lm_plus = get_mode_index(𝔽.config, l+1, m)
+                            if lm_plus > 0 && lm_plus in lm_range
                                 local_lm_plus = lm_plus - first(lm_range) + 1
                                 if local_lm_plus <= size(spec_real, 1)
-                                    A_plus = sqrt((l+1)^2 - m^2) * sqrt((l+1+m)*(l+1-m)) / (2*l+1)
+                                    A_plus = T(l) * sqrt(T((l + abs_m + 1) * (l - abs_m + 1)) /
+                                                         T((2*l + 1) * (2*l + 3)))
                                     dtheta_real += A_plus * spec_real[local_lm_plus, 1, local_r]
                                     dtheta_imag += A_plus * spec_imag[local_lm_plus, 1, local_r]
                                 end
                             end
                         end
-                        
-                        # Contribution from Y_{l-1}^m (if exists)
-                        if l >= 1
-                            lm_minus = 𝔽.config.get_lm_index(l-1, m)
-                            if lm_minus !== nothing && lm_minus in lm_range
+
+                        # Contribution from Y_{l-1}^m (backward coupling)
+                        if l > abs_m
+                            lm_minus = get_mode_index(𝔽.config, l-1, m)
+                            if lm_minus > 0 && lm_minus in lm_range
                                 local_lm_minus = lm_minus - first(lm_range) + 1
                                 if local_lm_minus <= size(spec_real, 1)
-                                    A_minus = -sqrt(l^2 - m^2) * sqrt((l+m)*(l-m)) / (2*l-1)
+                                    A_minus = -T(l + 1) * sqrt(T((l + abs_m) * (l - abs_m)) /
+                                                               T((2*l - 1) * (2*l + 1)))
                                     dtheta_real += A_minus * spec_real[local_lm_minus, 1, local_r]
                                     dtheta_imag += A_minus * spec_imag[local_lm_minus, 1, local_r]
                                 end
                             end
                         end
-                        
+
                         ∇θ_real[local_lm, 1, local_r] = dtheta_real
                         ∇θ_imag[local_lm, 1, local_r] = dtheta_imag
                     end
@@ -327,15 +331,15 @@ function compute_phi_gradient_spectral!(𝔽::AbstractScalarField{T}, ws::Gradie
             for lm_idx in lm_range
                 if lm_idx <= 𝔽.config.nlm
                     local_lm = lm_idx - first(lm_range) + 1
-                    
-                    l, m = 𝔽.config.lm_mapping[lm_idx]
-                    
+
+                    m = 𝔽.config.m_values[lm_idx]
+
                     if local_lm <= size(∇φ_real, 1)
                         # ∂Y_l^m/∂φ = im * m * Y_l^m
-                        # For real/imag decomposition: 
+                        # For real/imag decomposition:
                         # ∂(Real)/∂φ = -m * Imag
                         # ∂(Imag)/∂φ = m * Real
-                        
+
                         ∇φ_real[local_lm, 1, local_r] = -T(m) * spec_imag[local_lm, 1, local_r]
                         ∇φ_imag[local_lm, 1, local_r] =  T(m) * spec_real[local_lm, 1, local_r]
                     end
