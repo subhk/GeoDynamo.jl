@@ -674,7 +674,7 @@ let _defaults = GeoDynamoParameters()
         val = getfield(_defaults, param_name)
         @eval begin
             global $(param_name)
-            $(param_name) = $val
+            $(param_name) = $(QuoteNode(val))
         end
     end
 end
