@@ -354,7 +354,7 @@ function run_simulation!(state::SimulationState{T};
     total_start = Wtime()
     last_output_time = simulation_time
     
-    t_end = try get_parameters().d_t_end catch; 1.0 end
+    t_end = d_t_end
     while simulation_time < t_end && step < i_maxtstep
         step += 1
         step_start = Wtime()
@@ -667,7 +667,7 @@ function compute_all_nonlinear_terms!(state::SimulationState{T}) where T
 
     # Compute magnetic nonlinear terms only if magnetic field is enabled
     if i_B == 1 && state.magnetic !== nothing
-        compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.𝒟ᵒᶜ, state.𝒟ⁱᶜ, 0.0)
+        compute_magnetic_nonlinear!(state.magnetic, state.velocity, state.𝒟ᵒᶜ, state.𝒟ⁱᶜ)
     end
 
     compute_temperature_nonlinear!(state.temperature, state.velocity, state.𝒟ᵒᶜ,

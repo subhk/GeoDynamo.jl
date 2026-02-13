@@ -44,6 +44,7 @@ Base.@kwdef mutable struct GeoDynamoParameters
     d_implicit::Float64 = 0.5     # Crank-Nicolson parameter
     d_dterr::Float64 = 1e-8       # Error tolerance
     d_courant::Float64 = 0.5      # CFL factor
+    d_t_end::Float64 = 1.0       # Simulation end time
     i_maxtstep::Int = 10000       # Maximum timesteps
     i_save_rate2::Int = 100       # Output frequency
     ts_scheme::Symbol = :cnab2    # :cnab2 or :theta (legacy)

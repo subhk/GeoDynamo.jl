@@ -450,6 +450,10 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
     vp_out = get(config._buffer_cache, :vp_out, nothing)
     synth_out = get(config._buffer_cache, :synth_out, nothing)
 
+    # SAFETY: The radial loop below contains MPI collectives (Allreduce).
+    # All processes MUST iterate the same number of times to avoid deadlock.
+    @assert size(v_r, 3) == size(tor_real, 3) "Radial dimension mismatch: physical=$(size(v_r,3)) vs spectral=$(size(tor_real,3)). Vector SH transforms require radial to be local."
+
     # Process each radial level
     for r_local in axes(tor_real, 3)
         # Extract toroidal and poloidal coefficients efficiently (includes MPI gathering)
