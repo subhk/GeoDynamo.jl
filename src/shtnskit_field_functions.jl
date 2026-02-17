@@ -104,16 +104,21 @@ function perform_synthesis_phi_local!(spec::SHTnsSpecField{T},
     plan = _get_sht_plan(config._buffer_cache)
     synth_out = _get_synth_out(config._buffer_cache)
 
+    # Get global index ranges for this rank's portion of the physical grid
+    axes_local = phys.pencil.axes_local
+
     # Process each radial level independently (embarrassingly parallel in r)
     for r_local in axes(phys_data, 3)
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
 
         if plan !== nothing && synth_out !== nothing
             SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
-            store_physical_slice_phi_local!(phys_data, synth_out, r_local, config)
+            local_synth = @view synth_out[axes_local[1], axes_local[2]]
+            store_physical_slice_phi_local!(phys_data, local_synth, r_local, config)
         else
             phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
-            store_physical_slice_phi_local!(phys_data, phys_slice, r_local, config)
+            local_slice = @view phys_slice[axes_local[1], axes_local[2]]
+            store_physical_slice_phi_local!(phys_data, local_slice, r_local, config)
         end
     end
 end
@@ -172,16 +177,21 @@ function perform_synthesis_to_phi_pencil!(spec::SHTnsSpecField{T},
     plan = _get_sht_plan(config._buffer_cache)
     synth_out = _get_synth_out(config._buffer_cache)
 
+    # Get global index ranges for this rank's portion of the phi-pencil grid
+    axes_local = PencilArrays.pencil(phys_phi).axes_local
+
     # Loop over radial levels (each level is independent)
     for r_local in axes(phys_phi_data, 3)
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
 
         if plan !== nothing && synth_out !== nothing
             SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
-            store_physical_slice_phi_local!(phys_phi_data, synth_out, r_local, config)
+            local_synth = @view synth_out[axes_local[1], axes_local[2]]
+            store_physical_slice_phi_local!(phys_phi_data, local_synth, r_local, config)
         else
             phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
-            store_physical_slice_phi_local!(phys_phi_data, phys_slice, r_local, config)
+            local_slice = @view phys_slice[axes_local[1], axes_local[2]]
+            store_physical_slice_phi_local!(phys_phi_data, local_slice, r_local, config)
         end
     end
 end
@@ -219,6 +229,12 @@ function perform_synthesis_direct!(spec::SHTnsSpecField{T},
     plan = _get_sht_plan(config._buffer_cache)
     synth_out = _get_synth_out(config._buffer_cache)
 
+    # Get global index ranges for this rank's local portion of the physical grid.
+    # When angular dimensions are MPI-distributed, each rank owns a subset of
+    # the full (nlat, nlon) grid. SHTnsKit synthesis produces the FULL grid,
+    # so we must extract only this rank's portion using global offsets.
+    axes_local = phys.pencil.axes_local
+
     # Process each radial level
     for r_local in axes(phys_data, 3)
         # Gather spectral coefficients for this radial level
@@ -227,11 +243,13 @@ function perform_synthesis_direct!(spec::SHTnsSpecField{T},
         if plan !== nothing && synth_out !== nothing
             # Allocation-free path: use pre-allocated plan and output buffer
             SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
-            store_physical_slice_generic!(phys_data, synth_out, r_local, config)
+            local_synth = @view synth_out[axes_local[1], axes_local[2]]
+            store_physical_slice_generic!(phys_data, local_synth, r_local, config)
         else
             # Fallback: allocating path
             phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
-            store_physical_slice_generic!(phys_data, phys_slice, r_local, config)
+            local_slice = @view phys_slice[axes_local[1], axes_local[2]]
+            store_physical_slice_generic!(phys_data, local_slice, r_local, config)
         end
     end
 end
@@ -294,9 +312,13 @@ function perform_analysis_phi_local!(phys::SHTnsPhysField{T},
     plan = _get_sht_plan(config._buffer_cache)
     anal_out = _get_anal_out(config._buffer_cache)
 
+    # Get global index ranges for correct placement in Allreduce buffer
+    phys_axes_local = phys.pencil.axes_local
+
     # Process each radial level
     for r_local in axes(phys_data, 3)
-        phys_slice = extract_physical_slice_phi_local(phys_data, r_local, config)
+        phys_slice = extract_physical_slice_phi_local(phys_data, r_local, config;
+                                                      axes_local=phys_axes_local)
 
         if plan !== nothing && anal_out !== nothing
             SHTnsKit.analysis!(plan, anal_out, phys_slice)
@@ -344,9 +366,13 @@ function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T,3},
     plan = _get_sht_plan(config._buffer_cache)
     anal_out = _get_anal_out(config._buffer_cache)
 
+    # Get global index ranges for correct placement in Allreduce buffer
+    phi_axes_local = PencilArrays.pencil(phys_phi).axes_local
+
     # Process each radial level
     for r_local in axes(phys_phi_data, 3)
-        phys_slice = extract_physical_slice_phi_local(phys_phi_data, r_local, config)
+        phys_slice = extract_physical_slice_phi_local(phys_phi_data, r_local, config;
+                                                      axes_local=phi_axes_local)
 
         if plan !== nothing && anal_out !== nothing
             SHTnsKit.analysis!(plan, anal_out, phys_slice)
@@ -380,9 +406,13 @@ function perform_analysis_direct!(phys::SHTnsPhysField{T},
     plan = _get_sht_plan(config._buffer_cache)
     anal_out = _get_anal_out(config._buffer_cache)
 
+    # Get global index ranges for correct placement in Allreduce buffer
+    phys_axes_local = phys.pencil.axes_local
+
     # Process each radial level
     for r_local in axes(phys_data, 3)
-        phys_slice = extract_physical_slice_generic(phys_data, r_local, config)
+        phys_slice = extract_physical_slice_generic(phys_data, r_local, config;
+                                                    axes_local=phys_axes_local)
 
         if plan !== nothing && anal_out !== nothing
             SHTnsKit.analysis!(plan, anal_out, phys_slice)
@@ -454,6 +484,11 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
     # All processes MUST iterate the same number of times to avoid deadlock.
     @assert size(v_r, 3) == size(tor_real, 3) "Radial dimension mismatch: physical=$(size(v_r,3)) vs spectral=$(size(tor_real,3)). Vector SH transforms require radial to be local."
 
+    # Get global index ranges for this rank's portion of the physical grid.
+    # SHTnsKit synthesis produces the FULL (nlat, nlon) grid; we must extract
+    # only this rank's local portion using these offsets.
+    phys_axes_local = vec_phys.r_component.pencil.axes_local
+
     # Process each radial level
     for r_local in axes(tor_real, 3)
         # Extract toroidal and poloidal coefficients efficiently (includes MPI gathering)
@@ -464,11 +499,13 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
         if plan !== nothing && vt_out !== nothing && vp_out !== nothing
             # Allocation-free path: in-place vector synthesis
             SHTnsKit.synthesis_sphtor!(plan, vt_out, vp_out, pol_coeffs, tor_coeffs; real_output=true)
-            store_vector_components_generic!(v_theta, v_phi, vt_out, vp_out, r_local, config)
+            store_vector_components_generic!(v_theta, v_phi, vt_out, vp_out, r_local, config;
+                                             axes_local=phys_axes_local)
         else
             vt_field, vp_field = SHTnsKit.SHsphtor_to_spat(sht_config, pol_coeffs, tor_coeffs;
                                                           real_output=true)
-            store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config)
+            store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config;
+                                             axes_local=phys_axes_local)
         end
 
         # ========================================================================
@@ -501,10 +538,12 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
                     # Synthesize radial component (allocation-free if plan available)
                     if plan !== nothing && synth_out !== nothing
                         SHTnsKit.synthesis!(plan, synth_out, pol_rad_coeffs; real_output=true)
-                        store_scalar_component_generic!(v_r, synth_out, r_local, config)
+                        store_scalar_component_generic!(v_r, synth_out, r_local, config;
+                                                        axes_local=phys_axes_local)
                     else
                         vr_field = SHTnsKit.synthesis(sht_config, pol_rad_coeffs; real_output=true)
-                        store_scalar_component_generic!(v_r, vr_field, r_local, config)
+                        store_scalar_component_generic!(v_r, vr_field, r_local, config;
+                                                        axes_local=phys_axes_local)
                     end
                 else
                     store_zero_component_generic!(v_r, r_local, config)
@@ -589,8 +628,11 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
         vp_buffer = get_cached_buffer!(config, :vector_component_buffer_vp) do
             zeros(eltype(v_phi), nlat, nlon)
         end
-        vt_field = extract_vector_component_generic!(vt_buffer, v_theta, r_local, config)
-        vp_field = extract_vector_component_generic!(vp_buffer, v_phi, r_local, config)
+        phys_axes_local = vec_phys.r_component.pencil.axes_local
+        vt_field = extract_vector_component_generic!(vt_buffer, v_theta, r_local, config;
+                                                     axes_local=phys_axes_local)
+        vp_field = extract_vector_component_generic!(vp_buffer, v_phi, r_local, config;
+                                                     axes_local=phys_axes_local)
 
         # Perform vector analysis using SHTnsKit (tangential components)
         if plan !== nothing && slm_out !== nothing && tlm_out !== nothing
@@ -993,28 +1035,41 @@ When called inside a per-radial loop, ALL MPI processes must call this
 function the same number of times, otherwise deadlock will occur.
 Ensure even radial distribution or use global loop bounds.
 """
-function extract_physical_slice_phi_local!(slice_buffer::Matrix{T}, phys_data, r_local, config) where T
+function extract_physical_slice_phi_local!(slice_buffer::Matrix{T}, phys_data, r_local, config;
+                                          axes_local::Union{Nothing, Tuple}=nothing) where T
     nlat, nlon = config.nlat, config.nlon
 
     # Clear buffer for reuse
     fill!(slice_buffer, zero(T))
 
-    common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
-    common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
-
     # Check if this process has data at this radial level
     has_local_data = r_local <= size(phys_data, 3)
 
-    Threads.@threads for i in common_i_range
-        for j in common_j_range
-            if has_local_data
-                slice_buffer[i, j] = phys_data[i, j, r_local]
+    if axes_local !== nothing
+        # Use global offsets: place local data at correct position in the full grid buffer
+        θ_range = axes_local[1]
+        φ_range = axes_local[2]
+        if has_local_data
+            Threads.@threads for i_local in 1:size(phys_data, 1)
+                i_global = θ_range[i_local]
+                for j_local in 1:size(phys_data, 2)
+                    j_global = φ_range[j_local]
+                    slice_buffer[i_global, j_global] = phys_data[i_local, j_local, r_local]
+                end
+            end
+        end
+    else
+        # Legacy path: phi-local pencil, assumes indices match global
+        common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
+        common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
+        if has_local_data
+            Threads.@threads for i in common_i_range
+                for j in common_j_range
+                    slice_buffer[i, j] = phys_data[i, j, r_local]
+                end
             end
         end
     end
-
-    # Explicit synchronization point: ensure all threads complete before MPI call
-    # Note: @threads has implicit barrier, but being explicit for safety
 
     # Gather complete grid across all MPI processes
     # This is a collective operation - all processes must participate
@@ -1024,13 +1079,15 @@ function extract_physical_slice_phi_local!(slice_buffer::Matrix{T}, phys_data, r
 end
 
 # Backward compatibility wrapper with thread-safe buffer access
-function extract_physical_slice_phi_local(phys_data, r_local, config)
+function extract_physical_slice_phi_local(phys_data, r_local, config;
+                                          axes_local::Union{Nothing, Tuple}=nothing)
     nlat, nlon = config.nlat, config.nlon
     # Get or create cached buffer for phi slice (thread-safe)
     slice_buffer = get_cached_buffer!(config, :phi_slice_buffer) do
         zeros(eltype(phys_data), nlat, nlon)
     end
-    return extract_physical_slice_phi_local!(slice_buffer, phys_data, r_local, config)
+    return extract_physical_slice_phi_local!(slice_buffer, phys_data, r_local, config;
+                                             axes_local=axes_local)
 end
 
 """
@@ -1044,29 +1101,41 @@ When called inside a per-radial loop, ALL MPI processes must call this
 function the same number of times, otherwise deadlock will occur.
 Ensure even radial distribution or use global loop bounds.
 """
-function extract_physical_slice_generic!(slice_buffer::Matrix{T}, phys_data, r_local, config) where T
+function extract_physical_slice_generic!(slice_buffer::Matrix{T}, phys_data, r_local, config;
+                                        axes_local::Union{Nothing, Tuple}=nothing) where T
     nlat, nlon = config.nlat, config.nlon
 
     # Clear buffer for reuse
     fill!(slice_buffer, zero(T))
 
-    # Generic extraction - may need MPI communication for distributed dimensions
-    common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
-    common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
-
     # Check if this process has data at this radial level
     has_local_data = r_local <= size(phys_data, 3)
 
-    Threads.@threads for i in common_i_range
-        for j in common_j_range
-            if has_local_data
-                slice_buffer[i, j] = phys_data[i, j, r_local]
+    if axes_local !== nothing
+        # Use global offsets: place local data at correct position in the full grid buffer
+        θ_range = axes_local[1]
+        φ_range = axes_local[2]
+        if has_local_data
+            Threads.@threads for i_local in 1:size(phys_data, 1)
+                i_global = θ_range[i_local]
+                for j_local in 1:size(phys_data, 2)
+                    j_global = φ_range[j_local]
+                    slice_buffer[i_global, j_global] = phys_data[i_local, j_local, r_local]
+                end
+            end
+        end
+    else
+        # Legacy path: assumes local indices match global (serial or fully-local pencil)
+        common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
+        common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
+        if has_local_data
+            Threads.@threads for i in common_i_range
+                for j in common_j_range
+                    slice_buffer[i, j] = phys_data[i, j, r_local]
+                end
             end
         end
     end
-
-    # Explicit synchronization point: ensure all threads complete before MPI call
-    # Note: @threads has implicit barrier, but being explicit for safety
 
     # Gather complete grid across all MPI processes
     # This is a collective operation - all processes must participate
@@ -1076,13 +1145,15 @@ function extract_physical_slice_generic!(slice_buffer::Matrix{T}, phys_data, r_l
 end
 
 # Backward compatibility wrapper with thread-safe buffer access
-function extract_physical_slice_generic(phys_data, r_local, config)
+function extract_physical_slice_generic(phys_data, r_local, config;
+                                        axes_local::Union{Nothing, Tuple}=nothing)
     nlat, nlon = config.nlat, config.nlon
     # Get or create cached buffer for generic slice (thread-safe)
     slice_buffer = get_cached_buffer!(config, :generic_slice_buffer) do
         zeros(eltype(phys_data), nlat, nlon)
     end
-    return extract_physical_slice_generic!(slice_buffer, phys_data, r_local, config)
+    return extract_physical_slice_generic!(slice_buffer, phys_data, r_local, config;
+                                           axes_local=axes_local)
 end
 
 """
@@ -1096,23 +1167,38 @@ When called inside a per-radial loop, ALL MPI processes must call this
 function the same number of times, otherwise deadlock will occur.
 Ensure even radial distribution or use global loop bounds.
 """
-function extract_vector_component_generic!(component_buffer::Matrix{T}, v_data, r_local, config) where T
+function extract_vector_component_generic!(component_buffer::Matrix{T}, v_data, r_local, config;
+                                           axes_local::Union{Nothing, Tuple}=nothing) where T
     nlat, nlon = config.nlat, config.nlon
 
     # Clear buffer for reuse
     fill!(component_buffer, zero(T))
 
-    common_i_range = 1:min(size(v_data, 1), nlat, size(component_buffer, 1))
-    common_j_range = 1:min(size(v_data, 2), nlon, size(component_buffer, 2))
-
     # Check if this process has data at this radial level
     has_local_data = r_local <= size(v_data, 3)
 
-    # Threaded extraction for performance (consistent with other extract functions)
-    Threads.@threads for i in common_i_range
-        for j in common_j_range
-            if has_local_data
-                component_buffer[i, j] = v_data[i, j, r_local]
+    if axes_local !== nothing
+        # Use global offsets: place local data at correct position in the full grid buffer
+        θ_range = axes_local[1]
+        φ_range = axes_local[2]
+        if has_local_data
+            Threads.@threads for i_local in 1:size(v_data, 1)
+                i_global = θ_range[i_local]
+                for j_local in 1:size(v_data, 2)
+                    j_global = φ_range[j_local]
+                    component_buffer[i_global, j_global] = v_data[i_local, j_local, r_local]
+                end
+            end
+        end
+    else
+        # Legacy path: assumes local indices match global
+        common_i_range = 1:min(size(v_data, 1), nlat, size(component_buffer, 1))
+        common_j_range = 1:min(size(v_data, 2), nlon, size(component_buffer, 2))
+        if has_local_data
+            Threads.@threads for i in common_i_range
+                for j in common_j_range
+                    component_buffer[i, j] = v_data[i, j, r_local]
+                end
             end
         end
     end
@@ -1139,21 +1225,35 @@ end
 
 Store vector components for any pencil orientation.
 """
-function store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config)
-    # Include all four arrays in bounds calculation for safety
-    common_i_range = 1:min(size(v_theta, 1), size(v_phi, 1), size(vt_field, 1), size(vp_field, 1))
-    common_j_range = 1:min(size(v_theta, 2), size(v_phi, 2), size(vt_field, 2), size(vp_field, 2))
-
+function store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config;
+                                          axes_local::Union{Nothing, Tuple}=nothing)
     # Check radial bounds once outside the loop
     if r_local > size(v_theta, 3) || r_local > size(v_phi, 3)
         return
     end
 
-    # Threaded storage for performance (consistent with other store functions)
-    Threads.@threads for i in common_i_range
-        for j in common_j_range
-            v_theta[i, j, r_local] = vt_field[i, j]
-            v_phi[i, j, r_local] = vp_field[i, j]
+    if axes_local !== nothing
+        # Use global offsets: vt_field/vp_field are full (nlat, nlon) grids,
+        # extract only this rank's local portion
+        θ_range = axes_local[1]
+        φ_range = axes_local[2]
+        Threads.@threads for i_local in 1:size(v_theta, 1)
+            i_global = θ_range[i_local]
+            for j_local in 1:size(v_theta, 2)
+                j_global = φ_range[j_local]
+                v_theta[i_local, j_local, r_local] = vt_field[i_global, j_global]
+                v_phi[i_local, j_local, r_local] = vp_field[i_global, j_global]
+            end
+        end
+    else
+        # Legacy path: assumes local indices match global
+        common_i_range = 1:min(size(v_theta, 1), size(v_phi, 1), size(vt_field, 1), size(vp_field, 1))
+        common_j_range = 1:min(size(v_theta, 2), size(v_phi, 2), size(vt_field, 2), size(vp_field, 2))
+        Threads.@threads for i in common_i_range
+            for j in common_j_range
+                v_theta[i, j, r_local] = vt_field[i, j]
+                v_phi[i, j, r_local] = vp_field[i, j]
+            end
         end
     end
 end
@@ -1164,19 +1264,33 @@ end
 Store a scalar field into a component array for any pencil orientation.
 Used for storing the radial component v_r from synthesized field.
 """
-function store_scalar_component_generic!(v_component, field, r_local, config)
-    common_i_range = 1:min(size(v_component, 1), size(field, 1))
-    common_j_range = 1:min(size(v_component, 2), size(field, 2))
-
+function store_scalar_component_generic!(v_component, field, r_local, config;
+                                         axes_local::Union{Nothing, Tuple}=nothing)
     # Check radial bounds once outside the loop
     if r_local > size(v_component, 3)
         return
     end
 
-    # Threaded storage for performance (consistent with other store functions)
-    Threads.@threads for i in common_i_range
-        for j in common_j_range
-            v_component[i, j, r_local] = field[i, j]
+    if axes_local !== nothing
+        # Use global offsets: field is full (nlat, nlon) grid,
+        # extract only this rank's local portion
+        θ_range = axes_local[1]
+        φ_range = axes_local[2]
+        Threads.@threads for i_local in 1:size(v_component, 1)
+            i_global = θ_range[i_local]
+            for j_local in 1:size(v_component, 2)
+                j_global = φ_range[j_local]
+                v_component[i_local, j_local, r_local] = field[i_global, j_global]
+            end
+        end
+    else
+        # Legacy path: assumes local indices match global
+        common_i_range = 1:min(size(v_component, 1), size(field, 1))
+        common_j_range = 1:min(size(v_component, 2), size(field, 2))
+        Threads.@threads for i in common_i_range
+            for j in common_j_range
+                v_component[i, j, r_local] = field[i, j]
+            end
         end
     end
 end
@@ -1827,7 +1941,8 @@ function shtnskit_synthesis_inplace!(config::SHTnsKitConfig, alm::Matrix{Complex
                                       f_out::Matrix{Float64})
     try
         # Use in-place synthesis if available (v1.1.15+)
-        SHTnsKit.synthesis!(config.sht_config, alm, f_out)
+        # SHTnsKit API: synthesis!(config, f_out, alm) — output before input
+        SHTnsKit.synthesis!(config.sht_config, f_out, alm)
     catch e
         # Fallback to allocating version
         result = SHTnsKit.synthesis(config.sht_config, alm; real_output=true)
@@ -1852,7 +1967,8 @@ function shtnskit_analysis_inplace!(config::SHTnsKitConfig, f::Matrix{Float64},
                                      alm_out::Matrix{ComplexF64})
     try
         # Use in-place analysis if available (v1.1.15+)
-        SHTnsKit.analysis!(config.sht_config, f, alm_out)
+        # SHTnsKit API: analysis!(config, alm_out, f) — output before input
+        SHTnsKit.analysis!(config.sht_config, alm_out, f)
     catch e
         # Fallback to allocating version
         result = SHTnsKit.analysis(config.sht_config, f)
