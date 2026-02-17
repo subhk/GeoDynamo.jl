@@ -844,13 +844,14 @@ end
 Convert linear spectral index to spherical harmonic degree (l) and order (m).
 
 # Index Ordering
-The linear index follows the convention where m varies fastest within each l:
+The linear index follows the SHTnsKit m-major convention (m varies slowest, l fastest):
 - idx=1: (l=0, m=0)
 - idx=2: (l=1, m=0)
-- idx=3: (l=1, m=1)
-- idx=4: (l=2, m=0)
-- idx=5: (l=2, m=1)
-- idx=6: (l=2, m=2)
+- idx=3: (l=2, m=0)
+- ...
+- idx=lmax+1: (l=lmax, m=0)
+- idx=lmax+2: (l=1, m=1)
+- idx=lmax+3: (l=2, m=1)
 - ...
 
 # Performance Note
@@ -864,8 +865,8 @@ function index_to_lm_shtnskit(idx::Int, lmax::Int, mmax::Int)
     end
 
     current_idx = 0
-    for l in 0:lmax
-        for m in 0:min(l, mmax)
+    for m in 0:mmax
+        for l in m:lmax
             current_idx += 1
             if current_idx == idx
                 return l, m
@@ -908,18 +909,18 @@ Build precomputed lookup tables for converting linear indices to (l, m).
 - `m_values`: Vector where m_values[idx] gives the order m for linear index idx
 """
 function build_lm_lookup_tables(lmax::Int, mmax::Int)
-    # Calculate total number of modes
+    # Calculate total number of modes (m-major ordering to match SHTnsKit)
     nlm = 0
-    for l in 0:lmax
-        nlm += min(l, mmax) + 1
+    for m in 0:mmax
+        nlm += lmax - m + 1
     end
 
     l_values = zeros(Int, nlm)
     m_values = zeros(Int, nlm)
 
     idx = 0
-    for l in 0:lmax
-        for m in 0:min(l, mmax)
+    for m in 0:mmax
+        for l in m:lmax
             idx += 1
             l_values[idx] = l
             m_values[idx] = m

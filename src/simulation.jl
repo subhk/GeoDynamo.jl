@@ -194,12 +194,9 @@ function initialize_simulation(::Type{T}=Float64;
     implicit_matrices[:velocity_pol] = create_velocity_poloidal_matrices(shtns_config, 𝒟ᵒᶜ, d_E, d_timestep;
                                                                           i_vel_bc=get_parameters().i_vel_bc,
                                                                           mass_coeff=d_E)
-    implicit_matrices[:velocity] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, d_E, d_timestep;
-                                                                      mass_coeff=d_E)
     # Magnetic uses separate toroidal/poloidal matrices with BCs embedded (Fortran approach)
     implicit_matrices[:magnetic_tor] = create_magnetic_toroidal_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
     implicit_matrices[:magnetic_pol] = create_magnetic_poloidal_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
-    implicit_matrices[:magnetic] = create_shtns_timestepping_matrices(shtns_config, 𝒟ᵒᶜ, 1.0, d_timestep)
     # Temperature uses matrix-embedded BCs
     implicit_matrices[:temperature] = create_temperature_matrices(shtns_config, 𝒟ᵒᶜ, d_Pm/d_Pr, d_timestep)
 
@@ -1597,7 +1594,7 @@ function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
         if ts_scheme === :cnab2
             build_rhs_cnab2!(state.velocity.work_tor, state.velocity.𝒯,
                              state.velocity.nlᵀ, state.velocity.prev_nlᵀ,
-                             dt, state.implicit_matrices[:velocity];
+                             dt, state.implicit_matrices[:velocity_tor];
                              mass_coeff=d_E)
             solve_velocity_implicit_step!(state.velocity.𝒯, state.velocity.work_tor,
                                           state.implicit_matrices[:velocity_tor], :toroidal;
@@ -1621,7 +1618,7 @@ function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
         if ts_scheme === :cnab2
             build_rhs_cnab2!(state.velocity.work_pol, state.velocity.𝒫,
                              state.velocity.nlᴾ, state.velocity.prev_nlᴾ,
-                             dt, state.implicit_matrices[:velocity];
+                             dt, state.implicit_matrices[:velocity_pol];
                              mass_coeff=d_E)
             solve_velocity_implicit_step!(state.velocity.𝒫, state.velocity.work_pol,
                                           state.implicit_matrices[:velocity_pol], :poloidal;
@@ -1650,7 +1647,7 @@ function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
             if ts_scheme === :cnab2
                 build_rhs_cnab2!(state.magnetic.work_tor, state.magnetic.𝒯,
                                  state.magnetic.nlᵀ, state.magnetic.prev_nlᵀ,
-                                 dt, state.implicit_matrices[:magnetic])
+                                 dt, state.implicit_matrices[:magnetic_tor])
                 solve_magnetic_implicit_step!(state.magnetic.𝒯, state.magnetic.work_tor,
                                               state.implicit_matrices[:magnetic_tor], :toroidal)
             elseif ts_scheme === :eab2
@@ -1668,7 +1665,7 @@ function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
             if ts_scheme === :cnab2
                 build_rhs_cnab2!(state.magnetic.work_pol, state.magnetic.𝒫,
                                  state.magnetic.nlᴾ, state.magnetic.prev_nlᴾ,
-                                 dt, state.implicit_matrices[:magnetic])
+                                 dt, state.implicit_matrices[:magnetic_pol])
                 solve_magnetic_implicit_step!(state.magnetic.𝒫, state.magnetic.work_pol,
                                               state.implicit_matrices[:magnetic_pol], :poloidal)
             elseif ts_scheme === :eab2

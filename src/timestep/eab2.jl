@@ -370,9 +370,13 @@ function get_eab2_alu_cache!(caches::Dict{Symbol, EAB2ALUCacheEntry{T}}, key::Sy
 end
 
 """
-    eab2_update_krylov_cached!(u, nl, nl_prev, alu_map, domain, ν, config, dt; m=20, tol=1e-8)
+    eab2_update_krylov_cached!(u, nl, nl_prev, alu_map, domain, ν, config, dt; m=20, tol=1e-8, mass_coeff=1.0)
 
 Same as eab2_update_krylov!, but reuses cached banded A and LU per l.
+
+# Mass Coefficient
+For equations of the form `c * du/dt = ν*L*u + NL` (e.g. velocity with c=d_E),
+pass `mass_coeff=c`. The operator becomes `A = (ν/c)*L` and NL is scaled by `1/c`.
 
 # MPI Safety
 Uses global loop bounds (1:nlm) to ensure all processes call Allreduce
@@ -381,7 +385,7 @@ the same number of times, preventing deadlock with uneven lm distribution.
 function eab2_update_krylov_cached!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
                                     nl_prev::SHTnsSpecField{T}, alu_map::Dict{Int, Tuple{BandedMatrix{T}, BandedLU{T}}},
                                     domain::RadialDomain, diffusivity::Float64, config::SHTnsKitConfig,
-                                    dt::Float64; m::Int=20, tol::Float64=1e-8) where T
+                                    dt::Float64; m::Int=20, tol::Float64=1e-8, mass_coeff::Float64=1.0) where T
     u_real = parent(u.data_real); u_imag = parent(u.data_imag)
     n_real = parent(nl.data_real); n_imag = parent(nl.data_imag)
     p_real = parent(nl_prev.data_real); p_imag = parent(nl_prev.data_imag)
@@ -403,9 +407,10 @@ function eab2_update_krylov_cached!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
 
         l = config.l_values[lm_idx]
         # get or build A and LU for this l
+        # For equations c*du/dt = ν*L*u + NL, the effective operator is A = (ν/c)*L
         tup = get(alu_map, l, nothing)
         if tup === nothing
-            A_banded = build_banded_A(T, domain, diffusivity, l)
+            A_banded = build_banded_A(T, domain, diffusivity / mass_coeff, l)
             A_lu = factorize_banded(A_banded)
             tup = (A_banded, A_lu)
             alu_map[l] = tup
@@ -416,6 +421,9 @@ function eab2_update_krylov_cached!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
         fill!(ur, zero(T)); fill!(ui, zero(T))
         fill!(nrn, zero(T)); fill!(nin, zero(T))
 
+        # Scale factor for nonlinear terms: 1/mass_coeff
+        inv_mc = T(1.0 / mass_coeff)
+
         # Only fill if this process owns the mode
         if owns_mode
             ll = lm_idx - first(lm_range) + 1
@@ -423,8 +431,8 @@ function eab2_update_krylov_cached!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
                 lr = r - first(r_range) + 1
                 if lr <= size(u_real, 3)
                     ur[r] = u_real[ll,1,lr]; ui[r] = u_imag[ll,1,lr]
-                    nrn[r] = (3/2)*n_real[ll,1,lr] - (1/2)*p_real[ll,1,lr]
-                    nin[r] = (3/2)*n_imag[ll,1,lr] - (1/2)*p_imag[ll,1,lr]
+                    nrn[r] = inv_mc * ((3/2)*n_real[ll,1,lr] - (1/2)*p_real[ll,1,lr])
+                    nin[r] = inv_mc * ((3/2)*n_imag[ll,1,lr] - (1/2)*p_imag[ll,1,lr])
                 end
             end
         end
