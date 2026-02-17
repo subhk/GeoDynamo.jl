@@ -698,8 +698,8 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
     # where d_Ro = E (Rossby number = Ekman number for magnetic diffusion time scaling).
     # Mass coefficient d_E is applied in the time-stepping matrices.
 
-    # Advection coefficient = d_Ro = d_E (Rossby number)
-    advection_coeff = T(d_E)
+    # Advection coefficient = d_Ro (Rossby number, Fortran DD_2DCODE convention)
+    advection_coeff = T(d_Ro)
 
     # Get all data views
     vᵣ = parent(𝒰.velocity.r_component.data)

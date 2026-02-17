@@ -638,8 +638,8 @@ function compute_scalar_energy(𝔽::AbstractScalarField{T}, 𝒟ᵒᶜ::RadialD
     for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         if local_r <= size(spec_real, 3) && r_idx <= 𝒟ᵒᶜ.N
-            # Volume element for this radius
-            vol_element = 𝒟ᵒᶜ.r[r_idx, 2]  # 4π r² dr weight
+            # Volume element for this radius: r² (column 6 = r^(6-4) = r^2)
+            vol_element = 𝒟ᵒᶜ.r[r_idx, 6]
             
             for lm_idx in axes(spec_real, 1)
                 if lm_idx <= 𝔽.config.nlm

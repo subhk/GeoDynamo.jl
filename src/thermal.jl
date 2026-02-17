@@ -446,8 +446,8 @@ function compute_surface_flux(field::SHTnsPhysField{T}, r_level::Int,
                 idx = local_θ + (local_φ-1)*length(θ_range) + (local_r-1)*length(θ_range)*length(φ_range)
                 
                 if idx <= length(data)
-                    # Use Gaussian quadrature weights
-                    weight = config.gauss_weights[θ_idx] * (2π / config.nlon) * sin(config.theta_grid[θ_idx])
+                    # Use Gaussian quadrature weights (already account for sin(θ) via Gauss-Legendre)
+                    weight = config.gauss_weights[θ_idx] * (2π / config.nlon)
                     local_flux += data[idx] * weight
                 end
             end
