@@ -381,12 +381,13 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
 
     # Step 7: Build spectral index to (l,m) mapping arrays
     # These allow quick lookup of the degree l and order m for each spectral index
-    # Ordering follows the SHTnsKit convention: m varies fastest within each l
+    # Ordering follows the SHTnsKit convention: m-major (m varies slowest, l varies fastest)
+    # m=0: l=0,1,...,lmax; m=1: l=1,2,...,lmax; ...; m=mmax: l=mmax,...,lmax
     l_vals = Vector{Int}(undef, nlm)
     m_vals = Vector{Int}(undef, nlm)
     idx = 1
-    for l in 0:lmax
-        for m in 0:min(l, mmax)
+    for m in 0:mmax
+        for l in m:lmax
             if idx <= nlm
                 l_vals[idx] = l
                 m_vals[idx] = m
