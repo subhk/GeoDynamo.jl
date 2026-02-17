@@ -248,62 +248,86 @@ function compute_theta_gradient_spectral!(𝔽::AbstractScalarField{T}, ws::Grad
     spec_imag   = parent(𝔽.spectral.data_imag)
     ∇θ_real = parent(ws.∇θ_spec.data_real)
     ∇θ_imag = parent(ws.∇θ_spec.data_imag)
-    
+
     lm_range = range_local(𝔽.config.pencils.spec, 1)
     r_range  = range_local(𝔽.config.pencils.spec, 3)
-    
+    nlm = 𝔽.config.nlm
+
+    # MPI setup: theta gradient couples (l,m) with (l±1,m) which may reside
+    # on different MPI ranks. Gather full spectral data via Allreduce.
+    comm = get_comm()
+    multi = MPI.Initialized() && MPI.Comm_size(comm) > 1
+
+    # Pre-allocate full spectral vectors for gathering across ranks
+    full_real = zeros(T, nlm)
+    full_imag = zeros(T, nlm)
+
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
-        if local_r <= size(∇θ_real, 3)
+        if local_r > size(∇θ_real, 3)
+            continue
+        end
 
-            for lm_idx in lm_range
-                if lm_idx <= 𝔽.config.nlm
-                    local_lm = lm_idx - first(lm_range) + 1
+        # Gather full spectral data for this radial level
+        fill!(full_real, zero(T))
+        fill!(full_imag, zero(T))
+        for lm_idx in lm_range
+            if lm_idx <= nlm
+                local_lm = lm_idx - first(lm_range) + 1
+                if local_lm <= size(spec_real, 1)
+                    full_real[lm_idx] = spec_real[local_lm, 1, local_r]
+                    full_imag[lm_idx] = spec_imag[local_lm, 1, local_r]
+                end
+            end
+        end
+        if multi
+            MPI.Allreduce!(full_real, MPI.SUM, comm)
+            MPI.Allreduce!(full_imag, MPI.SUM, comm)
+        end
 
-                    l = 𝔽.config.l_values[lm_idx]
-                    m = 𝔽.config.m_values[lm_idx]
-                    abs_m = abs(m)
+        # Compute theta gradient using gathered full spectral data
+        for lm_idx in lm_range
+            if lm_idx <= nlm
+                local_lm = lm_idx - first(lm_range) + 1
+                if local_lm > size(∇θ_real, 1)
+                    continue
+                end
 
-                    if local_lm <= size(∇θ_real, 1)
-                        # Initialize gradient to zero
-                        dtheta_real = zero(T)
-                        dtheta_imag = zero(T)
+                l = 𝔽.config.l_values[lm_idx]
+                m = 𝔽.config.m_values[lm_idx]
+                abs_m = abs(m)
 
-                        # Recurrence relations for ∂/∂θ (4π-normalized SH)
-                        # ∂Y_l^m/∂θ = A_+^{l,m} Y_{l+1}^m + A_-^{l,m} Y_{l-1}^m
+                # Initialize gradient to zero
+                dtheta_real = zero(T)
+                dtheta_imag = zero(T)
 
-                        # Contribution from Y_{l+1}^m (forward coupling)
-                        if l < 𝔽.config.lmax
-                            lm_plus = get_mode_index(𝔽.config, l+1, m)
-                            if lm_plus > 0 && lm_plus in lm_range
-                                local_lm_plus = lm_plus - first(lm_range) + 1
-                                if local_lm_plus <= size(spec_real, 1)
-                                    A_plus = T(l) * sqrt(T((l + abs_m + 1) * (l - abs_m + 1)) /
-                                                         T((2*l + 1) * (2*l + 3)))
-                                    dtheta_real += A_plus * spec_real[local_lm_plus, 1, local_r]
-                                    dtheta_imag += A_plus * spec_imag[local_lm_plus, 1, local_r]
-                                end
-                            end
-                        end
+                # Recurrence relations for ∂/∂θ (4π-normalized SH)
+                # ∂Y_l^m/∂θ = A_+^{l,m} Y_{l+1}^m + A_-^{l,m} Y_{l-1}^m
 
-                        # Contribution from Y_{l-1}^m (backward coupling)
-                        if l > abs_m
-                            lm_minus = get_mode_index(𝔽.config, l-1, m)
-                            if lm_minus > 0 && lm_minus in lm_range
-                                local_lm_minus = lm_minus - first(lm_range) + 1
-                                if local_lm_minus <= size(spec_real, 1)
-                                    A_minus = -T(l + 1) * sqrt(T((l + abs_m) * (l - abs_m)) /
-                                                               T((2*l - 1) * (2*l + 1)))
-                                    dtheta_real += A_minus * spec_real[local_lm_minus, 1, local_r]
-                                    dtheta_imag += A_minus * spec_imag[local_lm_minus, 1, local_r]
-                                end
-                            end
-                        end
-
-                        ∇θ_real[local_lm, 1, local_r] = dtheta_real
-                        ∇θ_imag[local_lm, 1, local_r] = dtheta_imag
+                # Contribution from Y_{l+1}^m (forward coupling)
+                if l < 𝔽.config.lmax
+                    lm_plus = get_mode_index(𝔽.config, l+1, m)
+                    if lm_plus > 0 && lm_plus <= nlm
+                        A_plus = T(l) * sqrt(T((l + abs_m + 1) * (l - abs_m + 1)) /
+                                             T((2*l + 1) * (2*l + 3)))
+                        dtheta_real += A_plus * full_real[lm_plus]
+                        dtheta_imag += A_plus * full_imag[lm_plus]
                     end
                 end
+
+                # Contribution from Y_{l-1}^m (backward coupling)
+                if l > abs_m
+                    lm_minus = get_mode_index(𝔽.config, l-1, m)
+                    if lm_minus > 0 && lm_minus <= nlm
+                        A_minus = -T(l + 1) * sqrt(T((l + abs_m) * (l - abs_m)) /
+                                                   T((2*l - 1) * (2*l + 1)))
+                        dtheta_real += A_minus * full_real[lm_minus]
+                        dtheta_imag += A_minus * full_imag[lm_minus]
+                    end
+                end
+
+                ∇θ_real[local_lm, 1, local_r] = dtheta_real
+                ∇θ_imag[local_lm, 1, local_r] = dtheta_imag
             end
         end
     end

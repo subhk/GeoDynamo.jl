@@ -872,13 +872,29 @@ function compute_total_energy!(state::SimulationState{T}) where T
     # Total energy
     total_e = kinetic_e + magnetic_e + thermal_e + compositional_e
 
-    # Record energies
+    # Record energies (capped history to prevent unbounded memory growth)
     push!(ENERGY_TRACKER.kinetic_energy, kinetic_e)
     push!(ENERGY_TRACKER.magnetic_energy, magnetic_e)
     push!(ENERGY_TRACKER.thermal_energy, thermal_e)
     push!(ENERGY_TRACKER.compositional_energy, compositional_e)
     push!(ENERGY_TRACKER.total_energy, total_e)
     push!(ENERGY_TRACKER.timestamps, state.timestep_state.step)
+    _trim_energy_tracker!()
+end
+
+const _MAX_TRACKER_HISTORY = 10000
+
+function _trim_energy_tracker!()
+    n = length(ENERGY_TRACKER.total_energy)
+    if n > _MAX_TRACKER_HISTORY
+        keep = n - _MAX_TRACKER_HISTORY ÷ 2
+        deleteat!(ENERGY_TRACKER.kinetic_energy, 1:keep)
+        deleteat!(ENERGY_TRACKER.magnetic_energy, 1:keep)
+        deleteat!(ENERGY_TRACKER.thermal_energy, 1:keep)
+        deleteat!(ENERGY_TRACKER.compositional_energy, 1:keep)
+        deleteat!(ENERGY_TRACKER.total_energy, 1:keep)
+        deleteat!(ENERGY_TRACKER.timestamps, 1:keep)
+    end
 end
 
 """
@@ -1032,12 +1048,25 @@ function check_solenoidal_constraint!(state::SimulationState{T}) where T
         )
     end
 
-    # Record statistics
+    # Record statistics (capped history to prevent unbounded memory growth)
     push!(SOLENOIDAL_MONITOR.velocity_div_l2, vel_l2)
     push!(SOLENOIDAL_MONITOR.velocity_div_linf, vel_linf)
     push!(SOLENOIDAL_MONITOR.magnetic_div_l2, mag_l2)
     push!(SOLENOIDAL_MONITOR.magnetic_div_linf, mag_linf)
     push!(SOLENOIDAL_MONITOR.timestamps, state.timestep_state.step)
+    _trim_solenoidal_monitor!()
+end
+
+function _trim_solenoidal_monitor!()
+    n = length(SOLENOIDAL_MONITOR.velocity_div_l2)
+    if n > _MAX_TRACKER_HISTORY
+        keep = n - _MAX_TRACKER_HISTORY ÷ 2
+        deleteat!(SOLENOIDAL_MONITOR.velocity_div_l2, 1:keep)
+        deleteat!(SOLENOIDAL_MONITOR.velocity_div_linf, 1:keep)
+        deleteat!(SOLENOIDAL_MONITOR.magnetic_div_l2, 1:keep)
+        deleteat!(SOLENOIDAL_MONITOR.magnetic_div_linf, 1:keep)
+        deleteat!(SOLENOIDAL_MONITOR.timestamps, 1:keep)
+    end
 end
 
 """
@@ -1483,13 +1512,14 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64;
     # Report φ₂ conditioning statistics periodically (every 100 steps)
     report_phi2_conditioning(state.timestep_state.step; interval=100)
 
-    # Compute and report energy conservation periodically
-    compute_total_energy!(state)
-    report_energy_conservation(state.timestep_state.step; interval=100)
-
-    # Check and report solenoidal constraints periodically
-    check_solenoidal_constraint!(state)
-    report_solenoidal_constraint(state.timestep_state.step; interval=100)
+    # Compute and report energy/solenoidal diagnostics periodically (not every step)
+    step = state.timestep_state.step
+    if step % 100 == 0
+        compute_total_energy!(state)
+        report_energy_conservation(step; interval=100)
+        check_solenoidal_constraint!(state)
+        report_solenoidal_constraint(step; interval=100)
+    end
 
     # Note: nonlinear terms are recomputed by the main simulation loop at the
     # start of each step, so no refresh is needed here.
@@ -1601,11 +1631,12 @@ function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
                                           i_vel_bc=get_parameters().i_vel_bc,
                                           domain=state.𝒟ᵒᶜ)
         elseif ts_scheme === :eab2
-            # Velocity diffusivity = E (Ekman number)
+            # Velocity: d_E * du/dt = d_E*∇²u + NL → du/dt = ∇²u + NL/d_E
             alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_toroidal, d_E, T, state.𝒟ᵒᶜ)
             eab2_update_krylov_cached!(state.velocity.𝒯, state.velocity.nlᵀ,
                                        state.velocity.prev_nlᵀ, alu_map, state.𝒟ᵒᶜ, d_E,
-                                       state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
+                                       state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol,
+                                       mass_coeff=d_E)
         else
             solve_velocity_implicit_step!(state.velocity.𝒯, state.velocity.nlᵀ,
                                           state.implicit_matrices[:velocity_tor], :toroidal;
@@ -1625,11 +1656,12 @@ function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
                                           i_vel_bc=get_parameters().i_vel_bc,
                                           domain=state.𝒟ᵒᶜ)
         elseif ts_scheme === :eab2
-            # Velocity diffusivity = E (Ekman number)
+            # Velocity: d_E * du/dt = d_E*∇²u + NL → du/dt = ∇²u + NL/d_E
             alu_map = get_eab2_alu_cache!(state.etd_caches, :velocity_poloidal, d_E, T, state.𝒟ᵒᶜ)
             eab2_update_krylov_cached!(state.velocity.𝒫, state.velocity.nlᴾ,
                                        state.velocity.prev_nlᴾ, alu_map, state.𝒟ᵒᶜ, d_E,
-                                       state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
+                                       state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol,
+                                       mass_coeff=d_E)
         else
             solve_velocity_implicit_step!(state.velocity.𝒫, state.velocity.nlᴾ,
                                           state.implicit_matrices[:velocity_pol], :poloidal;
