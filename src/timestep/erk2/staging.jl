@@ -184,10 +184,14 @@ function erk2_prepare_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T},
         mul!(stage_tmp, E_half, ui)
         mul!(stage_phi_tmp, phi1_half, ni_vec)
         @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
-        # Enforce boundary conditions
+        # Enforce boundary conditions (imaginary part uses same mode-specific overrides)
         if bc_spec !== nothing
-            enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr)
-            enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr)
+            inner_val = bc_spec.inner_mode_values !== nothing && lm_idx <= length(bc_spec.inner_mode_values) ?
+                        bc_spec.inner_mode_values[lm_idx] : nothing
+            outer_val = bc_spec.outer_mode_values !== nothing && lm_idx <= length(bc_spec.outer_mode_values) ?
+                        bc_spec.outer_mode_values[lm_idx] : nothing
+            enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr; value_override=inner_val)
+            enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr; value_override=outer_val)
         else
             stage_tmp[1] = zero(T)
             stage_tmp[nr] = zero(T)
@@ -356,10 +360,14 @@ function erk2_finalize_field!(buffers::ERK2FieldBuffers{T}, u::SHTnsSpecField{T}
         @. delta = delta - tmp_Nn
         mul!(correction, phi2, delta)
         @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
-        # Enforce boundary conditions
+        # Enforce boundary conditions (imaginary part uses same mode-specific overrides)
         if bc_spec !== nothing
-            enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr)
-            enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr)
+            inner_val = bc_spec.inner_mode_values !== nothing && lm_idx <= length(bc_spec.inner_mode_values) ?
+                        bc_spec.inner_mode_values[lm_idx] : nothing
+            outer_val = bc_spec.outer_mode_values !== nothing && lm_idx <= length(bc_spec.outer_mode_values) ?
+                        bc_spec.outer_mode_values[lm_idx] : nothing
+            enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr; value_override=inner_val)
+            enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr; value_override=outer_val)
         else
             result[1] = zero(T)
             result[nr] = zero(T)

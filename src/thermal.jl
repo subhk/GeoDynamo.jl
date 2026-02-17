@@ -384,9 +384,12 @@ function compute_nusselt_number(temp_𝔽::SHTnsTemperatureField{T},
     flux_inner = compute_surface_flux(∇r, 1, temp_𝔽.config)
     flux_outer = compute_surface_flux(∇r, domain.N, temp_𝔽.config)
 
-    # Nusselt number
-    conductive_flux = 4π * domain.r[1, 4]^2
-    Nu = abs(flux_outer) / conductive_flux
+    # Nusselt number: ratio of actual to conductive heat flux
+    # For spherical shell with ΔT=1: Q_cond = 4π·r_i·r_o / (r_o - r_i)
+    r_inner = domain.r[1, 4]
+    r_outer = domain.r[domain.N, 4]
+    conductive_flux = 4π * r_inner * r_outer / (r_outer - r_inner)
+    Nu = abs(flux_outer) / max(conductive_flux, eps(Float64))
 
     return Nu
 end

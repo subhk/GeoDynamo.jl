@@ -340,21 +340,23 @@ function create_radial_domain(nr::Union{Int,Nothing}=nothing;
     dr_matrices         = [zeros(2*bandwidth+1, N) for _ in 1:3]
     radial_laplacian    = zeros(2*bandwidth+1, N)
 
-    # Compute Clenshaw-Curtis integration weights for Chebyshev-Lobatto points
-    # The grid is mapped from [-1,1] to [ri, ri+1] with half-interval length h = 0.5
+    # Clenshaw-Curtis integration weights for Chebyshev-Lobatto points
+    # Grid: x_n = cos(π(N-n)/(N-1)) in [-1,1], mapped to [ri, ri+1] with h = 0.5
+    # Weights satisfy: ∫_{-1}^{1} f(x) dx ≈ Σ w_n f(x_n)
     integration_weights = zeros(N)
-    h = 0.5  # half-interval: (ro - ri) / 2 = (ri + 1 - ri) / 2 = 0.5
+    M = N - 1  # number of intervals
     for n in 1:N
-        # Chebyshev-Lobatto point in [-1,1]: x_n = cos(π(N-n)/(N-1))
-        # Trapezoidal weights for equally-spaced angles θ_n = π(N-n)/(N-1)
-        if n == 1 || n == N
-            integration_weights[n] = h * π / (2 * (N - 1))
-        else
-            integration_weights[n] = h * π / (N - 1)
+        theta_n = π * (N - n) / M
+        w = 0.0
+        for k in 0:div(M, 2)
+            bk = (k == 0 || k == div(M, 2) && iseven(M)) ? 1.0 : 2.0
+            w += bk * cos(2 * k * theta_n) / (1 - 4 * k^2)
         end
-        # Weight includes sin(θ) factor from Chebyshev quadrature
-        theta_n = π * (N - n) / (N - 1)
-        integration_weights[n] *= sin(theta_n)
+        w /= M
+        if n == 1 || n == N
+            w *= 0.5  # endpoint correction
+        end
+        integration_weights[n] = w * 0.5  # scale by half-interval h = 0.5
     end
 
     return RadialDomain(N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)

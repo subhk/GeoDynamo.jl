@@ -1071,20 +1071,20 @@ function compute_kinetic_energy(𝒰::SHTnsVelocityFields{T}, 𝒟ᵒᶜ::Radial
             local_lm = lm_idx - first(lm_range) + 1
             ℓ_factor = 𝒰.ℓ_factors[lm_idx]
             
-            # Weight by l(l+1) for proper spectral integration
-            weight = 1.0 / max(ℓ_factor, 1.0)
-            
+            # Spectral kinetic energy weight: l(l+1) for toroidal-poloidal decomposition
+            weight = Float64(ℓ_factor)
+
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(tor_real, 3)
                     # Include radial weight for spherical integration
                     r = 𝒟ᵒᶜ.r[r_idx, 4]
                     r_weight = r^2 * 𝒟ᵒᶜ.integration_weights[r_idx]
-                    
+
                     local_energy += weight * r_weight * (
-                        tor_real[local_lm, 1, local_r]^2 + 
-                        tor_imag[local_lm, 1, local_r]^2 + 
-                        pol_real[local_lm, 1, local_r]^2 + 
+                        tor_real[local_lm, 1, local_r]^2 +
+                        tor_imag[local_lm, 1, local_r]^2 +
+                        pol_real[local_lm, 1, local_r]^2 +
                         pol_imag[local_lm, 1, local_r]^2
                     )
                 end

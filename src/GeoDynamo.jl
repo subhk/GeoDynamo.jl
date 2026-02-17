@@ -2,6 +2,7 @@ module GeoDynamo
 
     using LinearAlgebra
     using SparseArrays
+    using Random
     using SHTnsKit   # Load SHTnsKit before MPI to avoid eager extension load during precompile
     using MPI
     using PencilArrays

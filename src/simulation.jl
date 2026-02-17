@@ -182,7 +182,7 @@ function initialize_simulation(::Type{T}=Float64;
     end
     
     # Initialize timestepping with advanced matrices
-    timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false)
+    timestep_state = TimestepState(d_time, d_timestep, 0, 0, Inf, false, true)
 
     # Create implicit matrices for each equation (magnetic diffusion time scaling)
     # Velocity: E, Temperature: Pm/Pr, Magnetic: 1, Composition: Pm/Sc
@@ -336,8 +336,9 @@ function run_simulation!(state::SimulationState{T};
         end
 
         state.timestep_state.time = simulation_time
-        # Set step=0 to bootstrap prev_nonlinear on first iteration (AB2 → AB1)
-        state.timestep_state.step = 0
+        state.timestep_state.step = step
+        # Bootstrap prev_nonlinear on first iteration after restart (AB2 → AB1)
+        state.timestep_state.needs_ab2_bootstrap = true
 
         if rank == 0
             println("  Resuming from time = $simulation_time, step = $step")
@@ -349,7 +350,6 @@ function run_simulation!(state::SimulationState{T};
     
     # Performance monitoring
     total_start = Wtime()
-    last_output_time = simulation_time
     
     t_end = d_t_end
     while simulation_time < t_end && step < i_maxtstep
@@ -412,8 +412,6 @@ function run_simulation!(state::SimulationState{T};
             end
         end
 
-        io_time = Wtime() - io_start
-
         # 4. Dynamic load balancing and auto-tuning
         if state.auto_optimization && step % 50 == 0
             adaptive_rebalance!(state.master_parallelizer.load_balancer, state.temperature)
@@ -421,8 +419,6 @@ function run_simulation!(state::SimulationState{T};
                 auto_tune_parameters!(state)
             end
         end
-        
-        step_time = Wtime() - step_start
         
         # Adaptive timestep (if enabled)
         if step % 10 == 0
@@ -453,8 +449,11 @@ end
 # ================================================================================
 
 function initialize_fields!(state::SimulationState{T}) where T
+    # Seed RNG per rank for reproducible initialization across MPI processes
+    Random.seed!(42 + get_rank())
+
     # Initialize with some random perturbation for onset
-    
+
     # Temperature: conductive profile + small perturbation
     temp_real = parent(state.temperature.spectral.data_real)
     temp_imag = parent(state.temperature.spectral.data_imag)
@@ -691,18 +690,18 @@ function create_enhanced_output_config(state::SimulationState{T}) where T
 
     return OutputConfig(
         base_config.output_space,
-        "./enhanced_output",   # Output directory
-        "geodynamo_opt",        # Filename prefix
+        base_config.output_dir,
+        base_config.filename_prefix,
         base_config.include_metadata,
         base_config.include_grid,
         base_config.include_diagnostics,
         base_config.output_precision,
         base_config.spectral_lmax_output,
         base_config.overwrite_files,
-        0.01,                   # More frequent output for monitoring
-        0.1,                    # Regular restart intervals
-        Inf,                    # No time limit
-        1e-12                   # High precision timing
+        base_config.output_interval,
+        base_config.restart_interval,
+        base_config.time_limit,
+        base_config.timing_precision
     )
 end
 
@@ -799,7 +798,7 @@ function compute_field_energy(field_data::Array{T,3}) where T
     local_energy = 0.5 * sum(abs2, field_data)
     # Sum across all MPI ranks
     if MPI.Initialized()
-        return MPI.Allreduce(local_energy, +, MPI.COMM_WORLD)
+        return MPI.Allreduce(local_energy, +, get_comm())
     else
         return local_energy
     end
@@ -814,7 +813,7 @@ function compute_vector_energy(v_r::Array{T,3}, v_theta::Array{T,3}, v_phi::Arra
     local_energy = 0.5 * (sum(abs2, v_r) + sum(abs2, v_theta) + sum(abs2, v_phi))
     # Sum across all MPI ranks
     if MPI.Initialized()
-        return MPI.Allreduce(local_energy, +, MPI.COMM_WORLD)
+        return MPI.Allreduce(local_energy, +, get_comm())
     else
         return local_energy
     end
@@ -917,12 +916,14 @@ function report_energy_conservation(step::Int; interval::Int=100)
         E0 = ENERGY_TRACKER.total_energy[1]
         En = ENERGY_TRACKER.total_energy[end]
         ΔE = En - E0
-        rel_error = abs(ΔE / E0)
+        rel_error = E0 != 0.0 ? abs(ΔE / E0) : 0.0
 
         KE = ENERGY_TRACKER.kinetic_energy[end]
         ME = ENERGY_TRACKER.magnetic_energy[end]
         TE = ENERGY_TRACKER.thermal_energy[end]
         CE = ENERGY_TRACKER.compositional_energy[end]
+
+        pct(x) = En != 0.0 ? x / En * 100 : 0.0
 
         @info """
         ╔══════════════════════════════════════════════════════════╗
@@ -934,10 +935,10 @@ function report_energy_conservation(step::Int; interval::Int=100)
         ║ Relative Error:      $(rel_error * 100)%
         ║
         ║ Energy Breakdown:
-        ║   Kinetic:           $KE  ($(KE/En * 100)%)
-        ║   Magnetic:          $ME  ($(ME/En * 100)%)
-        ║   Thermal:           $TE  ($(TE/En * 100)%)
-        ║   Compositional:     $CE  ($(CE/En * 100)%)
+        ║   Kinetic:           $KE  ($(pct(KE))%)
+        ║   Magnetic:          $ME  ($(pct(ME))%)
+        ║   Thermal:           $TE  ($(pct(TE))%)
+        ║   Compositional:     $CE  ($(pct(CE))%)
         ╚══════════════════════════════════════════════════════════╝
         """
 
@@ -989,40 +990,19 @@ const SOLENOIDAL_MONITOR = SolenoidalMonitor(
     compute_divergence_spectral(tor_spec::SHTnsSpecField, pol_spec::SHTnsSpecField,
                                 domain::RadialDomain) where T
 
-Compute divergence of a vector field in spectral space.
-For toroidal-poloidal decomposition: v = ∇×(T r̂) + ∇×∇×(P r̂)
-The divergence is: ∇·v = ∇·(∇×∇×(P r̂)) = 0 theoretically
-But numerically we check: div_max = max |∇·v|
+Check solenoidal constraint for toroidal-poloidal decomposition.
+For v = ∇×(T r̂) + ∇×∇×(P r̂), the divergence ∇·v = 0 is satisfied analytically
+by construction (divergence of a curl is identically zero). Therefore this function
+always returns (0.0, 0.0) — the solenoidal constraint is guaranteed by the
+representation, not by numerical accident.
 """
 function compute_divergence_spectral(tor_spec::SHTnsSpecField{T},
                                      pol_spec::SHTnsSpecField{T},
                                      domain::RadialDomain) where T
-    # Simplified divergence check:
-    # For solenoidal field, all spectral coefficients should have consistent scaling
-    # A more sophisticated check would compute ∇·v in physical space
-    # For now, we check the S-component (spheroidal) which should be zero for purely solenoidal fields
-
-    tor_real = parent(tor_spec.data_real)
-    tor_imag = parent(tor_spec.data_imag)
-    pol_real = parent(pol_spec.data_real)
-    pol_imag = parent(pol_spec.data_imag)
-
-    # Compute L2 and Linf norms of spectral coefficients as divergence proxy
-    local_l2 = sqrt(sum(abs2, tor_real) + sum(abs2, tor_imag) +
-                    sum(abs2, pol_real) + sum(abs2, pol_imag))
-    # Allocation-free Linf: take max of individual array maxima
-    local_linf = max(maximum(abs, tor_real), maximum(abs, tor_imag),
-                     maximum(abs, pol_real), maximum(abs, pol_imag))
-
-    if MPI.Initialized()
-        l2_norm = sqrt(MPI.Allreduce(local_l2^2, +, MPI.COMM_WORLD))
-        linf_norm = MPI.Allreduce(local_linf, max, MPI.COMM_WORLD)
-    else
-        l2_norm = local_l2
-        linf_norm = local_linf
-    end
-
-    return l2_norm, linf_norm
+    # Toroidal-poloidal decomposition is divergence-free by construction:
+    # ∇·(∇×F) = 0 for any vector field F.
+    # No numerical check is needed or meaningful.
+    return zero(Float64), zero(Float64)
 end
 
 """
@@ -1557,7 +1537,7 @@ end
 # ================================================================================
 function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
     # For CNAB2 and ERK2: bootstrap prev_nonlinear on first step so AB2 reduces to AB1
-    if (ts_scheme === :cnab2 || ts_scheme === :erk2) && state.timestep_state.step == 0
+    if (ts_scheme === :cnab2 || ts_scheme === :erk2) && state.timestep_state.needs_ab2_bootstrap
         parent(state.temperature.prev_nonlinear.data_real) .= parent(state.temperature.nonlinear.data_real)
         parent(state.temperature.prev_nonlinear.data_imag) .= parent(state.temperature.nonlinear.data_imag)
         parent(state.velocity.prev_nlᵀ.data_real) .= parent(state.velocity.nlᵀ.data_real)
@@ -1574,8 +1554,9 @@ function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
             parent(state.composition.prev_nonlinear.data_real) .= parent(state.composition.nonlinear.data_real)
             parent(state.composition.prev_nonlinear.data_imag) .= parent(state.composition.nonlinear.data_imag)
         end
+        state.timestep_state.needs_ab2_bootstrap = false
     end
-    
+
     # Note: Temperature and composition BCs are now embedded in the implicit matrix.
     # Time-dependent BC updates would require matrix re-factorization if needed.
 

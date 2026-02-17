@@ -10,6 +10,7 @@ mutable struct TimestepState
     iteration::Int
     error::Float64
     converged::Bool
+    needs_ab2_bootstrap::Bool  # True on first step (or after restart without prev_nl data)
 end
 
 # ================================================================================

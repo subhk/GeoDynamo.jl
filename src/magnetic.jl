@@ -591,8 +591,8 @@ function add_inner_core_rotation!(ℬ::SHTnsMagneticFields{T}, Ω::Float64) wher
     lm_range = get_local_range(ℬ.𝒯ⁱᶜ.pencil, 1)
     r_range  = get_local_range(ℬ.𝒯ⁱᶜ.pencil, 3)
     
-    # Rotation factor for inner core coupling
-    rotation_factor = Ω * 1e-3  # Scaled rotation rate
+    # Rotation factor for inner core coupling (direct rotation rate, no arbitrary scaling)
+    rotation_factor = Ω
     
     # Add rotation effects to nonlinear terms at inner core boundary
     @inbounds for lm_idx in lm_range
@@ -625,7 +625,7 @@ end
 # =======================
 # Diagnostic functions
 # =======================
-function compute_magnetic_energy(ℬ::SHTnsMagneticFields{T}) where T
+function compute_magnetic_energy(ℬ::SHTnsMagneticFields{T}, domain::RadialDomain) where T
     # Compute magnetic energy in spectral space
     
     tor_real = parent(ℬ.𝒯.data_real)
@@ -647,16 +647,20 @@ function compute_magnetic_energy(ℬ::SHTnsMagneticFields{T}) where T
             local_lm = lm_idx - first(lm_range) + 1
             ℓ_factor = ℬ.ℓ_factors[lm_idx]
             
-            # Weight by l(l+1) for proper spectral integration
-            weight = 1.0 / max(ℓ_factor, 1.0)
-            
+            # Spectral magnetic energy weight: l(l+1) for toroidal-poloidal decomposition
+            weight = Float64(ℓ_factor)
+
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(tor_real, 3)
-                    local_energy += weight * (
-                        tor_real[local_lm, 1, local_r]^2 + 
-                        tor_imag[local_lm, 1, local_r]^2 + 
-                        pol_real[local_lm, 1, local_r]^2 + 
+                    # Include radial weight for spherical volume integration
+                    r = domain.r[r_idx, 4]
+                    r_weight = r^2 * domain.integration_weights[r_idx]
+
+                    local_energy += weight * r_weight * (
+                        tor_real[local_lm, 1, local_r]^2 +
+                        tor_imag[local_lm, 1, local_r]^2 +
+                        pol_real[local_lm, 1, local_r]^2 +
                         pol_imag[local_lm, 1, local_r]^2
                     )
                 end
