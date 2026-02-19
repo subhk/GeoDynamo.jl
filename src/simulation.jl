@@ -93,7 +93,6 @@ struct SimulationState{T}
     erk2_influence_matrices::Dict{Symbol, Tuple{Dict{Int, ERK2InfluenceMatrix{T}}, Float64}}  # Influence matrices for ERK2 (matrices, dt)
 
     # Enhanced I/O
-    output_counter::Int
     auto_optimization::Bool
     adaptive_threading::Bool
     geometry::Symbol
@@ -217,7 +216,7 @@ function initialize_simulation(::Type{T}=Float64;
         Dict{Symbol, EAB2ALUCacheEntry{T}}(),  # Type-stable etd_caches
         Dict{Symbol, ERK2Cache{T}}(),  # Type-stable erk2_caches
         Dict{Symbol, Tuple{Dict{Int, ERK2InfluenceMatrix{T}}, Float64}}(),  # ERK2 influence matrices (matrices, dt)
-        0, auto_optimize, adaptive_threading, geom
+        auto_optimize, adaptive_threading, geom
     )
 
     # Load file-based boundary conditions if specified in parameters
@@ -354,18 +353,15 @@ function run_simulation!(state::SimulationState{T};
     t_end = d_t_end
     while simulation_time < t_end && step < i_maxtstep
         step += 1
-        step_start = Wtime()
-        
+
         # === PHYSICS COMPUTATION ===
 
         # 1. Compute nonlinear terms for all equations
         compute_start = Wtime()
 
         # Velocity evolution
-        if state.velocity !== nothing
-            compute_velocity_nonlinear!(state.velocity, state.temperature,
-                                        state.composition, state.magnetic, state.𝒟ᵒᶜ)
-        end
+        compute_velocity_nonlinear!(state.velocity, state.temperature,
+                                    state.composition, state.magnetic, state.𝒟ᵒᶜ)
 
         # Magnetic field evolution
         if i_B == 1 && state.magnetic !== nothing
@@ -398,7 +394,6 @@ function run_simulation!(state::SimulationState{T};
         state.timestep_state.step = step
 
         # 3. Asynchronous I/O (non-blocking)
-        io_start = Wtime()
 
         if should_output_now(time_tracker, simulation_time, output_config)
             fields = extract_all_fields(state)
@@ -1501,8 +1496,26 @@ function erk2_integrate_full_step!(state::SimulationState{T}, dt::Float64;
         report_solenoidal_constraint(step; interval=100)
     end
 
-    # Note: nonlinear terms are recomputed by the main simulation loop at the
-    # start of each step, so no refresh is needed here.
+    # Restore step-start nonlinear terms from ERK2 buffers into the nl fields.
+    # compute_all_nonlinear_terms! (line 1451) overwrote nl with stage (midpoint) values,
+    # but the history roll in apply_implicit_step! needs the step-start values for correct
+    # AB2 extrapolation on the next timestep.
+    copyto!(parent(state.temperature.nonlinear.data_real), temp_buffers.n_current_real)
+    copyto!(parent(state.temperature.nonlinear.data_imag), temp_buffers.n_current_imag)
+    copyto!(parent(state.velocity.nlᵀ.data_real), vel_tor_buffers.n_current_real)
+    copyto!(parent(state.velocity.nlᵀ.data_imag), vel_tor_buffers.n_current_imag)
+    copyto!(parent(state.velocity.nlᴾ.data_real), vel_pol_buffers.n_current_real)
+    copyto!(parent(state.velocity.nlᴾ.data_imag), vel_pol_buffers.n_current_imag)
+    if mag_tor_buffers !== nothing
+        copyto!(parent(state.magnetic.nlᵀ.data_real), mag_tor_buffers.n_current_real)
+        copyto!(parent(state.magnetic.nlᵀ.data_imag), mag_tor_buffers.n_current_imag)
+        copyto!(parent(state.magnetic.nlᴾ.data_real), mag_pol_buffers.n_current_real)
+        copyto!(parent(state.magnetic.nlᴾ.data_imag), mag_pol_buffers.n_current_imag)
+    end
+    if comp_buffers !== nothing
+        copyto!(parent(state.composition.nonlinear.data_real), comp_buffers.n_current_real)
+        copyto!(parent(state.composition.nonlinear.data_imag), comp_buffers.n_current_imag)
+    end
 end
 
 # ================================================================================
@@ -1537,7 +1550,7 @@ end
 # ================================================================================
 function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
     # For CNAB2 and ERK2: bootstrap prev_nonlinear on first step so AB2 reduces to AB1
-    if (ts_scheme === :cnab2 || ts_scheme === :erk2) && state.timestep_state.needs_ab2_bootstrap
+    if (ts_scheme === :cnab2 || ts_scheme === :eab2 || ts_scheme === :erk2) && state.timestep_state.needs_ab2_bootstrap
         parent(state.temperature.prev_nonlinear.data_real) .= parent(state.temperature.nonlinear.data_real)
         parent(state.temperature.prev_nonlinear.data_imag) .= parent(state.temperature.nonlinear.data_imag)
         parent(state.velocity.prev_nlᵀ.data_real) .= parent(state.velocity.nlᵀ.data_real)
@@ -1581,14 +1594,11 @@ function apply_implicit_step!(state::SimulationState{T}, dt::Float64) where T
                                               bc_inner=tmp_bc.inner_real, bc_outer=tmp_bc.outer_real,
                                               bc_inner_imag=tmp_bc.inner_imag, bc_outer_imag=tmp_bc.outer_imag)
         elseif ts_scheme === :eab2
-            etd = haskey(state.etd_caches, :temperature) ? state.etd_caches[:temperature] : nothing
-            if etd === nothing || etd.dt != dt
-                # Temperature diffusivity = Pm/Pr (magnetic diffusion time scaling)
-                etd = create_etd_cache(Float64, state.shtns_config, state.𝒟ᵒᶜ, d_Pm/d_Pr, dt)
-                state.etd_caches[:temperature] = etd
-            end
-            eab2_update!(state.temperature.spectral, state.temperature.nonlinear,
-                         state.temperature.prev_nonlinear, etd, state.shtns_config, dt)
+            # Temperature: dT/dt = (Pm/Pr)*∇²T + NL (mass_coeff=1.0 for scalars)
+            alu_map = get_eab2_alu_cache!(state.etd_caches, :temperature, d_Pm/d_Pr, T, state.𝒟ᵒᶜ)
+            eab2_update_krylov_cached!(state.temperature.spectral, state.temperature.nonlinear,
+                                       state.temperature.prev_nonlinear, alu_map, state.𝒟ᵒᶜ, d_Pm/d_Pr,
+                                       state.shtns_config, dt; m=i_etd_m, tol=d_krylov_tol)
         else
             solve_temperature_implicit_step!(state.temperature.spectral, state.temperature.nonlinear,
                                               state.implicit_matrices[:temperature];

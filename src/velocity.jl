@@ -722,6 +722,7 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
 
     # Use pencil ranges for enhanced loop bounds
     r_range = range_local(config.pencils.r, 3)
+    θ_range = range_local(config.pencils.r, 1)  # global theta indices for this rank
 
     # Main fused computation loop with enhanced indexing (parallel over r-slices)
     # Advection has coefficient E/Pm, Coriolis has coefficient 1
@@ -738,12 +739,11 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
         end
 
         for j in 1:local_size[2]
-            # Get pre-computed Coriolis factors for this latitude
-            theta_idx = min(j, nlat)
-            sin_theta = 𝒰.coriolis_factors[1, theta_idx]
-            cos_theta = 𝒰.coriolis_factors[2, theta_idx]
-            
             @simd for i in 1:local_size[1]
+                # Map local theta index to global for Coriolis factor lookup
+                theta_idx_global = θ_range[i]
+                sin_theta = 𝒰.coriolis_factors[1, theta_idx_global]
+                cos_theta = 𝒰.coriolis_factors[2, theta_idx_global]
                 linear_idx = i + (j-1)*local_size[1] + (k-1)*local_size[1]*local_size[2]
                 
                 if linear_idx <= length(vᵣ)

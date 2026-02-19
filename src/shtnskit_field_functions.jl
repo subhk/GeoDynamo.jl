@@ -502,7 +502,7 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
             store_vector_components_generic!(v_theta, v_phi, vt_out, vp_out, r_local, config;
                                              axes_local=phys_axes_local)
         else
-            vt_field, vp_field = SHTnsKit.SHsphtor_to_spat(sht_config, pol_coeffs, tor_coeffs;
+            vt_field, vp_field = SHTnsKit.synthesis_sphtor(sht_config, pol_coeffs, tor_coeffs;
                                                           real_output=true)
             store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config;
                                              axes_local=phys_axes_local)
@@ -641,7 +641,7 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
             store_coefficients_from_shtnskit!(pol_real, pol_imag, slm_out, r_local, config)
             store_coefficients_from_shtnskit!(tor_real, tor_imag, tlm_out, r_local, config)
         else
-            pol_coeffs, tor_coeffs = SHTnsKit.spat_to_SHsphtor(sht_config, vt_field, vp_field)
+            pol_coeffs, tor_coeffs = SHTnsKit.analysis_sphtor(sht_config, vt_field, vp_field)
             store_coefficients_from_shtnskit!(pol_real, pol_imag, pol_coeffs, r_local, config)
             store_coefficients_from_shtnskit!(tor_real, tor_imag, tor_coeffs, r_local, config)
         end
@@ -1806,7 +1806,7 @@ function shtnskit_qst_to_spatial!(config::SHTnsKitConfig, Qlm::Matrix{ComplexF64
 
     # Fallback: separate synthesis calls
     vr .= SHTnsKit.synthesis(config.sht_config, Qlm; real_output=true)
-    vt_tmp, vp_tmp = SHTnsKit.SHsphtor_to_spat(config.sht_config, Slm, Tlm; real_output=true)
+    vt_tmp, vp_tmp = SHTnsKit.synthesis_sphtor(config.sht_config, Slm, Tlm; real_output=true)
     copyto!(vtheta, vt_tmp)
     copyto!(vphi, vp_tmp)
 end
@@ -1839,7 +1839,7 @@ function shtnskit_spatial_to_qst!(config::SHTnsKitConfig, vr::Matrix{Float64},
 
     # Fallback: separate analysis calls
     Qlm .= SHTnsKit.analysis(config.sht_config, vr)
-    S_tmp, T_tmp = SHTnsKit.spat_to_SHsphtor(config.sht_config, vtheta, vphi)
+    S_tmp, T_tmp = SHTnsKit.analysis_sphtor(config.sht_config, vtheta, vphi)
     copyto!(Slm, S_tmp)
     copyto!(Tlm, T_tmp)
 end
