@@ -404,6 +404,11 @@ The number of non-zero Gaunt coefficients scales as O(ℓ_max³ L_max). **Precom
 | `TopographyData` | Container for ICB/CMB data |
 | `GauntTensorCache` | Pre-computed Gaunt tensor storage |
 | `precompute_gaunt_tensors!` | Compute and cache tensors |
+| `compute_gaunt_tensor` | Compute single Gaunt integral numerically |
+| `gaunt_on_the_fly` | Compute Gaunt integral (Wigner 3j or numerical) |
+| `gradient_gaunt_from_basic` | Derive gradient Gaunt from basic Gaunt |
+| `evaluate_spherical_harmonics_grid` | Evaluate Yₗᵐ on grid |
+| `evaluate_spherical_harmonic_gradient_grid` | Evaluate ∇Yₗᵐ on grid |
 | `StefanState` | State for Stefan condition ICB evolution |
 | `update_icb_topography!` | Advance ICB topography in time |
 
