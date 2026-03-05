@@ -30,22 +30,29 @@ end
 
 # Global MPI state (initialized lazily)
 const MPI_STATE = MPIState(false, nothing, -1, -1)
+const _MPI_INIT_LOCK = ReentrantLock()
 
 """
     get_comm()
-    
+
 Get MPI communicator, initializing MPI if needed.
-Provides thread-safe lazy initialization.
+Thread-safe via double-checked locking with `_MPI_INIT_LOCK`.
 """
 function get_comm()
-    if !MPI_STATE.initialized
-        if !MPI.Initialized()
-            MPI.Init()
+    # Fast path: already initialized (no lock needed — reads a Bool)
+    MPI_STATE.initialized && return MPI_STATE.comm
+
+    # Slow path: take lock to initialize exactly once
+    lock(_MPI_INIT_LOCK) do
+        if !MPI_STATE.initialized
+            if !MPI.Initialized()
+                MPI.Init()
+            end
+            MPI_STATE.comm = MPI.COMM_WORLD
+            MPI_STATE.rank = MPI.Comm_rank(MPI_STATE.comm)
+            MPI_STATE.nprocs = MPI.Comm_size(MPI_STATE.comm)
+            MPI_STATE.initialized = true
         end
-        MPI_STATE.comm = MPI.COMM_WORLD
-        MPI_STATE.rank = MPI.Comm_rank(MPI_STATE.comm)
-        MPI_STATE.nprocs = MPI.Comm_size(MPI_STATE.comm)
-        MPI_STATE.initialized = true
     end
     return MPI_STATE.comm
 end

@@ -397,14 +397,8 @@ Thread-safe implementation using a lock for the check-then-set pattern.
 function _get_cached_bc_shtns_config(lmax::Int, mmax::Int, nlat::Int, nlon::Int)
     key = (lmax, mmax, nlat, nlon)
 
-    # Fast path: check if already cached (no lock needed for read)
-    if haskey(_BC_SHTNS_CONFIG_CACHE, key)
-        return _BC_SHTNS_CONFIG_CACHE[key]
-    end
-
-    # Slow path: need to create config (use lock to prevent race conditions)
+    # Julia Dict is not thread-safe for concurrent read/write — always lock
     lock(_BC_SHTNS_CONFIG_LOCK) do
-        # Double-check after acquiring lock (another thread might have created it)
         if !haskey(_BC_SHTNS_CONFIG_CACHE, key)
             _BC_SHTNS_CONFIG_CACHE[key] = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon)
         end

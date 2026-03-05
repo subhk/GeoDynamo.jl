@@ -348,15 +348,14 @@ end
 """
     get_comm()
 
-Get MPI communicator (with fallback).
+Get MPI communicator, initializing MPI if needed.
+Always returns a valid communicator (never `nothing`).
 """
 function get_comm()
-    if MPI.Initialized()
-        return MPI.COMM_WORLD
-    else
-        @warn "MPI not initialized, using serial mode"
-        return nothing
+    if !MPI.Initialized()
+        MPI.Init()
     end
+    return MPI.COMM_WORLD
 end
 
 """

@@ -67,10 +67,24 @@ function factorize_banded(A::BandedMatrix{T}) where T
     return BandedLU{T}(lu, bw, N)
 end
 
+"""
+    solve_banded!(x, lu, b)
+
+Solve the banded linear system `lu * x = b` in-place.
+
+**In-place aliasing `x === b` is explicitly supported and safe.** The forward
+substitution sweep processes rows in ascending order: at step `i`, it reads
+`x[j]` for `j < i` (already holding the intermediate result `y[j]`) and `b[i]`
+(not yet overwritten when aliased). The back substitution sweep processes rows
+in descending order with the same safe access pattern.
+
+WARNING: Do not change the loop ordering without verifying aliasing safety.
+"""
 function solve_banded!(x::Vector{T}, lu::BandedLU{T}, b::Vector{T}) where T
     N  = lu.size
     bw = lu.bandwidth
     # Forward substitution: L y = b (L has unit diagonal)
+    # NOTE: x === b aliasing is safe — see docstring
     @inbounds for i in 1:N
         s = zero(T)
         j_min = max(1, i - bw)

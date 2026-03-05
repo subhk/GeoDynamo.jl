@@ -144,7 +144,8 @@ function perform_synthesis_with_transpose!(spec::SHTnsSpecField{T},
                                          phys::SHTnsPhysField{T},
                                          config, back_plan) where T
     # Reuse cached temporary phi-pencil array (avoids allocation every call)
-    phys_phi = get_cached_buffer!(config, :transpose_phi_tmp) do
+    # Uses separate key from analysis to avoid aliasing if called concurrently
+    phys_phi = get_cached_buffer!(config, :synthesis_phi_tmp) do
         PencilArray{T}(undef, config.pencils.phi)
     end
 
@@ -339,7 +340,8 @@ function perform_analysis_with_transpose!(phys::SHTnsPhysField{T},
                                         spec::SHTnsSpecField{T},
                                         config, to_phi_plan) where T
     # Reuse cached temporary phi-pencil array (avoids allocation every call)
-    phys_phi = get_cached_buffer!(config, :transpose_phi_tmp) do
+    # Uses separate key from synthesis to avoid aliasing if called concurrently
+    phys_phi = get_cached_buffer!(config, :analysis_phi_tmp) do
         PencilArray{T}(undef, config.pencils.phi)
     end
     # Transpose to phi-pencil using pre-computed plan

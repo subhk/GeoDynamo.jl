@@ -104,14 +104,33 @@ Abstract type for scalar fields (temperature, composition, etc.)
 """
 abstract type AbstractScalarField{T} end
 
-# Helper to map (l,m) to linear index
-function get_mode_index(config::SHTnsKitConfig, l::Int, m::Int)
+# Cached (l,m) → linear index lookup tables, keyed by config identity.
+# Avoids O(nlm) linear scan on every call — lookups become O(1).
+const _MODE_INDEX_CACHE = Dict{UInt, Dict{Tuple{Int,Int}, Int}}()
+const _MODE_INDEX_CACHE_LOCK = ReentrantLock()
+
+function _build_mode_index_table(config::SHTnsKitConfig)
+    table = Dict{Tuple{Int,Int}, Int}()
+    sizehint!(table, config.nlm)
     @inbounds for idx in 1:config.nlm
-        if config.l_values[idx] == l && config.m_values[idx] == m
-            return idx
+        table[(config.l_values[idx], config.m_values[idx])] = idx
+    end
+    return table
+end
+
+function get_mode_index(config::SHTnsKitConfig, l::Int, m::Int)
+    key = objectid(config)
+    table = get(_MODE_INDEX_CACHE, key, nothing)
+    if table === nothing
+        lock(_MODE_INDEX_CACHE_LOCK) do
+            table = get(_MODE_INDEX_CACHE, key, nothing)
+            if table === nothing
+                table = _build_mode_index_table(config)
+                _MODE_INDEX_CACHE[key] = table
+            end
         end
     end
-    return 0
+    return get(table, (l, m), 0)
 end
 
 # ================================================================================
@@ -832,18 +851,14 @@ Compute tau coefficient for inner boundary only.
 Uses a single tau function that doesn't affect outer boundary.
 """
 function compute_tau_coefficients_inner(flux_error::T, domain::RadialDomain) where T
-    nr = domain.N
-    
-    # Use a polynomial that has zero derivative at outer boundary
-    # This is a linear combination of Chebyshev polynomials
-    tau = compute_inner_tau_function(domain)
-    
-    # Derivative at inner boundary
-    dtau_inner = evaluate_tau_derivative_inner(tau, domain)
-    
-    # Tau coefficient
-    c = flux_error / dtau_inner
-    
+    # Use cached tau data — build tau with zero derivative at outer boundary
+    tc = _get_tau_cache(domain)
+    # tau = T_{nr-1} - α*T_{nr} where α = dtau1_outer/dtau2_outer
+    α = abs(tc.dtau2_outer) > 1e-12 ? tc.dtau1_outer / tc.dtau2_outer : 0.0
+    tau = tc.tau1 .- α .* tc.tau2
+    # Derivative at inner boundary: dtau1_inner - α*dtau2_inner
+    dtau_inner = tc.dtau1_inner - α * tc.dtau2_inner
+    c = abs(dtau_inner) > 1e-12 ? flux_error / dtau_inner : zero(T)
     return (c, tau)
 end
 
@@ -854,18 +869,14 @@ Compute tau coefficient for outer boundary only.
 Uses a single tau function that doesn't affect inner boundary.
 """
 function compute_tau_coefficients_outer(flux_error::T, domain::RadialDomain) where T
-    nr = domain.N
-    
-    # Use a polynomial that has zero derivative at inner boundary
-    # Similar to inner case but with roles reversed
-    tau = compute_outer_tau_function(domain)
-    
-    # Derivative at outer boundary
-    dtau_outer = evaluate_tau_derivative_outer(tau, domain)
-    
-    # Tau coefficient
-    c = flux_error / dtau_outer
-    
+    # Use cached tau data — build tau with zero derivative at inner boundary
+    tc = _get_tau_cache(domain)
+    # tau = T_{nr-1} - β*T_{nr} where β = dtau1_inner/dtau2_inner
+    β = abs(tc.dtau2_inner) > 1e-12 ? tc.dtau1_inner / tc.dtau2_inner : 0.0
+    tau = tc.tau1 .- β .* tc.tau2
+    # Derivative at outer boundary: dtau1_outer - β*dtau2_outer
+    dtau_outer = tc.dtau1_outer - β * tc.dtau2_outer
+    c = abs(dtau_outer) > 1e-12 ? flux_error / dtau_outer : zero(T)
     return (c, tau)
 end
 
@@ -1043,31 +1054,43 @@ function apply_flux_bc_tau!(spec_real, spec_imag, local_lm, lm_idx,
     flux_inner = apply_inner ? get_flux_value(lm_idx, 1, 𝔽) : T(0)
     flux_outer = apply_outer ? get_flux_value(lm_idx, 2, 𝔽) : T(0)
 
-    # Compute current fluxes at boundaries
+    # Compute current fluxes at boundaries (real part)
     current_flux_inner, current_flux_outer = compute_boundary_fluxes(
         profile_real, 𝔽.∂r, domain)
-    
-    # Compute tau corrections
+
+    # Compute and apply tau corrections for real part
     if apply_inner && apply_outer
-        # Both boundaries have flux BCs
         tau_coeffs = compute_tau_coefficients_both(
             flux_inner - current_flux_inner,
             flux_outer - current_flux_outer,
             domain)
     elseif apply_inner
-        # Only inner boundary
         tau_coeffs = compute_tau_coefficients_inner(
             flux_inner - current_flux_inner, domain)
     else
-        # Only outer boundary
         tau_coeffs = compute_tau_coefficients_outer(
             flux_outer - current_flux_outer, domain)
     end
-    
-    # Apply tau correction to profile
     apply_tau_correction!(profile_real, tau_coeffs, domain)
+
+    # Compute and apply tau corrections for imaginary part using its own flux errors
     if any(x -> abs(x) > 1e-12, profile_imag)
-        apply_tau_correction!(profile_imag, tau_coeffs, domain)
+        imag_flux_inner, imag_flux_outer = compute_boundary_fluxes(
+            profile_imag, 𝔽.∂r, domain)
+        # Prescribed flux is the same for both parts (typically zero for imag)
+        if apply_inner && apply_outer
+            tau_coeffs_imag = compute_tau_coefficients_both(
+                flux_inner - imag_flux_inner,
+                flux_outer - imag_flux_outer,
+                domain)
+        elseif apply_inner
+            tau_coeffs_imag = compute_tau_coefficients_inner(
+                flux_inner - imag_flux_inner, domain)
+        else
+            tau_coeffs_imag = compute_tau_coefficients_outer(
+                flux_outer - imag_flux_outer, domain)
+        end
+        apply_tau_correction!(profile_imag, tau_coeffs_imag, domain)
     end
 
     # Store corrected profile back (only if this process owns the mode)

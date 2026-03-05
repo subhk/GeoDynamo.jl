@@ -290,44 +290,26 @@ end
 # ========================================================
 # Current density computation in spectral space
 # ========================================================
-function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T}, 
-                                          𝒟ᵒᶜ::RadialDomain) where T
-    # Compute j = ∇ × B using spectral relationships with full radial derivatives
-    # For toroidal-poloidal decomposition:
-    # B = Bᵀ + Bᴾ where:
-    #   Bᵀ = ∇ × (T(r,θ,φ) r̂)
-    #   Bᴾ = ∇ × ∇ × (P(r,θ,φ) r̂)
-    #
-    # Current density j = ∇ × B:
-    #   jᵀ = [l(l+1)/r² - d²/dr² - 2/r d/dr] P^{lm}
-    #   jᴾ = -[l(l+1)/r²] T^{lm}
-    
-    # Get local data views
-    𝒯ᵇ_real = parent(ℬ.𝒯.data_real)
-    𝒯ᵇ_imag = parent(ℬ.𝒯.data_imag)
-    𝒫ᵇ_real = parent(ℬ.𝒫.data_real)
-    𝒫ᵇ_imag = parent(ℬ.𝒫.data_imag)
-    
-    jᵀ_real = parent(ℬ.work_tor.data_real)
-    jᵀ_imag = parent(ℬ.work_tor.data_imag)
-    jᴾ_real = parent(ℬ.work_pol.data_real)
-    jᴾ_imag = parent(ℬ.work_pol.data_imag)
-    
-    # Get local ranges using config-aware pencil topology
-    # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
-    # since spectral field data is distributed using pencils.spec
-    config = ℬ.𝒯.config
+"""
+    _spectral_curl_torpol!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
+                           src_tor_r, src_tor_i, src_pol_r, src_pol_i,
+                           ℓ_factors, d1_matrix, d²_matrix, domain, config, T)
+
+Shared spectral curl for toroidal-poloidal fields:
+    (∇×V)_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] V_pol
+    (∇×V)_pol = -l(l+1)/r² V_tor
+
+Used by both current density (j = ∇×B) and induction curl (∇×(u×B)).
+"""
+function _spectral_curl_torpol!(
+    dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
+    src_tor_r, src_tor_i, src_pol_r, src_pol_i,
+    ℓ_factors, d1_matrix, d²_matrix, domain::RadialDomain, config::SHTnsKitConfig, ::Type{T}
+) where T
     lm_range = range_local(config.pencils.spec, 1)
     r_range  = range_local(config.pencils.spec, 3)
-    total_nlm = config.nlm  # Total number of (l,m) modes
+    nr = domain.N
 
-    # Use cached radial derivative matrices for performance
-    d1_matrix = ℬ.∂r   # First derivative d/dr
-    d²_matrix = ℬ.∂²r  # Second derivative d²/dr²
-
-    # Pre-allocate work arrays for radial profiles
-    # Note: Radial data is always local (not MPI distributed)
-    nr = 𝒟ᵒᶜ.N
     Pᴾ_profile_real = zeros(T, nr)
     Pᴾ_profile_imag = zeros(T, nr)
     dᴾ_dr_real      = zeros(T, nr)
@@ -335,61 +317,69 @@ function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T},
     d²ᴾ_dr²_real    = zeros(T, nr)
     d²ᴾ_dr²_imag    = zeros(T, nr)
 
-    # Process each (l,m) mode - only owned modes (radial data is local)
     @inbounds for lm_idx in lm_range
-        if lm_idx <= length(ℬ.ℓ_factors)
+        if lm_idx <= length(ℓ_factors)
             local_lm = lm_idx - first(lm_range) + 1
-            ℓ_factor = ℬ.ℓ_factors[lm_idx]
+            ℓ_factor = ℓ_factors[lm_idx]
 
-            # Extract radial profile (all radial data is local)
             fill!(Pᴾ_profile_real, zero(T))
             fill!(Pᴾ_profile_imag, zero(T))
             for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
-                if local_r <= size(𝒫ᵇ_real, 3)
-                    Pᴾ_profile_real[r_idx] = 𝒫ᵇ_real[local_lm, 1, local_r]
-                    Pᴾ_profile_imag[r_idx] = 𝒫ᵇ_imag[local_lm, 1, local_r]
+                if local_r <= size(src_pol_r, 3)
+                    Pᴾ_profile_real[r_idx] = src_pol_r[local_lm, 1, local_r]
+                    Pᴾ_profile_imag[r_idx] = src_pol_i[local_lm, 1, local_r]
                 end
             end
 
-            # Compute radial derivatives
             apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_profile_real)
             apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_profile_imag)
             apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_profile_real)
             apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_profile_imag)
 
-            # Compute current density components
             r_first = first(r_range)
             r_last = min(last(r_range), nr)
-            if r_last < r_first
-                continue
-            end
+            r_last < r_first && continue
+
             @simd for r_idx in r_first:r_last
                 local_r = r_idx - r_first + 1
-                if local_r <= size(jᵀ_real, 3)
-                    r_val = 𝒟ᵒᶜ.r[r_idx, 4]
+                if local_r <= size(dst_tor_r, 3)
+                    r_val = domain.r[r_idx, 4]
                     if r_val == 0.0
-                        jᵀ_real[local_lm, 1, local_r] = zero(T)
-                        jᵀ_imag[local_lm, 1, local_r] = zero(T)
-                        jᴾ_real[local_lm, 1, local_r] = zero(T)
-                        jᴾ_imag[local_lm, 1, local_r] = zero(T)
+                        dst_tor_r[local_lm, 1, local_r] = zero(T)
+                        dst_tor_i[local_lm, 1, local_r] = zero(T)
+                        dst_pol_r[local_lm, 1, local_r] = zero(T)
+                        dst_pol_i[local_lm, 1, local_r] = zero(T)
                     else
-                        r⁻¹ = 𝒟ᵒᶜ.r[r_idx, 3]
-                        r⁻² = 𝒟ᵒᶜ.r[r_idx, 2]
-                        jᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx]
+                        r⁻¹ = domain.r[r_idx, 3]
+                        r⁻² = domain.r[r_idx, 2]
+                        dst_tor_r[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx]
                                                             - d²ᴾ_dr²_real[r_idx]
                                                             - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
-                        jᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx]
+                        dst_tor_i[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx]
                                                             - d²ᴾ_dr²_imag[r_idx]
                                                             - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
-                        jᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * 𝒯ᵇ_real[local_lm, 1, local_r]
-                        jᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * 𝒯ᵇ_imag[local_lm, 1, local_r]
+                        dst_pol_r[local_lm, 1, local_r] = -ℓ_factor * r⁻² * src_tor_r[local_lm, 1, local_r]
+                        dst_pol_i[local_lm, 1, local_r] = -ℓ_factor * r⁻² * src_tor_i[local_lm, 1, local_r]
                     end
                 end
             end
         end
     end
 end
+
+function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T},
+                                          𝒟ᵒᶜ::RadialDomain) where T
+    # j = ∇ × B: source is B (𝒯,𝒫), destination is work arrays
+    _spectral_curl_torpol!(
+        parent(ℬ.work_tor.data_real), parent(ℬ.work_tor.data_imag),
+        parent(ℬ.work_pol.data_real), parent(ℬ.work_pol.data_imag),
+        parent(ℬ.𝒯.data_real), parent(ℬ.𝒯.data_imag),
+        parent(ℬ.𝒫.data_real), parent(ℬ.𝒫.data_imag),
+        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, 𝒟ᵒᶜ, ℬ.𝒯.config, T
+    )
+end
+
 
 
 # ================================================================================
@@ -468,104 +458,14 @@ end
 
 
 function compute_curl_of_induction!(ℬ::SHTnsMagneticFields{T}) where T
-    # Compute ∇ × (u × B) in spectral space
-    # This becomes the nonlinear term for the induction equation
-    #
-    # For toroidal-poloidal decomposition, curl satisfies:
-    #   (∇×V)_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] V_pol
-    #   (∇×V)_pol = -l(l+1)/r² V_tor
-    #
-    # This matches the vorticity and current density computations.
-
-    # Get local data views
-    𝒯ᵘᵇ_real = parent(ℬ.work_tor.data_real)
-    𝒯ᵘᵇ_imag = parent(ℬ.work_tor.data_imag)
-    𝒫ᵘᵇ_real = parent(ℬ.work_pol.data_real)
-    𝒫ᵘᵇ_imag = parent(ℬ.work_pol.data_imag)
-
-    NLᵀ_real = parent(ℬ.nlᵀ.data_real)
-    NLᵀ_imag = parent(ℬ.nlᵀ.data_imag)
-    NLᴾ_real = parent(ℬ.nlᴾ.data_real)
-    NLᴾ_imag = parent(ℬ.nlᴾ.data_imag)
-
-    # Get local ranges using config-aware pencil topology
-    # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
-    # since spectral field data is distributed using pencils.spec
-    config = ℬ.𝒯.config
-    domain = ℬ.outer_domain
-    lm_range = range_local(config.pencils.spec, 1)
-    r_range  = range_local(config.pencils.spec, 3)
-    total_nlm = config.nlm  # Total number of (l,m) modes
-
-    nr = domain.N
-
-    # Use cached radial derivative matrices for performance
-    d1_matrix = ℬ.∂r   # First derivative d/dr
-    d²_matrix = ℬ.∂²r  # Second derivative d²/dr²
-
-    # Pre-allocate work arrays for radial profiles
-    # Note: Radial data is always local (not MPI distributed)
-    Pᴾ_profile_real = zeros(T, nr)
-    Pᴾ_profile_imag = zeros(T, nr)
-    dᴾ_dr_real     = zeros(T, nr)
-    dᴾ_dr_imag     = zeros(T, nr)
-    d²ᴾ_dr²_real   = zeros(T, nr)
-    d²ᴾ_dr²_imag   = zeros(T, nr)
-
-    # Process each (l,m) mode
-    @inbounds for lm_idx in lm_range
-        if lm_idx <= length(ℬ.ℓ_factors)
-            local_lm = lm_idx - first(lm_range) + 1
-            ℓ_factor = ℬ.ℓ_factors[lm_idx]
-
-            # Extract radial profile (all radial data is local)
-            fill!(Pᴾ_profile_real, zero(T))
-            fill!(Pᴾ_profile_imag, zero(T))
-            for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
-                if local_r <= size(𝒫ᵘᵇ_real, 3)
-                    Pᴾ_profile_real[r_idx] = 𝒫ᵘᵇ_real[local_lm, 1, local_r]
-                    Pᴾ_profile_imag[r_idx] = 𝒫ᵘᵇ_imag[local_lm, 1, local_r]
-                end
-            end
-
-            # Compute radial derivatives
-            apply_∂r!(dᴾ_dr_real, d1_matrix, Pᴾ_profile_real)
-            apply_∂r!(dᴾ_dr_imag, d1_matrix, Pᴾ_profile_imag)
-            apply_∂r!(d²ᴾ_dr²_real, d²_matrix, Pᴾ_profile_real)
-            apply_∂r!(d²ᴾ_dr²_imag, d²_matrix, Pᴾ_profile_imag)
-
-            # Compute curl components
-            r_first = first(r_range)
-            r_last = min(last(r_range), nr)
-            if r_last < r_first
-                continue
-            end
-            @simd for r_idx in r_first:r_last
-                local_r = r_idx - r_first + 1
-                if local_r <= size(NLᵀ_real, 3)
-                    r_val = domain.r[r_idx, 4]
-                    if r_val == 0.0
-                        NLᵀ_real[local_lm, 1, local_r] = zero(T)
-                        NLᵀ_imag[local_lm, 1, local_r] = zero(T)
-                        NLᴾ_real[local_lm, 1, local_r] = zero(T)
-                        NLᴾ_imag[local_lm, 1, local_r] = zero(T)
-                    else
-                        r⁻¹ = domain.r[r_idx, 3]
-                        r⁻² = domain.r[r_idx, 2]
-                        NLᵀ_real[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx]
-                                                             - d²ᴾ_dr²_real[r_idx]
-                                                             - 2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
-                        NLᵀ_imag[local_lm, 1, local_r] = (ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx]
-                                                             - d²ᴾ_dr²_imag[r_idx]
-                                                             - 2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
-                        NLᴾ_real[local_lm, 1, local_r] = -ℓ_factor * r⁻² * 𝒯ᵘᵇ_real[local_lm, 1, local_r]
-                        NLᴾ_imag[local_lm, 1, local_r] = -ℓ_factor * r⁻² * 𝒯ᵘᵇ_imag[local_lm, 1, local_r]
-                    end
-                end
-            end
-        end
-    end
+    # ∇ × (u × B): source is work arrays, destination is NL arrays
+    _spectral_curl_torpol!(
+        parent(ℬ.nlᵀ.data_real), parent(ℬ.nlᵀ.data_imag),
+        parent(ℬ.nlᴾ.data_real), parent(ℬ.nlᴾ.data_imag),
+        parent(ℬ.work_tor.data_real), parent(ℬ.work_tor.data_imag),
+        parent(ℬ.work_pol.data_real), parent(ℬ.work_pol.data_imag),
+        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, ℬ.outer_domain, ℬ.𝒯.config, T
+    )
 end
 
 

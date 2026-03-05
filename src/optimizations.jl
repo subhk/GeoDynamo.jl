@@ -465,17 +465,26 @@ end
 
 function check_completed_tasks!(graph::TaskGraph)
     to_remove = Int[]
-    
+
     for (task_id, task) in graph.running_tasks
         if istaskdone(task)
+            # fetch() to propagate any exception — istaskdone returns true
+            # even for failed tasks, so without fetch() errors are silently lost
+            try
+                fetch(task)
+            catch e
+                @error "Task $task_id failed" exception=(e, catch_backtrace())
+                rethrow()
+            end
+
             push!(to_remove, task_id)
             push!(graph.completed_tasks, task_id)
-            
+
             # Update dependencies
             update_dependencies!(graph, task_id)
         end
     end
-    
+
     # Remove completed tasks
     for task_id in to_remove
         delete!(graph.running_tasks, task_id)

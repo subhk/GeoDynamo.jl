@@ -528,8 +528,10 @@ function set_temperature_ic!(temp_𝔽::SHTnsTemperatureField{T},
                     r = domain.r[r_idx, 4]
                     
                     if l == 0 && m == 0
-                        # Conductive profile for l=0, m=0
-                        spec_real[local_lm, 1, local_r] = 1.0 - r
+                        # Conductive profile for spherical shell: T(r) = ri*ro/(ro-ri) * (1/r - 1/ro)
+                        ri = d_rratio / (1.0 - d_rratio)
+                        ro = 1.0 / (1.0 - d_rratio)
+                        spec_real[local_lm, 1, local_r] = ri * ro / (ro - ri) * (1.0 / r - 1.0 / ro)
                         spec_imag[local_lm, 1, local_r] = 0.0
                     elseif l <= 4
                         # Small perturbation for low modes

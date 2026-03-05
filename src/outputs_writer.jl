@@ -335,7 +335,11 @@ Verify that parallel NetCDF (MPI-IO via HDF5) is available at runtime.
 Called once at initialization. Errors immediately if not supported.
 """
 function check_parallel_netcdf_support(comm)
-    tmpfile = tempname() * ".nc"
+    # Generate filename on rank 0 and broadcast — all ranks must use the same
+    # path for the collective NCDataset open, otherwise it will deadlock.
+    rank = MPI.Comm_rank(comm)
+    tmpfile = rank == 0 ? tempname() * ".nc" : ""
+    tmpfile = MPI.bcast(tmpfile, comm; root=0)
     try
         ds = NCDataset(tmpfile, "c"; comm=comm, info=MPI.Info())
         close(ds)
@@ -345,7 +349,11 @@ function check_parallel_netcdf_support(comm)
               "set ENV[\"JULIA_HDF5_PATH\"] to a parallel-enabled HDF5 installation " *
               "and rebuild HDF5_jll. Error: $e")
     finally
-        isfile(tmpfile) && rm(tmpfile)
+        # Only rank 0 cleans up to avoid filesystem races
+        if rank == 0 && isfile(tmpfile)
+            rm(tmpfile; force=true)
+        end
+        MPI.Barrier(comm)
     end
 end
 
@@ -796,23 +804,42 @@ end
 
 function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
     diagnostics = Dict{String, Float64}()
+    comm = get_comm()
+    nprocs = (comm !== nothing && MPI.Comm_size(comm) > 1) ? MPI.Comm_size(comm) : 1
+    use_mpi = nprocs > 1
 
-    if haskey(fields, "temperature")
-        T = fields["temperature"]
-        diagnostics["temp_mean"] = mean(T)
-        diagnostics["temp_std"] = std(T)
-        diagnostics["temp_min"] = minimum(T)
-        diagnostics["temp_max"] = maximum(T)
+    # Helper: reduce a scalar across all ranks
+    _global_sum(x)  = use_mpi ? MPI.Allreduce(x, MPI.SUM, comm) : x
+    _global_max(x)  = use_mpi ? MPI.Allreduce(x, MPI.MAX, comm) : x
+    _global_min(x)  = use_mpi ? MPI.Allreduce(x, MPI.MIN, comm) : x
+
+    # Physical-space fields: need global reduction for correct mean/min/max/std
+    for (key, prefix) in [("temperature", "temp"), ("composition", "comp")]
+        if haskey(fields, key)
+            F = fields[key]
+            local_n   = Float64(length(F))
+            local_sum = Float64(sum(F))
+            local_min = Float64(minimum(F))
+            local_max = Float64(maximum(F))
+
+            global_n   = _global_sum(local_n)
+            global_sum = _global_sum(local_sum)
+            global_min = _global_min(local_min)
+            global_max = _global_max(local_max)
+            global_mean = global_sum / global_n
+
+            # Two-pass variance via parallel algorithm: sum of (x - global_mean)^2
+            local_sq_sum = sum(x -> (Float64(x) - global_mean)^2, F)
+            global_sq_sum = _global_sum(local_sq_sum)
+
+            diagnostics["$(prefix)_mean"] = global_mean
+            diagnostics["$(prefix)_std"]  = sqrt(global_sq_sum / global_n)
+            diagnostics["$(prefix)_min"]  = global_min
+            diagnostics["$(prefix)_max"]  = global_max
+        end
     end
 
-    if haskey(fields, "composition")
-        C = fields["composition"]
-        diagnostics["comp_mean"] = mean(C)
-        diagnostics["comp_std"] = std(C)
-        diagnostics["comp_min"] = minimum(C)
-        diagnostics["comp_max"] = maximum(C)
-    end
-
+    # Spectral fields: reduce energy, rms, max across ranks
     for component in ["velocity_toroidal", "velocity_poloidal",
                       "magnetic_toroidal", "magnetic_poloidal",
                       "temperature_spectral", "composition_spectral"]
@@ -822,19 +849,22 @@ function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
                 real_part = field_data["real"]
                 imag_part = field_data["imag"]
 
-                energy = zero(eltype(real_part))
-                max_magnitude = zero(eltype(real_part))
-                sum_magnitude_sq = zero(eltype(real_part))
+                local_energy = zero(Float64)
+                local_max_mag = zero(Float64)
+                local_count = Float64(length(real_part))
                 for i in eachindex(real_part, imag_part)
-                    magnitude_sq = real_part[i]^2 + imag_part[i]^2
-                    energy += magnitude_sq
-                    magnitude = sqrt(magnitude_sq)
-                    sum_magnitude_sq += magnitude_sq
-                    max_magnitude = max(max_magnitude, magnitude)
+                    magnitude_sq = Float64(real_part[i])^2 + Float64(imag_part[i])^2
+                    local_energy += magnitude_sq
+                    local_max_mag = max(local_max_mag, sqrt(magnitude_sq))
                 end
-                diagnostics["$(component)_energy"] = 0.5 * energy
-                diagnostics["$(component)_rms"] = sqrt(sum_magnitude_sq / length(real_part))
-                diagnostics["$(component)_max"] = max_magnitude
+
+                global_energy = _global_sum(local_energy)
+                global_max_mag = _global_max(local_max_mag)
+                global_count = _global_sum(local_count)
+
+                diagnostics["$(component)_energy"] = 0.5 * global_energy
+                diagnostics["$(component)_rms"] = sqrt(global_energy / global_count)
+                diagnostics["$(component)_max"] = global_max_mag
 
                 if field_info.has_config && !isempty(field_info.l_values)
                     compute_spectral_energy_diagnostics!(diagnostics, component,

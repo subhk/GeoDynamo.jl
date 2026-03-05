@@ -21,12 +21,15 @@ Base.@kwdef mutable struct GeoDynamoParameters
     i_Ph::Int = 128      # Number of phi points (must be compatible with SHTnsKit)
     i_KL::Int = 4        # Bandwidth for finite differences
     
-    # Derived parameters (computed automatically)
-    i_L1::Int = i_L
-    i_M1::Int = i_M
-    i_H1::Int = (i_L + 1) * (i_L + 2) ÷ 2 - 1
-    i_pH1::Int = i_H1
-    i_Ma::Int = i_M ÷ 2
+    # Derived parameters — always recomputed by update_derived_parameters!()
+    # Defaults here use the default i_L=32/i_M=32 values; any custom construction
+    # must call update_derived_parameters!() to reconcile (done automatically by
+    # load_parameters and set_parameters!).
+    i_L1::Int = 32
+    i_M1::Int = 32
+    i_H1::Int = (32 + 1) * (32 + 2) ÷ 2 - 1
+    i_pH1::Int = (32 + 1) * (32 + 2) ÷ 2 - 1
+    i_Ma::Int = 32 ÷ 2
     
     # Physical parameters
     d_rratio::Float64 = 0.35      # Inner/outer core radius ratio
@@ -266,11 +269,14 @@ function validate_parameters(params::GeoDynamoParameters; strict::Bool=false)
 
     # CFL condition estimate (rough check)
     # For spectral methods: dt < C / (l_max^2 * diffusivity)
-    max_diffusivity = max(params.d_Pm, params.d_Pm / params.d_Pr, params.d_Pm / params.d_Sc)
+    # In magnetic diffusion time scaling: magnetic κ=1, thermal κ=Pm/Pr,
+    # compositional κ=Pm/Sc, viscous κ=E (Ekman number)
+    max_diffusivity = max(1.0, params.d_Pm / params.d_Pr, params.d_Pm / params.d_Sc, params.d_E)
     cfl_limit = 0.1 / (params.i_L^2 * max_diffusivity)
     if params.d_timestep > cfl_limit
         push!(warnings, "d_timestep = $(params.d_timestep) may violate CFL condition " *
-                        "(estimated limit: $(cfl_limit) for spectral stability)")
+                        "(estimated limit: $(cfl_limit) for spectral stability with " *
+                        "max diffusivity = $(max_diffusivity))")
     end
 
     # Timestepping scheme validation
@@ -414,25 +420,13 @@ function load_parameters_from_file(config_file::String)
                     param_name = Symbol(match_result.captures[1])
                     param_value_str = strip(match_result.captures[2])
 
-                    # Evaluate the parameter value safely
-                    # Create a module-level context with already-parsed parameters
+                    # Parse the parameter value safely — no eval/Meta.parse execution
                     try
-                        # First, try direct evaluation (for simple literals)
-                        param_value = eval(Meta.parse(param_value_str))
+                        param_value = safe_parse_value(param_value_str, param_dict)
                         param_dict[param_name] = param_value
                     catch e
-                        # If that fails, try evaluating with previously loaded parameters in scope
-                        # This handles derived parameters like i_L1 = i_L
-                        try
-                            # Create a temporary module with the parameters we've loaded so far
-                            expr = Meta.parse(param_value_str)
-                            # Substitute known parameter names with their values
-                            param_value = eval_with_context(expr, param_dict)
-                            param_dict[param_name] = param_value
-                        catch e2
-                            @debug "Could not parse parameter $param_name = $param_value_str: $e2"
-                            # Skip this parameter - it will use the default value
-                        end
+                        @debug "Could not parse parameter $param_name = $param_value_str: $e"
+                        # Skip this parameter - it will use the default value
                     end
                 end
             end
@@ -462,40 +456,101 @@ function load_parameters_from_file(config_file::String)
         end
     end
 
+    # Always recompute derived parameters from the (potentially overridden) primaries
+    update_derived_parameters!(params)
+
     return params
 end
 
 """
-    eval_with_context(expr, param_dict::Dict{Symbol, Any})
+    safe_parse_value(value_str::AbstractString, param_dict::Dict{Symbol, Any})
 
-Evaluate an expression by substituting symbols with values from param_dict.
+Parse a parameter value string without using `eval`. Supports:
+- Integer and float literals (including scientific notation)
+- Boolean literals (`true`, `false`)
+- Symbol literals (`:name`)
+- String literals (`"..."`)
+- Mathematical constants (`π`)
+- Simple arithmetic expressions referencing previously-defined parameters
 """
-function eval_with_context(expr, param_dict::Dict{Symbol, Any})
-    # If expr is a symbol, look it up in param_dict
+function safe_parse_value(value_str::AbstractString, param_dict::Dict{Symbol, Any})
+    s = strip(value_str)
+
+    # Boolean literals
+    s == "true"  && return true
+    s == "false" && return false
+
+    # Mathematical constants
+    s == "π" || s == "pi" && return π
+
+    # Symbol literal :name
+    if startswith(s, ':')
+        return Symbol(s[2:end])
+    end
+
+    # String literal
+    if startswith(s, '"') && endswith(s, '"')
+        return s[2:end-1]
+    end
+
+    # Try integer (including negative)
+    int_val = tryparse(Int, s)
+    int_val !== nothing && return int_val
+
+    # Try float (including scientific notation like 1e-4)
+    float_val = tryparse(Float64, s)
+    float_val !== nothing && return float_val
+
+    # Try evaluating as a safe arithmetic expression referencing known parameters
+    expr = Meta.parse(s)
+    return safe_eval_expr(expr, param_dict)
+end
+
+# Allowed binary and unary operations for safe arithmetic evaluation
+const _SAFE_OPS = Set{Symbol}([:+, :-, :*, :/, :÷, :^, :div, :mod, :min, :max, :sqrt, :abs])
+
+"""
+    safe_eval_expr(expr, param_dict::Dict{Symbol, Any})
+
+Evaluate a parsed expression using only safe arithmetic operations and known parameter values.
+No arbitrary code execution is possible.
+"""
+function safe_eval_expr(expr, param_dict::Dict{Symbol, Any})
+    # Literal values pass through
+    if expr isa Number
+        return expr
+    end
+
+    # Symbol lookup — must be a known parameter or constant
     if expr isa Symbol
-        return get(param_dict, expr, nothing)
+        expr === :π  && return π
+        expr === :pi && return π
+        haskey(param_dict, expr) && return param_dict[expr]
+        throw(ArgumentError("Unknown parameter reference: $expr"))
     end
 
-    # If expr is not an expression, just evaluate it normally
-    if !isa(expr, Expr)
-        return eval(expr)
+    # QuoteNode for Symbol literals like :float64
+    if expr isa QuoteNode
+        return expr.value
     end
 
-    # Recursively substitute symbols in the expression
-    new_args = []
-    for arg in expr.args
-        if arg isa Symbol && haskey(param_dict, arg)
-            push!(new_args, param_dict[arg])
-        elseif arg isa Expr
-            push!(new_args, eval_with_context(arg, param_dict))
-        else
-            push!(new_args, arg)
+    if !(expr isa Expr)
+        throw(ArgumentError("Unsupported expression type: $(typeof(expr))"))
+    end
+
+    if expr.head === :call
+        op = expr.args[1]
+        if !(op isa Symbol) || op ∉ _SAFE_OPS
+            throw(ArgumentError("Disallowed operation in parameter file: $op"))
         end
+        args = [safe_eval_expr(a, param_dict) for a in expr.args[2:end]]
+        return getfield(Base, op)(args...)
+    elseif expr.head === :parens || expr.head === :block
+        # Parenthesized expression — evaluate the last statement
+        return safe_eval_expr(expr.args[end], param_dict)
+    else
+        throw(ArgumentError("Unsupported expression form in parameter file: $(expr.head)"))
     end
-
-    # Create new expression with substituted values and evaluate
-    new_expr = Expr(expr.head, new_args...)
-    return eval(new_expr)
 end
 
 """
@@ -684,12 +739,14 @@ end
     update_global_parameters!()
 
 Update all global parameter variables with values from the current parameter struct.
+Generated at module load time to avoid runtime `@eval` (which is non-reentrant,
+tears state across threads, and prevents JIT specialization).
 """
-function update_global_parameters!()
+@eval function update_global_parameters!()
     params = get_parameters()
-    for param_name in fieldnames(GeoDynamoParameters)
-        @eval begin
-            global $(param_name) = $params.$(param_name)
-        end
-    end
+    $(Expr(:block, [
+        :(global $(param_name) = getfield(params, $(QuoteNode(param_name))))
+        for param_name in fieldnames(GeoDynamoParameters)
+    ]...))
+    return nothing
 end

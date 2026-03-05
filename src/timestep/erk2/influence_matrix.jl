@@ -187,7 +187,10 @@ function create_velocity_poloidal_influence_matrices(::Type{T},
             invG[1, 2] = -invG[1, 2] * inv_det
             invG[2, 1] = -invG[2, 1] * inv_det
         else
-            # Singular matrix - use identity (no correction)
+            # Singular influence matrix — no-penetration BC cannot be enforced for this l
+            @warn "ERK2 influence matrix is near-singular for l=$l (det=$det). " *
+                  "Falling back to identity (no BC correction). " *
+                  "This may indicate a problem with the operator construction."
             invG[1, 1] = one(T)
             invG[2, 2] = one(T)
             invG[1, 2] = zero(T)

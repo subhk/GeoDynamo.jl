@@ -281,6 +281,9 @@ function run_simulation!(state::SimulationState{T};
     rank = get_rank()
     nprocs = get_nprocs()
 
+    # Reset energy tracker to avoid stale data from previous runs
+    reset_energy_tracker!()
+
     if rank == 0
         println("\nStarting geodynamo simulation...")
         println("Grid: $(state.shtns_config.nlat) × $(state.shtns_config.nlon) × $(i_N)")
@@ -459,9 +462,11 @@ function initialize_fields!(state::SimulationState{T}) where T
         
         for r_idx in axes(temp_real, 3)
             if l == 0 && m == 0
-                # Conductive profile
+                # Conductive profile for spherical shell: T(r) = ri*ro/(ro-ri) * (1/r - 1/ro)
                 r = state.𝒟ᵒᶜ.r[r_idx, 4]
-                temp_real[lm_idx, 1, r_idx] = 1.0 - r
+                ri = d_rratio / (1.0 - d_rratio)
+                ro = 1.0 / (1.0 - d_rratio)
+                temp_real[lm_idx, 1, r_idx] = ri * ro / (ro - ri) * (1.0 / r - 1.0 / ro)
             elseif l <= 4 && l >= 1
                 # Small perturbation
                 temp_real[lm_idx, 1, r_idx] = 1e-3 * (rand() - 0.5)

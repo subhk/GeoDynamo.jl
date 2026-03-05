@@ -223,17 +223,18 @@ function phi1_action_krylov(Aop!, A_lu::BandedLU{T}, v::Vector{T}, dt::Float64; 
         return zeros(T, length(v))
     end
 
-    # Compute exp(dt*A) * v
-    ev = exp_action_krylov(Aop!, v, dt; m, tol)
-    c = ev .- v
-
-    # Check if dt is very small - use series expansion
+    # Small dt: series expansion avoids catastrophic cancellation in (exp(dt A)v - v)
+    # and skips the expensive Krylov computation entirely
     if dt < 1e-8
         # φ1(dt*A) * v ≈ v + (dt/2)*A*v for small dt
         Av = similar(v)
         Aop!(Av, v)
         return v .+ (dt/2) .* Av
     end
+
+    # Compute exp(dt*A) * v
+    ev = exp_action_krylov(Aop!, v, dt; m, tol)
+    c = ev .- v
 
     # Solve A * x = c
     x = copy(c)
@@ -508,6 +509,10 @@ function eab2_update!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
 
         l = config.l_values[lm_idx]
         lpos = findfirst(==(l), etd.l_values)
+        if lpos === nothing
+            error("ETD cache missing l=$l. The cache may be stale after a resolution change; " *
+                  "delete the cache file and restart.")
+        end
         E = etd.E[lpos]
         P1 = etd.phi1[lpos]
 
