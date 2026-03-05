@@ -352,7 +352,7 @@ function create_radial_domain(nr::Union{Int,Nothing}=nothing;
             bk = (k == 0 || k == div(M, 2) && iseven(M)) ? 1.0 : 2.0
             w += bk * cos(2 * k * theta_n) / (1 - 4 * k^2)
         end
-        w /= M
+        w *= 2.0 / M
         if n == 1 || n == N
             w *= 0.5  # endpoint correction
         end

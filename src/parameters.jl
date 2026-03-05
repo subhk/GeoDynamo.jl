@@ -481,7 +481,7 @@ function safe_parse_value(value_str::AbstractString, param_dict::Dict{Symbol, An
     s == "false" && return false
 
     # Mathematical constants
-    s == "π" || s == "pi" && return π
+    (s == "π" || s == "pi") && return π
 
     # Symbol literal :name
     if startswith(s, ':')

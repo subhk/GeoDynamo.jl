@@ -284,31 +284,49 @@ end
 Apply Gaussian smoothing kernel to 2D data array.
 """
 function apply_gaussian_smoothing!(data::AbstractMatrix, theta::Vector, phi::Vector, radius::Real)
-    
+
     nlat, nlon = size(data)
     original_data = copy(data)
-    
+
+    # Cutoff at 3σ — beyond this the Gaussian weight is < exp(-9) ≈ 1.2e-4
+    cutoff = 3.0 * radius
+
+    # Precompute cos/sin of theta for efficiency
+    cos_theta = cos.(theta)
+    sin_theta = sin.(theta)
+
     for i in 1:nlat
         for j in 1:nlon
             weighted_sum = 0.0
             weight_total = 0.0
-            
-            # Apply smoothing kernel in neighborhood
+
             for ii in 1:nlat
+                # Quick latitude-only distance check to skip far-away rows
+                lat_dist = abs(theta[i] - theta[ii])
+                if lat_dist > cutoff
+                    continue
+                end
+
                 for jj in 1:nlon
                     # Calculate angular distance
-                    angular_dist = acos(cos(theta[i]) * cos(theta[ii]) + 
-                                      sin(theta[i]) * sin(theta[ii]) * 
-                                      cos(phi[j] - phi[jj]))
-                    
+                    cos_angle = cos_theta[i] * cos_theta[ii] +
+                                sin_theta[i] * sin_theta[ii] *
+                                cos(phi[j] - phi[jj])
+                    cos_angle = clamp(cos_angle, -1.0, 1.0)
+                    angular_dist = acos(cos_angle)
+
+                    if angular_dist > cutoff
+                        continue
+                    end
+
                     # Gaussian weight
                     weight = exp(-(angular_dist / radius)^2)
-                    
+
                     weighted_sum += weight * original_data[ii, jj]
                     weight_total += weight
                 end
             end
-            
+
             data[i, j] = weighted_sum / weight_total
         end
     end

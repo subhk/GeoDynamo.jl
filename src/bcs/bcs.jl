@@ -483,22 +483,9 @@ function shtns_physical_to_spectral(physical_data::Matrix{T}, config; return_com
 
         return coeffs
     catch e
-        @warn "SHTnsKit analysis failed, using fallback: $e"
-
-        # Fallback: simple mean value in l=0 mode
-        nlm = config.nlm
-        if return_complex
-            coeffs = zeros(Complex{T}, nlm)
-        else
-            coeffs = zeros(T, nlm)
-        end
-
-        # Set l=0, m=0 mode to mean value
-        if length(coeffs) > 0
-            coeffs[1] = _Statistics.mean(physical_data)
-        end
-
-        return coeffs
+        error("SHTnsKit analysis failed: $e. " *
+              "Cannot safely fall back to zeroed l>0 modes as this would produce " *
+              "incorrect boundary conditions. Check SHTnsKit configuration and input data shape.")
     end
 end
 

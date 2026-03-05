@@ -224,23 +224,10 @@ function get_bc_vectors_from_field(field)
 
     bc_real = cache["bc_real"]::Matrix
     bc_imag = cache["bc_imag"]::Matrix
-    T = eltype(bc_real)
-    nlm = size(bc_real, 2)
 
-    inner_real = Vector{T}(undef, nlm)
-    outer_real = Vector{T}(undef, nlm)
-    inner_imag = Vector{T}(undef, nlm)
-    outer_imag = Vector{T}(undef, nlm)
-
-    @inbounds for i in 1:nlm
-        inner_real[i] = bc_real[1, i]
-        outer_real[i] = bc_real[2, i]
-        inner_imag[i] = bc_imag[1, i]
-        outer_imag[i] = bc_imag[2, i]
-    end
-
-    return (inner_real=inner_real, outer_real=outer_real,
-            inner_imag=inner_imag, outer_imag=outer_imag)
+    # Return views into the stored matrices to avoid per-call allocations
+    return (inner_real=view(bc_real, 1, :), outer_real=view(bc_real, 2, :),
+            inner_imag=view(bc_imag, 1, :), outer_imag=view(bc_imag, 2, :))
 end
 
 # Export from bcs module

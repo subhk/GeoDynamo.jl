@@ -304,18 +304,23 @@ Used by both current density (j = ∇×B) and induction curl (∇×(u×B)).
 function _spectral_curl_torpol!(
     dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
     src_tor_r, src_tor_i, src_pol_r, src_pol_i,
-    ℓ_factors, d1_matrix, d²_matrix, domain::RadialDomain, config::SHTnsKitConfig, ::Type{T}
+    ℓ_factors, d1_matrix, d²_matrix, domain::RadialDomain, config::SHTnsKitConfig, ::Type{T};
+    _work::Union{Nothing, NTuple{6, Vector{T}}}=nothing
 ) where T
     lm_range = range_local(config.pencils.spec, 1)
     r_range  = range_local(config.pencils.spec, 3)
     nr = domain.N
 
-    Pᴾ_profile_real = zeros(T, nr)
-    Pᴾ_profile_imag = zeros(T, nr)
-    dᴾ_dr_real      = zeros(T, nr)
-    dᴾ_dr_imag      = zeros(T, nr)
-    d²ᴾ_dr²_real    = zeros(T, nr)
-    d²ᴾ_dr²_imag    = zeros(T, nr)
+    if _work !== nothing
+        Pᴾ_profile_real, Pᴾ_profile_imag, dᴾ_dr_real, dᴾ_dr_imag, d²ᴾ_dr²_real, d²ᴾ_dr²_imag = _work
+    else
+        Pᴾ_profile_real = zeros(T, nr)
+        Pᴾ_profile_imag = zeros(T, nr)
+        dᴾ_dr_real      = zeros(T, nr)
+        dᴾ_dr_imag      = zeros(T, nr)
+        d²ᴾ_dr²_real    = zeros(T, nr)
+        d²ᴾ_dr²_imag    = zeros(T, nr)
+    end
 
     @inbounds for lm_idx in lm_range
         if lm_idx <= length(ℓ_factors)
@@ -446,13 +451,13 @@ function compute_velocity_cross_magnetic!(ℬ::SHTnsMagneticFields{T}, 𝒰) whe
     config = ℬ.magnetic.r_component.config
     
     # Compute cross product with vectorization
+    # All physical-space arrays share the same pencil layout and must be equal in size
+    @assert length(uᵣ) == length(Bᵣ) "Velocity and magnetic field arrays must have the same size"
     @inbounds @simd for idx in eachindex(uᵣ)
-        if idx <= length(Bᵣ)
-            # u × B = (uθ Bφ - uφ Bθ, uφ Bᵣ - uᵣ Bφ, uᵣ Bθ - uθ Bᵣ)
-            uBᵣ[idx] = uθ[idx] * Bφ[idx] - uφ[idx] * Bθ[idx]
-            uBθ[idx] = uφ[idx] * Bᵣ[idx] - uᵣ[idx] * Bφ[idx]
-            uBφ[idx] = uᵣ[idx] * Bθ[idx] - uθ[idx] * Bᵣ[idx]
-        end
+        # u × B = (uθ Bφ - uφ Bθ, uφ Bᵣ - uᵣ Bφ, uᵣ Bθ - uθ Bᵣ)
+        uBᵣ[idx] = uθ[idx] * Bφ[idx] - uφ[idx] * Bθ[idx]
+        uBθ[idx] = uφ[idx] * Bᵣ[idx] - uᵣ[idx] * Bφ[idx]
+        uBφ[idx] = uᵣ[idx] * Bθ[idx] - uθ[idx] * Bᵣ[idx]
     end
 end
 

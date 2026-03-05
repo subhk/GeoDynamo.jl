@@ -185,30 +185,23 @@ function exp_action_krylov(Aop!, v::Vector{T}, dt::Float64; m::Int=20, tol::Floa
         y_small = exp(Hred) * (beta .* e1)
 
         if !all(isfinite.(y_small))
-            @warn "Non-finite result in final Krylov computation, using first-order approximation"
-            # Fallback to first-order: exp(dt*A)*v ≈ v + dt*A*v
-            result = copy(v)
-            Aop!(w, v)
-            result .+= dt .* w
-            return result
+            error("Non-finite result in final Krylov computation (exp_action_krylov). " *
+                  "The first-order fallback is not valid for full-size dt=$dt. " *
+                  "Consider reducing dt or increasing Krylov subspace dimension m.")
         end
 
         result = V[:, 1:kmax] * y_small
 
         if !all(isfinite.(result))
-            @warn "Non-finite final result in Krylov, using first-order approximation"
-            result = copy(v)
-            Aop!(w, v)
-            result .+= dt .* w
+            error("Non-finite final result in Krylov (exp_action_krylov). " *
+                  "Consider reducing dt or increasing Krylov subspace dimension m.")
         end
 
         return result
     catch e
-        @warn "Error in final Krylov computation: $e, using first-order approximation"
-        result = copy(v)
-        Aop!(w, v)
-        result .+= dt .* w
-        return result
+        e isa ErrorException && rethrow(e)
+        error("Error in final Krylov computation: $e. " *
+              "The first-order fallback is not valid for full-size dt=$dt.")
     end
 end
 
@@ -244,20 +237,16 @@ function phi1_action_krylov(Aop!, A_lu::BandedLU{T}, v::Vector{T}, dt::Float64; 
 
         # Validate result
         if !all(isfinite.(x))
-            @warn "Non-finite result in phi1_action_krylov, using fallback"
-            # Fallback to series expansion
-            Av = similar(v)
-            Aop!(Av, v)
-            return v .+ (dt/2) .* Av
+            error("Non-finite result in phi1_action_krylov. " *
+                  "The first-order fallback is not valid for full-size dt=$dt. " *
+                  "Consider reducing dt or checking the banded operator conditioning.")
         end
 
         return x
     catch e
-        @warn "Banded solve failed in phi1_action_krylov: $e, using fallback"
-        # Fallback to series expansion
-        Av = similar(v)
-        Aop!(Av, v)
-        return v .+ (dt/2) .* Av
+        e isa ErrorException && rethrow(e)
+        error("Banded solve failed in phi1_action_krylov: $e. " *
+              "The first-order fallback is not valid for full-size dt=$dt.")
     end
 end
 
@@ -274,6 +263,8 @@ function eab2_update_krylov!(u::SHTnsSpecField{T}, nl::SHTnsSpecField{T},
                              nl_prev::SHTnsSpecField{T}, domain::RadialDomain,
                              diffusivity::Float64, config::SHTnsKitConfig,
                              dt::Float64; m::Int=20, tol::Float64=1e-8) where T
+    @warn "eab2_update_krylov! rebuilds matrices per mode each timestep. " *
+          "Use eab2_update_krylov_cached! with a pre-built alu_map for better performance." maxlog=1
     u_real = parent(u.data_real); u_imag = parent(u.data_imag)
     n_real = parent(nl.data_real); n_imag = parent(nl.data_imag)
     p_real = parent(nl_prev.data_real); p_imag = parent(nl_prev.data_imag)

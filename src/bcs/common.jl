@@ -404,16 +404,12 @@ function find_boundary_time_index(boundary_set::BoundaryConditionSet, current_ti
     elseif current_time >= time_coords[end]
         return length(time_coords)
     else
-        # Linear search for closest time
-        for i in 1:(length(time_coords)-1)
-            if time_coords[i] <= current_time <= time_coords[i+1]
-                if abs(current_time - time_coords[i]) <= abs(current_time - time_coords[i+1])
-                    return i
-                else
-                    return i + 1
-                end
-            end
+        # Binary search for closest time (O(log n) instead of O(n))
+        i = searchsortedlast(time_coords, current_time)
+        if i < length(time_coords) && abs(current_time - time_coords[i+1]) < abs(current_time - time_coords[i])
+            return i + 1
         end
+        return i
     end
 
     return 1  # Fallback

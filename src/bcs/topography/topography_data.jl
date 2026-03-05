@@ -352,6 +352,8 @@ end
                                          lmax::Int=32) -> TopographyField
 
 Create single spherical harmonic topography h = amplitude * Y_l^m(θ, φ).
+For m >= 0, sets the real (cosine) part. For m < 0, sets the imaginary (sine)
+part via conjugate symmetry, since only |m| entries are stored.
 """
 function create_spherical_harmonic_topography(l::Int, m::Int, amplitude::Float64,
                                               radius::Float64, location::BoundaryLocation;
@@ -365,9 +367,9 @@ function create_spherical_harmonic_topography(l::Int, m::Int, amplitude::Float64
     if m >= 0
         field.coeffs_real[idx] = amplitude
     else
-        # For m < 0, handle conjugate relation
+        # For m < 0, the conjugate symmetry maps to the imaginary (sine) part
         phase = iseven(-m) ? 1.0 : -1.0
-        field.coeffs_real[idx] = phase * amplitude
+        field.coeffs_imag[idx] = phase * amplitude
     end
 
     update_topography_statistics!(field)

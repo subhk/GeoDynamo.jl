@@ -403,6 +403,16 @@ function update_icb_topography!(state::StefanState{T}, dt::T, velocity_field,
     end
 
     # Update topography (forward Euler - can be replaced with better scheme)
+    # Warn if the topography growth rate may exceed stability bounds
+    max_rate = zero(T)
+    for i in 1:nlm
+        rate_mag = abs(state.topography_rate.coeffs_real[i]) + abs(state.topography_rate.coeffs_imag[i])
+        max_rate = max(max_rate, rate_mag)
+    end
+    if max_rate * dt > T(0.1)
+        @warn "Stefan condition: large topography update detected (max |dh/dt| * dt = $(max_rate * dt)). " *
+              "Consider reducing the timestep for stability of the forward Euler topography update."
+    end
     for i in 1:nlm
         state.topography.coeffs_real[i] += dt * state.topography_rate.coeffs_real[i]
         state.topography.coeffs_imag[i] += dt * state.topography_rate.coeffs_imag[i]

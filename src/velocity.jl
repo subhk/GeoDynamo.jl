@@ -1105,21 +1105,24 @@ function compute_reynolds_stress(𝒰::SHTnsVelocityFields{T}) where T
     vθ = parent(𝒰.velocity.θ_component.data)
     vφ = parent(𝒰.velocity.φ_component.data)
     
-    # Compute all 6 independent components
-    R_rr = mean(vᵣ .* vᵣ)
-    R_θθ = mean(vθ .* vθ)
-    R_φφ = mean(vφ .* vφ)
-    R_rθ = mean(vᵣ .* vθ)
-    R_rφ = mean(vᵣ .* vφ)
-    R_θφ = mean(vθ .* vφ)
-    
-    # Global averages
-    R_rr = MPI.Allreduce(R_rr, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_θθ = MPI.Allreduce(R_θθ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_φφ = MPI.Allreduce(R_φφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_rθ = MPI.Allreduce(R_rθ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_rφ = MPI.Allreduce(R_rφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
-    R_θφ = MPI.Allreduce(R_θφ, MPI.SUM, get_comm()) / MPI.Comm_size(get_comm())
+    # Compute all 6 independent components as local sums
+    local_count = T(length(vᵣ))
+    R_rr = sum(vᵣ .* vᵣ)
+    R_θθ = sum(vθ .* vθ)
+    R_φφ = sum(vφ .* vφ)
+    R_rθ = sum(vᵣ .* vθ)
+    R_rφ = sum(vᵣ .* vφ)
+    R_θφ = sum(vθ .* vφ)
+
+    # Global averages: Allreduce(sum) / Allreduce(count) for correct
+    # distributed mean even when ranks hold unequal slab sizes
+    global_count = MPI.Allreduce(local_count, MPI.SUM, get_comm())
+    R_rr = MPI.Allreduce(R_rr, MPI.SUM, get_comm()) / global_count
+    R_θθ = MPI.Allreduce(R_θθ, MPI.SUM, get_comm()) / global_count
+    R_φφ = MPI.Allreduce(R_φφ, MPI.SUM, get_comm()) / global_count
+    R_rθ = MPI.Allreduce(R_rθ, MPI.SUM, get_comm()) / global_count
+    R_rφ = MPI.Allreduce(R_rφ, MPI.SUM, get_comm()) / global_count
+    R_θφ = MPI.Allreduce(R_θφ, MPI.SUM, get_comm()) / global_count
     
     return (R_rr, R_θθ, R_φφ, R_rθ, R_rφ, R_θφ)
 end

@@ -155,7 +155,11 @@ function _gauss_legendre_point(n::Int, i::Int)
         end
 
         # Derivative: P'_n(z) = n(zP_n - P_{n-1})/(z² - 1)
-        pp = n * (z * p1 - p2) / (z^2 - 1)
+        z2m1 = z^2 - 1
+        if abs(z2m1) < eps(Float64)
+            z2m1 = copysign(eps(Float64), z2m1)
+        end
+        pp = n * (z * p1 - p2) / z2m1
 
         z_old = z
         z = z - p1 / pp
@@ -165,8 +169,7 @@ function _gauss_legendre_point(n::Int, i::Int)
         end
     end
 
-    # Weight
-    pp = n * (z * 1.0 - 0.0)  # Recompute derivative at root
+    # Weight: recompute P_n(z) and derivative at the converged root
     p1 = 1.0
     p2 = 0.0
     for j in 1:n
@@ -174,7 +177,11 @@ function _gauss_legendre_point(n::Int, i::Int)
         p2 = p1
         p1 = ((2j - 1) * z * p2 - (j - 1) * p3) / j
     end
-    pp = n * (z * p1 - p2) / (z^2 - 1)
+    z2m1 = z^2 - 1
+    if abs(z2m1) < eps(Float64)
+        z2m1 = copysign(eps(Float64), z2m1)
+    end
+    pp = n * (z * p1 - p2) / z2m1
     w = 2.0 / ((1 - z^2) * pp^2)
 
     return (z, w)

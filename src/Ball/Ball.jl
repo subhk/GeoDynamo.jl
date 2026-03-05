@@ -33,6 +33,9 @@ to match expectations of downstream operators.
 """
 function create_ball_radial_domain(nr::Int = GeoDynamo.i_N)
     N = nr
+    if N < 2
+        error("Ball radial domain requires nr >= 2, got nr=$N")
+    end
     # r[:,4] holds the base radius coordinate in existing code
     r = zeros(Float64, N, 7)
     # Cosine clustering towards r=0 and r=1 like Chebyshev nodes mapped to [0,1]
