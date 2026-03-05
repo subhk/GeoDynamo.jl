@@ -74,8 +74,8 @@ mutable struct GeoDynamoDevice
     compute_capability::String
 end
 
-# Global device state
-const CURRENT_DEVICE = Ref{GeoDynamoDevice}()
+# Global device state (initialized to nothing; set by __init__ at runtime)
+const CURRENT_DEVICE = Ref{Union{GeoDynamoDevice, Nothing}}(nothing)
 
 """
     GPU_AVAILABLE::Bool
@@ -278,14 +278,18 @@ end
 
 Get current computational device
 """
-get_device() = CURRENT_DEVICE[]
+function get_device()
+    dev = CURRENT_DEVICE[]
+    dev === nothing && error("GeoDynamo GPU backend not initialized. Ensure __init__ has run (not during precompilation).")
+    return dev::GeoDynamoDevice
+end
 
 """
     get_backend() -> KernelAbstractions.Backend
 
 Get current KernelAbstractions backend
 """
-get_backend() = CURRENT_DEVICE[].backend
+get_backend() = get_device().backend
 
 """
     device_array(x::AbstractArray) -> AbstractArray
@@ -451,12 +455,21 @@ Get system memory in GB
 """
 function get_system_memory_gb()
     try
-        # Try to get system memory (Unix-like systems)
-        if Sys.islinux() || Sys.isapple()
-            mem_kb = parse(Int, readchomp(`sysctl -n hw.memsize`)) ÷ 1024
-            return mem_kb / (1024^2)  # Convert to GB
+        if Sys.isapple()
+            # macOS: hw.memsize returns bytes
+            mem_bytes = parse(Int, readchomp(`sysctl -n hw.memsize`))
+            return mem_bytes / (1024^3)  # Convert to GB
+        elseif Sys.islinux()
+            # Linux: parse MemTotal from /proc/meminfo (in kB)
+            for line in eachline("/proc/meminfo")
+                if startswith(line, "MemTotal:")
+                    mem_kb = parse(Int, split(line)[2])
+                    return mem_kb / (1024^2)  # Convert to GB
+                end
+            end
+            return 8.0  # Fallback if MemTotal not found
         else
-            return 8.0  # Default fallback
+            return 8.0  # Default fallback for other platforms
         end
     catch
         return 8.0  # Default fallback

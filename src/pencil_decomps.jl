@@ -130,6 +130,14 @@ function optimize_process_topology(nprocs::Int, dims::Tuple{Int,Int,Int})
         end
     end
     
+    # Validate that the best decomposition satisfies the minimum grid-per-process constraint
+    p1, p2 = best_decomp
+    if nlat ÷ p1 < 2 || nlon ÷ p2 < 2
+        @warn "No valid 2D pencil decomposition found for nlat=$nlat, nlon=$nlon with $nprocs processes. " *
+              "Best candidate ($p1, $p2) gives $(nlat÷p1) × $(nlon÷p2) points per process " *
+              "(minimum 2×2 required). Consider reducing the number of MPI processes or increasing resolution."
+    end
+
     return best_decomp
 end
 

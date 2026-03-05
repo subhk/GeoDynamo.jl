@@ -771,7 +771,9 @@ A complete (lmax+1) × (mmax+1) coefficient matrix ready for SHTnsKit.synthesis(
 function extract_coefficients_for_shtnskit(spec_real, spec_imag, r_local, config)
     lmax, mmax = config.lmax, config.mmax
 
-    # Use thread-safe cached buffer access
+    # IMPORTANT: Buffer cache keys are per-config singletons. Do NOT call this
+    # function concurrently on the same config from multiple threads/tasks.
+    # Internal @threads parallelism within a single call is safe.
     coeffs_buffer = get_cached_buffer!(config, :coeffs_buffer) do
         zeros(ComplexF64, lmax+1, mmax+1)
     end

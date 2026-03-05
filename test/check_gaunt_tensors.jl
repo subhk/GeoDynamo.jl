@@ -1,7 +1,9 @@
 using Random
 using Printf
-
-using bcs.topography
+using GeoDynamo
+using GeoDynamo: GauntTensorCache, gaunt_on_the_fly, compute_gaunt_tensor,
+                 evaluate_spherical_harmonics_grid, evaluate_spherical_harmonic_gradient_grid,
+                 gradient_gaunt_from_basic
 
 function gradient_gaunt_numeric(l1::Int, m1::Int, l2::Int, m2::Int, L::Int, M::Int,
                                 cache::GauntTensorCache{T}) where T

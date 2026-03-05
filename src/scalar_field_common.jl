@@ -412,6 +412,16 @@ function compute_radial_gradient_spectral!(𝔽::AbstractScalarField{T}, domain:
     nr       = domain.N
     bandwidth = 𝔽.∂r.bandwidth
 
+    # The banded stencil requires all radial points to be local. If r_range doesn't
+    # cover the full radial domain, boundary stencil contributions would be silently
+    # dropped. Assert that the full radial domain is local (no radial MPI decomposition).
+    if first(r_range) != 1 || last(r_range) != nr
+        @assert first(r_range) == 1 && last(r_range) == nr (
+            "compute_radial_gradient_spectral! requires full radial domain on each rank. " *
+            "Got r_range=$(r_range) but nr=$nr. Radial MPI decomposition is not supported " *
+            "for banded radial derivatives without halo exchange.")
+    end
+
     @inbounds for lm_idx in lm_range
         if lm_idx <= 𝔽.config.nlm
             local_lm = lm_idx - first(lm_range) + 1
@@ -426,14 +436,12 @@ function compute_radial_gradient_spectral!(𝔽::AbstractScalarField{T}, domain:
 
                     # Banded matrix multiplication (all data is local)
                     for j in max(1, r_idx - bandwidth):min(nr, r_idx + bandwidth)
-                        if j in r_range
-                            local_j = j - first(r_range) + 1
-                            band_row = bandwidth + 1 + r_idx - j
-                            if 1 <= band_row <= 2*bandwidth + 1
-                                coeff = 𝔽.∂r.data[band_row, j]
-                                dr_real += coeff * spec_real[local_lm, 1, local_j]
-                                dr_imag += coeff * spec_imag[local_lm, 1, local_j]
-                            end
+                        local_j = j - first(r_range) + 1
+                        band_row = bandwidth + 1 + r_idx - j
+                        if 1 <= band_row <= 2*bandwidth + 1
+                            coeff = 𝔽.∂r.data[band_row, j]
+                            dr_real += coeff * spec_real[local_lm, 1, local_j]
+                            dr_imag += coeff * spec_imag[local_lm, 1, local_j]
                         end
                     end
 

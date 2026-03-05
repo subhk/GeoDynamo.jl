@@ -22,14 +22,17 @@ const Ball = GeoDynamo.GeoDynamoBall
 
     sreal = parent(spec.data_real); simag = parent(spec.data_imag)
     lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)
-    
+    r_range  = GeoDynamo.range_local(cfg.pencils.spec, 3)
+
     @test !isempty(lm_range)
-    if size(sreal, 3) >= 1
+    # Only check inner boundary regularity if this rank owns global r=1
+    if 1 in r_range
+        r_local_idx = 1 - first(r_range) + 1
         for (k, lm_idx) in enumerate(lm_range)
             l = cfg.l_values[lm_idx]
             if l > 0
-                @test sreal[k, 1, 1] ≈ 0.0 atol=1e-12
-                @test simag[k, 1, 1] ≈ 0.0 atol=1e-12
+                @test sreal[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
+                @test simag[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
             end
         end
     end
@@ -47,14 +50,15 @@ const Ball = GeoDynamo.GeoDynamoBall
     treal = parent(tor.data_real); timag = parent(tor.data_imag)
     preal = parent(pol.data_real); pimag = parent(pol.data_imag)
 
-    if size(treal, 3) >= 1
+    if 1 in r_range
+        r_local_idx = 1 - first(r_range) + 1
         for (k, lm_idx) in enumerate(lm_range)
             l = cfg.l_values[lm_idx]
             if l >= 1
-                @test treal[k, 1, 1] ≈ 0.0 atol=1e-12
-                @test timag[k, 1, 1] ≈ 0.0 atol=1e-12
-                @test preal[k, 1, 1] ≈ 0.0 atol=1e-12
-                @test pimag[k, 1, 1] ≈ 0.0 atol=1e-12
+                @test treal[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
+                @test timag[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
+                @test preal[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
+                @test pimag[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
             end
         end
     end

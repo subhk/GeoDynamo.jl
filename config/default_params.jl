@@ -10,7 +10,7 @@ const i_KL  = 4         # Bandwidth for finite differences
 # Derived parameters
 const i_L1 = i_L
 const i_M1 = i_M
-const i_H1 = (i_L + 1) * (i_L + 2) ÷ 2 - 1
+const i_H1 = (i_L + 1) * (i_L + 2) ÷ 2  # nlm for triangular truncation
 const i_pH1 = i_H1
 const i_Ma = i_M ÷ 2
 

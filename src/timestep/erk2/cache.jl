@@ -137,9 +137,11 @@ function create_erk2_cache(::Type{T}, config::SHTnsKitConfig, domain::RadialDoma
         end
 
         if use_krylov
-            # For large problems, we'll use Krylov methods during timestepping
-            # Store only the operator for action-based computation
-            push!(E_half, Adense)  # Store A for later Krylov action
+            # For Krylov mode, we store the raw operator A (NOT the precomputed
+            # matrix functions). The matrix-function slots are repurposed as operator
+            # storage. Staged integration (erk2_prepare_field!/erk2_finalize_field!)
+            # is not supported in Krylov mode and will error.
+            push!(E_half, Adense)
             push!(E_full, Adense)
             push!(phi1_half, Adense)
             push!(phi1_full, Adense)
@@ -243,6 +245,8 @@ function create_erk2_cache_magnetic_poloidal(::Type{T}, config::SHTnsKitConfig, 
         Adense[nr, nr] += T(l + 1) * r_inv[nr]
 
         if use_krylov
+            # Krylov mode: stores raw operator A, not precomputed matrix functions.
+            # Staged integration is not supported in Krylov mode.
             push!(E_half, Adense)
             push!(E_full, Adense)
             push!(phi1_half, Adense)
@@ -324,6 +328,8 @@ function create_erk2_cache_magnetic_toroidal(::Type{T}, config::SHTnsKitConfig, 
         Adense[nr, :] .= zero(T)
 
         if use_krylov
+            # Krylov mode: stores raw operator A, not precomputed matrix functions.
+            # Staged integration is not supported in Krylov mode.
             push!(E_half, Adense)
             push!(E_full, Adense)
             push!(phi1_half, Adense)
@@ -421,6 +427,8 @@ function create_erk2_cache_scalar(::Type{T}, config::SHTnsKitConfig, domain::Rad
         # erk2_finalize_field! via enforce_erk2_bc!.
 
         if use_krylov
+            # Krylov mode: stores raw operator A, not precomputed matrix functions.
+            # Staged integration is not supported in Krylov mode.
             push!(E_half, Adense)
             push!(E_full, Adense)
             push!(phi1_half, Adense)

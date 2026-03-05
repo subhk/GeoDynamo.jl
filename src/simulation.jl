@@ -871,14 +871,17 @@ function compute_total_energy!(state::SimulationState{T}) where T
     # Total energy
     total_e = kinetic_e + magnetic_e + thermal_e + compositional_e
 
-    # Record energies (capped history to prevent unbounded memory growth)
-    push!(ENERGY_TRACKER.kinetic_energy, kinetic_e)
-    push!(ENERGY_TRACKER.magnetic_energy, magnetic_e)
-    push!(ENERGY_TRACKER.thermal_energy, thermal_e)
-    push!(ENERGY_TRACKER.compositional_energy, compositional_e)
-    push!(ENERGY_TRACKER.total_energy, total_e)
-    push!(ENERGY_TRACKER.timestamps, state.timestep_state.step)
-    _trim_energy_tracker!()
+    # Record energies only on rank 0 to avoid redundant memory usage across MPI ranks
+    # (all ranks compute identical values after Allreduce, but only rank 0 needs the history)
+    if MPI.Comm_rank(get_comm()) == 0
+        push!(ENERGY_TRACKER.kinetic_energy, kinetic_e)
+        push!(ENERGY_TRACKER.magnetic_energy, magnetic_e)
+        push!(ENERGY_TRACKER.thermal_energy, thermal_e)
+        push!(ENERGY_TRACKER.compositional_energy, compositional_e)
+        push!(ENERGY_TRACKER.total_energy, total_e)
+        push!(ENERGY_TRACKER.timestamps, state.timestep_state.step)
+        _trim_energy_tracker!()
+    end
 end
 
 const _MAX_TRACKER_HISTORY = 10000

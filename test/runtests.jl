@@ -40,6 +40,7 @@ additional_tests = (
     "ball_finiteness.jl",
     "stefan_condition_sanity.jl",
     "stefan_condition_shift_sanity.jl",
+    "check_gaunt_tensors.jl",
 )
 
 previous_setting = haskey(ENV, MPI_FINALIZE_KEY) ? ENV[MPI_FINALIZE_KEY] : nothing

@@ -773,13 +773,14 @@ Estimate memory usage for SHTnsKit-based transforms with PencilArrays.
 - `T`: Element type (e.g., Float64)
 """
 function estimate_memory_usage_shtnskit(nlat::Int, nlon::Int, nr::Int, lmax::Int,
-                                       field_count::Int, ::Type{T}) where T
+                                       field_count::Int, ::Type{T};
+                                       mmax::Int=lmax) where T
 
     # Physical grid memory per process (distributed)
     physical_memory_per_process = (nlat * nlon * nr * sizeof(T)) / get_nprocs()
 
     # Spectral memory (approximate)
-    nlm = SHTnsKit.nlm_calc(lmax, lmax, 1)
+    nlm = SHTnsKit.nlm_calc(lmax, mmax, 1)
     spectral_memory_per_process = (nlm * nr * sizeof(ComplexF64) * 2) / get_nprocs()
 
     # PencilArrays working memory (transpose buffers)

@@ -182,7 +182,7 @@ Update derived parameters based on primary parameters.
 function update_derived_parameters!(params::GeoDynamoParameters)
     params.i_L1 = params.i_L
     params.i_M1 = params.i_M
-    params.i_H1 = (params.i_L + 1) * (params.i_L + 2) ÷ 2 - 1
+    params.i_H1 = (params.i_L + 1) * (params.i_L + 2) ÷ 2  # nlm for triangular truncation
     params.i_pH1 = params.i_H1
     params.i_Ma = params.i_M ÷ 2
     return params
@@ -577,7 +577,7 @@ function save_parameters(params::GeoDynamoParameters, filename::String)
         println(io, "# Derived parameters")
         println(io, "const i_L1 = i_L")
         println(io, "const i_M1 = i_M")
-        println(io, "const i_H1 = (i_L + 1) * (i_L + 2) ÷ 2 - 1")
+        println(io, "const i_H1 = (i_L + 1) * (i_L + 2) ÷ 2  # nlm for triangular truncation")
         println(io, "const i_pH1 = i_H1")
         println(io, "const i_Ma = i_M ÷ 2")
         println(io)
