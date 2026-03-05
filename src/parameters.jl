@@ -735,13 +735,11 @@ let _defaults = GeoDynamoParameters()
     end
 end
 
-"""
-    update_global_parameters!()
-
-Update all global parameter variables with values from the current parameter struct.
-Generated at module load time to avoid runtime `@eval` (which is non-reentrant,
-tears state across threads, and prevents JIT specialization).
-"""
+# update_global_parameters!()
+#
+# Update all global parameter variables with values from the current parameter struct.
+# Generated at module load time to avoid runtime `@eval` (which is non-reentrant,
+# tears state across threads, and prevents JIT specialization).
 @eval function update_global_parameters!()
     params = get_parameters()
     $(Expr(:block, [
