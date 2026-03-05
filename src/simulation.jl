@@ -396,6 +396,12 @@ function run_simulation!(state::SimulationState{T};
         state.timestep_state.time = simulation_time
         state.timestep_state.step = step
 
+        # Check for NaN/Inf (every 10 steps to balance cost vs. detection speed)
+        if step % 10 == 0
+            check_simulation_state_for_nan(state, step;
+                config=NaNDetectionConfig(true, 1, true, true))
+        end
+
         # 3. Asynchronous I/O (non-blocking)
 
         if should_output_now(time_tracker, simulation_time, output_config)

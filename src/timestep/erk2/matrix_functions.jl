@@ -29,7 +29,7 @@ function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
             factorial_k_plus_1 = factorial(k + 1)  # (k+1)!
             term = A_power / factorial_k_plus_1
             result += term
-            if opnorm(term) < eps(T) * 100
+            if opnorm(term) < series_tol(T)
                 break
             end
         end
@@ -44,7 +44,7 @@ function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
         lu_A = lu(A)
 
         # Check condition number
-        if rcond(lu_A) < sqrt(eps(T))
+        if rcond(lu_A) < rcond_fallback_tol(T)
             @warn "Ill-conditioned matrix in φ1 computation (rcond = $(rcond(lu_A))), using series expansion"
             # Fall back to series expansion: φ1(A) = Σ(k=0 to ∞) A^k/(k+1)!
             result = copy(I_mat)  # k=0: A⁰/1!
@@ -54,7 +54,7 @@ function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
                 factorial_k_plus_1 = factorial(k + 1)  # (k+1)!
                 term = A_power / factorial_k_plus_1
                 result += term
-                if opnorm(term) < eps(T) * 100
+                if opnorm(term) < series_tol(T)
                     break
                 end
             end
@@ -72,7 +72,7 @@ function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
             for k in 2:15
                 term = A_power / factorial
                 result += term
-                if opnorm(term) < eps(T) * 100
+                if opnorm(term) < series_tol(T)
                     break
                 end
                 A_power = A_power * A
@@ -93,7 +93,7 @@ function compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
                 factorial_k_plus_1 = factorial(k + 1)  # (k+1)!
                 term = A_power / factorial_k_plus_1
                 result += term
-                if opnorm(term) < eps(T) * 100
+                if opnorm(term) < series_tol(T)
                     break
                 end
             end
@@ -202,7 +202,7 @@ function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) where T
             factorial *= (k + 2)   # (k+2)!
             term = A_power / factorial
             result += term
-            if opnorm(term) < eps(T) * 100
+            if opnorm(term) < series_tol(T)
                 break
             end
         end
@@ -226,7 +226,7 @@ function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) where T
             end
         end
 
-        if rcond_val < sqrt(eps(T))
+        if rcond_val < rcond_fallback_tol(T)
             if PHI2_MONITOR.enable_monitoring
                 PHI2_MONITOR.series_expansion_count += 1
             end
@@ -242,7 +242,7 @@ function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) where T
                 factorial *= (k + 2)   # (k+2)!
                 term = A_power / factorial
                 result += term
-                if opnorm(term) < eps(T) * 100
+                if opnorm(term) < series_tol(T)
                     break
                 end
             end
@@ -262,7 +262,7 @@ function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) where T
             for k in 2:15
                 term = A_power / factorial
                 result += term
-                if opnorm(term) < eps(T) * 100
+                if opnorm(term) < series_tol(T)
                     break
                 end
                 A_power = A_power * A
@@ -289,7 +289,7 @@ function compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) where T
                 factorial *= (k + 2)   # (k+2)!
                 term = A_power / factorial
                 result += term
-                if opnorm(term) < eps(T) * 100
+                if opnorm(term) < series_tol(T)
                     break
                 end
             end

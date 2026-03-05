@@ -102,8 +102,9 @@ function find_grid_indices(coords::Vector{T}, target::T; is_periodic::Bool=false
 
         # Safety check: period must be positive
         if period <= zero(T)
-            @warn "Invalid period for periodic coordinate interpolation: period=$period"
-            return (1, min(2, n))
+            throw(ArgumentError("Invalid period for periodic coordinate interpolation: " *
+                                "period=$period (coords[1]=$(coords[1]), coords[end]=$(coords[end]), " *
+                                "grid_spacing=$grid_spacing). Ensure coordinates are sorted and uniformly spaced."))
         end
 
         # Wrap target to coordinate range using modulo for safety (avoids infinite loop)

@@ -69,8 +69,10 @@ function enforce_erk2_bc!(result::AbstractVector{T}, bc_side::ERK2BoundarySide{T
     b = boundary_idx
     effective_value = value_override !== nothing ? value_override : bc_side.value
 
-    # l=0 override: use Dirichlet to avoid underdetermined NN systems
-    # (matches CNAB2 treatment: pin value at inner boundary for l=0 when both are Neumann)
+    # l=0 override: use Dirichlet to avoid underdetermined NN systems.
+    # For l=0 with Neumann-Neumann BCs, the solution is only determined up to a constant.
+    # Pinning one boundary to a Dirichlet value removes this null-space ambiguity.
+    # This matches CNAB2 treatment and is physically correct (sets mean value).
     if bc_side.l0_dirichlet && l == 0
         result[b] = effective_value
         return
@@ -99,7 +101,7 @@ function enforce_erk2_bc!(result::AbstractVector{T}, bc_side::ERK2BoundarySide{T
 
     # Solve: self_coeff * u[b] + off_diag_sum = value
     # → u[b] = (value - off_diag_sum) / self_coeff
-    if abs(self_coeff) > eps(T) * T(100)
+    if abs(self_coeff) > pivot_tol(T)
         result[b] = (effective_value - off_diag_sum) / self_coeff
     else
         # Degenerate case (e.g., l=0 with insulating BC): fall back to value

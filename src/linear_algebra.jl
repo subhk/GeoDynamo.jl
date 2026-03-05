@@ -34,9 +34,10 @@ function factorize_banded(A::BandedMatrix{T}) where T
         piv = lu[piv_row, k]
 
         # Check for singular matrix (zero or near-zero pivot)
-        if abs(piv) < eps(T) * 100
+        tol = pivot_tol(T)
+        if abs(piv) < tol
             error("Singular matrix detected during LU factorization at pivot $k. " *
-                  "Pivot value = $piv, which is below tolerance $(eps(T) * 100). " *
+                  "Pivot value = $piv, which is below tolerance $tol. " *
                   "This may indicate:\n" *
                   "  1. Ill-conditioned derivative matrix\n" *
                   "  2. Incorrect boundary conditions\n" *
@@ -110,9 +111,10 @@ function solve_banded!(x::Vector{T}, lu::BandedLU{T}, b::Vector{T}) where T
         diag_val = lu.lu[diag_row, i]
 
         # Check for zero diagonal during back substitution
-        if abs(diag_val) < eps(T) * 100
+        tol = pivot_tol(T)
+        if abs(diag_val) < tol
             error("Zero diagonal detected during back substitution at row $i. " *
-                  "Diagonal value = $diag_val, which is below tolerance $(eps(T) * 100). " *
+                  "Diagonal value = $diag_val, which is below tolerance $tol. " *
                   "The LU factorization is singular.")
         end
 

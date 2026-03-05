@@ -191,6 +191,23 @@ module GeoDynamo
     export get_parameters, set_parameters!, initialize_parameters
     export @param  # Deprecated - use direct variable access instead
 
+    # ================================================================================
+    # Centralized Numerical Tolerance Constants
+    # ================================================================================
+    # Pivot/singularity detection in linear algebra (LU factorization, back-substitution)
+    const PIVOT_SINGULARITY_FACTOR = 100
+    """Pivot singularity threshold: `abs(pivot) < eps(T) * PIVOT_SINGULARITY_FACTOR`"""
+    pivot_tol(::Type{T}) where T = eps(T) * T(PIVOT_SINGULARITY_FACTOR)
+
+    # Series convergence (matrix exponential/phi function Taylor series)
+    const SERIES_CONVERGENCE_FACTOR = 100
+    """Series term convergence: `opnorm(term) < eps(T) * SERIES_CONVERGENCE_FACTOR`"""
+    series_tol(::Type{T}) where T = eps(T) * T(SERIES_CONVERGENCE_FACTOR)
+
+    # Condition number threshold for switching from direct solve to series expansion
+    """Reciprocal condition number threshold for matrix function fallback"""
+    rcond_fallback_tol(::Type{T}) where T = sqrt(eps(T))
+
     # Include Parameters system first
     include("parameters.jl")
 

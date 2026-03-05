@@ -139,7 +139,7 @@ function exp_action_krylov(Aop!, v::Vector{T}, dt::Float64; m::Int=20, tol::Floa
 
         if j < m
             H[j+1, j] = norm(w)
-            if H[j+1, j] < eps(T) * 100  # More robust zero check
+            if H[j+1, j] < series_tol(T)  # Arnoldi breakdown detection
                 kmax = j
                 break
             end
@@ -212,7 +212,7 @@ Compute φ1(dt A) v = A^{-1}[(exp(dt A) − I) v]/dt using Krylov exp(action) an
 """
 function phi1_action_krylov(Aop!, A_lu::BandedLU{T}, v::Vector{T}, dt::Float64; m::Int=20, tol::Float64=1e-8) where T
     # Check for zero input
-    if norm(v) < eps(T) * 100
+    if norm(v) < series_tol(T)
         return zeros(T, length(v))
     end
 

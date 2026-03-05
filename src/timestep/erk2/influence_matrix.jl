@@ -179,7 +179,9 @@ function create_velocity_poloidal_influence_matrices(::Type{T},
 
         # Invert the 2×2 matrix
         det = invG[1, 1] * invG[2, 2] - invG[1, 2] * invG[2, 1]
-        if abs(det) > eps(T) * T(100)
+        max_elem = max(abs(invG[1, 1]), abs(invG[2, 2]), abs(invG[1, 2]), abs(invG[2, 1]))
+        rel_det = max_elem > zero(T) ? abs(det) / (max_elem^2) : abs(det)
+        if rel_det > pivot_tol(T)
             inv_det = one(T) / det
             tmp = invG[1, 1]
             invG[1, 1] = invG[2, 2] * inv_det
@@ -188,11 +190,13 @@ function create_velocity_poloidal_influence_matrices(::Type{T},
             invG[2, 1] = -invG[2, 1] * inv_det
         else
             # Singular influence matrix — no-penetration BC cannot be enforced for this l
-            @warn "ERK2 influence matrix is near-singular for l=$l (det=$det). " *
-                  "Falling back to identity (no BC correction). " *
-                  "This may indicate a problem with the operator construction."
-            invG[1, 1] = one(T)
-            invG[2, 2] = one(T)
+            @error "ERK2 influence matrix is near-singular for l=$l (det=$det, " *
+                   "relative_det=$rel_det, max_elem=$max_elem). " *
+                   "No-penetration boundary condition CANNOT be enforced. " *
+                   "Check operator construction, timestep size, or boundary condition type."
+            # Zero out correction rather than applying identity (which would add spurious corrections)
+            invG[1, 1] = zero(T)
+            invG[2, 2] = zero(T)
             invG[1, 2] = zero(T)
             invG[2, 1] = zero(T)
         end

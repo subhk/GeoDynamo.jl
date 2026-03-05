@@ -833,7 +833,7 @@ function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
             global_sq_sum = _global_sum(local_sq_sum)
 
             diagnostics["$(prefix)_mean"] = global_mean
-            diagnostics["$(prefix)_std"]  = sqrt(global_sq_sum / global_n)
+            diagnostics["$(prefix)_std"]  = sqrt(max(zero(Float64), global_sq_sum / global_n))
             diagnostics["$(prefix)_min"]  = global_min
             diagnostics["$(prefix)_max"]  = global_max
         end
@@ -863,7 +863,7 @@ function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
                 global_count = _global_sum(local_count)
 
                 diagnostics["$(component)_energy"] = 0.5 * global_energy
-                diagnostics["$(component)_rms"] = sqrt(global_energy / global_count)
+                diagnostics["$(component)_rms"] = sqrt(max(zero(Float64), global_energy / global_count))
                 diagnostics["$(component)_max"] = global_max_mag
 
                 if field_info.has_config && !isempty(field_info.l_values)
@@ -937,8 +937,15 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
 
     # Rank 0 ensures output directory exists
     if rank == 0 && !isdir(config.output_dir)
-        mkpath(config.output_dir)
-        println("Rank 0: Created output directory: $(config.output_dir)")
+        try
+            mkpath(config.output_dir)
+            println("Rank 0: Created output directory: $(config.output_dir)")
+        catch e
+            error("Failed to create output directory '$(config.output_dir)': $e")
+        end
+        if !isdir(config.output_dir)
+            error("Output directory '$(config.output_dir)' does not exist after mkpath()")
+        end
     end
     MPI.Barrier(comm)
 
@@ -983,6 +990,9 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
             write_field_data!(ds, fields, config, field_info)
             write_time_data!(ds, current_time, current_step, config)
             write_diagnostics!(ds, diagnostics, config)
+
+            # Flush all pending writes before close (critical for parallel MPI-IO)
+            NCDatasets.sync(ds)
         finally
             close(ds)
         end
@@ -1063,6 +1073,9 @@ function write_restart!(fields::Dict{String,Any}, tracker::TimeTracker,
             ds["restart_count"][1] = Int32(tracker.restart_count)
             ds["grid_file_written"][1] = Int32(tracker.grid_file_written ? 1 : 0)
         end
+
+        # Flush all pending writes before close (critical for restart integrity)
+        NCDatasets.sync(ds)
     finally
         close(ds)
     end

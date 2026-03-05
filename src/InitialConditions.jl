@@ -68,7 +68,13 @@ function randomize_scalar_field!(field; amplitude::Real, lmax::Int, domain=nothi
             end
         end
     end
-    return _maybe_enforce_ball_scalar!(field, domain)
+    _maybe_enforce_ball_scalar!(field, domain)
+    # Verify initial conditions are finite after all transformations
+    spectral = getproperty(field, :spectral)
+    if any(isnan, parent(spectral.data_real)) || any(isinf, parent(spectral.data_real))
+        error("Non-finite values in scalar field initial conditions (real part)")
+    end
+    return field
 end
 
 """
@@ -101,7 +107,13 @@ function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain=nothi
             end
         end
     end
-    return _maybe_enforce_ball_vector!(field, domain)
+    _maybe_enforce_ball_vector!(field, domain)
+    for spectral in (field.𝒯, field.𝒫)
+        if any(isnan, parent(spectral.data_real)) || any(isinf, parent(spectral.data_real))
+            error("Non-finite values in vector field initial conditions (real part)")
+        end
+    end
+    return field
 end
 
 """
@@ -134,7 +146,13 @@ function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain=not
             end
         end
     end
-    return _maybe_enforce_ball_vector!(field, domain)
+    _maybe_enforce_ball_vector!(field, domain)
+    for spectral in (field.𝒯, field.𝒫)
+        if any(isnan, parent(spectral.data_real)) || any(isinf, parent(spectral.data_real))
+            error("Non-finite values in magnetic field initial conditions (real part)")
+        end
+    end
+    return field
 end
 
 # ================================================================================

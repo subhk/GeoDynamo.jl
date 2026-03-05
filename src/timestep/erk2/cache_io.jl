@@ -20,7 +20,8 @@ function get_erk2_cache!(caches::Dict{Symbol, ERK2Cache{T}}, key::Symbol, diffus
                     cache.nr != nr ||
                     cache.dt != dt ||
                     cache.use_krylov != use_krylov ||
-                    !cache.mpi_consistent
+                    !cache.mpi_consistent ||
+                    cache.l_values != config.l_values
 
     if needs_rebuild
         if get_rank() == 0
@@ -53,7 +54,8 @@ function get_erk2_magnetic_toroidal_cache!(caches::Dict{Symbol, ERK2Cache{T}}, d
                     cache.nr != nr ||
                     cache.dt != dt ||
                     cache.use_krylov != use_krylov ||
-                    !cache.mpi_consistent
+                    !cache.mpi_consistent ||
+                    cache.l_values != config.l_values
 
     if needs_rebuild
         if get_rank() == 0
@@ -87,7 +89,8 @@ function get_erk2_magnetic_poloidal_cache!(caches::Dict{Symbol, ERK2Cache{T}}, d
                     cache.nr != nr ||
                     cache.dt != dt ||
                     cache.use_krylov != use_krylov ||
-                    !cache.mpi_consistent
+                    !cache.mpi_consistent ||
+                    cache.l_values != config.l_values
 
     if needs_rebuild
         if get_rank() == 0
@@ -120,7 +123,8 @@ function get_erk2_temperature_cache!(caches::Dict{Symbol, ERK2Cache{T}}, diffusi
                     cache.nr != nr ||
                     cache.dt != dt ||
                     cache.use_krylov != use_krylov ||
-                    !cache.mpi_consistent
+                    !cache.mpi_consistent ||
+                    cache.l_values != config.l_values
 
     if needs_rebuild
         bc_desc = ["DD", "DN", "ND", "NN"][clamp(i_tmp_bc, 1, 4)]
@@ -154,7 +158,8 @@ function get_erk2_composition_cache!(caches::Dict{Symbol, ERK2Cache{T}}, diffusi
                     cache.nr != nr ||
                     cache.dt != dt ||
                     cache.use_krylov != use_krylov ||
-                    !cache.mpi_consistent
+                    !cache.mpi_consistent ||
+                    cache.l_values != config.l_values
 
     if needs_rebuild
         bc_desc = ["DD", "DN", "ND", "NN"][clamp(i_cmp_bc, 1, 4)]

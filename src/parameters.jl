@@ -267,6 +267,10 @@ function validate_parameters(params::GeoDynamoParameters; strict::Bool=false)
         push!(errors, "i_maxtstep = $(params.i_maxtstep) must be >= 1")
     end
 
+    if params.d_t_end <= params.d_time
+        push!(errors, "d_t_end = $(params.d_t_end) must be greater than d_time = $(params.d_time)")
+    end
+
     # CFL condition estimate (rough check)
     # For spectral methods: dt < C / (l_max^2 * diffusivity)
     # In magnetic diffusion time scaling: magnetic κ=1, thermal κ=Pm/Pr,
@@ -297,7 +301,7 @@ function validate_parameters(params::GeoDynamoParameters; strict::Bool=false)
     end
 
     if params.geometry == :ball && params.d_rratio != 0.0
-        push!(warnings, "geometry = :ball but d_rratio = $(params.d_rratio) != 0; should be 0 for full ball")
+        push!(errors, "geometry = :ball but d_rratio = $(params.d_rratio) != 0; must be 0 for full ball")
     end
 
     # Report results
@@ -356,13 +360,17 @@ function load_parameters(config_file::String = "")
         @warn "Parameter file not found: $config_file. Using default parameters."
         params = GeoDynamoParameters()
         update_derived_parameters!(params)
+        validate_parameters(params; strict=false)
         return params
     end
     
     # Load the parameter file in a safe way
     params = load_parameters_from_file(config_file)
     update_derived_parameters!(params)
-    
+
+    # Validate parameters and warn about issues (non-strict: warns but doesn't throw)
+    validate_parameters(params; strict=false)
+
     return params
 end
 

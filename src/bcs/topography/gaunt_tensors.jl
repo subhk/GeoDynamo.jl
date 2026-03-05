@@ -38,6 +38,7 @@ mutable struct GauntTensorCache{T<:AbstractFloat}
     theta::Vector{T}                     # Gauss-Legendre theta points
     weights::Vector{T}                   # Gauss-Legendre weights
     is_precomputed::Bool
+    cross_lock::ReentrantLock            # Protects lazy writes to G_cross
 end
 
 """
@@ -73,7 +74,8 @@ function GauntTensorCache{T}(lmax::Int, lmax_topo::Int; nth::Int=0, nph::Int=0) 
         sht_config,
         nth, nph,
         theta, weights,
-        false
+        false,
+        ReentrantLock()
     )
 end
 
@@ -654,20 +656,27 @@ Get the cross Gaunt tensor G^{(×)}_{l1,m1,l2,m2,L,M} from cache.
 function get_cross_gaunt(cache::GauntTensorCache{T}, l1::Int, m1::Int,
                          l2::Int, m2::Int, L::Int, M::Int) where T
     key = (l1, m1, l2, m2, L, M)
-    if haskey(cache.G_cross, key)
-        return cache.G_cross[key]
-    end
+    # Fast path: read-only lookup (no lock needed for existing entries)
+    val = get(cache.G_cross, key, nothing)
+    val !== nothing && return val
 
     # Lazy compute when missing (needed if precompute ran with use_wigner=true).
     if l2 == 0 || L == 0 || m1 != m2 + M
         return zero(T)
     end
 
-    val = compute_cross_gaunt_tensor(l1, m1, l2, m2, L, M, cache)
-    if abs(val) > 1e-14
-        cache.G_cross[key] = val
+    computed = compute_cross_gaunt_tensor(l1, m1, l2, m2, L, M, cache)
+    if abs(computed) > 1e-14
+        lock(cache.cross_lock) do
+            # Double-check after acquiring lock (another thread may have computed it)
+            existing = get(cache.G_cross, key, nothing)
+            if existing !== nothing
+                return existing
+            end
+            cache.G_cross[key] = computed
+        end
     end
-    return val
+    return computed
 end
 
 # ================================================================================

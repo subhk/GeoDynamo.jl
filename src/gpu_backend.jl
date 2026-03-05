@@ -173,8 +173,12 @@ function create_metal_device()
         error("Metal.jl not available or GPU not functional")
     end
     
-    # Metal device info
-    mem_gb = 8.0  # Placeholder - Metal.jl may not expose this directly
+    # Metal device info — try to query actual memory, fall back to system memory estimate
+    mem_gb = try
+        Metal.device().currentAllocatedSize !== nothing ? Float64(Metal.device().recommendedMaxWorkingSetSize) / (1024^3) : get_system_memory_gb() * 0.75
+    catch
+        get_system_memory_gb() * 0.75  # Estimate: 75% of system memory for unified memory Macs
+    end
     
     return GeoDynamoDevice(
         METAL_DEVICE,
@@ -253,10 +257,25 @@ function select_device!(device::String)
         error("Unknown device: $device. Use 'CPU', 'GPU', 'CUDA', 'AMDGPU', or 'METAL'")
     end
     
-    println("Selected device: $(CURRENT_DEVICE[].device_name)")
-    println("Available memory: $(round(CURRENT_DEVICE[].max_memory_gb, digits=1)) GB")
-    
-    return CURRENT_DEVICE[]
+    dev = CURRENT_DEVICE[]
+    println("Selected device: $(dev.device_name)")
+    println("Available memory: $(round(dev.max_memory_gb, digits=1)) GB")
+
+    # Validate GPU device with a small test allocation
+    if dev.device_type != CPU_DEVICE
+        try
+            test_arr = dev.array_type(zeros(Float64, 8))
+            # Force synchronization to ensure the allocation actually succeeded
+            sum(cpu_array(test_arr))
+        catch e
+            @warn "GPU test allocation failed — falling back to CPU" exception=e
+            CURRENT_DEVICE[] = create_cpu_device()
+            dev = CURRENT_DEVICE[]
+            println("Fallback device: $(dev.device_name)")
+        end
+    end
+
+    return dev
 end
 
 function select_device!(device_type::DeviceType)
@@ -294,14 +313,23 @@ get_backend() = get_device().backend
 """
     device_array(x::AbstractArray) -> AbstractArray
 
-Convert array to current device array type
+Convert array to current device array type.
+Falls back to CPU Array if GPU allocation fails (e.g., out of memory).
 """
 function device_array(x::AbstractArray{T}) where T
     ArrayType = CURRENT_DEVICE[].array_type
     if x isa ArrayType
         return x
-    else
+    end
+    try
         return ArrayType(x)
+    catch e
+        if CURRENT_DEVICE[].device_type != CPU_DEVICE
+            @warn "GPU allocation failed, falling back to CPU array" exception=e
+            return Array(x)
+        else
+            rethrow()
+        end
     end
 end
 
@@ -321,21 +349,26 @@ end
 """
     gpu_array(x::AbstractArray) -> AbstractGPUArray
 
-Convert array to GPU array (using current GPU backend)
+Convert array to GPU array (using current GPU backend).
+Falls back to CPU array if GPU allocation fails.
 """
 function gpu_array(x::AbstractArray{T}) where T
     device = get_device()
-    
+
     if device.device_type == CPU_DEVICE
         @warn "Current device is CPU - consider select_device!(\"GPU\")"
         return x
     end
-    
+
     ArrayType = device.array_type
     if x isa ArrayType
         return x
-    else
+    end
+    try
         return ArrayType(x)
+    catch e
+        @warn "GPU array allocation failed, returning CPU array" exception=e
+        return Array(x)
     end
 end
 

@@ -33,6 +33,8 @@ const MPI_FINALIZE_KEY = "GEODYNAMO_TEST_MPI_FINALIZE"
 end
 
 additional_tests = (
+    "parameter_validation.jl",
+    "nan_detection.jl",
     "erk2.jl",
     "shell_boundaries.jl",
     "shtnskit_roundtrip.jl",
