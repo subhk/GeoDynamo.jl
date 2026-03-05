@@ -208,6 +208,8 @@ export enable_topography!, disable_topography!, is_topography_enabled
 export GauntTensorCache
 export compute_gaunt_tensor, compute_gradient_gaunt_tensor, compute_cross_gaunt_tensor
 export precompute_gaunt_tensors!, get_gaunt_tensor, get_gradient_gaunt, get_cross_gaunt
+export gaunt_on_the_fly, gradient_gaunt_from_basic
+export evaluate_spherical_harmonics_grid, evaluate_spherical_harmonic_gradient_grid
 
 # Topography data
 export TopographyData, TopographyField

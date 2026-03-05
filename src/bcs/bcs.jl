@@ -570,6 +570,9 @@ export enable_topography!, disable_topography!, is_topography_enabled
 export TopographyCouplingConfig, get_topography_config, set_topography_config!
 export TopographyData, TopographyField
 export GauntTensorCache, precompute_gaunt_tensors!
+export gaunt_on_the_fly, gradient_gaunt_from_basic
+export compute_gaunt_tensor
+export evaluate_spherical_harmonics_grid, evaluate_spherical_harmonic_gradient_grid
 export apply_all_topography_corrections!
 export StefanState, initialize_stefan_state!, update_icb_topography!
 

@@ -146,6 +146,8 @@ module GeoDynamo
     export TopographyCouplingConfig, get_topography_config, set_topography_config!
     export TopographyData, TopographyField, GauntTensorCache
     export precompute_gaunt_tensors!, apply_all_topography_corrections!
+    export gaunt_on_the_fly, gradient_gaunt_from_basic, compute_gaunt_tensor
+    export evaluate_spherical_harmonics_grid, evaluate_spherical_harmonic_gradient_grid
     export create_topography_data, load_topography_from_file
     export StefanState, initialize_stefan_state!, update_icb_topography!
 
@@ -215,6 +217,7 @@ module GeoDynamo
     include("pencil_decomps.jl")
     include("shtnskit_transforms.jl")  # New SHTnsKit-based transforms (includes SHTnsKitConfig)
     include("bcs/bcs.jl")  # Needed before field types import BC enums
+    using .bcs
     include("fields.jl")  # Field/type definitions needed by subsequent modules
     include("shtnskit_field_functions.jl")  # Field-dependent transform functions
     include("linear_algebra.jl")  # Requires RadialDomain/SHTns field types
