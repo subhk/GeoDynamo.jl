@@ -1,0 +1,157 @@
+function initialize_composition_field!(state::SolverState{T,<:AbstractArchitecture}) where T
+    composition = state.fields.composition
+    composition === nothing && return state
+
+    spec_real = parent(composition.spectral.data_real)
+    spec_imag = parent(composition.spectral.data_imag)
+    fill!(spec_real, zero(T))
+    fill!(spec_imag, zero(T))
+
+    lm_range = local_spectral_mode_indices(composition.config)
+    r_range = local_range(composition.config.pencils.spec, 3)
+
+    @inbounds for lm_idx in lm_range
+        lm_idx <= composition.config.nlm || continue
+        l = composition.config.l_values[lm_idx]
+        m = composition.config.m_values[lm_idx]
+        slot = local_spectral_storage_slot(composition.config, lm_idx)
+
+        for r_idx in r_range
+            if l == 0 && m == 0
+                set_local_spectral_value!(spec_real, slot, r_idx, T(0.5))
+            elseif 1 <= l <= 3
+                amplitude = T(1e-4)
+                set_local_spectral_value!(
+                    spec_real,
+                    slot,
+                    r_idx,
+                    amplitude * (rand(T) - T(0.5)),
+                )
+                if m > 0
+                    set_local_spectral_value!(
+                        spec_imag,
+                        slot,
+                        r_idx,
+                        amplitude * (rand(T) - T(0.5)),
+                    )
+                end
+            end
+        end
+    end
+
+    return state
+end
+
+function solver_compute_composition_nonlinear!(
+    𝔽::CompositionFieldType{T},
+    vel_fields,
+    𝒟ᵒᶜ::RadialDomainType,
+    ws::SolverGradientWorkspace{T};
+    geometry::Symbol=solver_default_geometry(), ) where T
+
+    t_start = timing_enabled() ? mpi_wtime() : 0.0
+
+    solver_zero_scalar_work_arrays!(𝔽)
+    solver_zero_gradient_workspace!(ws)
+
+    if timing_enabled()
+        t_spectral = mpi_wtime()
+    end
+    solver_compute_all_gradients_spectral!(𝔽, 𝒟ᵒᶜ, ws)
+    if timing_enabled()
+        𝔽.spectral_time[] += mpi_wtime() - t_spectral
+    end
+
+    if timing_enabled()
+        t_transform = mpi_wtime()
+    end
+    solver_transform_field_and_gradients_to_physical!(𝔽, ws)
+    if timing_enabled()
+        𝔽.transform_time[] += mpi_wtime() - t_transform
+    end
+
+    if vel_fields !== nothing
+        solver_compute_scalar_advection_local!(𝔽, vel_fields)
+    end
+
+    if timing_enabled()
+        t_transform = mpi_wtime()
+    end
+
+    solver_scalar_nonlinear_to_spectral!(
+        𝔽.advection_physical,
+        𝔽.nonlinear,
+        geometry,
+    )
+    if timing_enabled()
+        𝔽.transform_time[] += mpi_wtime() - t_transform
+        𝔽.computation_time[] += mpi_wtime() - t_start
+    end
+    return 𝔽
+end
+
+function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchitecture}) where T
+    composition = state.fields.composition
+    composition === nothing && return state
+
+    runtime = state.runtime
+    diffusivity = state.parameters.Pm / state.parameters.Sc
+    bc = get_bc_vectors(composition)
+    timestepper = state.parameters.timestepper
+    dt = state.parameters.timestep
+
+    if timestepper isa CNAB2
+        solver_build_rhs_cnab2!(
+            composition.work_spectral,
+            composition.spectral,
+            composition.nonlinear,
+            composition.prev_nonlinear,
+            dt,
+            state.implicit_matrices[:composition],
+        )
+        solver_solve_composition_implicit_step!(
+            composition.spectral,
+            composition.work_spectral,
+            state.implicit_matrices[:composition];
+            bc_inner=bc.inner_real,
+            bc_outer=bc.outer_real,
+            bc_inner_imag=bc.inner_imag,
+            bc_outer_imag=bc.outer_imag,
+        )
+    elseif timestepper isa EAB2
+        alu_map = (state.timestep_caches.etd_composition::EAB2CacheEntry{T}).map
+        solver_eab2_update_krylov_cached!(
+            composition.spectral,
+            composition.nonlinear,
+            composition.prev_nonlinear,
+            alu_map,
+            runtime.𝒟ᵒᶜ,
+            diffusivity,
+            runtime.shtns_config,
+            dt;
+            m=_timestepper_krylov_dimension(state.parameters.timestepper),
+            tol=_timestepper_krylov_tolerance(state.parameters.timestepper),
+        )
+    else
+        solver_solve_composition_implicit_step!(
+            composition.spectral,
+            composition.nonlinear,
+            state.implicit_matrices[:composition];
+            bc_inner=bc.inner_real,
+            bc_outer=bc.outer_real,
+            bc_inner_imag=bc.inner_imag,
+            bc_outer_imag=bc.outer_imag,
+        )
+    end
+
+    return state
+end
+
+function queue_composition_implicit_update!(
+    operations::Vector{Function},
+    state::SolverState{T,<:AbstractArchitecture},
+) where T
+    state.fields.composition === nothing && return operations
+    push!(operations, () -> apply_composition_implicit_update!(state))
+    return operations
+end
