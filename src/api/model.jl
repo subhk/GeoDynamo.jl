@@ -1,0 +1,161 @@
+struct GeodynamoModel{T, A<:AbstractArchitecture, G}
+    state :: SolverState{T,A}
+    grid  :: G
+end
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Internal constructor helper — avoids duplicating the SolverParameters build
+# ────────────────────────────────────────────────────────────────────────────────
+
+function _build_geodynamo_model(
+        grid, T::Type, arch_sym::Symbol, geometry::Symbol, radius_ratio::Float64,
+        nr_inner::Int, Ek, Pr, Pm, Sc, Ra,
+        velocity_bcs, temperature_bcs, composition_bcs,
+        include_magnetic, include_composition, initial_conditions,
+        topography_enabled, topography_epsilon, topography_degree,
+        include_topography_velocity, include_topography_magnetic,
+        include_topography_thermal, include_topography_slope_terms,
+        include_topography_shift_terms, stefan_enabled, stefan_number,
+        inner_core_conductivity_ratio, latent_heat,
+        icb_topography_file, ocb_topography_file,
+    )
+    params = SolverParameters(
+        architecture           = arch_sym,
+        geometry               = geometry,
+        lmax                   = grid.lmax,
+        mmax                   = grid.mmax,
+        nlat                   = grid.nlat,
+        nlon                   = grid.nlon,
+        nr                     = grid.nr,
+        nr_inner               = nr_inner,
+        radius_ratio           = radius_ratio,
+        Ek                     = Ek,
+        Pr                     = Pr,
+        Pm                     = Pm,
+        Sc                     = Sc,
+        Ra                     = Ra,
+        include_magnetic_field = include_magnetic,
+        include_composition    = include_composition,
+        velocity_bcs          = velocity_bcs,
+        temperature_bcs       = temperature_bcs,
+        composition_bcs       = composition_bcs,
+        topography_enabled     = topography_enabled,
+        topography_epsilon     = topography_epsilon,
+        topography_degree      = topography_degree,
+        include_topography_velocity = include_topography_velocity,
+        include_topography_magnetic = include_topography_magnetic,
+        include_topography_thermal = include_topography_thermal,
+        include_topography_slope_terms = include_topography_slope_terms,
+        include_topography_shift_terms = include_topography_shift_terms,
+        stefan_enabled = stefan_enabled,
+        stefan_number = stefan_number,
+        inner_core_conductivity_ratio = inner_core_conductivity_ratio,
+        latent_heat = latent_heat,
+        icb_topography_file = icb_topography_file,
+        ocb_topography_file = ocb_topography_file,
+    )
+    state = initialize_solver_state(T; params=params)
+    model = GeodynamoModel{T, typeof(state.backend.architecture), typeof(grid)}(state, grid)
+    if !isnothing(initial_conditions)
+        for (field_sym, ic) in pairs(initial_conditions)
+            set_initial_condition!(model, field_sym, ic)
+        end
+    end
+    return model
+end
+
+# ────────────────────────────────────────────────────────────────────────────────
+# Public constructors
+# ────────────────────────────────────────────────────────────────────────────────
+
+function GeodynamoModel(grid::SphericalShellGrid;
+        T::Type                   = Float64,
+        Ek::Real                  = 1e-4,
+        Pr::Real                  = 1.0,
+        Pm::Real                  = 1.0,
+        Sc::Real                  = 1.0,
+        Ra::Real                  = 1e6,
+        velocity_bcs              = BoundaryConditions(inner=NoSlip(), outer=NoSlip()),
+        temperature_bcs           = BoundaryConditions(inner=FixedFlux(1.0), outer=FixedTemperature(0.0)),
+        composition_bcs           = BoundaryConditions(inner=FixedFlux(0.0), outer=FixedTemperature(0.0)),
+        include_magnetic::Bool    = false,
+        include_composition::Bool = false,
+        initial_conditions        = nothing,
+        topography_enabled::Bool  = false,
+        topography_epsilon::Real  = 0.01,
+        topography_degree::Int    = -1,
+        include_topography_velocity::Bool = true,
+        include_topography_magnetic::Bool = true,
+        include_topography_thermal::Bool = true,
+        include_topography_slope_terms::Bool = true,
+        include_topography_shift_terms::Bool = true,
+        stefan_enabled::Bool = false,
+        stefan_number::Real = 1.0,
+        inner_core_conductivity_ratio::Real = 1.0,
+        latent_heat::Real = 1.0,
+        icb_topography_file::AbstractString = "",
+        ocb_topography_file::AbstractString = "",
+    )
+    arch_sym = grid.arch isa CPU ? :cpu : :gpu
+    return _build_geodynamo_model(grid, T, arch_sym, :shell,
+        grid.r_inner / grid.r_outer,
+        grid.nr_inner, Float64(Ek), Float64(Pr), Float64(Pm), Float64(Sc), Float64(Ra),
+        velocity_bcs, temperature_bcs, composition_bcs,
+        include_magnetic, include_composition, initial_conditions,
+        topography_enabled, Float64(topography_epsilon), topography_degree,
+        include_topography_velocity, include_topography_magnetic,
+        include_topography_thermal, include_topography_slope_terms,
+        include_topography_shift_terms, stefan_enabled, Float64(stefan_number),
+        Float64(inner_core_conductivity_ratio), Float64(latent_heat),
+        String(icb_topography_file), String(ocb_topography_file))
+end
+
+function GeodynamoModel(grid::SphericalBallGrid;
+        T::Type                   = Float64,
+        Ek::Real                  = 1e-4,
+        Pr::Real                  = 1.0,
+        Pm::Real                  = 1.0,
+        Sc::Real                  = 1.0,
+        Ra::Real                  = 1e6,
+        velocity_bcs              = BoundaryConditions(inner=NoSlip(), outer=NoSlip()),
+        temperature_bcs           = BoundaryConditions(inner=FixedFlux(1.0), outer=FixedTemperature(0.0)),
+        composition_bcs           = BoundaryConditions(inner=FixedFlux(0.0), outer=FixedTemperature(0.0)),
+        include_magnetic::Bool    = false,
+        include_composition::Bool = false,
+        initial_conditions        = nothing,
+        topography_enabled::Bool  = false,
+        topography_epsilon::Real  = 0.01,
+        topography_degree::Int    = -1,
+        include_topography_velocity::Bool = true,
+        include_topography_magnetic::Bool = true,
+        include_topography_thermal::Bool = true,
+        include_topography_slope_terms::Bool = true,
+        include_topography_shift_terms::Bool = true,
+        stefan_enabled::Bool = false,
+        stefan_number::Real = 1.0,
+        inner_core_conductivity_ratio::Real = 1.0,
+        latent_heat::Real = 1.0,
+        icb_topography_file::AbstractString = "",
+        ocb_topography_file::AbstractString = "",
+    )
+    arch_sym = grid.arch isa CPU ? :cpu : :gpu
+    return _build_geodynamo_model(grid, T, arch_sym, :ball,
+        0.0,
+        0, Float64(Ek), Float64(Pr), Float64(Pm), Float64(Sc), Float64(Ra),
+        velocity_bcs, temperature_bcs, composition_bcs,
+        include_magnetic, include_composition, initial_conditions,
+        topography_enabled, Float64(topography_epsilon), topography_degree,
+        include_topography_velocity, include_topography_magnetic,
+        include_topography_thermal, include_topography_slope_terms,
+        include_topography_shift_terms, stefan_enabled, Float64(stefan_number),
+        Float64(inner_core_conductivity_ratio), Float64(latent_heat),
+        String(icb_topography_file), String(ocb_topography_file))
+end
+
+function Base.show(io::IO, ::MIME"text/plain", m::GeodynamoModel{T}) where {T}
+    p = m.state.parameters
+    println(io, "GeodynamoModel{$T}")
+    println(io, "  grid: $(typeof(m.grid))")
+    println(io, "  Ek=$(p.Ek), Pr=$(p.Pr), Pm=$(p.Pm), Sc=$(p.Sc), Ra=$(p.Ra)")
+    print(io,   "  magnetic=$(p.include_magnetic_field), composition=$(p.include_composition)")
+end
