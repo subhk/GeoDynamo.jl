@@ -1,0 +1,57 @@
+name: Documentation
+
+on:
+  push:
+    branches:
+      - main
+    tags: '*'
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build:
+    permissions:
+      actions: write
+      contents: write
+      statuses: write
+      pull-requests: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Required for Documenter.jl to detect tags
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnetcdf-dev mpich
+
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.11'
+
+      - name: Cache Julia artifacts
+        uses: julia-actions/cache@v3
+
+      - name: Install package dependencies
+        run: julia --project=. -e 'using Pkg; Pkg.instantiate()'
+
+      - name: Install documentation dependencies
+        run: julia --project=docs -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
+
+      - name: Build and deploy documentation
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # DOCUMENTER_KEY is optional for public repos, GITHUB_TOKEN is sufficient
+        run: |
+          julia --project=docs -e '
+            using Documenter: doctest
+            using GeoDynamo
+            # doctest(GeoDynamo)  # Skip doctests for now
+          '
+          julia --project=docs docs/make.jl
