@@ -1010,14 +1010,22 @@ function solver_compute_vorticity_spectral!(
     nr = domain.N
 
     nthreads = max(1, Threads.nthreads(), Threads.maxthreadid())
-    pol_profile_real_bufs = [zeros(T, nr) for _ in 1:nthreads]
-    pol_profile_imag_bufs = [zeros(T, nr) for _ in 1:nthreads]
-    tor_profile_real_bufs = [zeros(T, nr) for _ in 1:nthreads]
-    tor_profile_imag_bufs = [zeros(T, nr) for _ in 1:nthreads]
-    dpol_dr_real_bufs = [zeros(T, nr) for _ in 1:nthreads]
-    dpol_dr_imag_bufs = [zeros(T, nr) for _ in 1:nthreads]
-    d2pol_dr2_real_bufs = [zeros(T, nr) for _ in 1:nthreads]
-    d2pol_dr2_imag_bufs = [zeros(T, nr) for _ in 1:nthreads]
+    workspace = get_velocity_workspace(T)
+    if workspace === nothing ||
+       length(workspace.Pᴾ_profile_real) < nthreads ||
+       length(workspace.Pᴾ_profile_real[1]) != nr
+        workspace = create_velocity_workspace(T, nr, nthreads)
+        set_velocity_workspace!(workspace)
+    end
+
+    pol_profile_real_bufs = workspace.Pᴾ_profile_real
+    pol_profile_imag_bufs = workspace.Pᴾ_profile_imag
+    tor_profile_real_bufs = workspace.Tᵀ_profile_real
+    tor_profile_imag_bufs = workspace.Tᵀ_profile_imag
+    dpol_dr_real_bufs = workspace.∂ᵣ𝒫_real
+    dpol_dr_imag_bufs = workspace.∂ᵣ𝒫_imag
+    d2pol_dr2_real_bufs = workspace.∂ᵣᵣ𝒫_real
+    d2pol_dr2_imag_bufs = workspace.∂ᵣᵣ𝒫_imag
 
     Threads.@threads for lm_idx in lm_range
         if lm_idx > length(velocity_fields.ℓ_factors)
