@@ -15,7 +15,7 @@ using LinearAlgebra
     u0 = 0.3
     c = 0.2
     # Initialize interior radial point (index 2) - boundary points (1 and nr) get zeroed by BCs
-    # Array dimensions are (nlm, 1, nr) = (1, 1, 3) for lmax=0, mmax=0, nr=3
+    # Array dimensions are (lmax+1, mmax+1, nr) = (1, 1, 3) for lmax=0, mmax=0, nr=3
     parent(u_field.data_real)[1, 1, 1] = 0.0
     parent(u_field.data_imag)[1, 1, 1] = 0.0
     parent(nl_field.data_real)[1, 1, 1] = 0.0
