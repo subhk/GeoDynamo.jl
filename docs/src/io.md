@@ -241,11 +241,11 @@ fields = Dict(
     "temperature" => Array{Float64,3}(nlat, nlon, nr),
     "composition" => Array{Float64,3}(nlat, nlon, nr),
 
-	# Spectral fields (real/imag pairs)
-	"velocity_toroidal" => Dict(
-	    "real" => Array{Float64,3}(lmax + 1, mmax + 1, nr),
-	    "imag" => Array{Float64,3}(lmax + 1, mmax + 1, nr)
-	),
+    # Spectral fields (real/imag pairs)
+    "velocity_toroidal" => Dict(
+        "real" => Array{Float64,3}(lmax + 1, mmax + 1, nr),
+        "imag" => Array{Float64,3}(lmax + 1, mmax + 1, nr)
+    ),
     "velocity_poloidal" => Dict("real" => ..., "imag" => ...),
     "magnetic_toroidal" => Dict("real" => ..., "imag" => ...),
     "magnetic_poloidal" => Dict("real" => ..., "imag" => ...)
