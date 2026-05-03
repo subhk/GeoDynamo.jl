@@ -278,10 +278,12 @@ function solver_eab2_update_krylov_cached!(
         if bc_spec !== nothing
             inner_val = solver_boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
             outer_val = solver_boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
+            inner_val_i = solver_boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
+            outer_val_i = solver_boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
             solver_enforce_erk2_bc!(u_real_next, bc_spec.inner, 1, ℓ, nr; value_override=inner_val)
             solver_enforce_erk2_bc!(u_real_next, bc_spec.outer, nr, ℓ, nr; value_override=outer_val)
-            solver_enforce_erk2_bc!(u_imag_next, bc_spec.inner, 1, ℓ, nr; value_override=zero(T))
-            solver_enforce_erk2_bc!(u_imag_next, bc_spec.outer, nr, ℓ, nr; value_override=zero(T))
+            solver_enforce_erk2_bc!(u_imag_next, bc_spec.inner, 1, ℓ, nr; value_override=inner_val_i)
+            solver_enforce_erk2_bc!(u_imag_next, bc_spec.outer, nr, ℓ, nr; value_override=outer_val_i)
         end
 
         slot === nothing && continue
@@ -303,10 +305,10 @@ function _solver_solve_scalar_implicit_step!(
     solution::SpectralFieldType{T},
     rhs::SpectralFieldType{T},
     matrices::ImplicitMatrixSet{T};
-    bc_inner::Union{Vector{T}, Nothing}=nothing,
-    bc_outer::Union{Vector{T}, Nothing}=nothing,
-    bc_inner_imag::Union{Vector{T}, Nothing}=nothing,
-    bc_outer_imag::Union{Vector{T}, Nothing}=nothing,
+    bc_inner::Union{AbstractVector{T}, Nothing}=nothing,
+    bc_outer::Union{AbstractVector{T}, Nothing}=nothing,
+    bc_inner_imag::Union{AbstractVector{T}, Nothing}=nothing,
+    bc_outer_imag::Union{AbstractVector{T}, Nothing}=nothing,
     work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
     sol_real = parent(solution.data_real)
@@ -363,10 +365,10 @@ function solver_solve_temperature_implicit_step!(
     solution::SpectralFieldType{T},
     rhs::SpectralFieldType{T},
     matrices::ImplicitMatrixSet{T};
-    bc_inner::Union{Vector{T}, Nothing}=nothing,
-    bc_outer::Union{Vector{T}, Nothing}=nothing,
-    bc_inner_imag::Union{Vector{T}, Nothing}=nothing,
-    bc_outer_imag::Union{Vector{T}, Nothing}=nothing,
+    bc_inner::Union{AbstractVector{T}, Nothing}=nothing,
+    bc_outer::Union{AbstractVector{T}, Nothing}=nothing,
+    bc_inner_imag::Union{AbstractVector{T}, Nothing}=nothing,
+    bc_outer_imag::Union{AbstractVector{T}, Nothing}=nothing,
     work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
     return _solver_solve_scalar_implicit_step!(
@@ -390,10 +392,10 @@ function solver_solve_composition_implicit_step!(
     solution::SpectralFieldType{T},
     rhs::SpectralFieldType{T},
     matrices::ImplicitMatrixSet{T};
-    bc_inner::Union{Vector{T}, Nothing}=nothing,
-    bc_outer::Union{Vector{T}, Nothing}=nothing,
-    bc_inner_imag::Union{Vector{T}, Nothing}=nothing,
-    bc_outer_imag::Union{Vector{T}, Nothing}=nothing,
+    bc_inner::Union{AbstractVector{T}, Nothing}=nothing,
+    bc_outer::Union{AbstractVector{T}, Nothing}=nothing,
+    bc_inner_imag::Union{AbstractVector{T}, Nothing}=nothing,
+    bc_outer_imag::Union{AbstractVector{T}, Nothing}=nothing,
     work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
     return _solver_solve_scalar_implicit_step!(
