@@ -89,8 +89,10 @@ where only selected `(l,m)` modes carry a nonzero endpoint value.
 struct SolverERK2BoundarySpec{T}
     inner::SolverERK2BoundarySide{T}
     outer::SolverERK2BoundarySide{T}
-    inner_mode_values::Union{Nothing, Vector{T}}
-    outer_mode_values::Union{Nothing, Vector{T}}
+    inner_mode_values::Union{Nothing, AbstractVector{T}}
+    outer_mode_values::Union{Nothing, AbstractVector{T}}
+    inner_mode_values_imag::Union{Nothing, AbstractVector{T}}
+    outer_mode_values_imag::Union{Nothing, AbstractVector{T}}
 end
 
 """
@@ -102,7 +104,24 @@ function SolverERK2BoundarySpec{T}(
     inner::SolverERK2BoundarySide{T},
     outer::SolverERK2BoundarySide{T},
 ) where T
-    return SolverERK2BoundarySpec{T}(inner, outer, nothing, nothing)
+    return SolverERK2BoundarySpec{T}(inner, outer, nothing, nothing, nothing, nothing)
+end
+
+function solver_with_boundary_mode_values(
+    spec::SolverERK2BoundarySpec{T},
+    inner_real::Union{Nothing, AbstractVector{T}},
+    outer_real::Union{Nothing, AbstractVector{T}},
+    inner_imag::Union{Nothing, AbstractVector{T}}=nothing,
+    outer_imag::Union{Nothing, AbstractVector{T}}=nothing,
+) where T
+    return SolverERK2BoundarySpec{T}(
+        spec.inner,
+        spec.outer,
+        inner_real,
+        outer_real,
+        inner_imag,
+        outer_imag,
+    )
 end
 
 const ERK2Cache = ERK2StageCache
@@ -1786,7 +1805,7 @@ function build_solver_erk2_velocity_tor_bc(
         end
     end
 
-    return SolverERK2BoundarySpec{T}(inner, outer, inner_mode_values, nothing)
+    return SolverERK2BoundarySpec{T}(inner, outer, inner_mode_values, nothing, nothing, nothing)
 end
 
 """
@@ -2635,8 +2654,10 @@ function prepare_solver_erk2_field!(
         LA.mul!(stage_phi_tmp, phi1_half, ni_vec)
         @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
         if bc_spec !== nothing
-            solver_enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr; value_override=zero(T))
-            solver_enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr; value_override=zero(T))
+            inner_val_i = solver_boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
+            outer_val_i = solver_boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
+            solver_enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr; value_override=inner_val_i)
+            solver_enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr; value_override=outer_val_i)
         else
             stage_tmp[1] = zero(T)
             stage_tmp[nr] = zero(T)
@@ -2850,8 +2871,10 @@ function finalize_solver_erk2_field!(
         LA.mul!(correction, phi2, delta)
         @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
         if bc_spec !== nothing
-            solver_enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr; value_override=zero(T))
-            solver_enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr; value_override=zero(T))
+            inner_val_i = solver_boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
+            outer_val_i = solver_boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
+            solver_enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr; value_override=inner_val_i)
+            solver_enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr; value_override=outer_val_i)
         else
             result[1] = zero(T)
             result[nr] = zero(T)
@@ -3129,6 +3152,14 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     # Build the boundary embedding for each active field up front so the stage
     # march can stay uniform across temperature, velocity, magnetic, and composition.
     temp_bc = build_solver_erk2_scalar_bc(T, domain, temperature_bc_code)
+    temp_bc_values = get_bc_vectors(state.fields.temperature)
+    temp_bc = solver_with_boundary_mode_values(
+        temp_bc,
+        temp_bc_values.inner_real,
+        temp_bc_values.outer_real,
+        temp_bc_values.inner_imag,
+        temp_bc_values.outer_imag,
+    )
     vel_tor_bc = build_solver_erk2_velocity_tor_bc(
         T,
         domain,
@@ -3273,6 +3304,14 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     comp_bc = nothing
     if state.fields.composition !== nothing
         comp_bc = build_solver_erk2_scalar_bc(T, domain, composition_bc_code)
+        comp_bc_values = get_bc_vectors(state.fields.composition)
+        comp_bc = solver_with_boundary_mode_values(
+            comp_bc,
+            comp_bc_values.inner_real,
+            comp_bc_values.outer_real,
+            comp_bc_values.inner_imag,
+            comp_bc_values.outer_imag,
+        )
         comp_cache = get_solver_erk2_composition_cache!(
             state.timestep_caches,
             params.Pm / params.Sc,
