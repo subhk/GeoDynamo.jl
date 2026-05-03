@@ -33,8 +33,11 @@ struct FieldInfo
     has_config::Bool
     config::Union{SHTnsKitConfig,Nothing}
 
-    # Local range information
+    # Local axis range information
     local_ranges::Dict{Symbol, UnitRange{Int}}
+
+    # Owned spectral mode indices for mapped 2D spectral pencils
+    local_spectral_modes::Vector{Int}
 end
 
 """
@@ -45,11 +48,12 @@ dimensions later.
 """
 function FieldInfo()
     return FieldInfo(0, 0, 0, 0, Float64[], Float64[], Float64[],
-                     Int[], Int[], false, NamedTuple(), false, nothing, Dict{Symbol, UnitRange{Int}}())
+                     Int[], Int[], false, NamedTuple(), false, nothing,
+                     Dict{Symbol, UnitRange{Int}}(), Int[])
 end
 
 """
-    FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values, pencils, config, local_ranges)
+    FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values, pencils, config, local_ranges, local_spectral_modes)
 
 Construct a fully populated `FieldInfo` when both SHTns configuration and pencil
 decomposition metadata are available.
@@ -58,9 +62,10 @@ function FieldInfo(nlat::Int, nlon::Int, nr::Int, nlm::Int,
                    theta::Vector{Float64}, phi::Vector{Float64}, r::Vector{Float64},
                    l_values::Vector{Int}, m_values::Vector{Int},
                    pencils::NamedTuple, config::SHTnsKitConfig,
-                   local_ranges::Dict{Symbol, UnitRange{Int}})
+                   local_ranges::Dict{Symbol, UnitRange{Int}},
+                   local_spectral_modes::Vector{Int})
     return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values,
-                     true, pencils, true, config, local_ranges)
+                     true, pencils, true, config, local_ranges, local_spectral_modes)
 end
 
 """
@@ -139,19 +144,6 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConf
         end
     end
 
-    # Extract local range information if pencils are provided
-    local_ranges = Dict{Symbol, UnitRange{Int}}()
-    if pencils !== nothing
-        try
-            local_ranges[:spec] = range_local(pencils.spec, 1)
-            local_ranges[:r] = range_local(pencils.r, 3)
-            local_ranges[:θ] = range_local(pencils.θ, 1)
-            local_ranges[:φ] = range_local(pencils.φ, 2)
-        catch
-            # Fallback if pencil ranges not available
-        end
-    end
-
     # Use config information if available
     if config !== nothing
         nlat = config.nlat
@@ -163,16 +155,39 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConf
         phi = config.phi_grid
     end
 
+    # Extract local ownership metadata if pencils are provided. Spectral modes
+    # are not a simple axis range for rectangular 2D (l, m, r) pencils.
+    local_ranges = Dict{Symbol, UnitRange{Int}}()
+    local_spectral_modes = Int[]
+    if pencils !== nothing
+        try
+            local_ranges[:r] = range_local(pencils.r, 3)
+            local_ranges[:θ] = range_local(pencils.θ, 1)
+            local_ranges[:φ] = range_local(pencils.φ, 2)
+            if config !== nothing
+                local_spectral_modes = local_spectral_mode_indices(config)
+            else
+                legacy_spec_range = range_local(pencils.spec, 1)
+                local_ranges[:spec] = legacy_spec_range
+                local_spectral_modes = collect(legacy_spec_range)
+            end
+        catch
+            # Fallback if pencil ranges not available
+        end
+    elseif config !== nothing
+        local_spectral_modes = local_spectral_mode_indices(config)
+    end
+
     # Create FieldInfo with type-stable constructor
     if pencils !== nothing && config !== nothing
         return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values,
-                         pencils, config, local_ranges)
+                         pencils, config, local_ranges, local_spectral_modes)
     else
         dummy_pencils = NamedTuple()
 
         return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values,
                          pencils !== nothing, pencils !== nothing ? pencils : dummy_pencils,
                          config !== nothing, config,
-                         local_ranges)
+                         local_ranges, local_spectral_modes)
     end
 end
