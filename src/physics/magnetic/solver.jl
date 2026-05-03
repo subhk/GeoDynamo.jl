@@ -138,23 +138,31 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
     inner_bc = _magnetic_toroidal_inner_bc_increment(magnetic)
 
     if timestepper isa CNAB2
+        matrices = state.implicit_matrices[:magnetic_tor]
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :magnetic_toroidal,
+            matrices.system_matrices[1].size,
+        )
         solver_build_rhs_cnab2!(
             magnetic.work_tor,
             magnetic.𝒯,
             magnetic.nlᵀ,
             magnetic.prev_nlᵀ,
             dt,
-            state.implicit_matrices[:magnetic_tor],
+            matrices;
+            work=radial_work,
         )
         solver_solve_magnetic_implicit_step!(
             magnetic.𝒯,
             magnetic.work_tor,
-            state.implicit_matrices[:magnetic_tor],
+            matrices,
             :toroidal;
             mag_bc_inner=inner_bc === nothing ? nothing : inner_bc[1],
             prev_bc_inner=inner_bc === nothing ? nothing : inner_bc[2],
             mag_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[3],
             prev_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[4],
+            work=radial_work,
         )
     elseif timestepper isa EAB2
         if inner_bc !== nothing
@@ -198,19 +206,27 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
     dt = state.parameters.timestep
 
     if timestepper isa CNAB2
+        matrices = state.implicit_matrices[:magnetic_pol]
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :magnetic_poloidal,
+            matrices.system_matrices[1].size,
+        )
         solver_build_rhs_cnab2!(
             magnetic.work_pol,
             magnetic.𝒫,
             magnetic.nlᴾ,
             magnetic.prev_nlᴾ,
             dt,
-            state.implicit_matrices[:magnetic_pol],
+            matrices;
+            work=radial_work,
         )
         solver_solve_magnetic_implicit_step!(
             magnetic.𝒫,
             magnetic.work_pol,
-            state.implicit_matrices[:magnetic_pol],
+            matrices,
             :poloidal,
+            work=radial_work,
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_magnetic_poloidal::EAB2CacheEntry{T}).map
