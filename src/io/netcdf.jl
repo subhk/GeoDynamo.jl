@@ -279,13 +279,49 @@ end
 
 @inline function local_spectral_io_ranges(field_info::FieldInfo)
     if field_info.has_config
-        spec_pencil = (field_info.config::SHTnsKitConfig).pencils.spec
-        return range_local(spec_pencil, 1), range_local(spec_pencil, 3)
+        config = field_info.config::SHTnsKitConfig
+        return local_spectral_mode_indices(config), range_local(config.pencils.spec, 3)
     elseif field_info.has_pencils
         return range_local(field_info.pencils.spec, 1), range_local(field_info.pencils.spec, 3)
     else
         return 1:field_info.nlm, 1:field_info.nr
     end
+end
+
+@inline local_spectral_io_ranges(config::SHTnsKitConfig) =
+    local_spectral_mode_indices(config), range_local(config.pencils.spec, 3)
+
+function _mode_row_lookup(mode_indices, nlm::Int)
+    rows = zeros(Int, nlm)
+    for (row, lm_idx) in pairs(mode_indices)
+        rows[lm_idx] = row
+    end
+    return rows
+end
+
+function write_local_spectral_coefficients!(var, mode_indices, r_range, data)
+    if mode_indices isa UnitRange
+        var[mode_indices, r_range] = data
+        return var
+    end
+
+    for (row, lm_idx) in pairs(mode_indices)
+        var[lm_idx, r_range] = view(data, row, :)
+    end
+
+    return var
+end
+
+function read_local_spectral_coefficients(var, mode_indices, r_range)
+    if mode_indices isa UnitRange
+        return Array(var[mode_indices, r_range])
+    end
+
+    data = zeros(eltype(var), length(mode_indices), length(r_range))
+    for (row, lm_idx) in pairs(mode_indices)
+        data[row, :] .= vec(Array(var[lm_idx:lm_idx, r_range]))
+    end
+    return data
 end
 
 """
@@ -310,17 +346,17 @@ function pack_local_spectral_coefficients(real_data::AbstractArray,
 
         config = field_info.config::SHTnsKitConfig
         lm_map = local_spectral_lm_map(config)
-        lm_range, r_range = local_spectral_io_ranges(field_info)
-        packed_real = zeros(eltype(real_data), length(lm_range), length(r_range))
-        packed_imag = zeros(eltype(imag_data), length(lm_range), length(r_range))
-        (isempty(lm_range) || isempty(r_range)) && return packed_real, packed_imag
-        lm_first = first(lm_range)
+        mode_indices, r_range = local_spectral_io_ranges(field_info)
+        packed_real = zeros(eltype(real_data), length(mode_indices), length(r_range))
+        packed_imag = zeros(eltype(imag_data), length(mode_indices), length(r_range))
+        (isempty(mode_indices) || isempty(r_range)) && return packed_real, packed_imag
+        mode_rows = _mode_row_lookup(mode_indices, config.nlm)
         r_first = first(r_range)
 
         for slot in CartesianIndices(lm_map)
             global_lm = lm_map[slot]
             global_lm == 0 && continue
-            row = global_lm - lm_first + 1
+            row = mode_rows[global_lm]
             (1 <= row <= size(packed_real, 1)) || continue
             for global_r in r_range
                 col = global_r - r_first + 1
@@ -354,14 +390,14 @@ function unpack_local_spectral_coefficients(real_data::AbstractMatrix,
     unpacked_real = zeros(eltype(real_data), local_shape[1], local_shape[2], local_shape[3])
     unpacked_imag = zeros(eltype(imag_data), local_shape[1], local_shape[2], local_shape[3])
     lm_map = local_spectral_lm_map(config)
-    lm_range = range_local(spec_pencil, 1)
-    isempty(lm_range) && return unpacked_real, unpacked_imag
-    lm_first = first(lm_range)
+    mode_indices = local_spectral_mode_indices(config)
+    isempty(mode_indices) && return unpacked_real, unpacked_imag
+    mode_rows = _mode_row_lookup(mode_indices, config.nlm)
 
     for slot in CartesianIndices(lm_map)
         global_lm = lm_map[slot]
         global_lm == 0 && continue
-        row = global_lm - lm_first + 1
+        row = mode_rows[global_lm]
         (1 <= row <= size(real_data, 1)) || continue
         for local_r in axes(unpacked_real, 3)
             if local_r <= size(real_data, 2) && local_r <= size(imag_data, 2)
@@ -428,9 +464,9 @@ function write_field_data!(ds, fields::Dict{String,Any}, config::OutputConfig,
                     imag_out = T.(imag_data)
 
                     if pencils !== nothing
-                        lm_range, r_range = local_spectral_io_ranges(field_info)
-                        ds[real_name][lm_range, r_range] = real_out
-                        ds[imag_name][lm_range, r_range] = imag_out
+                        mode_indices, r_range = local_spectral_io_ranges(field_info)
+                        write_local_spectral_coefficients!(ds[real_name], mode_indices, r_range, real_out)
+                        write_local_spectral_coefficients!(ds[imag_name], mode_indices, r_range, imag_out)
                     else
                         ds[real_name][:, :] = real_out
                         ds[imag_name][:, :] = imag_out
