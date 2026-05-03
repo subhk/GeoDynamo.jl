@@ -14,6 +14,7 @@ function solver_build_rhs_cnab2!(
     Δt::Float64,
     matrices::ImplicitMatrixSet{T};
     mass_coeff::Float64=1.0,
+    work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
     rhs_real = parent(rhs.data_real)
     rhs_imag = parent(rhs.data_imag)
@@ -35,10 +36,11 @@ function solver_build_rhs_cnab2!(
     add_linear = !iszero(linear_weight)
 
     nr_global = add_linear ? matrices.system_matrices[1].size : 0
-    u_real_global = add_linear ? zeros(T, nr_global) : T[]
-    u_imag_global = add_linear ? zeros(T, nr_global) : T[]
-    linear_real = add_linear ? zeros(T, nr_global) : T[]
-    linear_imag = add_linear ? zeros(T, nr_global) : T[]
+    work_ok = work !== nothing && length(work.u_real_global) == nr_global
+    u_real_global = add_linear ? (work_ok ? work.u_real_global : zeros(T, nr_global)) : T[]
+    u_imag_global = add_linear ? (work_ok ? work.u_imag_global : zeros(T, nr_global)) : T[]
+    linear_real = add_linear ? (work_ok ? work.linear_real : zeros(T, nr_global)) : T[]
+    linear_imag = add_linear ? (work_ok ? work.linear_imag : zeros(T, nr_global)) : T[]
 
     comm = mpi_comm()
     multi_rank = mpi_comm_size(comm) > 1
@@ -109,6 +111,19 @@ function solver_build_rhs_cnab2!(
     end
 
     return rhs
+end
+
+function solver_get_radial_work!(
+    caches::TimestepCaches{T},
+    key::Symbol,
+    nr::Int,
+) where T
+    work = get(caches.radial_work, key, nothing)
+    if work === nothing || length(work.tmp_real) != nr
+        work = SolverRadialWork{T}(nr)
+        caches.radial_work[key] = work
+    end
+    return work
 end
 
 """
@@ -282,6 +297,7 @@ function _solver_solve_scalar_implicit_step!(
     bc_outer::Union{Vector{T}, Nothing}=nothing,
     bc_inner_imag::Union{Vector{T}, Nothing}=nothing,
     bc_outer_imag::Union{Vector{T}, Nothing}=nothing,
+    work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
     sol_real = parent(solution.data_real)
     sol_imag = parent(solution.data_imag)
@@ -291,8 +307,9 @@ function _solver_solve_scalar_implicit_step!(
     lm_range = local_range(solution.pencil, 1)
     r_range = local_range(solution.pencil, 3)
     nr = matrices.system_matrices[1].size
-    tmp_real = Vector{T}(undef, nr)
-    tmp_imag = Vector{T}(undef, nr)
+    work_ok = work !== nothing && length(work.tmp_real) == nr
+    tmp_real = work_ok ? work.tmp_real : Vector{T}(undef, nr)
+    tmp_imag = work_ok ? work.tmp_imag : Vector{T}(undef, nr)
 
     @inbounds for lm_idx in lm_range
         slot = local_spectral_storage_slot(solution.config, lm_idx)
@@ -340,6 +357,7 @@ function solver_solve_temperature_implicit_step!(
     bc_outer::Union{Vector{T}, Nothing}=nothing,
     bc_inner_imag::Union{Vector{T}, Nothing}=nothing,
     bc_outer_imag::Union{Vector{T}, Nothing}=nothing,
+    work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
     return _solver_solve_scalar_implicit_step!(
         solution,
@@ -349,6 +367,7 @@ function solver_solve_temperature_implicit_step!(
         bc_outer,
         bc_inner_imag,
         bc_outer_imag,
+        work,
     )
 end
 
@@ -365,6 +384,7 @@ function solver_solve_composition_implicit_step!(
     bc_outer::Union{Vector{T}, Nothing}=nothing,
     bc_inner_imag::Union{Vector{T}, Nothing}=nothing,
     bc_outer_imag::Union{Vector{T}, Nothing}=nothing,
+    work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
     return _solver_solve_scalar_implicit_step!(
         solution,
@@ -374,6 +394,7 @@ function solver_solve_composition_implicit_step!(
         bc_outer,
         bc_inner_imag,
         bc_outer_imag,
+        work,
     )
 end
 
@@ -396,6 +417,7 @@ function solver_solve_velocity_implicit_step!(
     domain::Union{RadialDomainType, Nothing}=nothing,
     rot_omega::Float64=0.0,
     current_field::Union{SpectralFieldType{T}, Nothing}=nothing,
+    work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
     sol_real = parent(solution.data_real)
     sol_imag = parent(solution.data_imag)
@@ -405,8 +427,9 @@ function solver_solve_velocity_implicit_step!(
     lm_range = local_range(solution.pencil, 1)
     r_range = local_range(solution.pencil, 3)
     nr = matrices.system_matrices[1].size
-    tmp_real = Vector{T}(undef, nr)
-    tmp_imag = Vector{T}(undef, nr)
+    work_ok = work !== nothing && length(work.tmp_real) == nr
+    tmp_real = work_ok ? work.tmp_real : Vector{T}(undef, nr)
+    tmp_imag = work_ok ? work.tmp_imag : Vector{T}(undef, nr)
 
     @inbounds for lm_idx in lm_range
         slot = local_spectral_storage_slot(solution.config, lm_idx)
@@ -469,6 +492,7 @@ function solver_solve_magnetic_implicit_step!(
     prev_bc_inner::Union{Vector{T}, Nothing}=nothing,
     mag_bc_inner_imag::Union{Vector{T}, Nothing}=nothing,
     prev_bc_inner_imag::Union{Vector{T}, Nothing}=nothing,
+    work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
     sol_real = parent(solution.data_real)
     sol_imag = parent(solution.data_imag)
@@ -478,8 +502,9 @@ function solver_solve_magnetic_implicit_step!(
     lm_range = local_range(solution.pencil, 1)
     r_range = local_range(solution.pencil, 3)
     nr = matrices.system_matrices[1].size
-    tmp_real = Vector{T}(undef, nr)
-    tmp_imag = Vector{T}(undef, nr)
+    work_ok = work !== nothing && length(work.tmp_real) == nr
+    tmp_real = work_ok ? work.tmp_real : Vector{T}(undef, nr)
+    tmp_imag = work_ok ? work.tmp_imag : Vector{T}(undef, nr)
 
     @inbounds for lm_idx in lm_range
         slot = local_spectral_storage_slot(solution.config, lm_idx)
