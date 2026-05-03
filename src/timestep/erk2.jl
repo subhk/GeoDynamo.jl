@@ -2360,7 +2360,7 @@ function apply_solver_velocity_poloidal_influence_correction!(
 ) where T
     u_real = parent(field.data_real)
     u_imag = parent(field.data_imag)
-    lm_range = local_range(field.pencil, 1)
+    lm_range = local_spectral_mode_indices(config)
     nr = size(u_real, 3)
     tmp = Vector{T}(undef, nr)
 
@@ -2537,7 +2537,6 @@ function prepare_solver_erk2_field!(
     copyto!(buffers.n_current_real, nl_real)
     copyto!(buffers.n_current_imag, nl_imag)
 
-    lm_range = local_range(u.pencil, 1)
     r_range = local_range(u.pencil, 3)
 
     nr = buffers.nr
@@ -2557,8 +2556,8 @@ function prepare_solver_erk2_field!(
     stage_imag = buffers.stage_imag
 
     for lm_idx in 1:nlm_total
-        owns_mode = lm_idx in lm_range
-        slot = owns_mode ? local_spectral_storage_slot(config, lm_idx) : nothing
+        slot = local_spectral_storage_slot(config, lm_idx)
+        owns_mode = slot !== nothing
 
         l = config.l_values[lm_idx]
         cache_idx = get(buffers.cache_lookup, l, nothing)
@@ -2607,10 +2606,8 @@ function prepare_solver_erk2_field!(
         LA.mul!(stage_phi_tmp, phi1_half, nr_vec)
         @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
         if bc_spec !== nothing
-            inner_val = bc_spec.inner_mode_values !== nothing && lm_idx <= length(bc_spec.inner_mode_values) ?
-                        bc_spec.inner_mode_values[lm_idx] : nothing
-            outer_val = bc_spec.outer_mode_values !== nothing && lm_idx <= length(bc_spec.outer_mode_values) ?
-                        bc_spec.outer_mode_values[lm_idx] : nothing
+            inner_val = solver_boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
+            outer_val = solver_boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
             solver_enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr; value_override=inner_val)
             solver_enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr; value_override=outer_val)
         else
@@ -2638,12 +2635,8 @@ function prepare_solver_erk2_field!(
         LA.mul!(stage_phi_tmp, phi1_half, ni_vec)
         @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
         if bc_spec !== nothing
-            inner_val = bc_spec.inner_mode_values !== nothing && lm_idx <= length(bc_spec.inner_mode_values) ?
-                        bc_spec.inner_mode_values[lm_idx] : nothing
-            outer_val = bc_spec.outer_mode_values !== nothing && lm_idx <= length(bc_spec.outer_mode_values) ?
-                        bc_spec.outer_mode_values[lm_idx] : nothing
-            solver_enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr; value_override=inner_val)
-            solver_enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr; value_override=outer_val)
+            solver_enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr; value_override=zero(T))
+            solver_enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr; value_override=zero(T))
         else
             stage_tmp[1] = zero(T)
             stage_tmp[nr] = zero(T)
@@ -2752,7 +2745,6 @@ function finalize_solver_erk2_field!(
 
     u_real = parent(u.data_real)
     u_imag = parent(u.data_imag)
-    lm_range = local_range(u.pencil, 1)
     r_range = local_range(u.pencil, 3)
 
     nr = buffers.nr
@@ -2765,8 +2757,8 @@ function finalize_solver_erk2_field!(
     nlm_total = u.nlm
 
     for lm_idx in 1:nlm_total
-        owns_mode = lm_idx in lm_range
-        slot = owns_mode ? local_spectral_storage_slot(config, lm_idx) : nothing
+        slot = local_spectral_storage_slot(config, lm_idx)
+        owns_mode = slot !== nothing
 
         l = config.l_values[lm_idx]
         cache_idx = get(buffers.cache_lookup, l, nothing)
@@ -2809,10 +2801,8 @@ function finalize_solver_erk2_field!(
         LA.mul!(correction, phi2, delta)
         @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
         if bc_spec !== nothing
-            inner_val = bc_spec.inner_mode_values !== nothing && lm_idx <= length(bc_spec.inner_mode_values) ?
-                        bc_spec.inner_mode_values[lm_idx] : nothing
-            outer_val = bc_spec.outer_mode_values !== nothing && lm_idx <= length(bc_spec.outer_mode_values) ?
-                        bc_spec.outer_mode_values[lm_idx] : nothing
+            inner_val = solver_boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
+            outer_val = solver_boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
             solver_enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr; value_override=inner_val)
             solver_enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr; value_override=outer_val)
         else
@@ -2860,12 +2850,8 @@ function finalize_solver_erk2_field!(
         LA.mul!(correction, phi2, delta)
         @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
         if bc_spec !== nothing
-            inner_val = bc_spec.inner_mode_values !== nothing && lm_idx <= length(bc_spec.inner_mode_values) ?
-                        bc_spec.inner_mode_values[lm_idx] : nothing
-            outer_val = bc_spec.outer_mode_values !== nothing && lm_idx <= length(bc_spec.outer_mode_values) ?
-                        bc_spec.outer_mode_values[lm_idx] : nothing
-            solver_enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr; value_override=inner_val)
-            solver_enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr; value_override=outer_val)
+            solver_enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr; value_override=zero(T))
+            solver_enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr; value_override=zero(T))
         else
             result[1] = zero(T)
             result[nr] = zero(T)
@@ -3138,7 +3124,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     velocity_bc_code = _velocity_bc_code(params.velocity_bcs)
     temperature_bc_code = _thermal_bc_code(params.temperature_bcs)
     composition_bc_code = _composition_bc_code(params.composition_bcs)
-    theta = _timestepper_theta(params.timestepper)
+    theta = _timestepper_implicit_theta(params.timestepper, params)
 
     # Build the boundary embedding for each active field up front so the stage
     # march can stay uniform across temperature, velocity, magnetic, and composition.
