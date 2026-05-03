@@ -56,22 +56,30 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
     velocity_bc = _velocity_bc_code(state.parameters.velocity_bcs)
 
     if timestepper isa CNAB2
+        matrices = state.implicit_matrices[:velocity_tor]
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :velocity_toroidal,
+            matrices.system_matrices[1].size,
+        )
         solver_build_rhs_cnab2!(
             velocity.work_tor,
             velocity.𝒯,
             velocity.nlᵀ,
             velocity.prev_nlᵀ,
             dt,
-            state.implicit_matrices[:velocity_tor];
+            matrices;
             mass_coeff=E,
+            work=radial_work,
         )
         solver_solve_velocity_implicit_step!(
             velocity.𝒯,
             velocity.work_tor,
-            state.implicit_matrices[:velocity_tor],
+            matrices,
             :toroidal;
             velocity_bc_code=velocity_bc,
             domain=runtime.𝒟ᵒᶜ,
+            work=radial_work,
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_velocity_toroidal::EAB2CacheEntry{T}).map
@@ -111,22 +119,30 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
     velocity_bc = _velocity_bc_code(state.parameters.velocity_bcs)
 
     if timestepper isa CNAB2
+        matrices = state.implicit_matrices[:velocity_pol]
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :velocity_poloidal,
+            matrices.system_matrices[1].size,
+        )
         solver_build_rhs_cnab2!(
             velocity.work_pol,
             velocity.𝒫,
             velocity.nlᴾ,
             velocity.prev_nlᴾ,
             dt,
-            state.implicit_matrices[:velocity_pol];
+            matrices;
             mass_coeff=E,
+            work=radial_work,
         )
         solver_solve_velocity_implicit_step!(
             velocity.𝒫,
             velocity.work_pol,
-            state.implicit_matrices[:velocity_pol],
+            matrices,
             :poloidal;
             velocity_bc_code=velocity_bc,
             domain=runtime.𝒟ᵒᶜ,
+            work=radial_work,
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_velocity_poloidal::EAB2CacheEntry{T}).map
