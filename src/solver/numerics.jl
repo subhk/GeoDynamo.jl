@@ -354,7 +354,13 @@ end
     return buffers.tlm_out::Union{Matrix{ComplexF64}, Nothing}
 end
 
-@inline uses_gpu(config) = SHTnsKit.is_gpu_config(config.sht_config)
+@inline function solver_transform_arch(config)
+    device = config._buffers.transform_device
+    device isa AbstractArchitecture && return device
+    return SHTnsKit.is_gpu_config(config.sht_config) ? GPU(device) : CPU()
+end
+
+@inline uses_gpu(config) = !(solver_transform_arch(config) isa CPU)
 
 @inline function sht_synthesis!(plan, synth_out, coeffs_matrix)
     SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
