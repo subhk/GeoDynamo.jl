@@ -598,7 +598,7 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
 end
 
 """
-    create_pencil_decomposition_shtnskit(nlat, nlon, nr, sht_config, comm, optimize)
+    create_pencil_decomposition_shtnskit(nlat, nlon, nr, sht_config, comm, optimize; lmax, mmax)
 
 Create PencilArrays decomposition optimized for spherical harmonic transforms.
 
