@@ -5,7 +5,7 @@ const Ball = GeoDynamo.GeoDynamoBall
 const FINALIZE_MPI_INITIAL = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
 function assert_ball_scalar_regularity(spec, cfg; atol=1e-12)
-    lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)
+    lm_range = GeoDynamo.local_spectral_mode_indices(cfg)
     r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
     if !(1 in r_range)
         return
@@ -13,16 +13,18 @@ function assert_ball_scalar_regularity(spec, cfg; atol=1e-12)
     r_local = 1 - first(r_range) + 1
     real = parent(spec.data_real)
     imag = parent(spec.data_imag)
-    for (k, lm_idx) in enumerate(lm_range)
+    for lm_idx in lm_range
         if cfg.l_values[lm_idx] > 0
-            @test real[k, 1, r_local] ≈ 0.0 atol=atol
-            @test imag[k, 1, r_local] ≈ 0.0 atol=atol
+            slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
+            slot === nothing && continue
+            @test real[slot[1], slot[2], r_local] ≈ 0.0 atol=atol
+            @test imag[slot[1], slot[2], r_local] ≈ 0.0 atol=atol
         end
     end
 end
 
 function assert_ball_vector_regularity(tor_spec, pol_spec, cfg; atol=1e-12)
-    lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)
+    lm_range = GeoDynamo.local_spectral_mode_indices(cfg)
     r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
     if !(1 in r_range)
         return
@@ -31,10 +33,12 @@ function assert_ball_vector_regularity(tor_spec, pol_spec, cfg; atol=1e-12)
     for spec in (tor_spec, pol_spec)
         real = parent(spec.data_real)
         imag = parent(spec.data_imag)
-        for (k, lm_idx) in enumerate(lm_range)
+        for lm_idx in lm_range
             if cfg.l_values[lm_idx] >= 1
-                @test real[k, 1, r_local] ≈ 0.0 atol=atol
-                @test imag[k, 1, r_local] ≈ 0.0 atol=atol
+                slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
+                slot === nothing && continue
+                @test real[slot[1], slot[2], r_local] ≈ 0.0 atol=atol
+                @test imag[slot[1], slot[2], r_local] ≈ 0.0 atol=atol
             end
         end
     end
