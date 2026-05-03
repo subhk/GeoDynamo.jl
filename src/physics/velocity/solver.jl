@@ -83,6 +83,13 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_velocity_toroidal::EAB2CacheEntry{T}).map
+        bc_spec = build_solver_erk2_velocity_tor_bc(
+            T,
+            runtime.𝒟ᵒᶜ,
+            velocity_bc;
+            config=runtime.shtns_config,
+            rot_omega=0.0,
+        )
         solver_eab2_update_krylov_cached!(
             velocity.𝒯,
             velocity.nlᵀ,
@@ -92,9 +99,10 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             E,
             runtime.shtns_config,
             dt;
-            m=_timestepper_krylov_dimension(state.parameters.timestepper),
-            tol=_timestepper_krylov_tolerance(state.parameters.timestepper),
+            m=_timestepper_krylov_dimension(timestepper, state.parameters),
+            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
             mass_coeff=E,
+            bc_spec=bc_spec,
         )
     else
         solver_solve_velocity_implicit_step!(
@@ -107,6 +115,33 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     end
 
+    return state
+end
+
+function solver_apply_velocity_poloidal_no_penetration!(
+    state::SolverState{T,<:AbstractArchitecture},
+    velocity_bc_code::Int,
+) where T
+    params = state.parameters
+    runtime = state.runtime
+    theta = _timestepper_implicit_theta(params.timestepper, params)
+    effective_diffusivity = one(params.Ek)
+    influence = get_solver_erk2_influence_matrices!(
+        state.timestep_caches,
+        :velocity_poloidal,
+        T,
+        runtime.shtns_config,
+        runtime.𝒟ᵒᶜ,
+        effective_diffusivity,
+        params.timestep,
+        velocity_bc_code;
+        theta=theta,
+    )
+    apply_solver_velocity_poloidal_influence_correction!(
+        state.fields.velocity.𝒫,
+        influence,
+        runtime.shtns_config,
+    )
     return state
 end
 
@@ -146,6 +181,7 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_velocity_poloidal::EAB2CacheEntry{T}).map
+        bc_spec = build_solver_erk2_velocity_pol_bc(T, runtime.𝒟ᵒᶜ, velocity_bc)
         solver_eab2_update_krylov_cached!(
             velocity.𝒫,
             velocity.nlᴾ,
@@ -155,9 +191,10 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             E,
             runtime.shtns_config,
             dt;
-            m=_timestepper_krylov_dimension(state.parameters.timestepper),
-            tol=_timestepper_krylov_tolerance(state.parameters.timestepper),
+            m=_timestepper_krylov_dimension(timestepper, state.parameters),
+            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
             mass_coeff=E,
+            bc_spec=bc_spec,
         )
     else
         solver_solve_velocity_implicit_step!(
@@ -170,6 +207,7 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     end
 
+    solver_apply_velocity_poloidal_no_penetration!(state, velocity_bc)
     return state
 end
 
