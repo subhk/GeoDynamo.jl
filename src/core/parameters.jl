@@ -137,6 +137,10 @@ function _parameter_errors_warnings(params::SolverParameters)
     errors = String[]
     warnings = String[]
 
+    if !(params.architecture in (:cpu, :gpu))
+        push!(errors, "architecture = $(params.architecture) must be :cpu or :gpu")
+    end
+
     if params.nr < 8
         push!(errors, "nr (radial points) = $(params.nr) is too small (minimum 8)")
     elseif params.nr < 16
