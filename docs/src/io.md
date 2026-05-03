@@ -241,11 +241,11 @@ fields = Dict(
     "temperature" => Array{Float64,3}(nlat, nlon, nr),
     "composition" => Array{Float64,3}(nlat, nlon, nr),
 
-    # Spectral fields (real/imag pairs)
-    "velocity_toroidal" => Dict(
-        "real" => Array{Float64,3}(nlm, 1, nr),
-        "imag" => Array{Float64,3}(nlm, 1, nr)
-    ),
+	# Spectral fields (real/imag pairs)
+	"velocity_toroidal" => Dict(
+	    "real" => Array{Float64,3}(lmax + 1, mmax + 1, nr),
+	    "imag" => Array{Float64,3}(lmax + 1, mmax + 1, nr)
+	),
     "velocity_poloidal" => Dict("real" => ..., "imag" => ...),
     "magnetic_toroidal" => Dict("real" => ..., "imag" => ...),
     "magnetic_poloidal" => Dict("real" => ..., "imag" => ...)
@@ -430,9 +430,9 @@ ds = NCDataset(filename, "c"; comm=comm, info=MPI.Info())
 φ_range = range_local(pencils.r, 2)   # local phi indices in global array
 ds["temperature"][θ_range, φ_range, :] = local_temperature
 
-lm_range = range_local(pencils.spec, 1) # local spectral mode indices
-r_range = range_local(pencils.spec, 3)  # local radial indices
-ds["velocity_toroidal_real"][lm_range, r_range] = local_vel_tor_real
+mode_indices = local_spectral_mode_indices(shtns_config) # local spectral mode indices
+r_range = range_local(pencils.spec, 3)                    # local radial indices
+write_local_spectral_coefficients!(ds["velocity_toroidal_real"], mode_indices, r_range, local_vel_tor_real)
 ```
 
 ### Pencil-to-Global Index Mapping
