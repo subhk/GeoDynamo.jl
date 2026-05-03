@@ -27,8 +27,10 @@ function solver_compute_theta_gradient_spectral!(
     comm = mpi_comm()
     multi = mpi_initialized() && mpi_comm_size(comm) > 1
 
-    full_real = zeros(T, nlm)
-    full_imag = zeros(T, nlm)
+    full_real = ws.theta_full_real
+    full_imag = ws.theta_full_imag
+    length(full_real) == nlm || error("theta-gradient workspace real buffer has length $(length(full_real)); expected $nlm")
+    length(full_imag) == nlm || error("theta-gradient workspace imaginary buffer has length $(length(full_imag)); expected $nlm")
 
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
@@ -727,15 +729,11 @@ function solver_transform_field_and_gradients_to_physical!(
     𝔽::ScalarFieldType{T},
     ws::SolverGradientWorkspace{T},
 ) where T
-    spectral_fields = [𝔽.spectral, ws.∇θ_spec, ws.∇φ_spec, ws.∇r_spec]
     main_physical_field = solver_main_physical_field(𝔽)
-    physical_fields = [
-        main_physical_field,
-        𝔽.gradient.θ_component,
-        𝔽.gradient.φ_component,
-        𝔽.gradient.r_component,
-    ]
-    solver_apply_scalar_transform_batch!(spectral_fields, physical_fields)
+    solver_scalar_spectral_to_physical!(𝔽.spectral, main_physical_field)
+    solver_scalar_spectral_to_physical!(ws.∇θ_spec, 𝔽.gradient.θ_component)
+    solver_scalar_spectral_to_physical!(ws.∇φ_spec, 𝔽.gradient.φ_component)
+    solver_scalar_spectral_to_physical!(ws.∇r_spec, 𝔽.gradient.r_component)
     return 𝔽
 end
 
