@@ -70,32 +70,17 @@ function optimize_process_topology(nprocs::Int, dims::Tuple{Int,Int,Int})
 end
 
 
-"""
-    shared_spectral_compatible_proc_dims(proc_dims::Tuple{Int,Int})
-
-Collapse a candidate process grid to a 1D layout when the shared spectral
-`(nlm, 1, nr)` pencil would otherwise decompose its dummy middle dimension.
-
-The current shared-pencil design keeps the spectral dummy axis in topology
-dimension 2, so any `proc_dims[2] > 1` would leave some ranks with empty local
-spectral arrays.
-"""
-function shared_spectral_compatible_proc_dims(proc_dims::Tuple{Int,Int})
-    if proc_dims[2] <= 1
-        return proc_dims
-    end
-
-    return (prod(proc_dims), 1)
-end
+@inline spectral_mode_grid_dims(lmax::Int, mmax::Int, nr::Int) = (lmax + 1, mmax + 1, nr)
+@inline spectral_mode_grid_dims(config, nr::Int) = spectral_mode_grid_dims(config.lmax, config.mmax, nr)
 
 
 """
     create_pencil_topology(shtns_config; nr, optimize=true)
 
 Create enhanced pencil decomposition for SHTns grids.
-Chooses the best shared process grid that is compatible with the current
-physical and spectral pencil layouts.
-Accepts an object with fields `nlat`, `nlon`, and `nlm` (e.g., `SHTnsKitConfig`).
+Chooses the best shared 2D process grid for the physical and spectral pencil
+layouts. Accepts an object with fields `nlat`, `nlon`, `nlm`, `lmax`, and
+`mmax` (e.g., `SHTnsKitConfig`).
 """
 function create_pencil_topology(shtns_config; nr::Int, optimize::Bool=true)
     comm = get_comm()
@@ -108,11 +93,10 @@ function create_pencil_topology(shtns_config; nr::Int, optimize::Bool=true)
     dims = (nlat, nlon, nr)
     
     # Choose the process grid before constructing any pencils so every later
-    # pencil/orientation shares the same MPI topology. The shared spectral
-    # pencil uses a dummy middle axis of length 1, so the second process-grid
-    # dimension must stay at 1 until that layout is redesigned.
+    # pencil/orientation shares the same MPI topology. Spectral space uses a
+    # real (l, m, r) grid, so both process-grid dimensions are valid.
     if optimize && nprocs > 1
-        proc_dims = shared_spectral_compatible_proc_dims(optimize_process_topology(nprocs, dims))
+        proc_dims = optimize_process_topology(nprocs, dims)
     else
         # Default to 1D decomposition
         proc_dims = (nprocs, 1)
@@ -159,10 +143,10 @@ function create_computation_pencils(topology, dims::Tuple{Int,Int,Int}, config)
     pencil_r = Pencil(topology, dims, (1, 2))  # Contiguous in r (radius)
     
     # Spectral space pencil (for l,m modes)
-    # Distribute lm (dim 1) and dummy (dim 2, size 1), keep radial (dim 3) local on each rank
+    # Distribute l and m, keep radial (dim 3) local on each rank.
     # decomp_dims must be a 2-tuple to match MPITopology{2}
     # This matches DD_2DCODE where each rank has full radial profiles for its subset of (l,m) modes
-    spec_dims = (config.nlm, 1, nr)
+    spec_dims = spectral_mode_grid_dims(config, nr)
     pencil_spec = Pencil(topology, spec_dims, (1, 2))
     
     # Create enhanced pencil for mixed operations
