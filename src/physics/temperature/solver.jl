@@ -119,22 +119,30 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
     dt = state.parameters.timestep
 
     if timestepper isa CNAB2
+        matrices = state.implicit_matrices[:temperature]
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :temperature,
+            matrices.system_matrices[1].size,
+        )
         solver_build_rhs_cnab2!(
             temperature.work_spectral,
             temperature.spectral,
             temperature.nonlinear,
             temperature.prev_nonlinear,
             dt,
-            state.implicit_matrices[:temperature],
+            matrices;
+            work=radial_work,
         )
         solver_solve_temperature_implicit_step!(
             temperature.spectral,
             temperature.work_spectral,
-            state.implicit_matrices[:temperature];
+            matrices;
             bc_inner=bc.inner_real,
             bc_outer=bc.outer_real,
             bc_inner_imag=bc.inner_imag,
             bc_outer_imag=bc.outer_imag,
+            work=radial_work,
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_temperature::EAB2CacheEntry{T}).map
