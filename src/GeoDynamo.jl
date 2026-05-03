@@ -495,6 +495,7 @@ module GeoDynamo
     include("timestep/state.jl")
     include("core/simulation_health.jl")
     include("timestep/implicit.jl")
+    include("bcs/scalar_bc.jl")
     include("physics/magnetic/field.jl")
     include("physics/velocity/field.jl")
     include("physics/temperature/field.jl")

@@ -15,6 +15,7 @@ end
 
 @testset "Temperature boundary-condition static contract" begin
     api = _temperature_bc_static_source("src", "api", "boundary_conditions.jl")
+    scalar_bc = _temperature_bc_static_source("src", "bcs", "scalar_bc.jl")
     thermal_bc = _temperature_bc_static_source("src", "bcs", "thermal_bc.jl")
     temperature_solver = _temperature_bc_static_source("src", "physics", "temperature", "solver.jl")
     backend = _temperature_bc_static_source("src", "solver", "backend.jl")
@@ -27,21 +28,34 @@ end
     @test occursin("_thermal_bc_code(::BoundaryConditions{<:FixedFlux,        <:FixedTemperature}) = 3", api)
     @test occursin("_thermal_bc_code(::BoundaryConditions{<:FixedFlux,        <:FixedFlux})        = 4", api)
 
-    matrices = _temperature_bc_static_function_body(
+    temperature_matrices = _temperature_bc_static_function_body(
         thermal_bc,
         "function create_temperature_matrices(",
     )
-    @test occursin("system_data[bw + 1, 1] = one(T)", matrices)
-    @test occursin("system_data[bw + 1, N] = one(T)", matrices)
-    @test occursin("= d1_matrix.data", matrices)
-    @test occursin("temperature_bc_code == 4 && l == 0", matrices)
+    @test occursin("create_scalar_matrices(", temperature_matrices)
+    @test occursin("scalar_bc_code=temperature_bc_code", temperature_matrices)
+
+    scalar_rows = _temperature_bc_static_function_body(
+        scalar_bc,
+        "function _apply_scalar_boundary_rows!(",
+    )
+    @test occursin("system_data[bw + 1, 1] = one(T)", scalar_rows)
+    @test occursin("system_data[bw + 1, N] = one(T)", scalar_rows)
+    @test occursin("= d1_data", scalar_rows)
+    @test occursin("scalar_bc_code == 4 && l == 0", scalar_rows)
 
     legacy_temperature_solve = _temperature_bc_static_function_body(
         thermal_bc,
         "function solve_temperature_implicit_step!(",
     )
-    @test occursin("local_spectral_mode_indices(solution.config)", legacy_temperature_solve)
+    @test occursin("solve_scalar_implicit_step!(", legacy_temperature_solve)
     @test !occursin("get_local_range(solution.pencil, 1)", legacy_temperature_solve)
+
+    shared_scalar_solve = _temperature_bc_static_function_body(
+        scalar_bc,
+        "function solve_scalar_implicit_step!(",
+    )
+    @test occursin("local_spectral_mode_indices(solution.config)", shared_scalar_solve)
 
     get_bc_vectors = _temperature_bc_static_function_body(
         numerics,

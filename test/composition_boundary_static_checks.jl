@@ -15,6 +15,7 @@ end
 
 @testset "Composition boundary-condition static contract" begin
     api = _composition_bc_static_source("src", "api", "boundary_conditions.jl")
+    scalar_bc = _composition_bc_static_source("src", "bcs", "scalar_bc.jl")
     composition_bc = _composition_bc_static_source("src", "bcs", "compositional_bc.jl")
     composition_solver = _composition_bc_static_source("src", "physics", "composition", "solver.jl")
     backend = _composition_bc_static_source("src", "solver", "backend.jl")
@@ -24,22 +25,35 @@ end
 
     @test occursin("_composition_bc_code(bc) = _thermal_bc_code(bc)", api)
 
-    matrices = _composition_bc_static_function_body(
+    composition_matrices = _composition_bc_static_function_body(
         composition_bc,
         "function create_composition_matrices(",
     )
-    @test occursin("system_data[bw + 1, 1] = one(T)", matrices)
-    @test occursin("system_data[bw + 1, N] = one(T)", matrices)
-    @test occursin("= d1_matrix.data", matrices)
-    @test occursin("composition_bc_code == 4 && l == 0", matrices)
+    @test occursin("create_scalar_matrices(", composition_matrices)
+    @test occursin("scalar_bc_code=composition_bc_code", composition_matrices)
+
+    scalar_rows = _composition_bc_static_function_body(
+        scalar_bc,
+        "function _apply_scalar_boundary_rows!(",
+    )
+    @test occursin("system_data[bw + 1, 1] = one(T)", scalar_rows)
+    @test occursin("system_data[bw + 1, N] = one(T)", scalar_rows)
+    @test occursin("= d1_data", scalar_rows)
+    @test occursin("scalar_bc_code == 4 && l == 0", scalar_rows)
 
     legacy_composition_solve = _composition_bc_static_function_body(
         composition_bc,
         "function solve_composition_implicit_step!(",
     )
     @test occursin("Union{AbstractVector{T},Nothing}", legacy_composition_solve)
-    @test occursin("local_spectral_mode_indices(solution.config)", legacy_composition_solve)
+    @test occursin("solve_scalar_implicit_step!(", legacy_composition_solve)
     @test !occursin("get_local_range(solution.pencil, 1)", legacy_composition_solve)
+
+    shared_scalar_solve = _composition_bc_static_function_body(
+        scalar_bc,
+        "function solve_scalar_implicit_step!(",
+    )
+    @test occursin("local_spectral_mode_indices(solution.config)", shared_scalar_solve)
 
     get_bc_vectors = _composition_bc_static_function_body(
         numerics,

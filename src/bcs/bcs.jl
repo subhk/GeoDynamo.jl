@@ -58,6 +58,7 @@
 # └── topography/             # Boundary topography effects
 #
 # Matrix-embedded BC files (included by their respective field modules):
+# ├── scalar_bc.jl            # Shared scalar matrix/RHS helpers (included by GeoDynamo.jl)
 # ├── thermal_bc.jl           # Temperature BCs (included by physics/temperature/field.jl)
 # ├── compositional_bc.jl     # Composition BCs (included by physics/composition/field.jl)
 # ├── velocity_bc.jl          # Velocity BCs (included by physics/velocity/field.jl)
@@ -191,8 +192,8 @@ include("interpolation.jl")    # Grid interpolation utilities
 include("programmatic.jl")     # Programmatic boundary generation
 include("file_bc_loader.jl")   # File-based spectral BC loading
 
-# Temperature and composition BCs are now embedded in the implicit matrix
-# (see bcs/thermal_bc.jl and bcs/compositional_bc.jl, included by physics/temperature/field.jl and physics/composition/field.jl)
+# Temperature and composition wrappers share the scalar matrix/RHS implementation
+# in bcs/scalar_bc.jl.
 
 # Integration modules
 include("integration.jl")      # Integration with field structures
