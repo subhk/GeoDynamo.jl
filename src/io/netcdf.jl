@@ -145,13 +145,19 @@ function setup_dimensions!(ds, field_info::FieldInfo, config::OutputConfig)
     end
 end
 
+@inline should_define_physical_field_variables(config::OutputConfig) =
+    config.output_space == MIXED_FIELDS || config.output_space == PHYSICAL_ONLY
+
+@inline should_define_spectral_field_variables(config::OutputConfig) =
+    config.output_space == MIXED_FIELDS || config.output_space == SPECTRAL_ONLY
+
 """
     setup_variables!(ds, field_info, config, available_fields)
 
 Define NetCDF variables for time, coordinates, and available simulation fields.
 
-The writer currently supports the mixed GeoDynamo layout: physical
-temperature/composition and spectral toroidal/poloidal components.
+The writer defines field variables according to `config.output_space`: physical
+scalar fields, spectral coefficient fields, or the mixed layout used by default.
 """
 function setup_variables!(ds, field_info::FieldInfo, config::OutputConfig,
                           available_fields::Vector{String})
@@ -189,35 +195,35 @@ function setup_variables!(ds, field_info::FieldInfo, config::OutputConfig,
         end
     end
 
-    # Field variables
-    if config.output_space == MIXED_FIELDS
-        # Temperature: Physical space (theta, phi, r)
-        if "temperature" in available_fields && field_info.nlat > 0 && field_info.nlon > 0
+    # Physical field variables (theta, phi, r)
+    if should_define_physical_field_variables(config)
+        if "temperature" in available_fields &&
+           field_info.nlat > 0 && field_info.nlon > 0 && field_info.nr > 0
             defVar(ds, "temperature", T, ("theta", "phi", "r"); attrib=Dict(
                 "long_name" => "temperature", "units" => "dimensionless",
                 "representation" => "physical_space"))
         end
 
-        # Composition: Physical space (theta, phi, r)
-        if "composition" in available_fields && field_info.nlat > 0 && field_info.nlon > 0
+        if "composition" in available_fields &&
+           field_info.nlat > 0 && field_info.nlon > 0 && field_info.nr > 0
             defVar(ds, "composition", T, ("theta", "phi", "r"); attrib=Dict(
                 "long_name" => "composition", "units" => "dimensionless",
                 "representation" => "physical_space"))
         end
+    end
 
-        # Spectral fields (spectral_mode, r)
-        if field_info.nlm > 0
-            for component in ["velocity_toroidal", "velocity_poloidal",
-                              "magnetic_toroidal", "magnetic_poloidal",
-                              "temperature_spectral", "composition_spectral"]
-                if component in available_fields
-                    defVar(ds, "$(component)_real", T, ("spectral_mode", "r"); attrib=Dict(
-                        "long_name" => "$(component)_real_coefficients",
-                        "representation" => "spectral_space"))
-                    defVar(ds, "$(component)_imag", T, ("spectral_mode", "r"); attrib=Dict(
-                        "long_name" => "$(component)_imaginary_coefficients",
-                        "representation" => "spectral_space"))
-                end
+    # Spectral field variables (spectral_mode, r)
+    if should_define_spectral_field_variables(config) && field_info.nlm > 0 && field_info.nr > 0
+        for component in ["velocity_toroidal", "velocity_poloidal",
+                          "magnetic_toroidal", "magnetic_poloidal",
+                          "temperature_spectral", "composition_spectral"]
+            if component in available_fields
+                defVar(ds, "$(component)_real", T, ("spectral_mode", "r"); attrib=Dict(
+                    "long_name" => "$(component)_real_coefficients",
+                    "representation" => "spectral_space"))
+                defVar(ds, "$(component)_imag", T, ("spectral_mode", "r"); attrib=Dict(
+                    "long_name" => "$(component)_imaginary_coefficients",
+                    "representation" => "spectral_space"))
             end
         end
     end
@@ -277,12 +283,22 @@ function write_coordinate_data!(ds, field_info::FieldInfo, config::OutputConfig)
     end
 end
 
+function _legacy_linear_spectral_io_ranges(pencils)
+    spec_shape = size_global(pencils.spec)
+    if length(spec_shape) >= 2 && spec_shape[2] != 1
+        throw(ArgumentError(
+            "Spectral I/O with distributed 2D spectral pencils requires shtns_config metadata.",
+        ))
+    end
+    return range_local(pencils.spec, 1), range_local(pencils.spec, 3)
+end
+
 @inline function local_spectral_io_ranges(field_info::FieldInfo)
     if field_info.has_config
         config = field_info.config::SHTnsKitConfig
         return local_spectral_mode_indices(config), range_local(config.pencils.spec, 3)
     elseif field_info.has_pencils
-        return range_local(field_info.pencils.spec, 1), range_local(field_info.pencils.spec, 3)
+        return _legacy_linear_spectral_io_ranges(field_info.pencils)
     else
         return 1:field_info.nlm, 1:field_info.nr
     end
