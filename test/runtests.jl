@@ -3,6 +3,7 @@ include(joinpath(@__DIR__, "precompile_syntax.jl"))
 include(joinpath(@__DIR__, "allocation_static_checks.jl"))
 include(joinpath(@__DIR__, "loop_macro_static_checks.jl"))
 include(joinpath(@__DIR__, "pencil_decomposition_static_checks.jl"))
+include(joinpath(@__DIR__, "io_writer_static_checks.jl"))
 using GeoDynamo
 
 const TEST_DIR = @__DIR__
