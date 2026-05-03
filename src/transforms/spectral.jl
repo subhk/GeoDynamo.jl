@@ -680,9 +680,8 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     spec_dims = spectral_mode_grid_dims(lmax, mmax, nr)
     pencil_spec = Pencil(topology, spec_dims, (1, 2))
 
-    # Mixed pencil for intermediate computations
-    mixed_dims = (sht_config.nlm, nlat, nr)
-    pencil_mixed = Pencil(topology, mixed_dims, (1, 2))
+    # Compatibility alias for older call sites. Mixed spectral storage must obey
+    # the same rectangular (l, m, r) ownership contract as the spectral pencil.
 
     # Return named tuple with both ASCII and Unicode names for convenience
     return (; theta=pencil_theta,
@@ -691,7 +690,7 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
             φ=pencil_phi,        # Unicode alias
             r=pencil_r,
             spec=pencil_spec,
-            mixed=pencil_mixed)
+            mixed=pencil_spec)
 end
 
 """
