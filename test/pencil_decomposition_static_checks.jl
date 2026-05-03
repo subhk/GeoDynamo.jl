@@ -21,4 +21,11 @@ const RESTART_SRC = read(joinpath(ROOT, "src", "io", "restart.jl"), String)
 
     @test occursin("local_spectral_mode_indices(config)", NETCDF_SRC)
     @test occursin("local_spectral_mode_indices(shtns_config)", RESTART_SRC)
+
+    @test occursin("spectral_dims", PARALLEL_PENCILS_SRC)
+    @test occursin("spectral_dims", SPECTRAL_SRC)
+    @test occursin("spectral_dims[1] ÷ p1 < 1", PARALLEL_PENCILS_SRC)
+    @test occursin("spectral_dims[2] ÷ p2 < 1", PARALLEL_PENCILS_SRC)
+    @test !occursin("optimize_process_topology_shtnskit(nprocs, nlat, nlon)", SPECTRAL_SRC)
+    @test !occursin("mixed_dims = (nlm, nlat, nr)", SPECTRAL_SRC)
 end
