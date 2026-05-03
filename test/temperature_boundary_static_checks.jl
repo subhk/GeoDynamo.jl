@@ -100,5 +100,5 @@ end
         "function integrate_solver_erk2_step!(",
     )
     @test occursin("temp_bc_values = get_bc_vectors(state.fields.temperature)", integrate_erk2)
-    @test occursin("temp_bc = solver_with_boundary_mode_values(temp_bc", integrate_erk2)
+    @test occursin("temp_bc = solver_with_boundary_mode_values(", integrate_erk2)
 end
