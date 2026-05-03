@@ -181,6 +181,54 @@ function solver_create_shtns_config(::GPU, params::SolverParameters)
     )
 end
 
+function solver_architecture_from_symbol(architecture::Symbol)
+    architecture === :cpu && return CPU()
+    architecture === :gpu && return GPU(nothing)
+    throw(ArgumentError("architecture = $(architecture) must be :cpu or :gpu"))
+end
+
+function solver_scale_radial_domain(domain::RadialDomainType, radius_scale::Real)
+    scale = Float64(radius_scale)
+    scale > 0 || throw(ArgumentError("inner-core radius scale must be positive, got $scale"))
+
+    r = copy(domain.r)
+    r[:, 4] .*= scale
+
+    for p in axes(r, 2)
+        p == 4 && continue
+        power = p - 4
+        for i in axes(r, 1)
+            r_val = r[i, 4]
+            r[i, p] = r_val == 0.0 && power < 0 ? 0.0 : r_val ^ power
+        end
+    end
+
+    dr_matrices = [
+        copy(matrix) ./ (scale ^ order)
+        for (order, matrix) in enumerate(domain.dr_matrices)
+    ]
+    radial_laplacian = copy(domain.radial_laplacian) ./ (scale ^ 2)
+    integration_weights = copy(domain.integration_weights) .* scale
+
+    return RadialDomainType(
+        domain.N,
+        domain.local_range,
+        r,
+        dr_matrices,
+        radial_laplacian,
+        integration_weights,
+    )
+end
+
+function solver_create_inner_core_domain(params::SolverParameters)
+    unit_ball_domain = SOLVER_BALL_DOMAIN_BUILDER(
+        params.nr_inner;
+        radial_bandwidth=params.radial_bandwidth,
+    )
+    inner_core_radius = params.radius_ratio / (1.0 - params.radius_ratio)
+    return solver_scale_radial_domain(unit_ball_domain, inner_core_radius)
+end
+
 function solver_create_radial_domains(params::SolverParameters)
     outer_core_domain =
         params.geometry === :ball ?
@@ -193,11 +241,7 @@ function solver_create_radial_domains(params::SolverParameters)
 
     inner_core_domain =
         params.geometry === :shell ?
-        SOLVER_SHELL_DOMAIN_BUILDER(
-            params.nr_inner;
-            radius_ratio=params.radius_ratio,
-            radial_bandwidth=params.radial_bandwidth,
-        ) :
+        solver_create_inner_core_domain(params) :
         nothing
 
     return outer_core_domain, inner_core_domain
@@ -228,7 +272,7 @@ function create_solver_backend(arch::AbstractArchitecture, params::SolverParamet
 end
 
 function create_solver_backend(params::SolverParameters)
-    arch = params.architecture === :gpu ? GPU(nothing) : CPU()
+    arch = solver_architecture_from_symbol(params.architecture)
     return create_solver_backend(arch, params)
 end
 
