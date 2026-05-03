@@ -793,8 +793,9 @@ end
     lm_map = zeros(Int, local_shape[1], local_shape[2])
     lm_range = range_local(spec_pencil, 1)
     slot_range = range_local(spec_pencil, 2)
+    global_shape = size_global(spec_pencil)
 
-    if length(slot_range) == 1 && first(slot_range) == 1
+    if global_shape[2] == 1 && length(slot_range) == 1 && first(slot_range) == 1
         for (local_lm, global_lm) in enumerate(lm_range)
             global_lm <= config.nlm || continue
             lm_map[local_lm, 1] = global_lm
@@ -802,11 +803,34 @@ end
         return lm_map
     end
 
-    throw(ArgumentError(
-        "Current spectral storage mapping only supports the shared-radial layout " *
-        "with a single global spectral slot. A true 2D spectral pencil requires " *
-        "a dedicated local-to-global mode map at config creation.",
-    ))
+    expected_shape = spectral_mode_grid_dims(config, size_global(spec_pencil)[3])
+    if global_shape[1] != expected_shape[1] || global_shape[2] != expected_shape[2]
+        throw(ArgumentError(
+            "Spectral pencil dimensions $(global_shape) are incompatible with " *
+            "the expected mode grid $(expected_shape).",
+        ))
+    end
+
+    mode_lookup = zeros(Int, config.lmax + 1, config.mmax + 1)
+    for lm_idx in 1:config.nlm
+        l = config.l_values[lm_idx]
+        m = config.m_values[lm_idx]
+        if 0 <= l <= config.lmax && 0 <= m <= config.mmax
+            mode_lookup[l + 1, m + 1] = lm_idx
+        end
+    end
+
+    for (local_l_slot, global_l_slot) in enumerate(lm_range),
+        (local_m_slot, global_m_slot) in enumerate(slot_range)
+
+        global_l = global_l_slot - 1
+        global_m = global_m_slot - 1
+        if 0 <= global_l <= config.lmax && 0 <= global_m <= min(global_l, config.mmax)
+            lm_map[local_l_slot, local_m_slot] = mode_lookup[global_l + 1, global_m + 1]
+        end
+    end
+
+    return lm_map
 end
 
 @inline function local_spectral_lm_map(config)
