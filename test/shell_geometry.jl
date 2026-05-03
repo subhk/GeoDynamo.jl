@@ -28,6 +28,23 @@ const FINALIZE_MPI_SHELL = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         @test dom.r[nr, 4] > dom.r[1, 4]
     end
 
+    @testset "Solver inner-core domain" begin
+        params = GeoDynamo.SolverParameters(
+            geometry=:shell,
+            nr=16,
+            nr_inner=8,
+            lmax=4,
+            mmax=4,
+            nlat=12,
+            nlon=16,
+            radius_ratio=0.35,
+        )
+        _, inner = GeoDynamo.solver_create_radial_domains(params)
+        @test inner !== nothing
+        @test inner.r[1, 4] ≈ 0.0
+        @test inner.r[end, 4] ≈ params.radius_ratio / (1 - params.radius_ratio)
+    end
+
     @testset "Shell spectral field" begin
         dom = Shell.create_shell_radial_domain(nr)
         spec = Shell.create_shell_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
