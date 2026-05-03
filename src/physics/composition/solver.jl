@@ -128,6 +128,15 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_composition::EAB2CacheEntry{T}).map
+        composition_bc_code = _composition_bc_code(state.parameters.composition_bcs)
+        scalar_bc = build_solver_erk2_scalar_bc(T, runtime.𝒟ᵒᶜ, composition_bc_code)
+        bc_spec = solver_with_boundary_mode_values(
+            scalar_bc,
+            bc.inner_real,
+            bc.outer_real,
+            bc.inner_imag,
+            bc.outer_imag,
+        )
         solver_eab2_update_krylov_cached!(
             composition.spectral,
             composition.nonlinear,
@@ -137,8 +146,9 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
             diffusivity,
             runtime.shtns_config,
             dt;
-            m=_timestepper_krylov_dimension(state.parameters.timestepper),
-            tol=_timestepper_krylov_tolerance(state.parameters.timestepper),
+            m=_timestepper_krylov_dimension(timestepper, state.parameters),
+            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
+            bc_spec=bc_spec,
         )
     else
         solver_solve_composition_implicit_step!(
