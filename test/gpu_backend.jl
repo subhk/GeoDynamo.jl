@@ -1,5 +1,6 @@
 using Test
 using GeoDynamo
+import KernelAbstractions
 
 @testset "GPU Architecture (Oceananigans style)" begin
     @testset "Architecture type hierarchy" begin
@@ -28,7 +29,13 @@ using GeoDynamo
     end
 
     @testset "get_backend CPU" begin
-        @test get_backend(CPU()) isa GeoDynamo.CPUBackend
+        @test get_backend(CPU()) isa KernelAbstractions.CPU
+    end
+
+    @testset "Architecture symbol conversion" begin
+        @test GeoDynamo.solver_architecture_from_symbol(:cpu) isa CPU
+        @test GeoDynamo.solver_architecture_from_symbol(:gpu) isa GPU
+        @test_throws ArgumentError GeoDynamo.solver_architecture_from_symbol(:cuda)
     end
 
     @testset "GPU{B} parametric" begin
