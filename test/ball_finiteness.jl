@@ -62,17 +62,19 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     ω_pol_i = parent(vfields.ζᴾ.data_imag)
 
     r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
-    lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)
+    lm_range = GeoDynamo.local_spectral_mode_indices(cfg)
     if 1 in r_range && !isempty(lm_range)
         local_r = 1 - first(r_range) + 1
         # Expect inner plane to be finite and effectively zero by guard
-        for k in 1:length(lm_range)
-            @test isfinite(ω_tor_r[k, 1, local_r]) && isfinite(ω_tor_i[k, 1, local_r])
-            @test isfinite(ω_pol_r[k, 1, local_r]) && isfinite(ω_pol_i[k, 1, local_r])
-            @test ω_tor_r[k, 1, local_r] ≈ 0.0 atol=1e-12
-            @test ω_tor_i[k, 1, local_r] ≈ 0.0 atol=1e-12
-            @test ω_pol_r[k, 1, local_r] ≈ 0.0 atol=1e-12
-            @test ω_pol_i[k, 1, local_r] ≈ 0.0 atol=1e-12
+        for lm_idx in lm_range
+            slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
+            slot === nothing && continue
+            @test isfinite(ω_tor_r[slot[1], slot[2], local_r]) && isfinite(ω_tor_i[slot[1], slot[2], local_r])
+            @test isfinite(ω_pol_r[slot[1], slot[2], local_r]) && isfinite(ω_pol_i[slot[1], slot[2], local_r])
+            @test ω_tor_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
+            @test ω_tor_i[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
+            @test ω_pol_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
+            @test ω_pol_i[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
         end
     end
 
@@ -91,16 +93,18 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     j_pol_i = parent(mfields.work_pol.data_imag)
 
     r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
-    lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)
+    lm_range = GeoDynamo.local_spectral_mode_indices(cfg)
     if 1 in r_range && !isempty(lm_range)
         local_r = 1 - first(r_range) + 1
-        for k in 1:length(lm_range)
-            @test isfinite(j_tor_r[k, 1, local_r]) && isfinite(j_tor_i[k, 1, local_r])
-            @test isfinite(j_pol_r[k, 1, local_r]) && isfinite(j_pol_i[k, 1, local_r])
-            @test j_tor_r[k, 1, local_r] ≈ 0.0 atol=1e-12
-            @test j_tor_i[k, 1, local_r] ≈ 0.0 atol=1e-12
-            @test j_pol_r[k, 1, local_r] ≈ 0.0 atol=1e-12
-            @test j_pol_i[k, 1, local_r] ≈ 0.0 atol=1e-12
+        for lm_idx in lm_range
+            slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
+            slot === nothing && continue
+            @test isfinite(j_tor_r[slot[1], slot[2], local_r]) && isfinite(j_tor_i[slot[1], slot[2], local_r])
+            @test isfinite(j_pol_r[slot[1], slot[2], local_r]) && isfinite(j_pol_i[slot[1], slot[2], local_r])
+            @test j_tor_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
+            @test j_tor_i[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
+            @test j_pol_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
+            @test j_pol_i[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
         end
     end
 
