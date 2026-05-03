@@ -216,16 +216,16 @@ for its subset of (l,m) modes:
 function solve_temperature_implicit_step!(solution::SHTnsSpecField{T},
                                            rhs::SHTnsSpecField{T},
                                            matrices::SHTnsImplicitMatrices{T};
-                                           bc_inner::Union{Vector{T},Nothing}=nothing,
-                                           bc_outer::Union{Vector{T},Nothing}=nothing,
-                                           bc_inner_imag::Union{Vector{T},Nothing}=nothing,
-                                           bc_outer_imag::Union{Vector{T},Nothing}=nothing) where T
+                                           bc_inner::Union{AbstractVector{T},Nothing}=nothing,
+                                           bc_outer::Union{AbstractVector{T},Nothing}=nothing,
+                                           bc_inner_imag::Union{AbstractVector{T},Nothing}=nothing,
+                                           bc_outer_imag::Union{AbstractVector{T},Nothing}=nothing) where T
     sol_real = parent(solution.data_real)
     sol_imag = parent(solution.data_imag)
     rhs_real = parent(rhs.data_real)
     rhs_imag = parent(rhs.data_imag)
 
-    lm_range = get_local_range(solution.pencil, 1)
+    lm_range = local_spectral_mode_indices(solution.config)
     nr = matrices.system_matrices[1].size  # Full radial size (local = global for spectral)
 
     # Allocate buffers for the radial profile
