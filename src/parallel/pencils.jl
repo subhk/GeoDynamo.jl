@@ -11,12 +11,14 @@ using Statistics: std
 # Optimized Process Topology
 # ================================
 """
-    optimize_process_topology(nprocs::Int, dims::Tuple{Int,Int,Int})
+    optimize_process_topology(nprocs::Int, dims::Tuple{Int,Int,Int}, spectral_dims=nothing)
     
 Find optimal 2D process grid for given number of processes and problem dimensions.
 Minimizes communication volume.
 """
-function optimize_process_topology(nprocs::Int, dims::Tuple{Int,Int,Int})
+function optimize_process_topology(nprocs::Int,
+                                   dims::Tuple{Int,Int,Int},
+                                   spectral_dims::Union{Nothing,Tuple{Int,Int,Int}}=nothing)
     nlat, nlon, nr = dims
     
     # Find all valid 2D decompositions
@@ -36,8 +38,12 @@ function optimize_process_topology(nprocs::Int, dims::Tuple{Int,Int,Int})
         # Estimate communication volume for different pencil orientations
         # Prefer decompositions that balance load and minimize surface/volume ratio
         
-        # Check if decomposition is valid for problem size
+        # Check if decomposition is valid for physical and spectral storage.
         if nlat ÷ p1 < 2 || nlon ÷ p2 < 2
+            continue
+        end
+        if spectral_dims !== nothing &&
+           (spectral_dims[1] ÷ p1 < 1 || spectral_dims[2] ÷ p2 < 1)
             continue
         end
         
@@ -60,10 +66,11 @@ function optimize_process_topology(nprocs::Int, dims::Tuple{Int,Int,Int})
     
     # Validate that the best decomposition satisfies the minimum grid-per-process constraint
     p1, p2 = best_decomp
-    if nlat ÷ p1 < 2 || nlon ÷ p2 < 2
+    if nlat ÷ p1 < 2 || nlon ÷ p2 < 2 ||
+       (spectral_dims !== nothing && (spectral_dims[1] ÷ p1 < 1 || spectral_dims[2] ÷ p2 < 1))
         @warn "No valid 2D pencil decomposition found for nlat=$nlat, nlon=$nlon with $nprocs processes. " *
               "Best candidate ($p1, $p2) gives $(nlat÷p1) × $(nlon÷p2) points per process " *
-              "(minimum 2×2 required). Consider reducing the number of MPI processes or increasing resolution."
+              "(minimum 2×2 physical and 1×1 spectral required). Consider reducing the number of MPI processes or increasing resolution."
     end
 
     return best_decomp
@@ -91,12 +98,13 @@ function create_pencil_topology(shtns_config; nr::Int, optimize::Bool=true)
     nlat = shtns_config.nlat
     nlon = shtns_config.nlon
     dims = (nlat, nlon, nr)
+    spectral_dims = spectral_mode_grid_dims(shtns_config, nr)
     
     # Choose the process grid before constructing any pencils so every later
     # pencil/orientation shares the same MPI topology. Spectral space uses a
     # real (l, m, r) grid, so both process-grid dimensions are valid.
     if optimize && nprocs > 1
-        proc_dims = optimize_process_topology(nprocs, dims)
+        proc_dims = optimize_process_topology(nprocs, dims, spectral_dims)
     else
         # Default to 1D decomposition
         proc_dims = (nprocs, 1)
