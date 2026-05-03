@@ -115,6 +115,15 @@ end
 function get_bc_vectors(field)
     cache = field.boundary_interpolation_cache
     if !get(cache, "bc_loaded", false)
+        if hasfield(typeof(field), :boundary_values)
+            return (
+                inner_real=view(field.boundary_values, 1, :),
+                outer_real=view(field.boundary_values, 2, :),
+                inner_imag=nothing,
+                outer_imag=nothing,
+            )
+        end
+
         return (
             inner_real=nothing,
             outer_real=nothing,
