@@ -1,5 +1,6 @@
 using Test
 include(joinpath(@__DIR__, "precompile_syntax.jl"))
+include(joinpath(@__DIR__, "allocation_static_checks.jl"))
 using GeoDynamo
 
 const TEST_DIR = @__DIR__
