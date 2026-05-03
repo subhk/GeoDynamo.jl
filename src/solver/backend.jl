@@ -58,6 +58,8 @@ struct SolverGradientWorkspace{T}
     ∇θ_spec::SpectralFieldType{T}
     ∇φ_spec::SpectralFieldType{T}
     ∇r_spec::SpectralFieldType{T}
+    theta_full_real::Vector{T}
+    theta_full_imag::Vector{T}
 end
 
 """
@@ -390,6 +392,8 @@ function create_solver_gradient_workspace(::Type{T}, backend::SolverBackend{<:Ab
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
+        zeros(T, cfg.nlm),
+        zeros(T, cfg.nlm),
     )
 end
 
