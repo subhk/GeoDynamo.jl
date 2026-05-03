@@ -157,17 +157,21 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
 
             if haskey(ds, real_name) && haskey(ds, imag_name)
                 if pencils !== nothing
-                    lm_range = range_local(pencils.spec, 1)
-                    r_range = range_local(pencils.spec, 3)
-                    real_slice = Array(ds[real_name][lm_range, r_range])
-                    imag_slice = Array(ds[imag_name][lm_range, r_range])
                     if shtns_config !== nothing
+                        mode_indices = local_spectral_mode_indices(shtns_config)
+                        r_range = range_local(shtns_config.pencils.spec, 3)
+                        real_slice = read_local_spectral_coefficients(ds[real_name], mode_indices, r_range)
+                        imag_slice = read_local_spectral_coefficients(ds[imag_name], mode_indices, r_range)
                         real_data, imag_data = unpack_local_spectral_coefficients(real_slice, imag_slice, shtns_config)
                         restart_data[component] = Dict(
                             "real" => real_data,
                             "imag" => imag_data,
                         )
                     else
+                        lm_range = range_local(pencils.spec, 1)
+                        r_range = range_local(pencils.spec, 3)
+                        real_slice = Array(ds[real_name][lm_range, r_range])
+                        imag_slice = Array(ds[imag_name][lm_range, r_range])
                         restart_data[component] = Dict(
                             "real" => real_slice,
                             "imag" => imag_slice,
@@ -274,17 +278,21 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
 
             if haskey(ds, real_name) && haskey(ds, imag_name)
                 if pencils !== nothing
-                    lm_range = range_local(pencils.spec, 1)
-                    r_range = range_local(pencils.spec, 3)
-                    real_slice = Array(ds[real_name][lm_range, r_range])
-                    imag_slice = Array(ds[imag_name][lm_range, r_range])
                     if shtns_config !== nothing
+                        mode_indices = local_spectral_mode_indices(shtns_config)
+                        r_range = range_local(shtns_config.pencils.spec, 3)
+                        real_slice = read_local_spectral_coefficients(ds[real_name], mode_indices, r_range)
+                        imag_slice = read_local_spectral_coefficients(ds[imag_name], mode_indices, r_range)
                         real_data, imag_data = unpack_local_spectral_coefficients(real_slice, imag_slice, shtns_config)
                         restart_data[component] = Dict(
                             "real" => real_data,
                             "imag" => imag_data,
                         )
                     else
+                        lm_range = range_local(pencils.spec, 1)
+                        r_range = range_local(pencils.spec, 3)
+                        real_slice = Array(ds[real_name][lm_range, r_range])
+                        imag_slice = Array(ds[imag_name][lm_range, r_range])
                         restart_data[component] = Dict(
                             "real" => real_slice,
                             "imag" => imag_slice,
