@@ -459,12 +459,35 @@ function load_solver_file_bcs!(runtime::SolverRuntime{T,<:AbstractArchitecture},
     return runtime
 end
 
+@inline solver_scalar_boundary_type(::FixedTemperature) = Int(DIRICHLET)
+@inline solver_scalar_boundary_type(::FixedFlux) = Int(NEUMANN)
+@inline solver_scalar_boundary_value(bc) = bc.value
+
+function solver_apply_scalar_boundary_parameters!(field, boundary_conditions::BoundaryConditions)
+    T = eltype(field.boundary_values)
+    fill!(field.bc_type_inner, solver_scalar_boundary_type(boundary_conditions.inner))
+    fill!(field.bc_type_outer, solver_scalar_boundary_type(boundary_conditions.outer))
+    fill!(field.boundary_values, zero(T))
+
+    mean_mode = get_mode_index(field.config, 0, 0)
+    if mean_mode > 0
+        field.boundary_values[1, mean_mode] = T(solver_scalar_boundary_value(boundary_conditions.inner))
+        field.boundary_values[2, mean_mode] = T(solver_scalar_boundary_value(boundary_conditions.outer))
+    end
+
+    return field
+end
+
 function create_solver_runtime(::Type{T}, backend::SolverBackend{A};
                                auto_optimize::Bool=false,
                                adaptive_threading::Bool=false) where {T, A}
     solver_backend_ensure_mpi!()
 
     velocity, magnetic, temperature, composition = create_solver_fields(T, backend)
+    solver_apply_scalar_boundary_parameters!(temperature, backend.parameters.temperature_bcs)
+    if composition !== nothing
+        solver_apply_scalar_boundary_parameters!(composition, backend.parameters.composition_bcs)
+    end
     gradient_workspace = create_solver_gradient_workspace(T, backend)
     transform_workspace = create_transform_workspace(T, backend)
     timestep_state = create_solver_timestep_state(backend)
