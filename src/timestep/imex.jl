@@ -25,7 +25,6 @@ function solver_build_rhs_cnab2!(
     p_real = parent(nₙ₋₁.data_real)
     p_imag = parent(nₙ₋₁.data_imag)
 
-    lm_range = local_range(uₙ.pencil, 1)
     r_range = local_range(uₙ.pencil, 3)
 
     inv_Δt = T(mass_coeff / Δt)
@@ -46,8 +45,7 @@ function solver_build_rhs_cnab2!(
     multi_rank = mpi_comm_size(comm) > 1
 
     @inbounds for lm_idx in 1:uₙ.nlm
-        owns_mode = lm_idx in lm_range
-        slot = owns_mode ? local_spectral_storage_slot(uₙ.config, lm_idx) : nothing
+        slot = local_spectral_storage_slot(uₙ.config, lm_idx)
         ℓ = uₙ.config.l_values[lm_idx]
         matrix_idx = add_linear ? get(matrices.lookup, ℓ, nothing) : nothing
 
@@ -126,6 +124,10 @@ function solver_get_radial_work!(
     return work
 end
 
+@inline function solver_boundary_mode_value(mode_values, lm_idx::Int)
+    return mode_values !== nothing && lm_idx <= length(mode_values) ? mode_values[lm_idx] : nothing
+end
+
 """
     solver_get_eab2_alu_cache!(caches, key, ν, T, domain)
 
@@ -197,6 +199,7 @@ function solver_eab2_update_krylov_cached!(
     m::Int=20,
     tol::Float64=1e-8,
     mass_coeff::Float64=1.0,
+    bc_spec=nothing,
 ) where T
     u_real = parent(u.data_real)
     u_imag = parent(u.data_imag)
@@ -205,7 +208,6 @@ function solver_eab2_update_krylov_cached!(
     p_real = parent(nₙ₋₁.data_real)
     p_imag = parent(nₙ₋₁.data_imag)
 
-    lm_range = local_range(u.pencil, 1)
     r_range = local_range(u.pencil, 3)
     nr = domain.N
 
@@ -219,8 +221,7 @@ function solver_eab2_update_krylov_cached!(
     inv_mass_coeff = T(inv(mass_coeff))
 
     for lm_idx in 1:u.nlm
-        owns_mode = lm_idx in lm_range
-        slot = owns_mode ? local_spectral_storage_slot(u.config, lm_idx) : nothing
+        slot = local_spectral_storage_slot(u.config, lm_idx)
         ℓ = config.l_values[lm_idx]
         operator_entry = get(alu_map, ℓ, nothing)
         if operator_entry === nothing
@@ -274,6 +275,15 @@ function solver_eab2_update_krylov_cached!(
         @. u_real_next = u_real_next + Δt * nl_real_increment
         @. u_imag_next = u_imag_next + Δt * nl_imag_increment
 
+        if bc_spec !== nothing
+            inner_val = solver_boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
+            outer_val = solver_boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
+            solver_enforce_erk2_bc!(u_real_next, bc_spec.inner, 1, ℓ, nr; value_override=inner_val)
+            solver_enforce_erk2_bc!(u_real_next, bc_spec.outer, nr, ℓ, nr; value_override=outer_val)
+            solver_enforce_erk2_bc!(u_imag_next, bc_spec.inner, 1, ℓ, nr; value_override=zero(T))
+            solver_enforce_erk2_bc!(u_imag_next, bc_spec.outer, nr, ℓ, nr; value_override=zero(T))
+        end
+
         slot === nothing && continue
         scatter_local_radial_profile!(u_real, u_imag, u_real_next, u_imag_next, slot, r_range)
     end
@@ -304,7 +314,7 @@ function _solver_solve_scalar_implicit_step!(
     rhs_real = parent(rhs.data_real)
     rhs_imag = parent(rhs.data_imag)
 
-    lm_range = local_range(solution.pencil, 1)
+    lm_range = local_spectral_mode_indices(solution.config)
     r_range = local_range(solution.pencil, 3)
     nr = matrices.system_matrices[1].size
     work_ok = work !== nothing && length(work.tmp_real) == nr
@@ -424,7 +434,7 @@ function solver_solve_velocity_implicit_step!(
     rhs_real = parent(rhs.data_real)
     rhs_imag = parent(rhs.data_imag)
 
-    lm_range = local_range(solution.pencil, 1)
+    lm_range = local_spectral_mode_indices(solution.config)
     r_range = local_range(solution.pencil, 3)
     nr = matrices.system_matrices[1].size
     work_ok = work !== nothing && length(work.tmp_real) == nr
@@ -499,7 +509,7 @@ function solver_solve_magnetic_implicit_step!(
     rhs_real = parent(rhs.data_real)
     rhs_imag = parent(rhs.data_imag)
 
-    lm_range = local_range(solution.pencil, 1)
+    lm_range = local_spectral_mode_indices(solution.config)
     r_range = local_range(solution.pencil, 3)
     nr = matrices.system_matrices[1].size
     work_ok = work !== nothing && length(work.tmp_real) == nr
@@ -634,7 +644,6 @@ function legacy_eab2_update_dense!(
     n_imag = parent(nl.data_imag)
     p_real = parent(nl_prev.data_real)
     p_imag = parent(nl_prev.data_imag)
-    lm_range = local_range(u.pencil, 1)
     r_range = local_range(u.pencil, 3)
     nr_full = size(etd.E[1], 1)
     comm = mpi_comm()
@@ -648,8 +657,7 @@ function legacy_eab2_update_dense!(
     nl_imag_global = zeros(T, nr_full)
 
     for lm_idx in 1:u.nlm
-        owns_mode = lm_idx in lm_range
-        slot = owns_mode ? local_spectral_storage_slot(config, lm_idx) : nothing
+        slot = local_spectral_storage_slot(config, lm_idx)
         l = config.l_values[lm_idx]
         l_index = findfirst(==(l), etd.l_values)
         l_index === nothing && error("ETD cache missing l=$l")
