@@ -21,18 +21,20 @@ const Ball = GeoDynamo.GeoDynamoBall
     Ball.ball_physical_to_spectral!(phys, spec)
 
     sreal = parent(spec.data_real); simag = parent(spec.data_imag)
-    lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)
+    lm_range = GeoDynamo.local_spectral_mode_indices(cfg)
     r_range  = GeoDynamo.range_local(cfg.pencils.spec, 3)
 
     @test !isempty(lm_range)
     # Only check inner boundary regularity if this rank owns global r=1
     if 1 in r_range
         r_local_idx = 1 - first(r_range) + 1
-        for (k, lm_idx) in enumerate(lm_range)
+        for lm_idx in lm_range
             l = cfg.l_values[lm_idx]
             if l > 0
-                @test sreal[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
-                @test simag[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
+                slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
+                slot === nothing && continue
+                @test sreal[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
+                @test simag[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
             end
         end
     end
@@ -52,13 +54,15 @@ const Ball = GeoDynamo.GeoDynamoBall
 
     if 1 in r_range
         r_local_idx = 1 - first(r_range) + 1
-        for (k, lm_idx) in enumerate(lm_range)
+        for lm_idx in lm_range
             l = cfg.l_values[lm_idx]
             if l >= 1
-                @test treal[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
-                @test timag[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
-                @test preal[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
-                @test pimag[k, 1, r_local_idx] ≈ 0.0 atol=1e-12
+                slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
+                slot === nothing && continue
+                @test treal[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
+                @test timag[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
+                @test preal[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
+                @test pimag[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
             end
         end
     end
