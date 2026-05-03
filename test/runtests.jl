@@ -7,6 +7,7 @@ include(joinpath(@__DIR__, "io_writer_static_checks.jl"))
 include(joinpath(@__DIR__, "velocity_boundary_static_checks.jl"))
 include(joinpath(@__DIR__, "magnetic_boundary_static_checks.jl"))
 include(joinpath(@__DIR__, "temperature_boundary_static_checks.jl"))
+include(joinpath(@__DIR__, "composition_boundary_static_checks.jl"))
 using GeoDynamo
 
 const TEST_DIR = @__DIR__
