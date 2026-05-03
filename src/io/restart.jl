@@ -168,8 +168,7 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
                             "imag" => imag_data,
                         )
                     else
-                        lm_range = range_local(pencils.spec, 1)
-                        r_range = range_local(pencils.spec, 3)
+                        lm_range, r_range = _legacy_linear_spectral_io_ranges(pencils)
                         real_slice = Array(ds[real_name][lm_range, r_range])
                         imag_slice = Array(ds[imag_name][lm_range, r_range])
                         restart_data[component] = Dict(
@@ -289,8 +288,7 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
                             "imag" => imag_data,
                         )
                     else
-                        lm_range = range_local(pencils.spec, 1)
-                        r_range = range_local(pencils.spec, 3)
+                        lm_range, r_range = _legacy_linear_spectral_io_ranges(pencils)
                         real_slice = Array(ds[real_name][lm_range, r_range])
                         imag_slice = Array(ds[imag_name][lm_range, r_range])
                         restart_data[component] = Dict(
