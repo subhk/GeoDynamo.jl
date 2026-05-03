@@ -645,7 +645,7 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     # Spectral storage uses a real (l,m,r) grid, so the same 2D topology can
     # distribute spectral modes without splitting a dummy axis.
     if optimize && nprocs > 1
-        proc_dims = optimize_process_topology_shtnskit(nprocs, nlat, nlon)
+        proc_dims = optimize_process_topology_shtnskit(nprocs, nlat, nlon, lmax, mmax)
     else
         proc_dims = (nprocs, 1)  # Simple 1D decomposition
     end
@@ -681,7 +681,7 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     pencil_spec = Pencil(topology, spec_dims, (1, 2))
 
     # Mixed pencil for intermediate computations
-    mixed_dims = (nlm, nlat, nr)
+    mixed_dims = (sht_config.nlm, nlat, nr)
     pencil_mixed = Pencil(topology, mixed_dims, (1, 2))
 
     # Return named tuple with both ASCII and Unicode names for convenience
@@ -695,7 +695,7 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
 end
 
 """
-    optimize_process_topology_shtnskit(nprocs, nlat, nlon) -> Tuple{Int,Int}
+    optimize_process_topology_shtnskit(nprocs, nlat, nlon, lmax, mmax) -> Tuple{Int,Int}
 
 Find optimal 2D MPI process grid for theta-phi parallelization.
 
@@ -720,42 +720,17 @@ For nprocs=12, nlat=64, nlon=128:
 - `nprocs`: Total number of MPI processes
 - `nlat`: Number of latitude points
 - `nlon`: Number of longitude points
+- `lmax`: Maximum spherical harmonic degree
+- `mmax`: Maximum spherical harmonic order
 
 # Returns
 - `(p_theta, p_phi)`: Optimal process grid dimensions
 """
-function optimize_process_topology_shtnskit(nprocs::Int, nlat::Int, nlon::Int)
-    # Start with default 1D decomposition
-    best_dims = (nprocs, 1)
-    best_score = Inf
-
-    # Try all valid factorizations of nprocs
-    for p_theta in 1:nprocs
-        if nprocs % p_theta == 0
-            p_phi = nprocs ÷ p_theta
-
-            # Ensure at least 2 grid points per process in each direction
-            # Fewer than 2 points causes issues with stencil operations
-            if nlat ÷ p_theta < 2 || nlon ÷ p_phi < 2
-                continue
-            end
-
-            # Compute load imbalance score
-            # Lower is better: 0 means perfectly divisible
-            theta_imbalance = abs(nlat % p_theta) / nlat
-            phi_imbalance = abs(nlon % p_phi) / nlon
-
-            # Total score is sum of imbalances
-            score = theta_imbalance + phi_imbalance
-
-            if score < best_score
-                best_score = score
-                best_dims = (p_theta, p_phi)
-            end
-        end
-    end
-
-    return best_dims
+function optimize_process_topology_shtnskit(nprocs::Int, nlat::Int, nlon::Int,
+                                            lmax::Int, mmax::Int)
+    physical_dims = (nlat, nlon, 1)
+    spectral_dims = spectral_mode_grid_dims(lmax, mmax, 1)
+    return optimize_process_topology(nprocs, physical_dims, spectral_dims)
 end
 
 """
