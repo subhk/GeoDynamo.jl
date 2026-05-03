@@ -90,7 +90,7 @@
 # 1. INSULATING (σ = 0 outside):
 #    - Physical: No current can cross boundary (J_n = 0)
 #    - Mathematical: (∇×B)_r = 0 at boundary
-#    - Implementation: Match potential field (Dirichlet on both T and P)
+#    - Implementation: T = 0 and l-dependent Robin rows on P
 #
 # 2. PERFECT CONDUCTOR (σ → ∞ outside):
 #    - Physical: Tangential B excluded from conductor
@@ -102,8 +102,8 @@
 #    - Mathematical: B = -∇V where ∇²V = 0
 #    - Implementation: Dirichlet matching external field
 #
-# NOTE: Unlike velocity, magnetic BCs use Dirichlet for all types.
-# The distinction is in WHAT values are specified, not the BC type.
+# NOTE: The standard insulating magnetic path embeds T = 0 and
+# l-dependent poloidal potential-matching rows in the implicit matrices.
 #
 # ================================================================================
 # CURRENT DENSITY COMPUTATION
