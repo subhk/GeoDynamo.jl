@@ -67,6 +67,13 @@ using Test
         @test any(contains(e, "geometry") for e in errors)
     end
 
+    @testset "Invalid architecture" begin
+        params = GeoDynamo.SolverParameters(architecture=:cuda)
+        is_valid, errors, _ = GeoDynamo.validate_parameters(params; strict=false)
+        @test !is_valid
+        @test any(contains(e, "architecture") for e in errors)
+    end
+
     @testset "Invalid timestepper object" begin
         @test_throws ArgumentError GeoDynamo.SolverParameters(timestepper=:cnab2)
         @test_throws ArgumentError GeoDynamo.SolverParameters(timestepper=:rk4)
