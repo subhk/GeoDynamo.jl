@@ -240,6 +240,22 @@ function _synchronize_solver_views!(state::SolverState{T,<:AbstractArchitecture}
     return state
 end
 
+function solver_sync_output_physical_scalars!(state::SolverState{T,<:AbstractArchitecture}) where T
+    solver_scalar_spectral_to_physical!(
+        state.fields.temperature.spectral,
+        state.fields.temperature.temperature,
+    )
+
+    if state.fields.composition !== nothing
+        solver_scalar_spectral_to_physical!(
+            state.fields.composition.spectral,
+            state.fields.composition.composition,
+        )
+    end
+
+    return state
+end
+
 """
     extract_all_fields(state::SolverState)
 
@@ -249,6 +265,8 @@ This is primarily used by restart/output tooling and tests that need a stable
 container representation independent of the in-memory field types.
 """
 function GeoDynamo.extract_all_fields(state::SolverState{T,<:AbstractArchitecture}) where {T}
+    solver_sync_output_physical_scalars!(state)
+
     fields = Dict{String, Any}()
 
     fields["velocity_toroidal"] = Dict(
@@ -282,12 +300,14 @@ function GeoDynamo.extract_all_fields(state::SolverState{T,<:AbstractArchitectur
         )
     end
 
+    fields["temperature"] = copy(parent(state.fields.temperature.temperature.data))
     fields["temperature_spectral"] = Dict(
         "real" => copy(parent(state.fields.temperature.spectral.data_real)),
         "imag" => copy(parent(state.fields.temperature.spectral.data_imag)),
     )
 
     if state.fields.composition !== nothing
+        fields["composition"] = copy(parent(state.fields.composition.composition.data))
         fields["composition_spectral"] = Dict(
             "real" => copy(parent(state.fields.composition.spectral.data_real)),
             "imag" => copy(parent(state.fields.composition.spectral.data_imag)),
@@ -295,6 +315,95 @@ function GeoDynamo.extract_all_fields(state::SolverState{T,<:AbstractArchitectur
     end
 
     return fields
+end
+
+function _copy_restart_array!(destination::AbstractArray, source, name::AbstractString)
+    size(destination) == size(source) || throw(DimensionMismatch(
+        "Restart field $name has size $(size(source)); expected $(size(destination)).",
+    ))
+    copyto!(destination, source)
+    return destination
+end
+
+function _restore_restart_spectral_pair!(field, data, name::AbstractString)
+    haskey(data, "real") && haskey(data, "imag") || throw(ArgumentError(
+        "Restart spectral field $name must contain real and imag arrays.",
+    ))
+    _copy_restart_array!(parent(field.data_real), data["real"], "$(name)_real")
+    _copy_restart_array!(parent(field.data_imag), data["imag"], "$(name)_imag")
+    return field
+end
+
+function restore_fields_from_restart!(
+    state::SolverState{T,<:AbstractArchitecture},
+    restart_data::Dict{String,Any},
+) where T
+    if haskey(restart_data, "velocity_toroidal")
+        _restore_restart_spectral_pair!(
+            state.fields.velocity.𝒯,
+            restart_data["velocity_toroidal"],
+            "velocity_toroidal",
+        )
+    end
+    if haskey(restart_data, "velocity_poloidal")
+        _restore_restart_spectral_pair!(
+            state.fields.velocity.𝒫,
+            restart_data["velocity_poloidal"],
+            "velocity_poloidal",
+        )
+    end
+
+    magnetic = state.fields.magnetic === nothing ? state.runtime.magnetic : state.fields.magnetic
+    if haskey(restart_data, "magnetic_toroidal")
+        _restore_restart_spectral_pair!(
+            magnetic.𝒯,
+            restart_data["magnetic_toroidal"],
+            "magnetic_toroidal",
+        )
+    end
+    if haskey(restart_data, "magnetic_poloidal")
+        _restore_restart_spectral_pair!(
+            magnetic.𝒫,
+            restart_data["magnetic_poloidal"],
+            "magnetic_poloidal",
+        )
+    end
+
+    if haskey(restart_data, "temperature")
+        _copy_restart_array!(
+            parent(state.fields.temperature.temperature.data),
+            restart_data["temperature"],
+            "temperature",
+        )
+    end
+    if haskey(restart_data, "temperature_spectral")
+        _restore_restart_spectral_pair!(
+            state.fields.temperature.spectral,
+            restart_data["temperature_spectral"],
+            "temperature_spectral",
+        )
+    end
+
+    if state.fields.composition !== nothing
+        if haskey(restart_data, "composition")
+            _copy_restart_array!(
+                parent(state.fields.composition.composition.data),
+                restart_data["composition"],
+                "composition",
+            )
+        end
+        if haskey(restart_data, "composition_spectral")
+            _restore_restart_spectral_pair!(
+                state.fields.composition.spectral,
+                restart_data["composition_spectral"],
+                "composition_spectral",
+            )
+        end
+    end
+
+    _synchronize_solver_views!(state)
+    state.is_initialized = true
+    return state
 end
 
 """
