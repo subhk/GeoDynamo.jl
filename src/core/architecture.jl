@@ -1,8 +1,8 @@
+using KernelAbstractions
+
 abstract type AbstractArchitecture end
 
 struct CPU <: AbstractArchitecture end
-
-struct CPUBackend end
 
 struct GPU{B} <: AbstractArchitecture
     backend::B
@@ -31,5 +31,5 @@ on_architecture(::GPU, a) =
 
 Return the backend object associated with `arch`.
 """
-get_backend(::CPU) = CPUBackend()
+get_backend(::CPU) = KernelAbstractions.CPU()
 get_backend(g::GPU) = g.backend
