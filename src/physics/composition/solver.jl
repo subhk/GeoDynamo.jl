@@ -101,22 +101,30 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
     dt = state.parameters.timestep
 
     if timestepper isa CNAB2
+        matrices = state.implicit_matrices[:composition]
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :composition,
+            matrices.system_matrices[1].size,
+        )
         solver_build_rhs_cnab2!(
             composition.work_spectral,
             composition.spectral,
             composition.nonlinear,
             composition.prev_nonlinear,
             dt,
-            state.implicit_matrices[:composition],
+            matrices;
+            work=radial_work,
         )
         solver_solve_composition_implicit_step!(
             composition.spectral,
             composition.work_spectral,
-            state.implicit_matrices[:composition];
+            matrices;
             bc_inner=bc.inner_real,
             bc_outer=bc.outer_real,
             bc_inner_imag=bc.inner_imag,
             bc_outer_imag=bc.outer_imag,
+            work=radial_work,
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_composition::EAB2CacheEntry{T}).map
