@@ -58,14 +58,13 @@ function Simulation(model::GeodynamoModel;
             tracker = create_time_tracker(config)
             try
                 restart_data, metadata = read_restart!(tracker, restart_from,
-                                                       model.state.time, config)
-                # Restore simulation time/step from restart metadata
-                if haskey(metadata, "current_time")
-                    model.state.time = Float64(metadata["current_time"])
-                end
-                if haskey(metadata, "current_step")
-                    model.state.step = Int(metadata["current_step"])
-                end
+                                                       model.state.time, config,
+                                                       model.state.runtime.shtns_config.pencils;
+                                                       shtns_config=model.state.runtime.shtns_config)
+                restore_fields_from_restart!(model.state, restart_data)
+                restart_time = Float64(get(metadata, "current_time", model.state.time))
+                restart_step = Int(get(metadata, "current_step", model.state.step))
+                reset_solver_clock!(model.state; time=restart_time, step=restart_step)
                 @info "Simulation: loaded restart from $restart_from" time=model.state.time
             catch e
                 @warn "Simulation: read_restart! failed — starting from initial state" exception=e
