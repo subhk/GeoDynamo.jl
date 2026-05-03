@@ -37,9 +37,12 @@ A scalar field represented in spectral space as spherical harmonic coefficients.
 
 # Storage Layout
 Coefficients are stored as separate real and imaginary parts in 3D arrays:
-- Dimension 1: Combined (l,m) spectral index (1 to nlm)
-- Dimension 2: Dummy dimension (size 1) for PencilArrays compatibility
+- Dimension 1: Spherical harmonic degree slot (`l + 1`)
+- Dimension 2: Spherical harmonic order slot (`m + 1`)
 - Dimension 3: Radial level index
+
+Invalid `(l,m)` slots in the rectangular storage grid are ignored by the
+local spectral-mode map.
 
 # Boundary Conditions
 Each (l,m) mode can have independent boundary conditions at the inner
