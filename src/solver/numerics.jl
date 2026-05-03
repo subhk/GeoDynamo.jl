@@ -74,6 +74,44 @@ function mode_index(config, l::Int, m::Int)
     return get(table, (l, m), 0)
 end
 
+macro solver_local_spectral_modes(lm_var, slot_var, lm_range, config, limit_data, storage_data, body)
+    lm = esc(lm_var)
+    slot = esc(slot_var)
+    return quote
+        for $lm in $(esc(lm_range))
+            if $lm > length($(esc(limit_data)))
+                continue
+            end
+            $slot = local_spectral_storage_slot($(esc(config)), $lm)
+            $slot === nothing && continue
+            if $slot[1] > size($(esc(storage_data)), 1) ||
+               $slot[2] > size($(esc(storage_data)), 2)
+                continue
+            end
+            $(esc(body))
+        end
+    end
+end
+
+macro solver_threaded_local_spectral_modes(lm_var, slot_var, lm_range, config, limit_data, storage_data, body)
+    lm = esc(lm_var)
+    slot = esc(slot_var)
+    return quote
+        Threads.@threads for $lm in $(esc(lm_range))
+            if $lm > length($(esc(limit_data)))
+                continue
+            end
+            $slot = local_spectral_storage_slot($(esc(config)), $lm)
+            $slot === nothing && continue
+            if $slot[1] > size($(esc(storage_data)), 1) ||
+               $slot[2] > size($(esc(storage_data)), 2)
+                continue
+            end
+            $(esc(body))
+        end
+    end
+end
+
 function get_bc_vectors(field)
     cache = field.boundary_interpolation_cache
     if !get(cache, "bc_loaded", false)
@@ -1027,16 +1065,7 @@ function solver_compute_vorticity_spectral!(
     d2pol_dr2_real_bufs = workspace.∂ᵣᵣ𝒫_real
     d2pol_dr2_imag_bufs = workspace.∂ᵣᵣ𝒫_imag
 
-    Threads.@threads for lm_idx in lm_range
-        if lm_idx > length(velocity_fields.ℓ_factors)
-            continue
-        end
-        slot = local_spectral_storage_slot(config, lm_idx)
-        slot === nothing && continue
-        if slot[1] > size(u_pol_real, 1) || slot[2] > size(u_pol_real, 2)
-            continue
-        end
-
+    @solver_threaded_local_spectral_modes lm_idx slot lm_range config velocity_fields.ℓ_factors u_pol_real begin
         tid = Threads.threadid()
         ℓ_factor = velocity_fields.ℓ_factors[lm_idx]
         pol_profile_real = pol_profile_real_bufs[tid]
@@ -1350,15 +1379,7 @@ function solver_spectral_curl_torpol!(
         d²ᴾ_dr²_imag = zeros(T, nr)
     end
 
-    for lm_idx in lm_range
-        if lm_idx > length(ℓ_factors)
-            continue
-        end
-        slot = local_spectral_storage_slot(config, lm_idx)
-        slot === nothing && continue
-        if slot[1] > size(src_pol_r, 1) || slot[2] > size(src_pol_r, 2)
-            continue
-        end
+    @solver_local_spectral_modes lm_idx slot lm_range config ℓ_factors src_pol_r begin
         ℓ_factor = ℓ_factors[lm_idx]
 
         fill!(Pᴾ_profile_real, zero(T))
