@@ -76,8 +76,8 @@ end
     @test !occursin("local_range(u.pencil, 1)", eab2_update)
     @test !occursin("local_range(u.pencil, 1)", prepare_erk2)
     @test !occursin("local_range(u.pencil, 1)", finalize_erk2)
-    @test occursin("value_override=zero(T)", prepare_erk2)
-    @test occursin("value_override=zero(T)", finalize_erk2)
+    @test occursin("bc_spec.inner_mode_values_imag", prepare_erk2)
+    @test occursin("bc_spec.inner_mode_values_imag", finalize_erk2)
     @test occursin("theta = _timestepper_implicit_theta(params.timestepper, params)", erk2)
 
     poloidal_update = _velocity_bc_static_function_body(
