@@ -330,9 +330,8 @@ end
 Convert local spectral storage into the `(spectral_mode, r)` slab written to
 NetCDF.
 
-Mapped local storage keeps the future 2D spectral-pencil migration localized to
-this packing step instead of leaking `[local_lm, 1, local_r]` assumptions into
-I/O code.
+Mapped local storage keeps the 2D spectral-pencil layout localized to this
+packing step instead of leaking slot-axis assumptions into I/O code.
 """
 function pack_local_spectral_coefficients(real_data::AbstractArray,
                                           imag_data::AbstractArray,
