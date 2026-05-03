@@ -59,14 +59,43 @@ end
     @test !occursin("local_range(solution.pencil, 1)", solver_velocity_solve)
     @test !occursin("local_range(field.pencil, 1)", influence_correction)
 
+    eab2_update = _velocity_bc_static_function_body(
+        imex,
+        "function solver_eab2_update_krylov_cached!(",
+    )
+    prepare_erk2 = _velocity_bc_static_function_body(
+        erk2,
+        "function prepare_solver_erk2_field!(",
+    )
+    finalize_erk2 = _velocity_bc_static_function_body(
+        erk2,
+        "function finalize_solver_erk2_field!(",
+    )
+    @test occursin("bc_spec=nothing", eab2_update)
+    @test occursin("solver_enforce_erk2_bc!", eab2_update)
+    @test !occursin("local_range(u.pencil, 1)", eab2_update)
+    @test !occursin("local_range(u.pencil, 1)", prepare_erk2)
+    @test !occursin("local_range(u.pencil, 1)", finalize_erk2)
+    @test occursin("value_override=zero(T)", prepare_erk2)
+    @test occursin("value_override=zero(T)", finalize_erk2)
+    @test occursin("theta = _timestepper_implicit_theta(params.timestepper, params)", erk2)
+
     poloidal_update = _velocity_bc_static_function_body(
         velocity_solver,
         "function apply_velocity_poloidal_implicit_update!(",
+    )
+    toroidal_update = _velocity_bc_static_function_body(
+        velocity_solver,
+        "function apply_velocity_toroidal_implicit_update!(",
     )
     no_penetration = _velocity_bc_static_function_body(
         velocity_solver,
         "function solver_apply_velocity_poloidal_no_penetration!(",
     )
+    @test occursin("bc_spec=bc_spec", toroidal_update)
+    @test occursin("bc_spec=bc_spec", poloidal_update)
+    @test occursin("_timestepper_krylov_dimension(timestepper, state.parameters)", toroidal_update)
+    @test occursin("_timestepper_krylov_dimension(timestepper, state.parameters)", poloidal_update)
     @test occursin("solver_apply_velocity_poloidal_no_penetration!(state, velocity_bc)", poloidal_update)
     @test occursin("get_solver_erk2_influence_matrices!", no_penetration)
     @test occursin("apply_solver_velocity_poloidal_influence_correction!", no_penetration)
