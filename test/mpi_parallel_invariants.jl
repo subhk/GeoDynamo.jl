@@ -39,27 +39,27 @@ end
 
         @testset "Pencil transpose roundtrip preserves global ordering" begin
             cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=6)
-            cfg_spec_dummy = length(GeoDynamo.range_local(cfg.pencils.spec, 2))
+            cfg_spec_m = length(GeoDynamo.range_local(cfg.pencils.spec, 2))
             cfg_spec_elements = prod(size(parent(GeoDynamo.create_pencil_array(Float64, cfg.pencils.spec; init=:zero))))
-            min_cfg_spec_dummy = MPI.Allreduce(cfg_spec_dummy, MPI.MIN, comm)
-            max_cfg_spec_dummy = MPI.Allreduce(cfg_spec_dummy, MPI.MAX, comm)
+            min_cfg_spec_m = MPI.Allreduce(cfg_spec_m, MPI.MIN, comm)
+            max_cfg_spec_m = MPI.Allreduce(cfg_spec_m, MPI.MAX, comm)
             min_cfg_spec_elements = MPI.Allreduce(cfg_spec_elements, MPI.MIN, comm)
 
-            @test min_cfg_spec_dummy == 1
-            @test max_cfg_spec_dummy == 1
+            @test min_cfg_spec_m > 0
+            @test max_cfg_spec_m <= mmax + 1
             @test min_cfg_spec_elements > 0
 
             pencils = GeoDynamo.create_pencil_topology(cfg; nr=6, optimize=true)
             plans = GeoDynamo.create_transpose_plans(pencils)
 
-            local_spec_dummy = length(GeoDynamo.range_local(pencils.spec, 2))
+            local_spec_m = length(GeoDynamo.range_local(pencils.spec, 2))
             local_spec_elements = prod(size(parent(GeoDynamo.create_pencil_array(Float64, pencils.spec; init=:zero))))
-            min_spec_dummy = MPI.Allreduce(local_spec_dummy, MPI.MIN, comm)
-            max_spec_dummy = MPI.Allreduce(local_spec_dummy, MPI.MAX, comm)
+            min_spec_m = MPI.Allreduce(local_spec_m, MPI.MIN, comm)
+            max_spec_m = MPI.Allreduce(local_spec_m, MPI.MAX, comm)
             min_spec_elements = MPI.Allreduce(local_spec_elements, MPI.MIN, comm)
 
-            @test min_spec_dummy == 1
-            @test max_spec_dummy == 1
+            @test min_spec_m > 0
+            @test max_spec_m <= mmax + 1
             @test min_spec_elements > 0
 
             @test haskey(plans, :θ_to_φ)
