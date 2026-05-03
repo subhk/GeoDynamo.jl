@@ -116,6 +116,8 @@ function solver_get_radial_work!(
     key::Symbol,
     nr::Int,
 ) where T
+    # Each field/update family gets one scratch bundle sized for its radial
+    # operator. Recreate it only when resolution or operator size changes.
     work = get(caches.radial_work, key, nothing)
     if work === nothing || length(work.tmp_real) != nr
         work = SolverRadialWork{T}(nr)
@@ -186,6 +188,10 @@ end
 
 Solver-local EAB2 update so the new timestep code does not reach through the
 legacy timestep API for its exponential update.
+
+The solve gathers a full radial profile per spectral mode, applies the
+exponential linear action plus the phi1 nonlinear correction, then re-applies
+any endpoint BCs before scattering back to the local pencil storage.
 """
 function solver_eab2_update_krylov_cached!(
     u::SpectralFieldType{T},
@@ -276,6 +282,9 @@ function solver_eab2_update_krylov_cached!(
         @. u_imag_next = u_imag_next + Δt * nl_imag_increment
 
         if bc_spec !== nothing
+            # Krylov actions operate on the full radial vector and can move the
+            # endpoint rows away from their matrix-embedded constraints, so the
+            # accepted profile is projected back onto the requested BCs here.
             inner_val = solver_boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
             outer_val = solver_boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
             inner_val_i = solver_boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
@@ -333,6 +342,8 @@ function _solver_solve_scalar_implicit_step!(
         fill!(tmp_imag, zero(T))
         gather_local_radial_profile!(tmp_real, tmp_imag, rhs_real, rhs_imag, slot, r_range)
 
+        # Boundary rows were embedded into `matrices`; these values are the RHS
+        # targets for the inner/outer boundary equations for this spectral mode.
         inner_real =
             bc_inner !== nothing && lm_idx <= length(bc_inner) ? bc_inner[lm_idx] : zero(T)
         outer_real =

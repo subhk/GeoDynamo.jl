@@ -74,6 +74,9 @@ function mode_index(config, l::Int, m::Int)
     return get(table, (l, m), 0)
 end
 
+# These macros centralize the pencil-ownership guard used in many spectral
+# loops: a rank iterates candidate global mode ids, maps owned modes to its
+# local storage slot, and skips modes outside the rank's rectangular pencil.
 macro solver_local_spectral_modes(lm_var, slot_var, lm_range, config, limit_data, storage_data, body)
     lm = esc(lm_var)
     slot = esc(slot_var)
@@ -112,6 +115,15 @@ macro solver_threaded_local_spectral_modes(lm_var, slot_var, lm_range, config, l
     end
 end
 
+"""
+    get_bc_vectors(field)
+
+Return mode-indexed scalar boundary vectors for timestep solves.
+
+When a spectral BC file has been loaded, the interpolation cache supplies real
+and imaginary values for each mode. Otherwise the solver falls back to the
+field's parameter-derived `boundary_values`, which contains real values only.
+"""
 function get_bc_vectors(field)
     cache = field.boundary_interpolation_cache
     if !get(cache, "bc_loaded", false)

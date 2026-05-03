@@ -97,6 +97,9 @@ struct SolverRadialWork{T}
     tmp_imag::Vector{T}
 end
 
+# Reusable radial profiles for one field/operator family. The vectors are
+# global in radius because each implicit or exponential radial solve is posed
+# on the full radial stencil even when a rank owns only a local pencil slab.
 SolverRadialWork{T}(nr::Int) where T = SolverRadialWork{T}(
     zeros(T, nr),
     zeros(T, nr),
@@ -123,6 +126,8 @@ mutable struct TimestepCaches{T}
     erk2_composition        :: Union{ERK2StageCache{T}, Nothing}
     # ERK2 velocity-poloidal influence matrices
     erk2_influence_velocity_poloidal :: Union{ERK2InfluenceCacheEntry{T}, Nothing}
+    # Field-keyed scratch profiles shared by CNAB2/EAB2 solves. Keeping them in
+    # the timestep cache avoids reallocating full radial work vectors every step.
     radial_work::Dict{Symbol, SolverRadialWork{T}}
 end
 

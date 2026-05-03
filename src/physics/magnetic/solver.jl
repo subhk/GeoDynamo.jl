@@ -66,6 +66,8 @@ function initialize_magnetic_field!(state::SolverState{T,<:AbstractArchitecture}
 end
 
 function solver_prepare_magnetic_fields!(magnetic_fields, outer_domain)
+    # Induction terms need magnetic field and current in physical space. Refresh
+    # both from the spectral toroidal/poloidal representation before use.
     solver_reset_magnetic_work_arrays!(magnetic_fields)
     solver_refresh_magnetic_physical_fields!(magnetic_fields, outer_domain)
     solver_refresh_current_physical_fields!(magnetic_fields, outer_domain)
@@ -97,6 +99,9 @@ function _magnetic_toroidal_inner_bc_increment(
     continuity_code = Int(GeoDynamo.CONTINUITY_MAG)
     any(==(continuity_code), magnetic.𝒯.bc_type_inner) || return nothing
 
+    # CONTINUITY_MAG couples the toroidal inner-boundary RHS to the poloidal
+    # nonlinear term. Build mode-indexed real/imag vectors before the radial
+    # solve so all ranks feed the same boundary values to matrix rows.
     bc_real = zeros(T, magnetic.𝒯.nlm)
     bc_imag = zeros(T, magnetic.𝒯.nlm)
     prev_real = zeros(T, magnetic.𝒯.nlm)

@@ -54,6 +54,8 @@ function solver_compute_composition_nonlinear!(
     solver_zero_scalar_work_arrays!(𝔽)
     solver_zero_gradient_workspace!(ws)
 
+    # Composition shares the scalar transport path with temperature, but has no
+    # internal source term here; only advection is transformed back to spectral.
     if timing_enabled()
         t_spectral = mpi_wtime()
     end
@@ -100,6 +102,8 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
     timestepper = state.parameters.timestepper
     dt = state.parameters.timestep
 
+    # Keep composition on the same timestep contract as temperature: CNAB2 uses
+    # boundary RHS rows, while EAB2 carries a boundary spec for endpoint repair.
     if timestepper isa CNAB2
         matrices = state.implicit_matrices[:composition]
         radial_work = solver_get_radial_work!(

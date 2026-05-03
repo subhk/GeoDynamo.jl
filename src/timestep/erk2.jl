@@ -114,6 +114,8 @@ function solver_with_boundary_mode_values(
     inner_imag::Union{Nothing, AbstractVector{T}}=nothing,
     outer_imag::Union{Nothing, AbstractVector{T}}=nothing,
 ) where T
+    # Keep the same derivative stencils and BC types, but attach the actual
+    # mode-indexed endpoint values used during stage/final enforcement.
     return SolverERK2BoundarySpec{T}(
         spec.inner,
         spec.outer,

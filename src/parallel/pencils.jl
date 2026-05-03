@@ -150,10 +150,9 @@ function create_computation_pencils(topology, dims::Tuple{Int,Int,Int}, config)
     pencil_φ = Pencil(topology, dims, (1, 3))  # Contiguous in φ (longitude)
     pencil_r = Pencil(topology, dims, (1, 2))  # Contiguous in r (radius)
     
-    # Spectral space pencil (for l,m modes)
-    # Distribute l and m, keep radial (dim 3) local on each rank.
-    # decomp_dims must be a 2-tuple to match MPITopology{2}
-    # This matches DD_2DCODE where each rank has full radial profiles for its subset of (l,m) modes
+    # Spectral space is represented as a rectangular (l, m, r) grid rather than
+    # the compact SHTns `nlm` list. Distributing l and m while keeping r local
+    # gives each owned mode a complete radial profile for banded radial solves.
     spec_dims = spectral_mode_grid_dims(config, nr)
     pencil_spec = Pencil(topology, spec_dims, (1, 2))
     

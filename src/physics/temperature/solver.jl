@@ -74,6 +74,8 @@ function solver_compute_temperature_nonlinear!(
     solver_zero_scalar_work_arrays!(temp_𝔽)
     solver_zero_gradient_workspace!(ws)
 
+    # Scalar nonlinear terms are formed as physical-space advection/source
+    # fields and transformed back to spectral coefficients for timestepping.
     if timing_enabled()
         t_spectral = mpi_wtime()
     end
@@ -118,6 +120,8 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
     timestepper = state.parameters.timestepper
     dt = state.parameters.timestep
 
+    # CNAB2 solves an implicit radial system with boundary RHS values; EAB2
+    # advances by exponential action and then enforces the same endpoint spec.
     if timestepper isa CNAB2
         matrices = state.implicit_matrices[:temperature]
         radial_work = solver_get_radial_work!(

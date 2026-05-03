@@ -1,3 +1,9 @@
+# Solver include spine.
+#
+# The order here is intentional: low-level interop and parameter types are
+# loaded first, then runtime/state containers, numerical kernels, physics
+# updates, timesteppers, and finally the public main loop. Keeping this file as
+# the single include spine makes the solver layering visible in one place.
 include("solver/interop.jl")
 include("solver/parameters.jl")
 include("solver/backend.jl")

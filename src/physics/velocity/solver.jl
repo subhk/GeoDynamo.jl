@@ -8,6 +8,8 @@ function initialize_velocity_field!(state::SolverState{T,<:AbstractArchitecture}
 end
 
 function solver_prepare_velocity_fields!(velocity_fields, domain)
+    # Nonlinear velocity terms use the current velocity and vorticity in
+    # physical space, so refresh both before accumulating body forces.
     solver_reset_velocity_work_arrays!(velocity_fields)
     solver_refresh_velocity_physical_fields!(velocity_fields, domain)
     solver_refresh_vorticity_physical_fields!(velocity_fields, domain)

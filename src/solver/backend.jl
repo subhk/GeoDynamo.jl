@@ -363,6 +363,8 @@ function create_solver_implicit_matrices(::Type{T}, backend::SolverBackend{<:Abs
     temperature_bc_code = _thermal_bc_code(params.temperature_bcs)
     composition_bc_code = _composition_bc_code(params.composition_bcs)
 
+    # Boundary choices are baked into the radial matrix rows. The timestep
+    # kernels later supply only the boundary RHS values for each mode.
     # Materialize every linear solve operator once so the timestep loop only
     # selects from prebuilt matrices instead of re-deriving them per field.
     matrices = Dict{Symbol, OldImplicitMatrices{T}}()
@@ -463,6 +465,16 @@ end
 @inline solver_scalar_boundary_type(::FixedFlux) = Int(NEUMANN)
 @inline solver_scalar_boundary_value(bc) = bc.value
 
+"""
+    solver_apply_scalar_boundary_parameters!(field, boundary_conditions)
+
+Install scalar boundary values from `SolverParameters` into the field-owned
+boundary storage used by CNAB2, EAB2, and ERK2.
+
+Parameter-specified scalar BCs are spatially uniform, so only the `(l,m)=(0,0)`
+mode receives a nonzero endpoint value. File-based spectral BCs can later
+replace this with per-mode real and imaginary values.
+"""
 function solver_apply_scalar_boundary_parameters!(field, boundary_conditions::BoundaryConditions)
     T = eltype(field.boundary_values)
     fill!(field.bc_type_inner, solver_scalar_boundary_type(boundary_conditions.inner))
@@ -478,6 +490,16 @@ function solver_apply_scalar_boundary_parameters!(field, boundary_conditions::Bo
     return field
 end
 
+"""
+    create_solver_runtime(T, backend; auto_optimize=false, adaptive_threading=false)
+
+Allocate the solver-owned field objects, shared workspaces, timestep state, and
+runtime domain references for a new run.
+
+Scalar parameter BCs are installed before optional file BCs are loaded so a
+user-supplied spectral boundary file cleanly overrides the homogeneous or
+mean-mode defaults.
+"""
 function create_solver_runtime(::Type{T}, backend::SolverBackend{A};
                                auto_optimize::Bool=false,
                                adaptive_threading::Bool=false) where {T, A}
