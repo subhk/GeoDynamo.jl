@@ -107,7 +107,7 @@ function _magnetic_toroidal_inner_bc_increment(
     prev_nl_pol_real = parent(magnetic.prev_nlᴾ.data_real)
     prev_nl_pol_imag = parent(magnetic.prev_nlᴾ.data_imag)
 
-    lm_range = local_range(magnetic.𝒯.pencil, 1)
+    lm_range = local_spectral_mode_indices(magnetic.𝒯.config)
     @inbounds for lm_idx in lm_range
         magnetic.𝒯.bc_type_inner[lm_idx] == continuity_code || continue
         slot = local_spectral_storage_slot(magnetic.𝒯.config, lm_idx)
@@ -169,6 +169,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             throw(ArgumentError("CONTINUITY_MAG toroidal magnetic inner-boundary increments are not implemented for EAB2() timestepping"))
         end
         alu_map = (state.timestep_caches.etd_magnetic_toroidal::EAB2CacheEntry{T}).map
+        bc_spec = build_solver_erk2_magnetic_tor_bc(T, runtime.𝒟ᵒᶜ.N)
         solver_eab2_update_krylov_cached!(
             magnetic.𝒯,
             magnetic.nlᵀ,
@@ -178,8 +179,9 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             1.0,
             runtime.shtns_config,
             dt;
-            m=_timestepper_krylov_dimension(state.parameters.timestepper),
-            tol=_timestepper_krylov_tolerance(state.parameters.timestepper),
+            m=_timestepper_krylov_dimension(timestepper, state.parameters),
+            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
+            bc_spec=bc_spec,
         )
     else
         solver_solve_magnetic_implicit_step!(
@@ -230,6 +232,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_magnetic_poloidal::EAB2CacheEntry{T}).map
+        bc_spec = build_solver_erk2_magnetic_pol_bc(T, runtime.𝒟ᵒᶜ)
         solver_eab2_update_krylov_cached!(
             magnetic.𝒫,
             magnetic.nlᴾ,
@@ -239,8 +242,9 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             1.0,
             runtime.shtns_config,
             dt;
-            m=_timestepper_krylov_dimension(state.parameters.timestepper),
-            tol=_timestepper_krylov_tolerance(state.parameters.timestepper),
+            m=_timestepper_krylov_dimension(timestepper, state.parameters),
+            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
+            bc_spec=bc_spec,
         )
     else
         solver_solve_magnetic_implicit_step!(
