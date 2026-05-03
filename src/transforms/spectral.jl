@@ -21,7 +21,7 @@
 # DATA LAYOUT:
 # ------------
 # Physical space: (nlat, nlon, nr) - latitude × longitude × radius
-# Spectral space: (nlm, 1, nr) - spectral modes × 1 × radius
+# Spectral space: (lmax+1, mmax+1, nr) - degree × order × radius
 #   where nlm = number of (l,m) mode pairs = Σ(min(l,mmax)+1) for l=0:lmax
 #
 # PENCIL DECOMPOSITION:
@@ -479,7 +479,16 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
     # local and which transposes are needed to reach an FFT-friendly layout.
     # Step 3: Create pencil decomposition for distributed memory parallelism
     # Pencils define how data is distributed across MPI processes
-    pencils = create_pencil_decomposition_shtnskit(nlat, nlon, nr, sht_config, comm, optimize_decomp)
+    pencils = create_pencil_decomposition_shtnskit(
+        nlat,
+        nlon,
+        nr,
+        sht_config,
+        comm,
+        optimize_decomp;
+        lmax=lmax,
+        mmax=mmax,
+    )
 
     # Step 4: Create FFT plans for longitude (phi) direction transforms
     # These are precomputed FFTW plans for efficiency
@@ -612,9 +621,9 @@ r pencil:      [θ distributed] × [φ distributed] × [r local]
                → Best for radial operations (derivatives, boundary conditions)
 ```
 
-## Spectral Space Pencil (nlm × 1 × nr)
-The spectral pencil stores spherical harmonic coefficients indexed by a
-combined (l,m) index. The middle dimension is 1 (dummy) for compatibility.
+## Spectral Space Pencil ((lmax+1) × (mmax+1) × nr)
+The spectral pencil stores spherical harmonic coefficients on a rectangular
+degree/order grid. Invalid `(l,m)` slots such as `m > l` are left unmapped.
 
 # Arguments
 - `nlat, nlon, nr`: Grid dimensions
@@ -627,15 +636,16 @@ NamedTuple with pencil configurations: (:theta, :θ, :phi, :φ, :r, :spec, :mixe
 """
 function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
                                              sht_config::SHTnsKit.SHTConfig,
-                                             comm, optimize::Bool=true)
+                                             comm, optimize::Bool=true;
+                                             lmax::Int,
+                                             mmax::Int)
     nprocs = MPI.Comm_size(comm)
 
-    # Determine optimal 2D process grid for theta-phi parallelization
-    # Goal: balance load across processes while respecting grid dimensions
+    # Determine optimal 2D process grid for theta-phi parallelization.
+    # Spectral storage uses a real (l,m,r) grid, so the same 2D topology can
+    # distribute spectral modes without splitting a dummy axis.
     if optimize && nprocs > 1
-        proc_dims = shared_spectral_compatible_proc_dims(
-            optimize_process_topology_shtnskit(nprocs, nlat, nlon),
-        )
+        proc_dims = optimize_process_topology_shtnskit(nprocs, nlat, nlon)
     else
         proc_dims = (nprocs, 1)  # Simple 1D decomposition
     end
@@ -663,13 +673,11 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     # Needed for radial derivatives and boundary conditions
     pencil_r = Pencil(topology, dims, (1, 2))
 
-    # Create spectral space pencil
-    # nlm = total number of (l,m) mode pairs
-    # Distribute lm (dim 1) and dummy (dim 2, size 1), keep radial (dim 3) local on each rank
+    # Create spectral space pencil.
+    # Distribute degree/order axes and keep radial (dim 3) local on each rank.
     # decomp_dims must be a 2-tuple to match MPITopology{2}
     # This matches DD_2DCODE where each rank has full radial profiles for its subset of (l,m) modes
-    nlm = sht_config.nlm
-    spec_dims = (nlm, 1, nr)  # Middle dimension is dummy (size 1)
+    spec_dims = spectral_mode_grid_dims(lmax, mmax, nr)
     pencil_spec = Pencil(topology, spec_dims, (1, 2))
 
     # Mixed pencil for intermediate computations
