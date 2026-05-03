@@ -59,10 +59,9 @@ const FINALIZE_MPI_THERM = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
     @testset "Thermal energy of nonzero field is positive" begin
         # Set l=0,m=0 mode to nonzero at all radial points
         spec_real = parent(temp.spectral.data_real)
-        lm_range = GeoDynamo.range_local(cfg.pencils.spec, 1)
-        if 1 in lm_range
-            local_lm = 1 - first(lm_range) + 1
-            spec_real[local_lm, 1, :] .= 1.0
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, 1)
+        if slot !== nothing
+            spec_real[slot[1], slot[2], :] .= 1.0
         end
         energy = GeoDynamo.compute_thermal_energy(temp)
         @test energy > 0.0
