@@ -157,16 +157,14 @@ function create_computation_pencils(topology, dims::Tuple{Int,Int,Int}, config)
     spec_dims = spectral_mode_grid_dims(config, nr)
     pencil_spec = Pencil(topology, spec_dims, (1, 2))
     
-    # Create enhanced pencil for mixed operations
-    # This is useful for operations that need both spectral and physical access
-    mixed_dims = (config.nlm, config.nlat, nr)
-    pencil_mixed = Pencil(topology, mixed_dims, (1, 2))
+    # Compatibility alias for older call sites. Mixed spectral storage must obey
+    # the same rectangular (l, m, r) ownership contract as the spectral pencil.
     
     return (θ = pencil_θ, 
             φ = pencil_φ, 
             r = pencil_r,
             spec = pencil_spec,
-            mixed = pencil_mixed)
+            mixed = pencil_spec)
 end
 
 
