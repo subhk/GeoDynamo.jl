@@ -410,7 +410,7 @@ function solve_velocity_implicit_step!(solution::SHTnsSpecField{T},
     rhs_real = parent(rhs.data_real)
     rhs_imag = parent(rhs.data_imag)
 
-    lm_range = get_local_range(solution.pencil, 1)
+    lm_range = local_spectral_mode_indices(solution.config)
     nr = matrices.system_matrices[1].size  # Full radial size (local = global for spectral)
 
     # Allocate buffers for the radial profile
