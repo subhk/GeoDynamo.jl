@@ -88,6 +88,24 @@ struct ERK2StageCache{T}
     mpi_consistent::Bool
 end
 
+struct SolverRadialWork{T}
+    u_real_global::Vector{T}
+    u_imag_global::Vector{T}
+    linear_real::Vector{T}
+    linear_imag::Vector{T}
+    tmp_real::Vector{T}
+    tmp_imag::Vector{T}
+end
+
+SolverRadialWork{T}(nr::Int) where T = SolverRadialWork{T}(
+    zeros(T, nr),
+    zeros(T, nr),
+    zeros(T, nr),
+    zeros(T, nr),
+    Vector{T}(undef, nr),
+    Vector{T}(undef, nr),
+)
+
 mutable struct TimestepCaches{T}
     # EAB2 exponential integrator caches.
     etd_velocity_toroidal   :: Union{EAB2CacheEntry{T}, Nothing}
@@ -105,12 +123,14 @@ mutable struct TimestepCaches{T}
     erk2_composition        :: Union{ERK2StageCache{T}, Nothing}
     # ERK2 velocity-poloidal influence matrices
     erk2_influence_velocity_poloidal :: Union{ERK2InfluenceCacheEntry{T}, Nothing}
+    radial_work::Dict{Symbol, SolverRadialWork{T}}
 end
 
 TimestepCaches{T}() where T = TimestepCaches{T}(
     nothing, nothing, nothing, nothing, nothing, nothing,
     nothing, nothing, nothing, nothing, nothing, nothing,
     nothing,
+    Dict{Symbol, SolverRadialWork{T}}(),
 )
 
 struct ImplicitMatrixSet{T}
