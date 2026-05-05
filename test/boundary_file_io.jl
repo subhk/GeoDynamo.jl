@@ -5,7 +5,7 @@ using NCDatasets
 const BCS = GeoDynamo.bcs
 
 mutable struct DummyBoundaryField
-    boundary_interpolation_cache::Dict{String, Any}
+    boundary_interpolation_cache::BCS.BoundaryInterpolationCache{Float64}
 end
 
 function write_spectral_bc_file(path::AbstractString, bc_re, bc_im)
@@ -142,7 +142,7 @@ end
             @test all(iszero, coeffs.bc_real)
             @test all(iszero, coeffs.bc_imag)
 
-            field = DummyBoundaryField(Dict{String, Any}())
+            field = DummyBoundaryField(BCS.BoundaryInterpolationCache(Float64))
             BCS.store_bc_in_field!(field, coeffs)
             vectors = BCS.get_bc_vectors_from_field(field)
             @test vectors.inner_real !== nothing
