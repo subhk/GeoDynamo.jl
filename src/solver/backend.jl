@@ -96,7 +96,7 @@ work.
 GPU-marked runs route these allocations through backend hooks so the same
 solver code can use either CPU or backend-provided scratch storage.
 """
-struct TransformWorkspace{T, A<:AbstractArchitecture}
+struct TransformWorkspace{T, A<:AbstractArchitecture} <: AbstractTransformWorkspace
     arch::A
     buffers::SolverTransformBuffers{T}
 end

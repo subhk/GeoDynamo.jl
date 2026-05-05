@@ -69,4 +69,16 @@ end
     @test !occursin("boundary_interpolation_cache::Dict{String, Any}", composition_field)
     @test !occursin("sum(temp_data.^2)", temperature_field)
     @test !occursin("sum(comp_data.^2)", composition_field)
+
+    spectral = _allocation_static_source("transforms", "spectral.jl")
+    @test occursin("abstract type AbstractTransformWorkspace end", spectral)
+    @test occursin("struct SHTnsKitConfig{T", spectral)
+    @test occursin("T::Type{T}", spectral)
+    @test !occursin("pencils::NamedTuple", spectral)
+    @test !occursin("fft_plans::Dict{Symbol, Any}", spectral)
+    @test !occursin("transpose_plans::Dict{Symbol, Any}", spectral)
+    @test !occursin("solver_transform_workspace :: Any", spectral)
+    @test !occursin("transform_device         :: Any", spectral)
+    @test !occursin("spatial_scratch          :: Any", spectral)
+    @test !occursin("fft_scratch              :: Any", spectral)
 end

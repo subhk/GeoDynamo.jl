@@ -471,7 +471,7 @@ module GeoDynamo
     using .bcs: validate_boundary_files, get_current_boundaries, print_boundary_summary
     using .bcs: get_boundary_module_info
     using .bcs: clear_bc_shtns_config_cache!, shtns_physical_to_spectral, shtns_spectral_to_physical
-    using .bcs: SpectralBoundaryCoefficients, load_spectral_bc_from_file
+    using .bcs: BoundaryInterpolationCache, SpectralBoundaryCoefficients, load_spectral_bc_from_file
     using .bcs: store_bc_in_field!, get_bc_vectors_from_field
     using .bcs: enable_topography!, disable_topography!, is_topography_enabled
     using .bcs: TopographyCouplingConfig, get_topography_config, set_topography_config!

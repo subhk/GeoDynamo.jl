@@ -52,6 +52,8 @@ const SHTNSKIT_USE_DISTRIBUTED = true      # Use dist_analysis/dist_synthesis
 const SHTNSKIT_USE_QST = true              # Use SHqst_to_spat/spat_to_SHqst for 3D vectors
 const SHTNSKIT_USE_SCRATCH_BUFFERS = true  # Use scratch_spatial/scratch_fft helpers
 
+abstract type AbstractTransformWorkspace end
+
 # ================================================================================
 # SHTnsBuffers — typed replacement for _buffer_cache::Dict{Symbol,Any}
 # ================================================================================
@@ -112,14 +114,14 @@ mutable struct SHTnsBuffers
     local_spectral_mode_indices :: Union{Vector{Int}, Nothing}
 
     # Solver-level transform workspace (set by solver/backend.jl)
-    solver_transform_workspace :: Any
+    solver_transform_workspace :: Union{AbstractTransformWorkspace, Nothing}
 
     # Device metadata (set at config creation)
-    transform_device         :: Any
+    transform_device         :: Union{AbstractArchitecture, Symbol, Nothing}
 
     # SHTnsKit scratch buffers (CPU only, optional)
-    spatial_scratch          :: Any
-    fft_scratch              :: Any
+    spatial_scratch          :: Union{AbstractArray, Nothing}
+    fft_scratch              :: Union{AbstractArray, Nothing}
 end
 
 """
@@ -342,10 +344,10 @@ This struct encapsulates all parameters needed for transforms and parallelizatio
 - `nlm::Int`: Total number of (l,m) spectral mode pairs
 
 ## Parallelization Infrastructure
-- `pencils::NamedTuple`: Collection of PencilArrays Pencil objects for different
+- `pencils`: Collection of PencilArrays Pencil objects for different
   data orientations (:theta, :phi, :r, :spec, :mixed)
-- `fft_plans::Dict{Symbol,Any}`: Precomputed FFTW plans for FFT operations
-- `transpose_plans::Dict{Symbol,Any}`: Plans for data redistribution between pencils
+- `fft_plans`: Precomputed FFTW plans for FFT operations
+- `transpose_plans`: Plans for data redistribution between pencils
 
 ## Auxiliary Data
 - `memory_estimate::String`: Human-readable memory usage estimate
@@ -363,12 +365,12 @@ This struct encapsulates all parameters needed for transforms and parallelizatio
 config = create_shtnskit_config(lmax=32, mmax=32, nlat=64, nlon=128)
 ```
 """
-struct SHTnsKitConfig <: AbstractSHTnsConfig
+struct SHTnsKitConfig{T<:AbstractFloat,P,FP,TP,B<:SHTnsBuffers} <: AbstractSHTnsConfig
     # SHTnsKit configuration - the underlying transform engine
     sht_config::SHTnsKit.SHTConfig
 
     # Floating-point precision type for field data
-    T::Type{<:AbstractFloat}
+    T::Type{T}
 
     # Grid parameters defining the resolution
     nlat::Int   # Number of latitude points (Gauss-Legendre)
@@ -379,13 +381,13 @@ struct SHTnsKitConfig <: AbstractSHTnsConfig
 
     # PencilArrays decomposition for MPI parallelization
     # Contains :theta, :phi, :r, :spec, :mixed pencil configurations
-    pencils::NamedTuple
+    pencils::P
 
     # FFTW plans for longitude FFTs (keyed by :phi_forward, :phi_backward, etc.)
-    fft_plans::Dict{Symbol, Any}
+    fft_plans::FP
 
     # Transpose plans for switching between pencil orientations
-    transpose_plans::Dict{Symbol, Any}
+    transpose_plans::TP
 
     # Human-readable memory estimate string (e.g., "256.5 MB")
     memory_estimate::String
@@ -400,7 +402,7 @@ struct SHTnsKitConfig <: AbstractSHTnsConfig
     gauss_weights::Vector{Float64} # Quadrature weights for integration
 
     # Internal typed buffer store to avoid repeated allocations
-    _buffers::SHTnsBuffers
+    _buffers::B
 end
 
 """
