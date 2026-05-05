@@ -386,6 +386,114 @@ function krylov_exp_action(
     end
 end
 
+function krylov_exp_action!(
+    dest::Vector{T},
+    Aop!,
+    v::Vector{T},
+    dt::Float64,
+    work::SolverKrylovWork{T};
+    m::Int=20,
+    tol::Float64=1e-8,
+) where T
+    n = length(v)
+    solver_ensure_krylov_work!(work, n, m)
+
+    if n == 0 || !all(isfinite, v)
+        fill!(dest, zero(T))
+        return dest
+    end
+
+    beta = LA.norm(v)
+    if beta == zero(T)
+        fill!(dest, zero(T))
+        return dest
+    end
+
+    if abs(dt) < eps(T) * 10
+        copyto!(dest, v)
+        return dest
+    end
+
+    V = work.V
+    H = work.H
+    Hred = work.Hred
+    w = work.w
+    rhs = work.rhs
+
+    fill!(H, zero(T))
+    inv_beta = inv(beta)
+    @inbounds @simd for i in 1:n
+        V[i, 1] = v[i] * inv_beta
+    end
+
+    kmax = m
+    @inbounds for j in 1:m
+        Aop!(w, @view V[:, j])
+
+        if !all(isfinite, w)
+            @warn "Non-finite values from solver operator in Krylov iteration $j"
+            kmax = max(1, j - 1)
+            break
+        end
+
+        for i in 1:j
+            hij = zero(T)
+            @simd for r in 1:n
+                hij += V[r, i] * w[r]
+            end
+            H[i, j] = hij
+            @simd for r in 1:n
+                w[r] -= hij * V[r, i]
+            end
+        end
+
+        if j < m
+            hnext = LA.norm(w)
+            H[j + 1, j] = hnext
+            if hnext < series_tol(T)
+                kmax = j
+                break
+            end
+            inv_hnext = inv(hnext)
+            @simd for r in 1:n
+                V[r, j + 1] = w[r] * inv_hnext
+            end
+        end
+    end
+
+    @inbounds for j in 1:kmax
+        rhs[j] = j == 1 ? beta : zero(T)
+        for i in 1:kmax
+            Hred[i, j] = dt * H[i, j]
+        end
+    end
+
+    y_small = exp(@view Hred[1:kmax, 1:kmax]) * @view rhs[1:kmax]
+    if !all(isfinite, y_small)
+        error(
+            "Non-finite result in final solver Krylov computation. " *
+            "Consider reducing dt or increasing Krylov subspace dimension m.",
+        )
+    end
+
+    fill!(dest, zero(T))
+    @inbounds for j in 1:kmax
+        yj = y_small[j]
+        @simd for r in 1:n
+            dest[r] += V[r, j] * yj
+        end
+    end
+
+    if !all(isfinite, dest)
+        error(
+            "Non-finite final result in solver Krylov exponential action. " *
+            "Consider reducing dt or increasing Krylov subspace dimension m.",
+        )
+    end
+
+    return dest
+end
+
 @inline function get_sht_plan(buffers::SHTnsBuffers)
     return buffers.sht_plan::Union{SHTnsKit.SHTPlan, Nothing}
 end
@@ -1831,8 +1939,47 @@ function solver_phi1_action_krylov!(
     dt::Float64;
     m::Int=20,
     tol::Float64=1e-8,
+    work::Union{SolverKrylovWork{T}, Nothing}=nothing,
 ) where T
-    copyto!(dest, solver_phi1_action_krylov(Aop!, A_lu, v, dt; m, tol))
+    if work === nothing
+        copyto!(dest, solver_phi1_action_krylov(Aop!, A_lu, v, dt; m, tol))
+        return dest
+    end
+
+    solver_ensure_krylov_work!(work, length(v), m)
+
+    if LA.norm(v) < series_tol(T)
+        fill!(dest, zero(T))
+        return dest
+    end
+
+    if dt < 1e-8
+        Aop!(work.w, v)
+        local_scale = abs(dt) * LA.norm(work.w) / max(LA.norm(v), eps(real(T)))
+        if local_scale < sqrt(eps(real(T)))
+            @. dest = v + (dt / 2) * work.w
+            return dest
+        end
+    end
+
+    krylov_exp_action!(work.tmp, Aop!, v, dt, work; m, tol)
+    @. work.c = work.tmp - v
+
+    try
+        solve_banded!(dest, A_lu, work.c)
+        @. dest = dest / dt
+
+        if !all(isfinite, dest)
+            error(
+                "Non-finite result in solver_phi1_action_krylov. " *
+                "Consider reducing dt or checking the banded operator conditioning.",
+            )
+        end
+    catch e
+        e isa ErrorException && rethrow(e)
+        error("Banded solve failed in solver_phi1_action_krylov: $e")
+    end
+
     return dest
 end
 
@@ -1850,8 +1997,20 @@ end
         return krylov_exp_action(Aop!, v, dt; m, tol)
     end
 
-    function exp_action_krylov!(dest::Vector{T}, Aop!, v::Vector{T}, dt; m::Int=20, tol::Float64=1e-8) where {T}
-        copyto!(dest, krylov_exp_action(Aop!, v, dt; m, tol))
+    function exp_action_krylov!(
+        dest::Vector{T},
+        Aop!,
+        v::Vector{T},
+        dt;
+        m::Int=20,
+        tol::Float64=1e-8,
+        work::Union{SolverKrylovWork{T}, Nothing}=nothing,
+    ) where {T}
+        if work === nothing
+            copyto!(dest, krylov_exp_action(Aop!, v, dt; m, tol))
+        else
+            krylov_exp_action!(dest, Aop!, v, dt, work; m, tol)
+        end
         return dest
     end
 end

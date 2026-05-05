@@ -46,6 +46,7 @@ end
     imex = _allocation_static_source("timestep", "imex.jl")
     velocity_solver = _allocation_static_source("physics", "velocity", "solver.jl")
     @test occursin("struct SolverRadialWork{T}", state)
+    @test occursin("mutable struct SolverKrylovWork{T}", state)
     @test occursin("radial_work::Dict{Symbol, SolverRadialWork{T}}", state)
     @test occursin("work::Union{SolverRadialWork{T}, Nothing}=nothing", imex)
     @test occursin("solver_get_radial_work!", velocity_solver)
@@ -116,6 +117,8 @@ end
         "function solver_eab2_update_krylov_cached!(",
     )
     @test occursin("krylov_work::Union{SolverRadialWork{T}, Nothing}=nothing", krylov_body)
+    @test occursin("krylov_action_work = work_ok ? krylov_work.krylov : nothing", krylov_body)
+    @test occursin("work=krylov_action_work", krylov_body)
     @test occursin("krylov_work=radial_work", velocity_solver)
     @test occursin("krylov_work=radial_work", _allocation_static_source("physics", "temperature", "solver.jl"))
     @test occursin("krylov_work=radial_work", _allocation_static_source("physics", "composition", "solver.jl"))

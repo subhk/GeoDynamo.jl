@@ -94,6 +94,43 @@ struct ERK2StageCache{T}
     mpi_consistent::Bool
 end
 
+mutable struct SolverKrylovWork{T}
+    V::Matrix{T}
+    H::Matrix{T}
+    Hred::Matrix{T}
+    w::Vector{T}
+    rhs::Vector{T}
+    tmp::Vector{T}
+    c::Vector{T}
+end
+
+SolverKrylovWork{T}() where T = SolverKrylovWork{T}(
+    Matrix{T}(undef, 0, 0),
+    Matrix{T}(undef, 0, 0),
+    Matrix{T}(undef, 0, 0),
+    Vector{T}(undef, 0),
+    Vector{T}(undef, 0),
+    Vector{T}(undef, 0),
+    Vector{T}(undef, 0),
+)
+
+function solver_ensure_krylov_work!(work::SolverKrylovWork{T}, n::Int, m::Int) where T
+    if size(work.V, 1) != n || size(work.V, 2) < m
+        work.V = Matrix{T}(undef, n, m)
+    end
+    if size(work.H, 1) < m || size(work.H, 2) < m
+        work.H = Matrix{T}(undef, m, m)
+    end
+    if size(work.Hred, 1) < m || size(work.Hred, 2) < m
+        work.Hred = Matrix{T}(undef, m, m)
+    end
+    length(work.w) == n || (work.w = Vector{T}(undef, n))
+    length(work.tmp) == n || (work.tmp = Vector{T}(undef, n))
+    length(work.c) == n || (work.c = Vector{T}(undef, n))
+    length(work.rhs) >= m || (work.rhs = Vector{T}(undef, m))
+    return work
+end
+
 struct SolverRadialWork{T}
     u_real_global::Vector{T}
     u_imag_global::Vector{T}
@@ -101,6 +138,7 @@ struct SolverRadialWork{T}
     linear_imag::Vector{T}
     tmp_real::Vector{T}
     tmp_imag::Vector{T}
+    krylov::SolverKrylovWork{T}
 end
 
 # Reusable radial profiles for one field/operator family. The vectors are
@@ -113,6 +151,7 @@ SolverRadialWork{T}(nr::Int) where T = SolverRadialWork{T}(
     zeros(T, nr),
     Vector{T}(undef, nr),
     Vector{T}(undef, nr),
+    SolverKrylovWork{T}(),
 )
 
 mutable struct TimestepCaches{T}

@@ -237,6 +237,7 @@ function solver_eab2_update_krylov_cached!(
     nl_imag_global = work_ok ? krylov_work.linear_imag : zeros(T, nr)
     u_real_next = work_ok ? krylov_work.tmp_real : Vector{T}(undef, nr)
     u_imag_next = work_ok ? krylov_work.tmp_imag : Vector{T}(undef, nr)
+    krylov_action_work = work_ok ? krylov_work.krylov : nothing
     inv_mass_coeff = T(inv(mass_coeff))
 
     for lm_idx in 1:u.nlm
@@ -287,10 +288,10 @@ function solver_eab2_update_krylov_cached!(
         # applies the matching correction to the Adams-Bashforth nonlinear term.
         Aop = SolverBandedAction(operator_matrix)
 
-        exp_action_krylov!(u_real_next, Aop, u_real_global, Δt; m, tol)
-        exp_action_krylov!(u_imag_next, Aop, u_imag_global, Δt; m, tol)
-        solver_phi1_action_krylov!(nl_real_global, Aop, operator_lu, nl_real_global, Δt; m, tol)
-        solver_phi1_action_krylov!(nl_imag_global, Aop, operator_lu, nl_imag_global, Δt; m, tol)
+        exp_action_krylov!(u_real_next, Aop, u_real_global, Δt; m, tol, work=krylov_action_work)
+        exp_action_krylov!(u_imag_next, Aop, u_imag_global, Δt; m, tol, work=krylov_action_work)
+        solver_phi1_action_krylov!(nl_real_global, Aop, operator_lu, nl_real_global, Δt; m, tol, work=krylov_action_work)
+        solver_phi1_action_krylov!(nl_imag_global, Aop, operator_lu, nl_imag_global, Δt; m, tol, work=krylov_action_work)
         @. u_real_next = u_real_next + Δt * nl_real_global
         @. u_imag_next = u_imag_next + Δt * nl_imag_global
 
