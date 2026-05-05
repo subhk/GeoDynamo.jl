@@ -78,22 +78,28 @@ This mirrors the temperature-field layout so scalar transport code can share
 operators and diagnostics while keeping composition-specific boundary/source
 data separate.
 """
-mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
+mutable struct SHTnsCompositionField{
+    T,
+    C<:SHTnsKitConfig,
+    PF<:SHTnsPhysField{T},
+    VF<:SHTnsVectorField{T},
+    SF<:SHTnsSpecField{T},
+} <: AbstractScalarField{T}
     # Physical space composition
-    composition::SHTnsPhysField{T}
-    gradient::SHTnsVectorField{T}
+    composition::PF
+    gradient::VF
 
     # Spectral representation
-    spectral::SHTnsSpecField{T}
+    spectral::SF
 
     # Nonlinear terms (advection)
-    nonlinear::SHTnsSpecField{T}
-    prev_nonlinear::SHTnsSpecField{T}
+    nonlinear::SF
+    prev_nonlinear::SF
 
     # Work arrays for efficient computation
-    work_spectral::SHTnsSpecField{T}
-    work_physical::SHTnsPhysField{T}
-    advection_physical::SHTnsPhysField{T}
+    work_spectral::SF
+    work_physical::PF
+    advection_physical::PF
 
     # Boundary conditions
     boundary_values::Matrix{T}         # [2, nlm] for ICB and CMB
@@ -112,7 +118,7 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
     internal_sources::Vector{T}
 
     # Configuration (SHTnsKit)
-    config::SHTnsKitConfig
+    config::C
 
     # Radial derivative matrices
     ∂r::BandedMatrix{T}         # First derivative d/dr
@@ -140,7 +146,7 @@ get_main_physical_field(𝔽::SHTnsCompositionField{T}) where T = 𝔽.compositi
 # ================================================================================
 
 """
-    create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
+    create_shtns_composition_field(::Type{T}, config,
                                    𝒟ᵒᶜ::RadialDomain,
                                    pencils=nothing, pencil_spec=nothing) where T
 
@@ -167,9 +173,9 @@ domain = create_radial_domain(nr=64, ri=0.35, ro=1.0)
 Default boundary conditions are no-flux (NEUMANN) at both boundaries,
 appropriate for typical compositional convection problems.
 """
-function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
+function create_shtns_composition_field(::Type{T}, config::C,
                                         𝒟ᵒᶜ::RadialDomain,
-                                        pencils=nothing, pencil_spec=nothing) where T
+                                        pencils=nothing, pencil_spec=nothing) where {T,C<:SHTnsKitConfig}
     # Use config's pencils by default (consistent with velocity/magnetic creators)
     if pencils === nothing
         pencils = config.pencils
@@ -217,7 +223,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     # Internal sources (radial profile, e.g. secular cooling)
     internal_sources = zeros(T, 𝒟ᵒᶜ.N)
 
-    return SHTnsCompositionField{T}(
+    return SHTnsCompositionField(
         composition, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
         boundary_values, bc_type_inner, bc_type_outer,

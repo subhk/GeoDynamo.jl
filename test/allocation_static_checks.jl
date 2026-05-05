@@ -83,8 +83,11 @@ end
     @test !occursin("fft_scratch              :: Any", spectral)
 
     containers = _allocation_static_source("fields", "containers.jl")
-    @test occursin("SHTnsSpecField{T<:Number,C<:SHTnsKitConfig", containers)
-    @test occursin("SHTnsPhysField{T<:Number,C<:SHTnsKitConfig", containers)
+    @test occursin("mutable struct SHTnsSpecField{", containers)
+    @test occursin("C<:SHTnsKitConfig", containers)
+    @test occursin("DR<:PencilArray{T,3}", containers)
+    @test occursin("struct SHTnsPhysField{", containers)
+    @test occursin("D<:PencilArray{T,3}", containers)
     @test !occursin("config::SHTnsKitConfig", containers)
 
     for source in (
@@ -103,7 +106,8 @@ end
 
     solver_backend = _allocation_static_source("solver", "backend.jl")
     @test occursin("struct SolverBackend{A<:AbstractArchitecture,C<:SHTnsConfigType", solver_backend)
-    @test occursin("struct SolverRuntime{T, A<:AbstractArchitecture,C<:SHTnsConfigType", solver_backend)
+    @test occursin("struct SolverRuntime{", solver_backend)
+    @test occursin("C<:SHTnsConfigType", solver_backend)
     @test !occursin("shtns_config::SHTnsConfigType", solver_backend)
 
     imex = _allocation_static_source("timestep", "imex.jl")
@@ -111,7 +115,11 @@ end
         imex,
         "function solver_eab2_update_krylov_cached!(",
     )
-    @test occursin("krylov_work=radial_work", krylov_body)
+    @test occursin("krylov_work::Union{SolverRadialWork{T}, Nothing}=nothing", krylov_body)
+    @test occursin("krylov_work=radial_work", velocity_solver)
+    @test occursin("krylov_work=radial_work", _allocation_static_source("physics", "temperature", "solver.jl"))
+    @test occursin("krylov_work=radial_work", _allocation_static_source("physics", "composition", "solver.jl"))
+    @test occursin("krylov_work=radial_work", _allocation_static_source("physics", "magnetic", "solver.jl"))
     @test !occursin("u_real_next = exp_action_krylov", krylov_body)
     @test !occursin("nl_real_increment = solver_phi1_action_krylov", krylov_body)
 
@@ -124,8 +132,10 @@ end
         scalar_ops,
         "function apply_flux_bc_influence_matrix!(",
     )
-    @test occursin("work::Union{SolverRadialWork{T}, Nothing}=nothing", flux_tau_body)
-    @test occursin("work::Union{SolverRadialWork{T}, Nothing}=nothing", influence_body)
+    @test occursin("struct ScalarFluxBCWork{T}", scalar_ops)
+    @test occursin("flux_work = ScalarFluxBCWork{T}(domain.N)", scalar_ops)
+    @test occursin("work=nothing", flux_tau_body)
+    @test occursin("work=nothing", influence_body)
     @test !occursin("profile_real = zeros(T, nr)", flux_tau_body)
     @test !occursin("profile_real = zeros(T, nr)", influence_body)
 end

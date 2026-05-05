@@ -7,10 +7,10 @@ It records the selected architecture, SHTnsKit transform configuration, radial
 domains, and MPI rank/process metadata. `create_solver_backend(...)` is the
 normal constructor used by the public solver initialization path.
 """
-struct SolverBackend{A<:AbstractArchitecture}
+struct SolverBackend{A<:AbstractArchitecture,C<:SHTnsConfigType}
     parameters::SolverParameters
     architecture::A
-    shtns_config::SHTnsConfigType
+    shtns_config::C
     outer_core_domain::RadialDomainType
     inner_core_domain::Union{RadialDomainType, Nothing}
     rank::Int
@@ -112,14 +112,24 @@ The concrete field and workspace objects stepped by the rewritten solver.
 `SolverState` wraps this together with parameters, topography state, timestep
 matrices, caches, and diagnostics.
 """
-struct SolverRuntime{T, A<:AbstractArchitecture}
-    velocity::VelocityFieldsType{T}
-    magnetic::MagneticFieldsType{T}
-    temperature::TemperatureFieldType{T}
-    composition::Union{CompositionFieldType{T}, Nothing}
-    gradient_workspace::SolverGradientWorkspace{T}
-    transform_workspace::TransformWorkspace{T,A}
-    shtns_config::SHTnsConfigType
+struct SolverRuntime{
+    T,
+    A<:AbstractArchitecture,
+    C<:SHTnsConfigType,
+    V<:VelocityFieldsType{T},
+    M<:MagneticFieldsType{T},
+    Temp<:TemperatureFieldType{T},
+    Comp<:Union{CompositionFieldType{T}, Nothing},
+    GW<:SolverGradientWorkspace{T},
+    TW<:TransformWorkspace{T,A},
+}
+    velocity::V
+    magnetic::M
+    temperature::Temp
+    composition::Comp
+    gradient_workspace::GW
+    transform_workspace::TW
+    shtns_config::C
     𝒟ᵒᶜ::RadialDomainType
     𝒟ⁱᶜ::RadialDomainType
     timestep_state::SolverTimestepState
@@ -517,7 +527,7 @@ function create_solver_runtime(::Type{T}, backend::SolverBackend{A};
     # Store arch in SHTnsBuffers so SHT dispatch functions can retrieve it (Task 3)
     backend.shtns_config._buffers.transform_device = backend.architecture
 
-    runtime = SolverRuntime{T,A}(
+    runtime = SolverRuntime(
         velocity,
         magnetic,
         temperature,

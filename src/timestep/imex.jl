@@ -130,6 +130,15 @@ end
     return mode_values !== nothing && lm_idx <= length(mode_values) ? mode_values[lm_idx] : nothing
 end
 
+struct SolverBandedAction{T}
+    operator::BandedOperator{T}
+end
+
+@inline function (action::SolverBandedAction{T})(out::Vector{T}, v::AbstractVector{T}) where T
+    apply_banded_full!(out, action.operator, v)
+    return nothing
+end
+
 """
     solver_get_eab2_alu_cache!(caches, key, ν, T, domain)
 
@@ -206,6 +215,7 @@ function solver_eab2_update_krylov_cached!(
     tol::Float64=1e-8,
     mass_coeff::Float64=1.0,
     bc_spec=nothing,
+    krylov_work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
     u_real = parent(u.data_real)
     u_imag = parent(u.data_imag)
@@ -220,10 +230,13 @@ function solver_eab2_update_krylov_cached!(
     comm = mpi_comm()
     multi_rank = mpi_comm_size(comm) > 1
 
-    u_real_global = zeros(T, nr)
-    u_imag_global = zeros(T, nr)
-    nl_real_global = zeros(T, nr)
-    nl_imag_global = zeros(T, nr)
+    work_ok = krylov_work !== nothing && length(krylov_work.u_real_global) == nr
+    u_real_global = work_ok ? krylov_work.u_real_global : zeros(T, nr)
+    u_imag_global = work_ok ? krylov_work.u_imag_global : zeros(T, nr)
+    nl_real_global = work_ok ? krylov_work.linear_real : zeros(T, nr)
+    nl_imag_global = work_ok ? krylov_work.linear_imag : zeros(T, nr)
+    u_real_next = work_ok ? krylov_work.tmp_real : Vector{T}(undef, nr)
+    u_imag_next = work_ok ? krylov_work.tmp_imag : Vector{T}(undef, nr)
     inv_mass_coeff = T(inv(mass_coeff))
 
     for lm_idx in 1:u.nlm
@@ -272,14 +285,14 @@ function solver_eab2_update_krylov_cached!(
 
         # The exponential action advances the linear part, while phi₁(AΔt)
         # applies the matching correction to the Adams-Bashforth nonlinear term.
-        Aop!(out, v) = (apply_banded_full!(out, operator_matrix, v); nothing)
+        Aop = SolverBandedAction(operator_matrix)
 
-        u_real_next = exp_action_krylov(Aop!, u_real_global, Δt; m, tol)
-        u_imag_next = exp_action_krylov(Aop!, u_imag_global, Δt; m, tol)
-        nl_real_increment = solver_phi1_action_krylov(Aop!, operator_lu, nl_real_global, Δt; m, tol)
-        nl_imag_increment = solver_phi1_action_krylov(Aop!, operator_lu, nl_imag_global, Δt; m, tol)
-        @. u_real_next = u_real_next + Δt * nl_real_increment
-        @. u_imag_next = u_imag_next + Δt * nl_imag_increment
+        exp_action_krylov!(u_real_next, Aop, u_real_global, Δt; m, tol)
+        exp_action_krylov!(u_imag_next, Aop, u_imag_global, Δt; m, tol)
+        solver_phi1_action_krylov!(nl_real_global, Aop, operator_lu, nl_real_global, Δt; m, tol)
+        solver_phi1_action_krylov!(nl_imag_global, Aop, operator_lu, nl_imag_global, Δt; m, tol)
+        @. u_real_next = u_real_next + Δt * nl_real_global
+        @. u_imag_next = u_imag_next + Δt * nl_imag_global
 
         if bc_spec !== nothing
             # Krylov actions operate on the full radial vector and can move the

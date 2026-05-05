@@ -85,6 +85,11 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_velocity_toroidal::EAB2CacheEntry{T}).map
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :velocity_toroidal,
+            runtime.𝒟ᵒᶜ.N,
+        )
         bc_spec = build_solver_erk2_velocity_tor_bc(
             T,
             runtime.𝒟ᵒᶜ,
@@ -105,6 +110,7 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
             mass_coeff=E,
             bc_spec=bc_spec,
+            krylov_work=radial_work,
         )
     else
         solver_solve_velocity_implicit_step!(
@@ -183,6 +189,11 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_velocity_poloidal::EAB2CacheEntry{T}).map
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :velocity_poloidal,
+            runtime.𝒟ᵒᶜ.N,
+        )
         bc_spec = build_solver_erk2_velocity_pol_bc(T, runtime.𝒟ᵒᶜ, velocity_bc)
         solver_eab2_update_krylov_cached!(
             velocity.𝒫,
@@ -197,6 +208,7 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
             mass_coeff=E,
             bc_spec=bc_spec,
+            krylov_work=radial_work,
         )
     else
         solver_solve_velocity_implicit_step!(

@@ -58,12 +58,18 @@ and outer radial boundaries. Common types:
 - `bc_type_inner/outer`: Boundary condition type for each mode
 - `boundary_values`: Boundary values [2, nlm] for inner/outer
 """
-mutable struct SHTnsSpecField{T<:Number}
-    config::SHTnsKitConfig
+mutable struct SHTnsSpecField{
+    T<:Number,
+    C<:SHTnsKitConfig,
+    DR<:PencilArray{T,3},
+    DI<:PencilArray{T,3},
+    P<:Pencil{3},
+}
+    config::C
     nlm::Int
-    data_real::PencilArray{T,3}   # Real part of f_l^m(r)
-    data_imag::PencilArray{T,3}   # Imaginary part of f_l^m(r)
-    pencil::Pencil{3}             # Data distribution specification
+    data_real::DR                 # Real part of f_l^m(r)
+    data_imag::DI                 # Imaginary part of f_l^m(r)
+    pencil::P                     # Data distribution specification
     bc_type_inner::Vector{Int}    # BC type at inner boundary for each mode
     bc_type_outer::Vector{Int}    # BC type at outer boundary for each mode
     boundary_values::Matrix{T}    # [2, nlm] boundary values (row 1=inner, row 2=outer)
@@ -91,12 +97,17 @@ Different pencil orientations are optimal for different operations:
 - theta pencil: Optimal for Legendre transforms (all latitudes local)
 - r pencil: Optimal for radial operations (all radii local)
 """
-struct SHTnsPhysField{T<:Number}
-    config::SHTnsKitConfig
+struct SHTnsPhysField{
+    T<:Number,
+    C<:SHTnsKitConfig,
+    D<:PencilArray{T,3},
+    P<:Pencil{3},
+}
+    config::C
     nlat::Int                     # Number of latitude points
     nlon::Int                     # Number of longitude points
-    data::PencilArray{T,3}        # Field values f(θ, φ, r)
-    pencil::Pencil{3}             # Current data distribution
+    data::D                       # Field values f(θ, φ, r)
+    pencil::P                     # Current data distribution
 end
 
 # ================================================================================
@@ -116,10 +127,15 @@ Components:
 Each component is a SHTnsPhysField, potentially with different pencil
 orientations for optimal computation of different operations.
 """
-struct SHTnsVectorField{T<:Number}
-    r_component::SHTnsPhysField{T}
-    θ_component::SHTnsPhysField{T}
-    φ_component::SHTnsPhysField{T}
+struct SHTnsVectorField{
+    T<:Number,
+    R<:SHTnsPhysField{T},
+    Θ<:SHTnsPhysField{T},
+    Φ<:SHTnsPhysField{T},
+}
+    r_component::R
+    θ_component::Θ
+    φ_component::Φ
 end
 
 """
@@ -143,9 +159,13 @@ where T and P are scalar functions called the toroidal and poloidal potentials.
 - `toroidal`: Toroidal potential T(l,m,r) in spectral space
 - `poloidal`: Poloidal potential P(l,m,r) in spectral space
 """
-struct SHTnsTorPolField{T<:Number}
-    toroidal::SHTnsSpecField{T}
-    poloidal::SHTnsSpecField{T}
+struct SHTnsTorPolField{
+    T<:Number,
+    Tor<:SHTnsSpecField{T},
+    Pol<:SHTnsSpecField{T},
+}
+    toroidal::Tor
+    poloidal::Pol
 end
 
 # ================================================================================
@@ -220,9 +240,9 @@ function create_shtns_spectral_field(::Type{T}, config::AbstractSHTnsConfig,
     bc_outer = fill(Int(DIRICHLET), nlm)
     boundary_vals = zeros(T, 2, nlm)  # Row 1: inner, Row 2: outer
 
-    return SHTnsSpecField{T}(config, nlm,
-                        data_real, data_imag, pencil_spec,
-                        bc_inner, bc_outer, boundary_vals)
+    return SHTnsSpecField(config, nlm,
+                          data_real, data_imag, pencil_spec,
+                          bc_inner, bc_outer, boundary_vals)
 end
 
 """
@@ -249,7 +269,7 @@ function create_shtns_physical_field(::Type{T}, config::AbstractSHTnsConfig,
     data = PencilArray{T}(undef, pencil)
     fill!(parent(data), zero(T))
 
-    return SHTnsPhysField{T}(config, nlat, nlon, data, pencil)
+    return SHTnsPhysField(config, nlat, nlon, data, pencil)
 end
 
 """
@@ -287,7 +307,7 @@ function create_shtns_vector_field(::Type{T}, config::AbstractSHTnsConfig,
     θ_comp = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencil_r)
     φ_comp = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencil_r)
     
-    return SHTnsVectorField{T}(r_comp, θ_comp, φ_comp)
+    return SHTnsVectorField(r_comp, θ_comp, φ_comp)
 end
 
 
@@ -417,9 +437,9 @@ function Base.similar(field::SHTnsSpecField{T}, ::Type{S}) where {T,S<:Number}
     bc_inner = copy(field.bc_type_inner)
     bc_outer = copy(field.bc_type_outer)
     boundary_values = zeros(S, size(field.boundary_values, 1), size(field.boundary_values, 2))
-    return SHTnsSpecField{S}(field.config, field.nlm,
-                                 data_real, data_imag, field.pencil,
-                                 bc_inner, bc_outer, boundary_values)
+    return SHTnsSpecField(field.config, field.nlm,
+                          data_real, data_imag, field.pencil,
+                          bc_inner, bc_outer, boundary_values)
 end
 
 function Base.copy(field::SHTnsSpecField{T}) where T
@@ -439,7 +459,7 @@ end
 function Base.similar(field::SHTnsPhysField{T}, ::Type{S}) where {T,S<:Number}
     data = PencilArray{S}(undef, field.pencil)
     fill!(parent(data), zero(S))
-    return SHTnsPhysField{S}(field.config, field.nlat, field.nlon, data, field.pencil)
+    return SHTnsPhysField(field.config, field.nlat, field.nlon, data, field.pencil)
 end
 
 function Base.copy(field::SHTnsPhysField{T}) where T

@@ -16,23 +16,37 @@ module GeoDynamo
     const ERK2_DIAGNOSTICS_ENABLED = Ref(false)
     const ERK2_DIAGNOSTICS_INTERVAL = Ref(1)
 
-    struct GPUBackendState
+    struct GPUBackendState{
+        SS<:Function,
+        SA<:Function,
+        VS<:Function,
+        VA<:Function,
+        SZ<:Function,
+        FSC<:Function,
+        SSC<:Function,
+        EPS<:Function,
+        SPS<:Function,
+        FVC<:Function,
+        SVC<:Function,
+        EVC<:Function,
+        SVCS<:Function,
+    }
         loaded::Bool
         available::Bool
         device::Symbol
-        scalar_synthesis::Function
-        scalar_analysis::Function
-        vector_synthesis::Function
-        vector_analysis::Function
-        scratch_zeros::Function
-        fill_scalar_coeff_buffer::Function
-        store_scalar_coefficients::Function
-        extract_physical_slice::Function
-        store_physical_slice::Function
-        fill_vector_coeff_buffer::Function
-        store_vector_coefficients::Function
-        extract_vector_component::Function
-        store_vector_components::Function
+        scalar_synthesis::SS
+        scalar_analysis::SA
+        vector_synthesis::VS
+        vector_analysis::VA
+        scratch_zeros::SZ
+        fill_scalar_coeff_buffer::FSC
+        store_scalar_coefficients::SSC
+        extract_physical_slice::EPS
+        store_physical_slice::SPS
+        fill_vector_coeff_buffer::FVC
+        store_vector_coefficients::SVC
+        extract_vector_component::EVC
+        store_vector_components::SVCS
     end
 
     function _gpu_backend_not_loaded_error()
@@ -133,19 +147,19 @@ module GeoDynamo
     function register_gpu_backend!(;
         available::Bool,
         device::Symbol=:cuda,
-        scalar_synthesis::Function,
-        scalar_analysis::Function,
-        vector_synthesis::Function,
-        vector_analysis::Function,
-        scratch_zeros::Function=_default_gpu_scratch_zeros,
-        fill_scalar_coeff_buffer::Function=_default_gpu_fill_scalar_coeff_buffer,
-        store_scalar_coefficients::Function=_default_gpu_store_scalar_coefficients,
-        extract_physical_slice::Function=_default_gpu_extract_physical_slice,
-        store_physical_slice::Function=_default_gpu_store_physical_slice,
-        fill_vector_coeff_buffer::Function=_default_gpu_fill_vector_coeff_buffer,
-        store_vector_coefficients::Function=_default_gpu_store_vector_coefficients,
-        extract_vector_component::Function=_default_gpu_extract_vector_component,
-        store_vector_components::Function=_default_gpu_store_vector_components,
+        scalar_synthesis,
+        scalar_analysis,
+        vector_synthesis,
+        vector_analysis,
+        scratch_zeros=_default_gpu_scratch_zeros,
+        fill_scalar_coeff_buffer=_default_gpu_fill_scalar_coeff_buffer,
+        store_scalar_coefficients=_default_gpu_store_scalar_coefficients,
+        extract_physical_slice=_default_gpu_extract_physical_slice,
+        store_physical_slice=_default_gpu_store_physical_slice,
+        fill_vector_coeff_buffer=_default_gpu_fill_vector_coeff_buffer,
+        store_vector_coefficients=_default_gpu_store_vector_coefficients,
+        extract_vector_component=_default_gpu_extract_vector_component,
+        store_vector_components=_default_gpu_store_vector_components,
     )
         _GPU_BACKEND[] = GPUBackendState(
             true, available, available ? device : :cpu,
@@ -168,22 +182,22 @@ module GeoDynamo
     end
 
     function with_gpu_backend(
-        f::Function;
+        f;
         available::Bool=true,
         device::Symbol=:cuda,
-        scalar_synthesis::Function,
-        scalar_analysis::Function,
-        vector_synthesis::Function,
-        vector_analysis::Function,
-        scratch_zeros::Function=_default_gpu_scratch_zeros,
-        fill_scalar_coeff_buffer::Function=_default_gpu_fill_scalar_coeff_buffer,
-        store_scalar_coefficients::Function=_default_gpu_store_scalar_coefficients,
-        extract_physical_slice::Function=_default_gpu_extract_physical_slice,
-        store_physical_slice::Function=_default_gpu_store_physical_slice,
-        fill_vector_coeff_buffer::Function=_default_gpu_fill_vector_coeff_buffer,
-        store_vector_coefficients::Function=_default_gpu_store_vector_coefficients,
-        extract_vector_component::Function=_default_gpu_extract_vector_component,
-        store_vector_components::Function=_default_gpu_store_vector_components,
+        scalar_synthesis,
+        scalar_analysis,
+        vector_synthesis,
+        vector_analysis,
+        scratch_zeros=_default_gpu_scratch_zeros,
+        fill_scalar_coeff_buffer=_default_gpu_fill_scalar_coeff_buffer,
+        store_scalar_coefficients=_default_gpu_store_scalar_coefficients,
+        extract_physical_slice=_default_gpu_extract_physical_slice,
+        store_physical_slice=_default_gpu_store_physical_slice,
+        fill_vector_coeff_buffer=_default_gpu_fill_vector_coeff_buffer,
+        store_vector_coefficients=_default_gpu_store_vector_coefficients,
+        extract_vector_component=_default_gpu_extract_vector_component,
+        store_vector_components=_default_gpu_store_vector_components,
     )
         state = gpu_backend_state()
         try

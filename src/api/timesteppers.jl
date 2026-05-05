@@ -87,7 +87,7 @@ function _resolve_timestepper(
         implicit_theta::Union{Real,Nothing},
         etd_krylov_dimension::Union{Int,Nothing},
         krylov_tolerance::Union{Real,Nothing},
-        params::SolverParameters,
+        params,
     )
     if isnothing(timestepper)
         return (

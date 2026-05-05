@@ -142,30 +142,35 @@ This stores the physical magnetic/current fields, toroidal-poloidal spectral
 coefficients for the outer and inner core, induction-term work arrays, and the
 radial derivative operators used by magnetic update kernels.
 """
-mutable struct SHTnsMagneticFields{T}
+mutable struct SHTnsMagneticFields{
+    T,
+    C<:SHTnsKitConfig,
+    VF<:SHTnsVectorField{T},
+    SF<:SHTnsSpecField{T},
+}
     # Physical space magnetic field
-    magnetic::SHTnsVectorField{T}
-    current::SHTnsVectorField{T}
+    magnetic::VF
+    current::VF
 
     # Spectral representation
-    𝒯::SHTnsSpecField{T}
-    𝒫::SHTnsSpecField{T}
+    𝒯::SF
+    𝒫::SF
 
     # Inner core fields
-    𝒯ⁱᶜ::SHTnsSpecField{T}
-    𝒫ⁱᶜ::SHTnsSpecField{T}
+    𝒯ⁱᶜ::SF
+    𝒫ⁱᶜ::SF
 
     # Nonlinear terms (induction)
-    nlᵀ::SHTnsSpecField{T}
-    nlᴾ::SHTnsSpecField{T}
-    prev_nlᵀ::SHTnsSpecField{T}
-    prev_nlᴾ::SHTnsSpecField{T}
+    nlᵀ::SF
+    nlᴾ::SF
+    prev_nlᵀ::SF
+    prev_nlᴾ::SF
 
     # Work arrays
-    work_tor::SHTnsSpecField{T}
-    work_pol::SHTnsSpecField{T}
-    work_physical::SHTnsVectorField{T}
-    induction_physical::SHTnsVectorField{T}  # Added missing field for u×B
+    work_tor::SF
+    work_pol::SF
+    work_physical::VF
+    induction_physical::VF  # Added missing field for u×B
 
     # Pre-computed coefficients
     ℓ_factors::Vector{T}        # l(l+1) values
@@ -177,8 +182,8 @@ mutable struct SHTnsMagneticFields{T}
     # Transform manager removed; SHTnsKit transforms are used directly
 
     # Imposed field (if any)
-    imposed_field::Union{SHTnsVectorField{T}, Nothing}
-    config::SHTnsKitConfig
+    imposed_field::Union{VF, Nothing}
+    config::C
     outer_domain::RadialDomain
     boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}
     boundary_interpolation_cache::bcs.BoundaryInterpolationCache{T}
@@ -191,10 +196,10 @@ end
 
 Allocate and initialize the magnetic field container used by GeoDynamo.
 """
-function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig, 
+function create_shtns_magnetic_fields(::Type{T}, config::C,
                                       𝒟ᵒᶜ::RadialDomain, 
                                       𝒟ⁱᶜ::RadialDomain, 
-                                      pencils=nothing, pencil_spec=nothing) where T
+                                      pencils=nothing, pencil_spec=nothing) where {T,C<:SHTnsKitConfig}
 
     # Use enhanced pencil topology from config if not provided
     if pencils === nothing
@@ -246,18 +251,18 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     boundary_cache = bcs.BoundaryInterpolationCache(T)
     boundary_time_index = Ref{Int}(1)
     
-    return SHTnsMagneticFields{T}(magnetic, current,
-                                𝒯, 𝒫,
-                                𝒯ⁱᶜ, 𝒫ⁱᶜ,
-                                nlᵀ, nlᴾ, prev_nlᵀ, prev_nlᴾ,
-                                work_tor, work_pol, work_physical,
-                                induction_physical,
-                                ℓ_factors,
-                                ∂r, ∂²r,
-                                imposed_field,
-                                config,
-                                𝒟ᵒᶜ,
-                                boundary_condition_set, boundary_cache, boundary_time_index)
+    return SHTnsMagneticFields(magnetic, current,
+                               𝒯, 𝒫,
+                               𝒯ⁱᶜ, 𝒫ⁱᶜ,
+                               nlᵀ, nlᴾ, prev_nlᵀ, prev_nlᴾ,
+                               work_tor, work_pol, work_physical,
+                               induction_physical,
+                               ℓ_factors,
+                               ∂r, ∂²r,
+                               imposed_field,
+                               config,
+                               𝒟ᵒᶜ,
+                               boundary_condition_set, boundary_cache, boundary_time_index)
 end
 
 # Include matrix-embedded magnetic BC functions
@@ -323,9 +328,9 @@ Used by both current density (j = ∇×B) and induction curl (∇×(u×B)).
 function _spectral_curl_torpol!(
     dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
     src_tor_r, src_tor_i, src_pol_r, src_pol_i,
-    ℓ_factors, d1_matrix, d²_matrix, domain::RadialDomain, config::SHTnsKitConfig, ::Type{T};
+    ℓ_factors, d1_matrix, d²_matrix, domain::RadialDomain, config::C, ::Type{T};
     _work::Union{Nothing, NTuple{6, Vector{T}}}=nothing
-) where T
+) where {T,C<:SHTnsKitConfig}
     lm_range = local_spectral_mode_indices(config)
     r_range  = range_local(config.pencils.spec, 3)
     nr = domain.N
@@ -737,11 +742,11 @@ end
 
 
 """
-    validate_magnetic_configuration(ℬ::SHTnsMagneticFields{T}, config::SHTnsKitConfig) where T
+    validate_magnetic_configuration(ℬ::SHTnsMagneticFields{T}, config::C) where {T,C<:SHTnsKitConfig}
     
 Validate magnetic field configuration consistency with SHTns setup
 """
-function validate_magnetic_configuration(ℬ::SHTnsMagneticFields{T}, config::SHTnsKitConfig) where T
+function validate_magnetic_configuration(ℬ::SHTnsMagneticFields{T}, config::C) where {T,C<:SHTnsKitConfig}
     errors = String[]
     
     # Check field dimensions match config

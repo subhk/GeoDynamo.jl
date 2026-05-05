@@ -70,22 +70,28 @@ It contains the physical temperature, its gradient, spectral coefficients,
 nonlinear work arrays, boundary/source data, and cached radial/spectral
 operators.
 """
-mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
+mutable struct SHTnsTemperatureField{
+    T,
+    C<:SHTnsKitConfig,
+    PF<:SHTnsPhysField{T},
+    VF<:SHTnsVectorField{T},
+    SF<:SHTnsSpecField{T},
+} <: AbstractScalarField{T}
     # Physical space temperature
-    temperature::SHTnsPhysField{T}
-    gradient::SHTnsVectorField{T}
+    temperature::PF
+    gradient::VF
 
     # Spectral representation
-    spectral::SHTnsSpecField{T}
+    spectral::SF
 
     # Nonlinear terms (advection)
-    nonlinear::SHTnsSpecField{T}
-    prev_nonlinear::SHTnsSpecField{T}
+    nonlinear::SF
+    prev_nonlinear::SF
 
     # Work arrays for efficient computation
-    work_spectral::SHTnsSpecField{T}
-    work_physical::SHTnsPhysField{T}
-    advection_physical::SHTnsPhysField{T}
+    work_spectral::SF
+    work_physical::PF
+    advection_physical::PF
 
     # Sources and boundary conditions
     internal_sources::Vector{T}        # Radial profile of heating
@@ -102,7 +108,7 @@ mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
     ℓ_factors::Vector{T}               # l(l+1) values
     
     # Configuration (SHTnsKit)
-    config::SHTnsKitConfig
+    config::C
     
     # Radial derivative matrices
     ∂r::BandedMatrix{T}
@@ -130,9 +136,9 @@ get_main_physical_field(𝔽::SHTnsTemperatureField{T}) where T = 𝔽.temperatu
 
 Allocate and initialize the temperature field container for a simulation.
 """
-function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
+function create_shtns_temperature_field(::Type{T}, config::C,
                                         𝒟ᵒᶜ::RadialDomain,
-                                        pencils=nothing, pencil_spec=nothing) where T
+                                        pencils=nothing, pencil_spec=nothing) where {T,C<:SHTnsKitConfig}
     # Use config's pencils by default (consistent with velocity/magnetic creators)
     if pencils === nothing
         pencils = config.pencils
@@ -179,7 +185,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     theta_derivative_matrix = build_∂θ(T, config)
     theta_recurrence_coeffs = compute_theta_recurrence_coefficients(T, config)
     
-    return SHTnsTemperatureField{T}(
+    return SHTnsTemperatureField(
         temperature, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
         internal_sources, boundary_values,
@@ -436,8 +442,8 @@ Compute the horizontally integrated scalar flux through the radial shell at
 `r_level`. This is the low-level thermal diagnostic used by Nusselt-number and
 boundary-flux post-processing.
 """
-function compute_surface_flux(field::SHTnsPhysField{T}, r_level::Int, 
-                             config::SHTnsKitConfig) where T
+function compute_surface_flux(field::SHTnsPhysField{T}, r_level::Int,
+                              config::C) where {T,C<:SHTnsKitConfig}
     data = parent(field.data)
     
     # Local contribution

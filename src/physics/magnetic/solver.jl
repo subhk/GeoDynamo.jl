@@ -174,6 +174,11 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             throw(ArgumentError("CONTINUITY_MAG toroidal magnetic inner-boundary increments are not implemented for EAB2() timestepping"))
         end
         alu_map = (state.timestep_caches.etd_magnetic_toroidal::EAB2CacheEntry{T}).map
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :magnetic_toroidal,
+            runtime.𝒟ᵒᶜ.N,
+        )
         bc_spec = build_solver_erk2_magnetic_tor_bc(T, runtime.𝒟ᵒᶜ.N)
         solver_eab2_update_krylov_cached!(
             magnetic.𝒯,
@@ -187,6 +192,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             m=_timestepper_krylov_dimension(timestepper, state.parameters),
             tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
             bc_spec=bc_spec,
+            krylov_work=radial_work,
         )
     else
         solver_solve_magnetic_implicit_step!(
@@ -237,6 +243,11 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_magnetic_poloidal::EAB2CacheEntry{T}).map
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :magnetic_poloidal,
+            runtime.𝒟ᵒᶜ.N,
+        )
         bc_spec = build_solver_erk2_magnetic_pol_bc(T, runtime.𝒟ᵒᶜ)
         solver_eab2_update_krylov_cached!(
             magnetic.𝒫,
@@ -250,6 +261,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             m=_timestepper_krylov_dimension(timestepper, state.parameters),
             tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
             bc_spec=bc_spec,
+            krylov_work=radial_work,
         )
     else
         solver_solve_magnetic_implicit_step!(

@@ -132,6 +132,11 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_composition::EAB2CacheEntry{T}).map
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :composition,
+            runtime.𝒟ᵒᶜ.N,
+        )
         composition_bc_code = _composition_bc_code(state.parameters.composition_bcs)
         scalar_bc = build_solver_erk2_scalar_bc(T, runtime.𝒟ᵒᶜ, composition_bc_code)
         bc_spec = solver_with_boundary_mode_values(
@@ -153,6 +158,7 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
             m=_timestepper_krylov_dimension(timestepper, state.parameters),
             tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
             bc_spec=bc_spec,
+            krylov_work=radial_work,
         )
     else
         solver_solve_composition_implicit_step!(

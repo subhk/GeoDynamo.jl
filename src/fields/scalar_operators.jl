@@ -879,6 +879,22 @@ end
 # Tau Method Implementation
 # ================================================================================
 
+struct ScalarFluxBCWork{T}
+    profile_real::Vector{T}
+    profile_imag::Vector{T}
+    dprofile::Vector{T}
+end
+
+ScalarFluxBCWork{T}(nr::Int) where T =
+    ScalarFluxBCWork{T}(zeros(T, nr), zeros(T, nr), zeros(T, nr))
+
+@inline function _scalar_flux_work(::Type{T}, nr::Int, work) where T
+    if work isa ScalarFluxBCWork{T} && length(work.profile_real) == nr
+        return work
+    end
+    return ScalarFluxBCWork{T}(nr)
+end
+
 """
     compute_tau_coefficients_both(flux_error_inner::T, flux_error_outer::T, domain::RadialDomain) where T
 
@@ -947,6 +963,28 @@ function compute_tau_coefficients_outer(flux_error::T, domain::RadialDomain) whe
     dtau_outer = tc.dtau1_outer - β * tc.dtau2_outer
     c = abs(dtau_outer) > 1e-12 ? flux_error / dtau_outer : zero(T)
     return (c, tau)
+end
+
+function apply_tau_correction_inner!(profile::Vector{T}, flux_error::T, domain::RadialDomain) where T
+    tc = _get_tau_cache(domain)
+    α = abs(tc.dtau2_outer) > 1e-12 ? tc.dtau1_outer / tc.dtau2_outer : zero(T)
+    dtau_inner = tc.dtau1_inner - α * tc.dtau2_inner
+    c = abs(dtau_inner) > 1e-12 ? flux_error / dtau_inner : zero(T)
+    @inbounds @simd for i in eachindex(profile)
+        profile[i] += c * (tc.tau1[i] - α * tc.tau2[i])
+    end
+    return profile
+end
+
+function apply_tau_correction_outer!(profile::Vector{T}, flux_error::T, domain::RadialDomain) where T
+    tc = _get_tau_cache(domain)
+    β = abs(tc.dtau2_inner) > 1e-12 ? tc.dtau1_inner / tc.dtau2_inner : zero(T)
+    dtau_outer = tc.dtau1_outer - β * tc.dtau2_outer
+    c = abs(dtau_outer) > 1e-12 ? flux_error / dtau_outer : zero(T)
+    @inbounds @simd for i in eachindex(profile)
+        profile[i] += c * (tc.tau1[i] - β * tc.tau2[i])
+    end
+    return profile
 end
 
 """
@@ -1042,6 +1080,14 @@ function compute_boundary_fluxes(profile::Vector{T}, ∂r,
     return dprofile[1], dprofile[nr]
 end
 
+function compute_boundary_fluxes(profile::Vector{T}, ∂r,
+                                 domain::RadialDomain,
+                                 work::ScalarFluxBCWork{T}) where T
+    nr = domain.N
+    apply_∂r!(work.dprofile, ∂r, profile)
+    return work.dprofile[1], work.dprofile[nr]
+end
+
 """
     get_flux_value(lm_idx::Int, boundary::Int, 𝔽::AbstractScalarField)
 
@@ -1086,15 +1132,20 @@ function compute_flux_at_boundary(
     boundary_idx::Int,
     𝔽::AbstractScalarField,
     domain::RadialDomain,
+    ;
+    work=nothing,
 )
     T = eltype(spec_real)
     nr = domain.N
     r_range = range_local(𝔽.config.pencils.spec, 3)
-    profile_real = zeros(T, nr)
-    profile_imag = zeros(T, nr)
+    flux_work = _scalar_flux_work(T, nr, work)
+    profile_real = flux_work.profile_real
+    profile_imag = flux_work.profile_imag
+    fill!(profile_real, zero(T))
+    fill!(profile_imag, zero(T))
 
     gather_local_radial_profile!(profile_real, profile_imag, spec_real, spec_imag, slot, r_range)
-    flux_inner, flux_outer = compute_boundary_fluxes(profile_real, 𝔽.∂r, domain)
+    flux_inner, flux_outer = compute_boundary_fluxes(profile_real, 𝔽.∂r, domain, flux_work)
     return boundary_idx == 1 ? flux_inner : flux_outer
 end
 
@@ -1113,13 +1164,17 @@ the same number of times by all processes (prevents deadlock).
 """
 function apply_flux_bc_tau!(spec_real, spec_imag, lm_idx,
                            apply_inner, apply_outer,
-                           𝔽::AbstractScalarField, domain, r_range, owns_mode::Bool)
+                           𝔽::AbstractScalarField, domain, r_range, owns_mode::Bool;
+                           work=nothing)
     T = eltype(spec_real)
     nr = domain.N
+    flux_work = _scalar_flux_work(T, nr, work)
 
     # Extract radial profile for this mode (only if this process owns the mode)
-    profile_real = zeros(T, nr)
-    profile_imag = zeros(T, nr)
+    profile_real = flux_work.profile_real
+    profile_imag = flux_work.profile_imag
+    fill!(profile_real, zero(T))
+    fill!(profile_imag, zero(T))
     slot = owns_mode ? local_spectral_storage_slot(𝔽.config, lm_idx) : nothing
 
     if slot !== nothing
@@ -1139,7 +1194,7 @@ function apply_flux_bc_tau!(spec_real, spec_imag, lm_idx,
 
     # Compute current fluxes at boundaries (real part)
     current_flux_inner, current_flux_outer = compute_boundary_fluxes(
-        profile_real, 𝔽.∂r, domain)
+        profile_real, 𝔽.∂r, domain, flux_work)
 
     # Compute and apply tau corrections for real part
     if apply_inner && apply_outer
@@ -1147,33 +1202,29 @@ function apply_flux_bc_tau!(spec_real, spec_imag, lm_idx,
             flux_inner - current_flux_inner,
             flux_outer - current_flux_outer,
             domain)
+        apply_tau_correction!(profile_real, tau_coeffs, domain)
     elseif apply_inner
-        tau_coeffs = compute_tau_coefficients_inner(
-            flux_inner - current_flux_inner, domain)
+        apply_tau_correction_inner!(profile_real, flux_inner - current_flux_inner, domain)
     else
-        tau_coeffs = compute_tau_coefficients_outer(
-            flux_outer - current_flux_outer, domain)
+        apply_tau_correction_outer!(profile_real, flux_outer - current_flux_outer, domain)
     end
-    apply_tau_correction!(profile_real, tau_coeffs, domain)
 
     # Compute and apply tau corrections for imaginary part using its own flux errors
     if any(x -> abs(x) > 1e-12, profile_imag)
         imag_flux_inner, imag_flux_outer = compute_boundary_fluxes(
-            profile_imag, 𝔽.∂r, domain)
+            profile_imag, 𝔽.∂r, domain, flux_work)
         # Prescribed flux is the same for both parts (typically zero for imag)
         if apply_inner && apply_outer
             tau_coeffs_imag = compute_tau_coefficients_both(
                 flux_inner - imag_flux_inner,
                 flux_outer - imag_flux_outer,
                 domain)
+            apply_tau_correction!(profile_imag, tau_coeffs_imag, domain)
         elseif apply_inner
-            tau_coeffs_imag = compute_tau_coefficients_inner(
-                flux_inner - imag_flux_inner, domain)
+            apply_tau_correction_inner!(profile_imag, flux_inner - imag_flux_inner, domain)
         else
-            tau_coeffs_imag = compute_tau_coefficients_outer(
-                flux_outer - imag_flux_outer, domain)
+            apply_tau_correction_outer!(profile_imag, flux_outer - imag_flux_outer, domain)
         end
-        apply_tau_correction!(profile_imag, tau_coeffs_imag, domain)
     end
 
     # Store corrected profile back (only if this process owns the mode)
@@ -1282,18 +1333,18 @@ the same number of times by all processes (prevents deadlock).
 """
 function apply_flux_bc_influence_matrix!(spec_real, spec_imag, lm_idx,
                                        apply_inner, apply_outer,
-                                       𝔽::AbstractScalarField, domain, r_range, owns_mode::Bool)
+                                       𝔽::AbstractScalarField, domain, r_range, owns_mode::Bool;
+                                       work=nothing)
     T = eltype(spec_real)
     infl = _get_influence_cache(domain, 𝔽.∂r)
 
-    # Get prescribed and current flux values
-    flux_prescribed = [get_flux_value(lm_idx, 1, 𝔽),
-                      get_flux_value(lm_idx, 2, 𝔽)]
-
     # Extract and gather radial profile (only if this process owns the mode)
     nr = domain.N
-    profile_real = zeros(T, nr)
-    profile_imag = zeros(T, nr)
+    flux_work = _scalar_flux_work(T, nr, work)
+    profile_real = flux_work.profile_real
+    profile_imag = flux_work.profile_imag
+    fill!(profile_real, zero(T))
+    fill!(profile_imag, zero(T))
     slot = owns_mode ? local_spectral_storage_slot(𝔽.config, lm_idx) : nothing
 
     if slot !== nothing
@@ -1309,17 +1360,28 @@ function apply_flux_bc_influence_matrix!(spec_real, spec_imag, lm_idx,
 
     # Compute current flux at boundaries
     current_flux_inner, current_flux_outer = compute_boundary_fluxes(
-        profile_real, 𝔽.∂r, domain)
-    flux_current = [current_flux_inner, current_flux_outer]
+        profile_real, 𝔽.∂r, domain, flux_work)
 
     # Solve for influence amplitudes
-    flux_error = flux_prescribed - flux_current
-    amplitudes = infl.influence_matrix \ flux_error
+    flux_error_inner = get_flux_value(lm_idx, 1, 𝔽) - current_flux_inner
+    flux_error_outer = get_flux_value(lm_idx, 2, 𝔽) - current_flux_outer
+    a = infl.influence_matrix[1, 1]
+    b = infl.influence_matrix[1, 2]
+    c = infl.influence_matrix[2, 1]
+    d = infl.influence_matrix[2, 2]
+    det = a * d - b * c
+    if abs(det) > eps(T)
+        amp_inner = (d * flux_error_inner - b * flux_error_outer) / det
+        amp_outer = (a * flux_error_outer - c * flux_error_inner) / det
+    else
+        amp_inner = zero(T)
+        amp_outer = zero(T)
+    end
 
     # Apply influence correction
-    @. profile_real += amplitudes[1] * infl.G_inner + amplitudes[2] * infl.G_outer
+    @. profile_real += amp_inner * infl.G_inner + amp_outer * infl.G_outer
     if any(x -> abs(x) > 1e-12, profile_imag)
-        @. profile_imag += amplitudes[1] * infl.G_inner + amplitudes[2] * infl.G_outer
+        @. profile_imag += amp_inner * infl.G_inner + amp_outer * infl.G_outer
     end
 
     # Store corrected profile back (only if this process owns the mode)
@@ -1440,6 +1502,7 @@ function apply_scalar_flux_bc_spectral!(𝔽::AbstractScalarField{T}, domain::Ra
 
     r_range  = range_local(𝔽.config.pencils.spec, 3)
     nlm_total = 𝔽.config.nlm
+    flux_work = ScalarFluxBCWork{T}(domain.N)
 
     # Use GLOBAL loop bounds to ensure all processes call MPI collectives same number of times
     for lm_idx in 1:nlm_total
@@ -1460,10 +1523,12 @@ function apply_scalar_flux_bc_spectral!(𝔽::AbstractScalarField{T}, domain::Ra
             # ALL processes call these functions for MPI synchronization (Allreduce inside)
             if method == :tau
                 apply_flux_bc_tau!(spec_real, spec_imag, lm_idx,
-                                  apply_inner, apply_outer, 𝔽, domain, r_range, owns_mode)
+                                  apply_inner, apply_outer, 𝔽, domain, r_range, owns_mode;
+                                  work=flux_work)
             elseif method == :influence_matrix
                 apply_flux_bc_influence_matrix!(spec_real, spec_imag, lm_idx,
-                                               apply_inner, apply_outer, 𝔽, domain, r_range, owns_mode)
+                                               apply_inner, apply_outer, 𝔽, domain, r_range, owns_mode;
+                                               work=flux_work)
             elseif method == :direct
                 # Direct method doesn't use MPI collectives, only apply if owns_mode
                 if owns_mode

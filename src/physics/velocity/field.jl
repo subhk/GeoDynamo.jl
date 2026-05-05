@@ -150,30 +150,35 @@ This bundles the physical velocity/vorticity fields, their spectral toroidal
 and poloidal coefficients, nonlinear work arrays, and the radial derivative
 operators needed by the velocity update kernels.
 """
-mutable struct SHTnsVelocityFields{T}
+mutable struct SHTnsVelocityFields{
+    T,
+    C<:SHTnsKitConfig,
+    VF<:SHTnsVectorField{T},
+    SF<:SHTnsSpecField{T},
+}
     # Physical space velocities
-    velocity::SHTnsVectorField{T}
-    vorticity::SHTnsVectorField{T}
+    velocity::VF
+    vorticity::VF
 
     # Spectral representation (toroidal-poloidal)
-    𝒯::SHTnsSpecField{T}
-    𝒫::SHTnsSpecField{T}
+    𝒯::SF
+    𝒫::SF
     
     # Vorticity in spectral space (for efficient curl computation)
-    ζᵀ::SHTnsSpecField{T}
-    ζᴾ::SHTnsSpecField{T}
+    ζᵀ::SF
+    ζᴾ::SF
     
     # Nonlinear terms
-    nlᵀ::SHTnsSpecField{T}
-    nlᴾ::SHTnsSpecField{T}
-    prev_nlᵀ::SHTnsSpecField{T}
-    prev_nlᴾ::SHTnsSpecField{T}
+    nlᵀ::SF
+    nlᴾ::SF
+    prev_nlᵀ::SF
+    prev_nlᴾ::SF
     
     # Work arrays for efficient computation
-    work_tor::SHTnsSpecField{T}
-    work_pol::SHTnsSpecField{T}
-    work_physical::SHTnsVectorField{T}
-    advection_physical::SHTnsVectorField{T}
+    work_tor::SF
+    work_pol::SF
+    work_physical::VF
+    advection_physical::VF
     
     # Pre-computed coefficients
     ℓ_factors::Vector{T}                # l(l+1) values
@@ -185,7 +190,7 @@ mutable struct SHTnsVelocityFields{T}
     laplacian_matrix::BandedMatrix{T}   # Radial Laplacian operator
     
     # Transform manager removed; SHTnsKit transforms are used directly
-    config::SHTnsKitConfig
+    config::C
     domain::RadialDomain
     parameters::SolverParameters
     boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}
@@ -392,7 +397,7 @@ function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
 end
 
 
-function _default_velocity_parameters(config::SHTnsKitConfig, domain::RadialDomain)
+function _default_velocity_parameters(config::C, domain::RadialDomain) where {C<:SHTnsKitConfig}
     r_inner = domain.r[1, 4]
     r_outer = domain.r[domain.N, 4]
     radius_ratio = iszero(r_outer) ? 0.0 : Float64(r_inner / r_outer)
@@ -419,10 +424,10 @@ The returned object includes physical-space velocity/vorticity fields, spectral
 toroidal-poloidal coefficients, nonlinear history buffers, and cached radial
 operators.
 """
-function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
+function create_shtns_velocity_fields(::Type{T}, config::C,
                                       𝒟ᵒᶜ::RadialDomain,
                                       pencils=nothing, pencil_spec=nothing;
-                                      params::SolverParameters=_default_velocity_parameters(config, 𝒟ᵒᶜ)) where T
+                                      params::SolverParameters=_default_velocity_parameters(config, 𝒟ᵒᶜ)) where {T,C<:SHTnsKitConfig}
     # Use pencils from config by default (they already encode the correct nr)
     if pencils === nothing
         pencils = config.pencils
@@ -477,17 +482,17 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     boundary_cache = bcs.BoundaryInterpolationCache(T)
     boundary_time_index = Ref{Int}(1)
 
-    return SHTnsVelocityFields{T}(velocity, vorticity, 𝒯, 𝒫,
-                                  ζᵀ, ζᴾ,
-                                  nlᵀ, nlᴾ, prev_nlᵀ, prev_nlᴾ,
-                                  work_tor, work_pol, work_physical,
-                                  advection_physical,
-                                  ℓ_factors, coriolis_factors,
-                                  ∂r, ∂²r, laplacian_matrix,
-                                  config,
-                                  𝒟ᵒᶜ,
-                                  params_snapshot,
-                                  boundary_condition_set, boundary_cache, boundary_time_index)
+    return SHTnsVelocityFields(velocity, vorticity, 𝒯, 𝒫,
+                               ζᵀ, ζᴾ,
+                               nlᵀ, nlᴾ, prev_nlᵀ, prev_nlᴾ,
+                               work_tor, work_pol, work_physical,
+                               advection_physical,
+                               ℓ_factors, coriolis_factors,
+                               ∂r, ∂²r, laplacian_matrix,
+                               config,
+                               𝒟ᵒᶜ,
+                               params_snapshot,
+                               boundary_condition_set, boundary_cache, boundary_time_index)
 end
 
 
@@ -1322,11 +1327,11 @@ end
 
 
 """
-    validate_velocity_configuration(𝒰::SHTnsVelocityFields{T}, config::SHTnsKitConfig) where T
+    validate_velocity_configuration(𝒰::SHTnsVelocityFields{T}, config::C) where {T,C<:SHTnsKitConfig}
 
 Validate velocity field configuration consistency with SHTns setup
 """
-function validate_velocity_configuration(𝒰::SHTnsVelocityFields{T}, config::SHTnsKitConfig) where T
+function validate_velocity_configuration(𝒰::SHTnsVelocityFields{T}, config::C) where {T,C<:SHTnsKitConfig}
     errors = String[]
 
     # Check field dimensions match config

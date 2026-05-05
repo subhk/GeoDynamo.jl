@@ -8,11 +8,17 @@ This separates "allocated in the runtime" from "enabled by the current solver
 parameters", which keeps the timestep code simpler when optional magnetic or
 compositional physics are disabled.
 """
-struct SolverFields{T}
-    velocity::VelocityFieldsType{T}
-    temperature::TemperatureFieldType{T}
-    magnetic::Union{MagneticFieldsType{T}, Nothing}
-    composition::Union{CompositionFieldType{T}, Nothing}
+struct SolverFields{
+    T,
+    V<:VelocityFieldsType{T},
+    Temp<:TemperatureFieldType{T},
+    M<:Union{MagneticFieldsType{T}, Nothing},
+    Comp<:Union{CompositionFieldType{T}, Nothing},
+}
+    velocity::V
+    temperature::Temp
+    magnetic::M
+    composition::Comp
 end
 
 mutable struct SolverEnergyTracker
@@ -171,12 +177,19 @@ It combines:
 `initialize_simulation(Float64, params)` returns this type for the new solver
 path.
 """
-mutable struct SolverState{T, A<:AbstractArchitecture}
+mutable struct SolverState{
+    T,
+    A<:AbstractArchitecture,
+    C<:SHTnsConfigType,
+    B<:SolverBackend{A,C},
+    F<:SolverFields{T},
+    R<:SolverRuntime{T,A,C},
+}
     parameters::SolverParameters
-    backend::SolverBackend{A}
-    fields::SolverFields{T}
+    backend::B
+    fields::F
     topography::SolverTopographyState{T}
-    runtime::SolverRuntime{T,A}
+    runtime::R
     implicit_matrices::Dict{Symbol, ImplicitMatrixSet{T}}
     timestep_caches::TimestepCaches{T}
     energy_tracker::SolverEnergyTracker

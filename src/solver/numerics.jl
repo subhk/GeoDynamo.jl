@@ -1745,7 +1745,7 @@ end
     function apply_banded_full!(
         out::Vector{T},
         B::Union{$(OldBandedMatrix){T}, $(BandedOperator){T}},
-        v::Vector{T},
+        v::AbstractVector{T},
     ) where {T}
         fill!(out, zero(T))
         n = B.size
@@ -1809,7 +1809,7 @@ function solver_phi1_action_krylov(
         solve_banded!(x, A_lu, c)
         @. x = x / dt
 
-        if !all(isfinite.(x))
+        if !all(isfinite, x)
             error(
                 "Non-finite result in solver_phi1_action_krylov. " *
                 "Consider reducing dt or checking the banded operator conditioning.",
@@ -1821,6 +1821,19 @@ function solver_phi1_action_krylov(
         e isa ErrorException && rethrow(e)
         error("Banded solve failed in solver_phi1_action_krylov: $e")
     end
+end
+
+function solver_phi1_action_krylov!(
+    dest::Vector{T},
+    Aop!,
+    A_lu::Union{OldBandedLU{T}, BandedFactorization{T}},
+    v::Vector{T},
+    dt::Float64;
+    m::Int=20,
+    tol::Float64=1e-8,
+) where T
+    copyto!(dest, solver_phi1_action_krylov(Aop!, A_lu, v, dt; m, tol))
+    return dest
 end
 
 @eval GeoDynamo begin
@@ -1835,6 +1848,11 @@ end
     """
     function exp_action_krylov(Aop!, v, dt; m::Int=20, tol::Float64=1e-8)
         return krylov_exp_action(Aop!, v, dt; m, tol)
+    end
+
+    function exp_action_krylov!(dest::Vector{T}, Aop!, v::Vector{T}, dt; m::Int=20, tol::Float64=1e-8) where {T}
+        copyto!(dest, krylov_exp_action(Aop!, v, dt; m, tol))
+        return dest
     end
 end
 

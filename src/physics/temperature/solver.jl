@@ -150,6 +150,11 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_temperature::EAB2CacheEntry{T}).map
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :temperature,
+            runtime.𝒟ᵒᶜ.N,
+        )
         temperature_bc_code = _thermal_bc_code(state.parameters.temperature_bcs)
         scalar_bc = build_solver_erk2_scalar_bc(T, runtime.𝒟ᵒᶜ, temperature_bc_code)
         bc_spec = solver_with_boundary_mode_values(
@@ -171,6 +176,7 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
             m=_timestepper_krylov_dimension(timestepper, state.parameters),
             tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
             bc_spec=bc_spec,
+            krylov_work=radial_work,
         )
     else
         solver_solve_temperature_implicit_step!(
