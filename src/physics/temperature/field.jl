@@ -95,7 +95,7 @@ mutable struct SHTnsTemperatureField{T} <: AbstractScalarField{T}
 
     # File-based boundary condition support
     boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}  # Loaded boundary conditions
-    boundary_interpolation_cache::Dict{String, Any}                  # Cached interpolated data
+    boundary_interpolation_cache::bcs.BoundaryInterpolationCache{T}  # Cached interpolated data
     boundary_time_index::Ref{Int}                                    # Current time index for time-dependent BCs
     
     # Pre-computed coefficients
@@ -166,9 +166,6 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
     bc_type_inner = fill(Int(DIRICHLET), config.nlm)  # Default to fixed temperature
     bc_type_outer = fill(Int(DIRICHLET), config.nlm)
     
-    # Storage for file-based boundary conditions
-    boundary_data_cache = Dict{String, Any}()
-    
     # Pre-compute l(l+1) factors
     ℓ_factors = T[l * (l + 1) for l in config.l_values]
     
@@ -187,7 +184,7 @@ function create_shtns_temperature_field(::Type{T}, config::SHTnsKitConfig,
         work_spectral, work_physical, advection_physical,
         internal_sources, boundary_values,
         bc_type_inner, bc_type_outer,
-        nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
+        nothing, bcs.BoundaryInterpolationCache(T), Ref(1),  # boundary condition fields
         ℓ_factors, config,
         ∂r, ∂²r,
         theta_derivative_matrix, theta_recurrence_coeffs,
@@ -494,7 +491,7 @@ function get_temperature_statistics(temp_𝔽::SHTnsTemperatureField{T},
     global_max = MPI.Allreduce(local_max, MPI.MAX, get_comm())
 
     # RMS temperature
-    local_sum = sum(temp_data.^2)
+    local_sum = sum(abs2, temp_data)
     local_count = length(temp_data)
 
     global_sum = MPI.Allreduce(local_sum, MPI.SUM, get_comm())

@@ -102,7 +102,7 @@ mutable struct SHTnsCompositionField{T} <: AbstractScalarField{T}
 
     # File-based boundary condition support (matching physics/temperature/field.jl field order)
     boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}
-    boundary_interpolation_cache::Dict{String, Any}
+    boundary_interpolation_cache::bcs.BoundaryInterpolationCache{T}
     boundary_time_index::Ref{Int}
 
     # Pre-computed coefficients
@@ -203,9 +203,6 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
     bc_type_inner = fill(Int(NEUMANN), config.nlm)  # No-flux at inner boundary
     bc_type_outer = fill(Int(NEUMANN), config.nlm)  # No-flux at outer boundary
 
-    # Storage for file-based boundary conditions
-    boundary_data_cache = Dict{String, Any}()
-
     # Pre-compute l(l+1) factors (matching physics/temperature/field.jl pattern)
     ℓ_factors = T[l * (l + 1) for l in config.l_values]
 
@@ -224,7 +221,7 @@ function create_shtns_composition_field(::Type{T}, config::SHTnsKitConfig,
         composition, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
         boundary_values, bc_type_inner, bc_type_outer,
-        nothing, Dict{String, Any}(), Ref(1),  # boundary condition fields
+        nothing, bcs.BoundaryInterpolationCache(T), Ref(1),  # boundary condition fields
         ℓ_factors, internal_sources, config,
         ∂r, ∂²r,
         ∂θ, theta_recurrence_coeffs,
@@ -463,7 +460,7 @@ function get_composition_statistics(𝔽::SHTnsCompositionField{T},
     global_max = MPI.Allreduce(local_max, MPI.MAX, get_comm())
 
     # RMS composition
-    local_sum = sum(comp_data.^2)
+    local_sum = sum(abs2, comp_data)
     local_count = length(comp_data)
 
     global_sum = MPI.Allreduce(local_sum, MPI.SUM, get_comm())

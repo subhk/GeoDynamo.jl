@@ -39,6 +39,112 @@ struct SpectralBoundaryCoefficients{T<:AbstractFloat}
 end
 
 """
+    BoundaryInterpolationCache{T}
+
+Typed storage for spectral boundary condition coefficients owned by a field.
+The string-key accessors keep legacy boundary helper code working, while hot
+solver paths can read the concrete matrix fields directly.
+"""
+mutable struct BoundaryInterpolationCache{T<:AbstractFloat}
+    bc_real::Union{Matrix{T}, Nothing}
+    bc_imag::Union{Matrix{T}, Nothing}
+    bc_loaded::Bool
+    bc_source_file::String
+    bc_source_format::Symbol
+    bc_nlm::Int
+    metadata::Dict{String, Any}
+end
+
+BoundaryInterpolationCache(::Type{T}=Float64) where {T<:AbstractFloat} =
+    BoundaryInterpolationCache{T}(nothing, nothing, false, "", :unknown, 0, Dict{String, Any}())
+
+function Base.empty!(cache::BoundaryInterpolationCache)
+    cache.bc_real = nothing
+    cache.bc_imag = nothing
+    cache.bc_loaded = false
+    cache.bc_source_file = ""
+    cache.bc_source_format = :unknown
+    cache.bc_nlm = 0
+    empty!(cache.metadata)
+    return cache
+end
+
+function Base.haskey(cache::BoundaryInterpolationCache, key::AbstractString)
+    if key == "bc_real"
+        return cache.bc_real !== nothing
+    elseif key == "bc_imag"
+        return cache.bc_imag !== nothing
+    elseif key == "bc_loaded"
+        return true
+    elseif key == "bc_source_file"
+        return !isempty(cache.bc_source_file)
+    elseif key == "bc_source_format"
+        return cache.bc_source_format !== :unknown
+    elseif key == "bc_nlm"
+        return cache.bc_nlm != 0
+    end
+    return haskey(cache.metadata, String(key))
+end
+
+function Base.getindex(cache::BoundaryInterpolationCache, key::AbstractString)
+    if key == "bc_real"
+        cache.bc_real === nothing && throw(KeyError(key))
+        return cache.bc_real
+    elseif key == "bc_imag"
+        cache.bc_imag === nothing && throw(KeyError(key))
+        return cache.bc_imag
+    elseif key == "bc_loaded"
+        return cache.bc_loaded
+    elseif key == "bc_source_file"
+        return cache.bc_source_file
+    elseif key == "bc_source_format"
+        return cache.bc_source_format
+    elseif key == "bc_nlm"
+        return cache.bc_nlm
+    end
+    return cache.metadata[String(key)]
+end
+
+function Base.setindex!(cache::BoundaryInterpolationCache{T}, value, key::AbstractString) where T
+    if key == "bc_real"
+        cache.bc_real = value isa Matrix{T} ? value : T.(value)
+    elseif key == "bc_imag"
+        cache.bc_imag = value isa Matrix{T} ? value : T.(value)
+    elseif key == "bc_loaded"
+        cache.bc_loaded = Bool(value)
+    elseif key == "bc_source_file"
+        cache.bc_source_file = String(value)
+    elseif key == "bc_source_format"
+        cache.bc_source_format = Symbol(value)
+    elseif key == "bc_nlm"
+        cache.bc_nlm = Int(value)
+    else
+        cache.metadata[String(key)] = value
+    end
+    return cache
+end
+
+Base.get(cache::BoundaryInterpolationCache, key::AbstractString, default) =
+    haskey(cache, key) ? cache[key] : default
+
+function _boundary_cache_pairs(cache::BoundaryInterpolationCache)
+    pairs = Pair{String, Any}[]
+    cache.bc_real === nothing || push!(pairs, "bc_real" => cache.bc_real)
+    cache.bc_imag === nothing || push!(pairs, "bc_imag" => cache.bc_imag)
+    cache.bc_loaded && push!(pairs, "bc_loaded" => true)
+    isempty(cache.bc_source_file) || push!(pairs, "bc_source_file" => cache.bc_source_file)
+    cache.bc_source_format === :unknown || push!(pairs, "bc_source_format" => cache.bc_source_format)
+    cache.bc_nlm == 0 || push!(pairs, "bc_nlm" => cache.bc_nlm)
+    append!(pairs, cache.metadata)
+    return pairs
+end
+
+Base.length(cache::BoundaryInterpolationCache) = length(_boundary_cache_pairs(cache))
+Base.isempty(cache::BoundaryInterpolationCache) = length(cache) == 0
+Base.iterate(cache::BoundaryInterpolationCache) = iterate(_boundary_cache_pairs(cache))
+Base.iterate(cache::BoundaryInterpolationCache, state) = iterate(_boundary_cache_pairs(cache), state)
+
+"""
     load_spectral_bc_from_file(filename::String, config; format::Symbol=:physical, T::Type=Float64)
 
 Load boundary conditions from a NetCDF file and return spectral coefficients.
@@ -191,19 +297,37 @@ end
     store_bc_in_field!(field, bc_coeffs::SpectralBoundaryCoefficients)
 
 Store spectral boundary coefficients into a field's `boundary_interpolation_cache`.
-The field must have a `boundary_interpolation_cache::Dict{String, Any}` attribute.
+The field must have a `boundary_interpolation_cache` attribute.
 
 After calling this, `get_bc_vectors_from_field(field)` will return the stored vectors.
 """
 function store_bc_in_field!(field, bc_coeffs::SpectralBoundaryCoefficients{T}) where T
     cache = field.boundary_interpolation_cache
+    _store_bc_in_cache!(cache, bc_coeffs)
+    return field
+end
+
+function _store_bc_in_cache!(
+    cache::BoundaryInterpolationCache{T},
+    bc_coeffs::SpectralBoundaryCoefficients{S},
+) where {T,S}
+    cache.bc_real = T === S ? bc_coeffs.bc_real : T.(bc_coeffs.bc_real)
+    cache.bc_imag = T === S ? bc_coeffs.bc_imag : T.(bc_coeffs.bc_imag)
+    cache.bc_loaded = true
+    cache.bc_source_file = bc_coeffs.source_file
+    cache.bc_source_format = bc_coeffs.source_format
+    cache.bc_nlm = bc_coeffs.nlm
+    return cache
+end
+
+function _store_bc_in_cache!(cache, bc_coeffs::SpectralBoundaryCoefficients)
     cache["bc_real"] = bc_coeffs.bc_real
     cache["bc_imag"] = bc_coeffs.bc_imag
     cache["bc_loaded"] = true
     cache["bc_source_file"] = bc_coeffs.source_file
     cache["bc_source_format"] = bc_coeffs.source_format
     cache["bc_nlm"] = bc_coeffs.nlm
-    return field
+    return cache
 end
 
 """
@@ -217,6 +341,22 @@ is either a `Vector{T}` of length nlm or `nothing` if no file BCs are loaded.
 """
 function get_bc_vectors_from_field(field)
     cache = field.boundary_interpolation_cache
+    return _get_bc_vectors_from_cache(cache)
+end
+
+function _get_bc_vectors_from_cache(cache::BoundaryInterpolationCache)
+    bc_real = cache.bc_real
+    bc_imag = cache.bc_imag
+    if !cache.bc_loaded || bc_real === nothing || bc_imag === nothing
+        return (inner_real=nothing, outer_real=nothing,
+                inner_imag=nothing, outer_imag=nothing)
+    end
+
+    return (inner_real=view(bc_real, 1, :), outer_real=view(bc_real, 2, :),
+            inner_imag=view(bc_imag, 1, :), outer_imag=view(bc_imag, 2, :))
+end
+
+function _get_bc_vectors_from_cache(cache)
     if !get(cache, "bc_loaded", false)
         return (inner_real=nothing, outer_real=nothing,
                 inner_imag=nothing, outer_imag=nothing)
@@ -231,5 +371,5 @@ function get_bc_vectors_from_field(field)
 end
 
 # Export from bcs module
-export SpectralBoundaryCoefficients
+export SpectralBoundaryCoefficients, BoundaryInterpolationCache
 export load_spectral_bc_from_file, store_bc_in_field!, get_bc_vectors_from_field

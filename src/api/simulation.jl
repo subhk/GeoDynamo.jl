@@ -3,23 +3,28 @@
 # ================================================================================
 
 """
-    mutable struct Simulation{M}
+    mutable struct Simulation{M,C,O}
 
 Holds a `GeodynamoModel` together with time-stepping controls, callbacks, and
 output writers.  Create with `Simulation(model; Δt, ...)` and advance with
 `run!(sim)`.
 """
-mutable struct Simulation{M}
+mutable struct Simulation{M,C,O}
     model          :: M
     Δt             :: Float64
     stop_time      :: Float64
     max_steps      :: Int
-    callbacks      :: Vector{Any}
-    output_writers :: Vector{Any}
+    callbacks      :: C
+    output_writers :: O
     step           :: Int
     time           :: Float64
     _wall_start    :: Float64
 end
+
+_schedule_items_tuple(::Nothing) = ()
+_schedule_items_tuple(items::Tuple) = items
+_schedule_items_tuple(items::AbstractVector) = Tuple(items)
+_schedule_items_tuple(item) = (item,)
 
 """
     Simulation(model::GeodynamoModel;
@@ -48,8 +53,8 @@ function Simulation(model::GeodynamoModel;
         etd_krylov_dimension :: Union{Int, Nothing} = nothing,
         krylov_tolerance :: Union{Real, Nothing} = nothing,
         courant        :: Union{Real, Nothing} = nothing,
-        callbacks                 = Any[],
-        output_writers            = Any[],
+        callbacks                 = (),
+        output_writers            = (),
         restart_from   :: String  = "")
 
     if !isempty(restart_from)
@@ -99,10 +104,13 @@ function Simulation(model::GeodynamoModel;
         courant = Float64(something(courant, p.courant)),
     )
 
-    return Simulation{typeof(model)}(
+    callback_items = _schedule_items_tuple(callbacks)
+    output_writer_items = _schedule_items_tuple(output_writers)
+
+    return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
         model, Δt_f, stop_time, max_steps,
-        collect(Any, callbacks),
-        collect(Any, output_writers),
+        callback_items,
+        output_writer_items,
         model.state.step,
         model.state.time,
         0.0,

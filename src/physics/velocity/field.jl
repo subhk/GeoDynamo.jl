@@ -189,7 +189,7 @@ mutable struct SHTnsVelocityFields{T}
     domain::RadialDomain
     parameters::SolverParameters
     boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}
-    boundary_interpolation_cache::Dict{String, Any}
+    boundary_interpolation_cache::bcs.BoundaryInterpolationCache{T}
     boundary_time_index::Ref{Int}
 end
 
@@ -474,7 +474,7 @@ function create_shtns_velocity_fields(::Type{T}, config::SHTnsKitConfig,
     
     params_snapshot = deepcopy(params)
     boundary_condition_set = nothing
-    boundary_cache = Dict{String, Any}()
+    boundary_cache = bcs.BoundaryInterpolationCache(T)
     boundary_time_index = Ref{Int}(1)
 
     return SHTnsVelocityFields{T}(velocity, vorticity, 𝒯, 𝒫,

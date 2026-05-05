@@ -181,7 +181,7 @@ mutable struct SHTnsMagneticFields{T}
     config::SHTnsKitConfig
     outer_domain::RadialDomain
     boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}
-    boundary_interpolation_cache::Dict{String, Any}
+    boundary_interpolation_cache::bcs.BoundaryInterpolationCache{T}
     boundary_time_index::Ref{Int}
 end
 
@@ -243,7 +243,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::SHTnsKitConfig,
     
     imposed_field = nothing
     boundary_condition_set = nothing
-    boundary_cache = Dict{String, Any}()
+    boundary_cache = bcs.BoundaryInterpolationCache(T)
     boundary_time_index = Ref{Int}(1)
     
     return SHTnsMagneticFields{T}(magnetic, current,

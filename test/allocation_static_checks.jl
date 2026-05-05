@@ -49,4 +49,24 @@ end
     @test occursin("radial_work::Dict{Symbol, SolverRadialWork{T}}", state)
     @test occursin("work::Union{SolverRadialWork{T}, Nothing}=nothing", imex)
     @test occursin("solver_get_radial_work!", velocity_solver)
+
+    simulation = _allocation_static_source("api", "simulation.jl")
+    @test !occursin("callbacks      :: Vector{Any}", simulation)
+    @test !occursin("output_writers :: Vector{Any}", simulation)
+    @test !occursin("collect(Any, callbacks)", simulation)
+    @test !occursin("collect(Any, output_writers)", simulation)
+
+    file_bc_loader = _allocation_static_source("bcs", "file_bc_loader.jl")
+    @test occursin("mutable struct BoundaryInterpolationCache{T", file_bc_loader)
+
+    solver_numerics = _allocation_static_source("solver", "numerics.jl")
+    @test !occursin("cache[\"bc_real\"]::Matrix", solver_numerics)
+    @test !occursin("cache[\"bc_imag\"]::Matrix", solver_numerics)
+
+    temperature_field = _allocation_static_source("physics", "temperature", "field.jl")
+    composition_field = _allocation_static_source("physics", "composition", "field.jl")
+    @test !occursin("boundary_interpolation_cache::Dict{String, Any}", temperature_field)
+    @test !occursin("boundary_interpolation_cache::Dict{String, Any}", composition_field)
+    @test !occursin("sum(temp_data.^2)", temperature_field)
+    @test !occursin("sum(comp_data.^2)", composition_field)
 end

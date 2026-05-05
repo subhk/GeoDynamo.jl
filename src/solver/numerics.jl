@@ -126,32 +126,33 @@ field's parameter-derived `boundary_values`, which contains real values only.
 """
 function get_bc_vectors(field)
     cache = field.boundary_interpolation_cache
-    if !get(cache, "bc_loaded", false)
-        if hasfield(typeof(field), :boundary_values)
+    if cache isa bcs.BoundaryInterpolationCache
+        bc_real = cache.bc_real
+        bc_imag = cache.bc_imag
+        if cache.bc_loaded && bc_real !== nothing && bc_imag !== nothing
             return (
-                inner_real=view(field.boundary_values, 1, :),
-                outer_real=view(field.boundary_values, 2, :),
-                inner_imag=nothing,
-                outer_imag=nothing,
+                inner_real=view(bc_real, 1, :),
+                outer_real=view(bc_real, 2, :),
+                inner_imag=view(bc_imag, 1, :),
+                outer_imag=view(bc_imag, 2, :),
             )
         end
+    end
 
+    if hasfield(typeof(field), :boundary_values)
         return (
-            inner_real=nothing,
-            outer_real=nothing,
+            inner_real=view(field.boundary_values, 1, :),
+            outer_real=view(field.boundary_values, 2, :),
             inner_imag=nothing,
             outer_imag=nothing,
         )
     end
 
-    bc_real = cache["bc_real"]::Matrix
-    bc_imag = cache["bc_imag"]::Matrix
-
     return (
-        inner_real=view(bc_real, 1, :),
-        outer_real=view(bc_real, 2, :),
-        inner_imag=view(bc_imag, 1, :),
-        outer_imag=view(bc_imag, 2, :),
+        inner_real=nothing,
+        outer_real=nothing,
+        inner_imag=nothing,
+        outer_imag=nothing,
     )
 end
 
