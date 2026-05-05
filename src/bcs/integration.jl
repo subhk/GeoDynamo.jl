@@ -12,7 +12,7 @@ Initialize boundary condition support for a field structure.
 
 IMPORTANT: The field structure must already have the following fields defined:
 - boundary_condition_set (can be nothing)
-- boundary_interpolation_cache (Dict{String, Any})
+- boundary_interpolation_cache (BoundaryInterpolationCache)
 - boundary_time_index (Ref{Int})
 
 For scalar fields (TEMPERATURE, COMPOSITION):

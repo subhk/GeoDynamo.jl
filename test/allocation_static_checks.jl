@@ -81,4 +81,51 @@ end
     @test !occursin("transform_device         :: Any", spectral)
     @test !occursin("spatial_scratch          :: Any", spectral)
     @test !occursin("fft_scratch              :: Any", spectral)
+
+    containers = _allocation_static_source("fields", "containers.jl")
+    @test occursin("SHTnsSpecField{T<:Number,C<:SHTnsKitConfig", containers)
+    @test occursin("SHTnsPhysField{T<:Number,C<:SHTnsKitConfig", containers)
+    @test !occursin("config::SHTnsKitConfig", containers)
+
+    for source in (
+        _allocation_static_source("physics", "temperature", "field.jl"),
+        _allocation_static_source("physics", "composition", "field.jl"),
+        _allocation_static_source("physics", "velocity", "field.jl"),
+        _allocation_static_source("physics", "magnetic", "field.jl"),
+    )
+        @test !occursin("config::SHTnsKitConfig", source)
+    end
+
+    backend_state = _allocation_static_source("GeoDynamo.jl")
+    @test occursin("struct GPUBackendState{", backend_state)
+    @test !occursin("scalar_synthesis::Function", backend_state)
+    @test !occursin("scratch_zeros::Function", backend_state)
+
+    solver_backend = _allocation_static_source("solver", "backend.jl")
+    @test occursin("struct SolverBackend{A<:AbstractArchitecture,C<:SHTnsConfigType", solver_backend)
+    @test occursin("struct SolverRuntime{T, A<:AbstractArchitecture,C<:SHTnsConfigType", solver_backend)
+    @test !occursin("shtns_config::SHTnsConfigType", solver_backend)
+
+    imex = _allocation_static_source("timestep", "imex.jl")
+    krylov_body = _allocation_static_function_body(
+        imex,
+        "function solver_eab2_update_krylov_cached!(",
+    )
+    @test occursin("krylov_work=radial_work", krylov_body)
+    @test !occursin("u_real_next = exp_action_krylov", krylov_body)
+    @test !occursin("nl_real_increment = solver_phi1_action_krylov", krylov_body)
+
+    scalar_ops = _allocation_static_source("fields", "scalar_operators.jl")
+    flux_tau_body = _allocation_static_function_body(
+        scalar_ops,
+        "function apply_flux_bc_tau!(",
+    )
+    influence_body = _allocation_static_function_body(
+        scalar_ops,
+        "function apply_flux_bc_influence_matrix!(",
+    )
+    @test occursin("work::Union{SolverRadialWork{T}, Nothing}=nothing", flux_tau_body)
+    @test occursin("work::Union{SolverRadialWork{T}, Nothing}=nothing", influence_body)
+    @test !occursin("profile_real = zeros(T, nr)", flux_tau_body)
+    @test !occursin("profile_real = zeros(T, nr)", influence_body)
 end
