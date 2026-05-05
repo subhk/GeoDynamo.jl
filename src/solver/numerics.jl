@@ -1572,7 +1572,8 @@ function solver_compute_current_density_spectral!(magnetic_fields, outer_domain)
         magnetic_fields.∂²r,
         outer_domain,
         magnetic_fields.𝒯.config,
-        T,
+        T;
+        _work=magnetic_fields.curl_work,
     )
     return magnetic_fields
 end
@@ -1685,7 +1686,8 @@ function solver_compute_curl_of_induction!(magnetic_fields)
         magnetic_fields.∂²r,
         magnetic_fields.outer_domain,
         magnetic_fields.𝒯.config,
-        T,
+        T;
+        _work=magnetic_fields.curl_work,
     )
     return magnetic_fields
 end

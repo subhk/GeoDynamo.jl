@@ -139,7 +139,7 @@ SHTnsBuffers() = SHTnsBuffers(
 # ================================================================================
 # Field map: legacy Symbol key → SHTnsBuffers field name
 # ================================================================================
-# Used by get_cached_buffer! to support call sites that still pass a Symbol key.
+# Used to define typed accessors for call sites that still pass a Symbol key.
 # Keys not in this map (e.g. :sht_plan, :solver_transform_workspace, :transform_device,
 # :spatial_scratch, :fft_scratch) are set directly and not routed through this function.
 
@@ -166,6 +166,14 @@ const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
     :vector_component_buffer     => :vector_component_buffer,
 )
 
+@inline function _shtns_buffer_field(::Val{key}) where {key}
+    error("get_cached_buffer!: unknown buffer key $(repr(key)). Add it to SHTnsBuffers and _BUFFERS_FIELD_MAP.")
+end
+
+for (key, field) in _BUFFERS_FIELD_MAP
+    @eval @inline _shtns_buffer_field(::Val{$(QuoteNode(key))}) = Val{$(QuoteNode(field))}()
+end
+
 # ================================================================================
 # Thread-Safe Buffer Cache Access
 # ================================================================================
@@ -181,7 +189,7 @@ All access to config._buffers should be protected by this lock.
 const _BUFFER_CACHE_LOCK = ReentrantLock()
 
 """
-    get_cached_buffer!(create_func::Function, config, key::Symbol)
+    get_cached_buffer!(create_func, config, key::Symbol)
     get_cached_buffer!(config, key::Symbol) do ... end
 
 Thread-safe accessor for buffer cache. Returns existing buffer if present,
@@ -191,7 +199,7 @@ Note: The function parameter comes FIRST to support Julia's `do` block syntax.
 When using `do` block, Julia desugars it to pass the closure as the first argument.
 
 # Arguments
-- `create_func::Function`: Zero-argument function to create buffer if not cached
+- `create_func`: Zero-argument function to create buffer if not cached
 - `config`: SHTnsKitConfig object containing `_buffers::SHTnsBuffers`
 - `key::Symbol`: Key to look up (mapped to a field of `SHTnsBuffers`)
 
@@ -205,11 +213,17 @@ buffer = get_cached_buffer!(config, :my_buffer) do
 end
 ```
 """
-function get_cached_buffer!(create_func::Function, config, key::Symbol)
+@inline function get_cached_buffer!(create_func::F, config, key::Symbol) where {F}
+    return get_cached_buffer!(create_func, config, Val(key))
+end
+
+@inline function get_cached_buffer!(create_func::F, config, ::Val{key}) where {F,key}
+    return _get_cached_buffer_field!(create_func, config, _shtns_buffer_field(Val(key)))
+end
+
+@inline function _get_cached_buffer_field!(create_func::F, config, ::Val{field}) where {F,field}
     lock(_BUFFER_CACHE_LOCK) do
         b = config._buffers
-        field = get(_BUFFERS_FIELD_MAP, key, nothing)
-        field === nothing && error("get_cached_buffer!: unknown buffer key $(repr(key)). Add it to SHTnsBuffers and _BUFFERS_FIELD_MAP.")
         val = getfield(b, field)
         if val === nothing
             val = create_func()

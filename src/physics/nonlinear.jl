@@ -601,13 +601,27 @@ const _SOLVER_BUFFERS_KEY_MAP = Dict{Symbol, Symbol}(
     :coeffs_buffer_gathered                 => :coeffs_gathered,
 )
 
-function solver_get_cached_buffer!(create_func::Function, config, key::Symbol)
+@inline function _solver_buffer_field(::Val{key}) where {key}
+    error("solver_get_cached_buffer!: unknown key $(repr(key)). Add it to SolverTransformBuffers and _SOLVER_BUFFERS_KEY_MAP.")
+end
+
+for (key, field) in _SOLVER_BUFFERS_KEY_MAP
+    @eval @inline _solver_buffer_field(::Val{$(QuoteNode(key))}) = Val{$(QuoteNode(field))}()
+end
+
+@inline function solver_get_cached_buffer!(create_func::F, config, key::Symbol) where {F}
+    return solver_get_cached_buffer!(create_func, config, Val(key))
+end
+
+@inline function solver_get_cached_buffer!(create_func::F, config, ::Val{key}) where {F,key}
+    return _solver_get_cached_buffer_field!(create_func, config, _solver_buffer_field(Val(key)))
+end
+
+@inline function _solver_get_cached_buffer_field!(create_func::F, config, ::Val{field}) where {F,field}
     lock(solver_buffer_cache_lock()) do
         workspace = config._buffers.solver_transform_workspace
         if workspace isa TransformWorkspace
             buffers = workspace.buffers
-            field = get(_SOLVER_BUFFERS_KEY_MAP, key, nothing)
-            field === nothing && error("solver_get_cached_buffer!: unknown key $(repr(key)). Add it to SolverTransformBuffers and _SOLVER_BUFFERS_KEY_MAP.")
             val = getfield(buffers, field)
             if val === nothing
                 val = create_func()

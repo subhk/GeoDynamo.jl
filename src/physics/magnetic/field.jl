@@ -178,6 +178,7 @@ mutable struct SHTnsMagneticFields{
     # Radial derivative matrices (cached for performance)
     ∂r::BandedMatrix{T}          # First derivative d/dr
     ∂²r::BandedMatrix{T}         # Second derivative d²/dr²
+    curl_work::NTuple{6,Vector{T}}
 
     # Transform manager removed; SHTnsKit transforms are used directly
 
@@ -242,6 +243,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::C,
     # Create radial derivative matrices (cached for performance)
     ∂r  = create_derivative_matrix(T, 1, 𝒟ᵒᶜ)
     ∂²r = create_derivative_matrix(T, 2, 𝒟ᵒᶜ)
+    curl_work = ntuple(_ -> zeros(T, 𝒟ᵒᶜ.N), 6)
 
     # Create transpose plans for efficient data movement
     transpose_plans = create_transpose_plans(pencils)
@@ -258,7 +260,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::C,
                                work_tor, work_pol, work_physical,
                                induction_physical,
                                ℓ_factors,
-                               ∂r, ∂²r,
+                               ∂r, ∂²r, curl_work,
                                imposed_field,
                                config,
                                𝒟ᵒᶜ,
@@ -411,7 +413,8 @@ function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T},
         parent(ℬ.work_pol.data_real), parent(ℬ.work_pol.data_imag),
         parent(ℬ.𝒯.data_real), parent(ℬ.𝒯.data_imag),
         parent(ℬ.𝒫.data_real), parent(ℬ.𝒫.data_imag),
-        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, 𝒟ᵒᶜ, ℬ.𝒯.config, T
+        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, 𝒟ᵒᶜ, ℬ.𝒯.config, T;
+        _work=ℬ.curl_work,
     )
 end
 
@@ -501,7 +504,8 @@ function compute_curl_of_induction!(ℬ::SHTnsMagneticFields{T}) where T
         parent(ℬ.nlᴾ.data_real), parent(ℬ.nlᴾ.data_imag),
         parent(ℬ.work_tor.data_real), parent(ℬ.work_tor.data_imag),
         parent(ℬ.work_pol.data_real), parent(ℬ.work_pol.data_imag),
-        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, ℬ.outer_domain, ℬ.𝒯.config, T
+        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, ℬ.outer_domain, ℬ.𝒯.config, T;
+        _work=ℬ.curl_work,
     )
 end
 

@@ -82,6 +82,9 @@ end
     @test !occursin("transform_device         :: Any", spectral)
     @test !occursin("spatial_scratch          :: Any", spectral)
     @test !occursin("fft_scratch              :: Any", spectral)
+    @test !occursin("get_cached_buffer!(create_func::Function", spectral)
+    @test !occursin("field = get(_BUFFERS_FIELD_MAP", spectral)
+    @test occursin("function get_cached_buffer!(create_func::F, config, ::Val{key}) where {F,key}", spectral)
 
     containers = _allocation_static_source("fields", "containers.jl")
     @test occursin("mutable struct SHTnsSpecField{", containers)
@@ -125,6 +128,34 @@ end
     @test occursin("krylov_work=radial_work", _allocation_static_source("physics", "magnetic", "solver.jl"))
     @test !occursin("u_real_next = exp_action_krylov", krylov_body)
     @test !occursin("nl_real_increment = solver_phi1_action_krylov", krylov_body)
+
+    magnetic_field = _allocation_static_source("physics", "magnetic", "field.jl")
+    @test occursin("curl_work::NTuple{6,Vector{T}}", magnetic_field)
+    current_body = _allocation_static_function_body(
+        magnetic_field,
+        "function compute_current_density_spectral!(",
+    )
+    induction_body = _allocation_static_function_body(
+        magnetic_field,
+        "function compute_curl_of_induction!(",
+    )
+    @test occursin("_work=ℬ.curl_work", current_body)
+    @test occursin("_work=ℬ.curl_work", induction_body)
+
+    solver_current_body = _allocation_static_function_body(
+        solver_numerics,
+        "function solver_compute_current_density_spectral!(",
+    )
+    solver_induction_body = _allocation_static_function_body(
+        solver_numerics,
+        "function solver_compute_curl_of_induction!(",
+    )
+    @test occursin("_work=magnetic_fields.curl_work", solver_current_body)
+    @test occursin("_work=magnetic_fields.curl_work", solver_induction_body)
+
+    @test !occursin("solver_get_cached_buffer!(create_func::Function", nonlinear)
+    @test !occursin("field = get(_SOLVER_BUFFERS_KEY_MAP", nonlinear)
+    @test occursin("function solver_get_cached_buffer!(create_func::F, config, ::Val{key}) where {F,key}", nonlinear)
 
     scalar_ops = _allocation_static_source("fields", "scalar_operators.jl")
     flux_tau_body = _allocation_static_function_body(
