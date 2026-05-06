@@ -172,4 +172,33 @@ end
     @test occursin("work=nothing", influence_body)
     @test !occursin("profile_real = zeros(T, nr)", flux_tau_body)
     @test !occursin("profile_real = zeros(T, nr)", influence_body)
+
+    solver_state = _allocation_static_source("solver", "state.jl")
+    erk2 = _allocation_static_source("timestep", "erk2.jl")
+    integrate_erk2_body = _allocation_static_function_body(
+        erk2,
+        "function integrate_solver_erk2_step!(",
+    )
+    finalize_erk2_body = _allocation_static_function_body(
+        erk2,
+        "function finalize_solver_erk2_field!(",
+    )
+    @test occursin("erk2_field_buffers::Dict{Symbol, SolverERK2FieldBuffers{T}}", solver_state)
+    @test occursin("get_solver_erk2_field_buffers!", integrate_erk2_body)
+    @test !occursin(" = SolverERK2FieldBuffers(", integrate_erk2_body)
+    @test !occursin("result_real_profile = similar(result)", finalize_erk2_body)
+    @test !occursin("get(buffers.cache_lookup, l, nothing)", erk2)
+
+    temperature_solver = _allocation_static_source("physics", "temperature", "solver.jl")
+    composition_solver = _allocation_static_source("physics", "composition", "solver.jl")
+    magnetic_solver = _allocation_static_source("physics", "magnetic", "solver.jl")
+    @test occursin("solver_solve_temperature_implicit_step!(\n            temperature.spectral,\n            temperature.nonlinear,\n            state.implicit_matrices[:temperature];\n            bc_inner=bc.inner_real,\n            bc_outer=bc.outer_real,\n            bc_inner_imag=bc.inner_imag,\n            bc_outer_imag=bc.outer_imag,\n            work=radial_work,", temperature_solver)
+    @test occursin("solver_solve_velocity_implicit_step!(\n            velocity.𝒯,\n            velocity.nlᵀ,\n            state.implicit_matrices[:velocity_tor],\n            :toroidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.𝒟ᵒᶜ,\n            work=radial_work,", velocity_solver)
+    @test occursin("solver_solve_velocity_implicit_step!(\n            velocity.𝒫,\n            velocity.nlᴾ,\n            state.implicit_matrices[:velocity_pol],\n            :poloidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.𝒟ᵒᶜ,\n            work=radial_work,", velocity_solver)
+    @test occursin("solver_solve_composition_implicit_step!(\n            composition.spectral,\n            composition.nonlinear,\n            state.implicit_matrices[:composition];\n            bc_inner=bc.inner_real,\n            bc_outer=bc.outer_real,\n            bc_inner_imag=bc.inner_imag,\n            bc_outer_imag=bc.outer_imag,\n            work=radial_work,", composition_solver)
+    @test occursin("solver_solve_magnetic_implicit_step!(\n            magnetic.𝒯,\n            magnetic.nlᵀ,\n            state.implicit_matrices[:magnetic_tor],\n            :toroidal;\n            mag_bc_inner=inner_bc === nothing ? nothing : inner_bc[1],\n            prev_bc_inner=inner_bc === nothing ? nothing : inner_bc[2],\n            mag_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[3],\n            prev_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[4],\n            work=radial_work,", magnetic_solver)
+    @test occursin("solver_solve_magnetic_implicit_step!(\n            magnetic.𝒫,\n            magnetic.nlᴾ,\n            state.implicit_matrices[:magnetic_pol],\n            :poloidal,\n            work=radial_work,", magnetic_solver)
+
+    velocity_field = _allocation_static_source("physics", "velocity", "field.jl")
+    @test !occursin("_compute_vorticity_spectral_threaded!", velocity_field)
 end
