@@ -94,6 +94,22 @@ struct ERK2StageCache{T}
     mpi_consistent::Bool
 end
 
+struct SolverERK2FieldBuffers{T}
+    linear_real::Array{T, 3}
+    linear_imag::Array{T, 3}
+    k1_real::Array{T, 3}
+    k1_imag::Array{T, 3}
+    stage_real::Array{T, 3}
+    stage_imag::Array{T, 3}
+    n_current_real::Array{T, 3}
+    n_current_imag::Array{T, 3}
+    stage_nl_real::Array{T, 3}
+    stage_nl_imag::Array{T, 3}
+    cache_lookup::Dict{Int, Int}
+    nr::Int
+    _ws::Vector{Vector{T}}
+end
+
 mutable struct SolverKrylovWork{T}
     V::Matrix{T}
     H::Matrix{T}
@@ -174,6 +190,9 @@ mutable struct TimestepCaches{T}
     # Field-keyed scratch profiles shared by CNAB2/EAB2 solves. Keeping them in
     # the timestep cache avoids reallocating full radial work vectors every step.
     radial_work::Dict{Symbol, SolverRadialWork{T}}
+    # Field-keyed ERK2 stage buffers. These buffers are full spectral arrays, so
+    # they must be reused across timesteps rather than rebuilt for each stage.
+    erk2_field_buffers::Dict{Symbol, SolverERK2FieldBuffers{T}}
 end
 
 TimestepCaches{T}() where T = TimestepCaches{T}(
@@ -181,6 +200,7 @@ TimestepCaches{T}() where T = TimestepCaches{T}(
     nothing, nothing, nothing, nothing, nothing, nothing,
     nothing,
     Dict{Symbol, SolverRadialWork{T}}(),
+    Dict{Symbol, SolverERK2FieldBuffers{T}}(),
 )
 
 struct ImplicitMatrixSet{T}

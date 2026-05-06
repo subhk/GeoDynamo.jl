@@ -113,13 +113,20 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             krylov_work=radial_work,
         )
     else
+        matrices = state.implicit_matrices[:velocity_tor]
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :velocity_toroidal,
+            matrices.system_matrices[1].size,
+        )
         solver_solve_velocity_implicit_step!(
             velocity.𝒯,
             velocity.nlᵀ,
-            state.implicit_matrices[:velocity_tor],
+            matrices,
             :toroidal;
             velocity_bc_code=velocity_bc,
             domain=runtime.𝒟ᵒᶜ,
+            work=radial_work,
         )
     end
 
@@ -211,13 +218,20 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             krylov_work=radial_work,
         )
     else
+        matrices = state.implicit_matrices[:velocity_pol]
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :velocity_poloidal,
+            matrices.system_matrices[1].size,
+        )
         solver_solve_velocity_implicit_step!(
             velocity.𝒫,
             velocity.nlᴾ,
-            state.implicit_matrices[:velocity_pol],
+            matrices,
             :poloidal;
             velocity_bc_code=velocity_bc,
             domain=runtime.𝒟ᵒᶜ,
+            work=radial_work,
         )
     end
 

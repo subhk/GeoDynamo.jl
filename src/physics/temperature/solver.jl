@@ -179,14 +179,21 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
             krylov_work=radial_work,
         )
     else
+        matrices = state.implicit_matrices[:temperature]
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :temperature,
+            matrices.system_matrices[1].size,
+        )
         solver_solve_temperature_implicit_step!(
             temperature.spectral,
             temperature.nonlinear,
-            state.implicit_matrices[:temperature];
+            matrices;
             bc_inner=bc.inner_real,
             bc_outer=bc.outer_real,
             bc_inner_imag=bc.inner_imag,
             bc_outer_imag=bc.outer_imag,
+            work=radial_work,
         )
     end
 

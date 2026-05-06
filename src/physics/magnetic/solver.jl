@@ -195,15 +195,22 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             krylov_work=radial_work,
         )
     else
+        matrices = state.implicit_matrices[:magnetic_tor]
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :magnetic_toroidal,
+            matrices.system_matrices[1].size,
+        )
         solver_solve_magnetic_implicit_step!(
             magnetic.𝒯,
             magnetic.nlᵀ,
-            state.implicit_matrices[:magnetic_tor],
+            matrices,
             :toroidal;
             mag_bc_inner=inner_bc === nothing ? nothing : inner_bc[1],
             prev_bc_inner=inner_bc === nothing ? nothing : inner_bc[2],
             mag_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[3],
             prev_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[4],
+            work=radial_work,
         )
     end
 
@@ -264,11 +271,18 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             krylov_work=radial_work,
         )
     else
+        matrices = state.implicit_matrices[:magnetic_pol]
+        radial_work = solver_get_radial_work!(
+            state.timestep_caches,
+            :magnetic_poloidal,
+            matrices.system_matrices[1].size,
+        )
         solver_solve_magnetic_implicit_step!(
             magnetic.𝒫,
             magnetic.nlᴾ,
-            state.implicit_matrices[:magnetic_pol],
+            matrices,
             :poloidal,
+            work=radial_work,
         )
     end
 

@@ -2476,22 +2476,6 @@ Workspace for the two-stage ERK2 update of one spectral field.
 The buffers store linear propagation, first-stage nonlinear terms, provisional
 stage values, stage nonlinear terms, and reusable radial work vectors.
 """
-struct SolverERK2FieldBuffers{T}
-    linear_real::Array{T, 3}
-    linear_imag::Array{T, 3}
-    k1_real::Array{T, 3}
-    k1_imag::Array{T, 3}
-    stage_real::Array{T, 3}
-    stage_imag::Array{T, 3}
-    n_current_real::Array{T, 3}
-    n_current_imag::Array{T, 3}
-    stage_nl_real::Array{T, 3}
-    stage_nl_imag::Array{T, 3}
-    cache_lookup::Dict{Int, Int}
-    nr::Int
-    _ws::Vector{Vector{T}}
-end
-
 """
     SolverERK2FieldBuffers(u, nl, cache)
 
@@ -2530,6 +2514,40 @@ function SolverERK2FieldBuffers(
 end
 
 const ERK2FieldBuffers = SolverERK2FieldBuffers
+
+function solver_erk2_field_buffers_match(
+    buffers::SolverERK2FieldBuffers{T},
+    u::SpectralFieldType{T},
+    nl::SpectralFieldType{T},
+    cache::ERK2StageCache{T},
+) where T
+    size(buffers.linear_real) == size(parent(u.data_real)) || return false
+    size(buffers.linear_imag) == size(parent(u.data_imag)) || return false
+    size(buffers.n_current_real) == size(parent(nl.data_real)) || return false
+    size(buffers.n_current_imag) == size(parent(nl.data_imag)) || return false
+    isempty(cache.E_full) && return false
+    buffers.nr == size(cache.E_full[1], 1) || return false
+    length(buffers._ws) >= 8 || return false
+    @inbounds for i in eachindex(cache.l_values)
+        get(buffers.cache_lookup, cache.l_values[i], 0) == i || return false
+    end
+    return true
+end
+
+function get_solver_erk2_field_buffers!(
+    caches::TimestepCaches{T},
+    key::Symbol,
+    u::SpectralFieldType{T},
+    nl::SpectralFieldType{T},
+    cache::ERK2StageCache{T},
+) where T
+    buffers = get(caches.erk2_field_buffers, key, nothing)
+    if buffers === nothing || !solver_erk2_field_buffers_match(buffers, u, nl, cache)
+        buffers = SolverERK2FieldBuffers(u, nl, cache)
+        caches.erk2_field_buffers[key] = buffers
+    end
+    return buffers
+end
 
 """
     prepare_solver_erk2_field!(buffers, u, nl, cache, config, dt; bc_spec=nothing)
@@ -2581,8 +2599,8 @@ function prepare_solver_erk2_field!(
         owns_mode = slot !== nothing
 
         l = config.l_values[lm_idx]
-        cache_idx = get(buffers.cache_lookup, l, nothing)
-        cache_idx === nothing && error("Missing ERK2 cache entry for l=$l")
+        cache_idx = get(buffers.cache_lookup, l, 0)
+        cache_idx == 0 && error("Missing ERK2 cache entry for l=$l")
 
         E_full = cache.E_full[cache_idx]
         E_half = cache.E_half[cache_idx]
@@ -2772,8 +2790,7 @@ function finalize_solver_erk2_field!(
 
     nr = buffers.nr
     tmp_linear, tmp_k1, tmp_Nn, tmp_stage = buffers._ws[1], buffers._ws[2], buffers._ws[3], buffers._ws[4]
-    delta, correction, result = buffers._ws[5], buffers._ws[6], buffers._ws[7]
-    result_real_profile = similar(result)
+    delta, correction, result, result_real_profile = buffers._ws[5], buffers._ws[6], buffers._ws[7], buffers._ws[8]
 
     comm = mpi_comm()
     multi = mpi_comm_size(comm) > 1
@@ -2784,8 +2801,8 @@ function finalize_solver_erk2_field!(
         owns_mode = slot !== nothing
 
         l = config.l_values[lm_idx]
-        cache_idx = get(buffers.cache_lookup, l, nothing)
-        cache_idx === nothing && error("Missing ERK2 cache entry for l=$l")
+        cache_idx = get(buffers.cache_lookup, l, 0)
+        cache_idx == 0 && error("Missing ERK2 cache entry for l=$l")
         phi2 = cache.phi2_full[cache_idx]
 
         fill!(tmp_linear, zero(T))
@@ -3195,7 +3212,13 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         temperature_bc_code;
         use_krylov=false,
     )
-    temp_buffers = SolverERK2FieldBuffers(state.fields.temperature.spectral, state.fields.temperature.nonlinear, temp_cache)
+    temp_buffers = get_solver_erk2_field_buffers!(
+        state.timestep_caches,
+        :temperature,
+        state.fields.temperature.spectral,
+        state.fields.temperature.nonlinear,
+        temp_cache,
+    )
     prepare_solver_erk2_field!(
         temp_buffers,
         state.fields.temperature.spectral,
@@ -3217,7 +3240,13 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         use_krylov=false,
         bc_spec=vel_tor_bc,
     )
-    vel_tor_buffers = SolverERK2FieldBuffers(state.fields.velocity.𝒯, state.fields.velocity.nlᵀ, vel_tor_cache)
+    vel_tor_buffers = get_solver_erk2_field_buffers!(
+        state.timestep_caches,
+        :velocity_toroidal,
+        state.fields.velocity.𝒯,
+        state.fields.velocity.nlᵀ,
+        vel_tor_cache,
+    )
     prepare_solver_erk2_field!(
         vel_tor_buffers,
         state.fields.velocity.𝒯,
@@ -3239,7 +3268,13 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         use_krylov=false,
         bc_spec=vel_pol_bc,
     )
-    vel_pol_buffers = SolverERK2FieldBuffers(state.fields.velocity.𝒫, state.fields.velocity.nlᴾ, vel_pol_cache)
+    vel_pol_buffers = get_solver_erk2_field_buffers!(
+        state.timestep_caches,
+        :velocity_poloidal,
+        state.fields.velocity.𝒫,
+        state.fields.velocity.nlᴾ,
+        vel_pol_cache,
+    )
     prepare_solver_erk2_field!(
         vel_pol_buffers,
         state.fields.velocity.𝒫,
@@ -3269,7 +3304,13 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             params.timestep;
             use_krylov=false,
         )
-        mag_tor_buffers = SolverERK2FieldBuffers(state.fields.magnetic.𝒯, state.fields.magnetic.nlᵀ, mag_tor_cache)
+        mag_tor_buffers = get_solver_erk2_field_buffers!(
+            state.timestep_caches,
+            :magnetic_toroidal,
+            state.fields.magnetic.𝒯,
+            state.fields.magnetic.nlᵀ,
+            mag_tor_cache,
+        )
         prepare_solver_erk2_field!(
             mag_tor_buffers,
             state.fields.magnetic.𝒯,
@@ -3289,7 +3330,13 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             params.timestep;
             use_krylov=false,
         )
-        mag_pol_buffers = SolverERK2FieldBuffers(state.fields.magnetic.𝒫, state.fields.magnetic.nlᴾ, mag_pol_cache)
+        mag_pol_buffers = get_solver_erk2_field_buffers!(
+            state.timestep_caches,
+            :magnetic_poloidal,
+            state.fields.magnetic.𝒫,
+            state.fields.magnetic.nlᴾ,
+            mag_pol_cache,
+        )
         prepare_solver_erk2_field!(
             mag_pol_buffers,
             state.fields.magnetic.𝒫,
@@ -3324,7 +3371,13 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             composition_bc_code;
             use_krylov=false,
         )
-        comp_buffers = SolverERK2FieldBuffers(state.fields.composition.spectral, state.fields.composition.nonlinear, comp_cache)
+        comp_buffers = get_solver_erk2_field_buffers!(
+            state.timestep_caches,
+            :composition,
+            state.fields.composition.spectral,
+            state.fields.composition.nonlinear,
+            comp_cache,
+        )
         prepare_solver_erk2_field!(
             comp_buffers,
             state.fields.composition.spectral,
