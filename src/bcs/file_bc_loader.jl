@@ -320,7 +320,7 @@ function _store_bc_in_cache!(
     return cache
 end
 
-function _store_bc_in_cache!(cache, bc_coeffs::SpectralBoundaryCoefficients)
+function _store_bc_in_cache!(cache::AbstractDict, bc_coeffs::SpectralBoundaryCoefficients)
     cache["bc_real"] = bc_coeffs.bc_real
     cache["bc_imag"] = bc_coeffs.bc_imag
     cache["bc_loaded"] = true
