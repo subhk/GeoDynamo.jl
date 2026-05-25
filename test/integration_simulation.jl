@@ -16,32 +16,32 @@ const FINALIZE_MPI_INTEG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
     tiny_params = GeoDynamo.SolverParameters(
         architecture = :cpu,
         geometry = :shell,
-        radial_points_outer = 16,
-        radial_points_inner = 4,
-        spherical_degree = 4,
-        spherical_order = 4,
-        latitude_points = 12,
-        longitude_points = 16,
-        thermal_rayleigh = 1e4,
-        ekman_number = 1e-2,
-        thermal_prandtl = 1.0,
-        magnetic_prandtl = 1.0,
+        nr = 16,
+        nr_inner = 4,
+        lmax = 4,
+        mmax = 4,
+        nlat = 12,
+        nlon = 16,
+        Ra = 1e4,
+        Ek = 1e-2,
+        Pr = 1.0,
+        Pm = 1.0,
         timestep = 1e-4,
         start_time = 0.0,
         end_time = 1e-3,
         max_steps = 10,
         include_magnetic_field = false,
         include_composition = false,
-        timestep_scheme = :cnab2,
+        timestepper = GeoDynamo.CNAB2(),
         topography_enabled = false,
         stefan_enabled = false,
     )
     cfl_limit = 0.1 / (
-        tiny_params.spherical_degree^2 * max(
+        tiny_params.lmax^2 * max(
             1.0,
-            tiny_params.magnetic_prandtl / tiny_params.thermal_prandtl,
-            tiny_params.magnetic_prandtl / tiny_params.schmidt_number,
-            tiny_params.ekman_number,
+            tiny_params.Pm / tiny_params.Pr,
+            tiny_params.Pm / tiny_params.Sc,
+            tiny_params.Ek,
         )
     )
     @test tiny_params.timestep < cfl_limit
