@@ -192,7 +192,7 @@ function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
         @inbounds for j in 1:(1 + bw)
             system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
         end
-        system_data[bw + 1, 1] += T(l * domain.r[1, 3])  # subtract l/r[1]
+        system_data[bw + 1, 1] -= T(l * domain.r[1, 3])  # subtract l/r[1]
 
         # Insulating poloidal BC at outer boundary:
         # (∂/∂r + (l+1)/r) BP = 0

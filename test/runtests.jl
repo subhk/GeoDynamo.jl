@@ -144,6 +144,8 @@ additional_tests = (
     "initial_conditions.jl",
     "solver_diagnostics.jl",
     "composition_magnetic_fields.jl",
+    "magnetic_boundary_numerical.jl",
+    "velocity_boundary_numerical.jl",
     "mpi_parallel_invariants.jl",
     "derivative_accuracy.jl",
     "shell_geometry.jl",
