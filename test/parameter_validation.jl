@@ -75,8 +75,10 @@ using Test
     end
 
     @testset "Invalid timestepper object" begin
-        @test_throws ArgumentError GeoDynamo.SolverParameters(timestepper=:cnab2)
-        @test_throws ArgumentError GeoDynamo.SolverParameters(timestepper=:rk4)
+        # `timestepper` must be an AbstractTimestepper struct (e.g. CNAB2()); a
+        # bare Symbol is rejected by the field-type conversion.
+        @test_throws MethodError GeoDynamo.SolverParameters(timestepper=:cnab2)
+        @test_throws MethodError GeoDynamo.SolverParameters(timestepper=:rk4)
     end
 
     @testset "Strict mode throws on invalid params" begin

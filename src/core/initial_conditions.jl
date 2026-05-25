@@ -17,6 +17,9 @@ using SHTnsKit
 # Import functions from parent module (GeoDynamo)
 # These will be available when the module is included in GeoDynamo.jl
 import ..get_local_range
+import ..local_spectral_storage_slot
+import ..set_local_spectral_value!
+import ..local_spectral_value
 
 const GEODYNAMO_PARENT = parentmodule(@__MODULE__)
 
