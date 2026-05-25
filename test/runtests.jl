@@ -162,6 +162,7 @@ additional_tests = (
     "check_gaunt_tensors.jl",
     # Integration tests
     "output_writer.jl",
+    "netcdf_write_roundtrip.jl",
     "integration_simulation.jl",
 )
 
