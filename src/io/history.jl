@@ -19,7 +19,8 @@ function write_fields!(state, tracker::TimeTracker,
                         shtns_config::Union{SHTnsKitConfig,Nothing} = nothing,
                         pencils::Union{NamedTuple,Nothing} = nothing;
                         geometry::Symbol = :shell,
-                        radius_ratio::Float64 = 0.35)
+                        radius_ratio::Float64 = 0.35,
+                        radial_grid::Union{AbstractVector{<:Real},Nothing} = nothing)
     comm = output_comm()
     current_time = metadata["current_time"]
 
@@ -37,8 +38,26 @@ function write_fields!(state, tracker::TimeTracker,
     fields = extract_all_fields(state)
     resolved_shtns_config = shtns_config === nothing && hasproperty(state, :runtime) ? getproperty(state.runtime, :shtns_config) : shtns_config
     resolved_pencils = pencils === nothing && resolved_shtns_config !== nothing ? resolved_shtns_config.pencils : pencils
+    resolved_radial_grid = resolved_state_radial_grid(state, radial_grid)
     return write_fields!(fields, tracker, metadata, config, resolved_shtns_config, resolved_pencils;
-                         geometry=geometry, radius_ratio=radius_ratio)
+                         geometry=geometry, radius_ratio=radius_ratio, radial_grid=resolved_radial_grid)
+end
+
+"""
+    resolved_state_radial_grid(state, radial_grid)
+
+Return the true radial collocation nodes for the writer: an explicit
+`radial_grid` wins, otherwise the outer-core `RadialDomain` carried on
+`state.runtime.𝒟ᵒᶜ` is used when present. Falls back to `nothing` so the
+`fields`-only path keeps working without a runtime.
+"""
+function resolved_state_radial_grid(state, radial_grid)
+    radial_grid !== nothing && return radial_grid
+    hasproperty(state, :runtime) || return nothing
+    rt = state.runtime
+    hasproperty(rt, :𝒟ᵒᶜ) || return nothing
+    dom = getproperty(rt, :𝒟ᵒᶜ)
+    return Float64.(dom.r[1:dom.N, 4])
 end
 
 function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
@@ -46,7 +65,8 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
                         shtns_config::Union{SHTnsKitConfig,Nothing} = nothing,
                         pencils::Union{NamedTuple,Nothing} = nothing;
                         geometry::Symbol = :shell,
-                        radius_ratio::Float64 = 0.35)
+                        radius_ratio::Float64 = 0.35,
+                        radial_grid::Union{AbstractVector{<:Real},Nothing} = nothing)
     comm = output_comm()
     rank = MPI.Comm_rank(comm)
     current_time = metadata["current_time"]
@@ -78,7 +98,7 @@ function write_fields!(fields::Dict{String,Any}, tracker::TimeTracker,
     MPI.Barrier(comm)
 
     # Extract field information
-    field_info = extract_field_info(fields, shtns_config, pencils; radius_ratio=radius_ratio)
+    field_info = extract_field_info(fields, shtns_config, pencils; radius_ratio=radius_ratio, radial_grid=radial_grid)
 
     # Write grid file once (rank 0 only)
     if !tracker.grid_file_written && config.include_grid

@@ -16,7 +16,8 @@ function write_restart!(fields::Dict{String,Any}, tracker::TimeTracker,
                         pencils::Union{NamedTuple,Nothing}=nothing;
                         shtns_config::Union{SHTnsKitConfig,Nothing}=nothing,
                         geometry::Symbol = :shell,
-                        radius_ratio::Float64 = 0.35)
+                        radius_ratio::Float64 = 0.35,
+                        radial_grid::Union{AbstractVector{<:Real},Nothing}=nothing)
     comm = output_comm()
     rank = MPI.Comm_rank(comm)
     current_time = metadata["current_time"]
@@ -29,7 +30,7 @@ function write_restart!(fields::Dict{String,Any}, tracker::TimeTracker,
         println("Writing parallel restart #$(restart_number): $(basename(filename))")
     end
 
-    field_info = extract_field_info(fields, shtns_config, pencils; radius_ratio=radius_ratio)
+    field_info = extract_field_info(fields, shtns_config, pencils; radius_ratio=radius_ratio, radial_grid=radial_grid)
 
     restart_metadata = copy(metadata)
     restart_metadata["restart_time"] = current_time

@@ -151,7 +151,8 @@ function _run_output_writer!(ow::CheckpointWriter, sim, ctx::_ScheduleContext)
         fields = extract_all_fields(state)
         write_restart!(fields, tracker, metadata, config,
                        state.runtime.shtns_config.pencils;
-                       shtns_config=state.runtime.shtns_config)
+                       shtns_config=state.runtime.shtns_config,
+                       radial_grid=Float64.(state.runtime.𝒟ᵒᶜ.r[1:state.runtime.𝒟ᵒᶜ.N, 4]))
     catch e
         @warn "CheckpointWriter: write_restart! failed" exception=e path=ow.path
     end

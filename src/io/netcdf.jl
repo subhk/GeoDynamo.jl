@@ -586,7 +586,7 @@ function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
             defDim(ds, "r", field_info.nr)
             defVar(ds, "r", T, ("r",); attrib=Dict(
                 "long_name" => "radial_coordinate", "units" => "dimensionless",
-                "description" => "Normalized radial coordinate (inner=0.35, outer=1.0)"))
+                "description" => "Radial collocation nodes (Chebyshev-clustered shell grid)"))
         end
 
         if field_info.nlat > 0
