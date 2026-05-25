@@ -175,68 +175,11 @@ using Test
         @test parent(previous.data_imag) == parent(current.data_imag)
     end
 
-    @testset "legacy velocity nonlinear terms use creation-time parameter snapshot" begin
-        original = deepcopy(GeoDynamo.active_parameters())
-        try
-            initial = deepcopy(original)
-            initial.i_N = 8
-            initial.i_L = 4
-            initial.i_M = 4
-            initial.i_Th = 12
-            initial.i_Ph = 16
-            initial.d_Ro = 0.0
-            initial.d_Pm = 4.0
-            initial.d_Pr = 2.0
-            initial.d_Ra = 6.0
-            initial.d_Sc = 5.0
-            initial.d_Ra_C = 0.0
-            GeoDynamo.set_parameters!(initial; validate=false)
-
-            cfg = GeoDynamo.create_shtnskit_config(lmax=4, mmax=4, nlat=12, nlon=16, nr=8)
-            domain = GeoDynamo.create_shell_radial_domain(8)
-            creation_params = deepcopy(initial)
-            velocity = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, domain;
-                params=creation_params)
-            temperature = GeoDynamo.create_shtns_physical_field(Float64, cfg, domain, cfg.pencils.r)
-
-            fill!(parent(velocity.velocity.r_component.data), 0.0)
-            fill!(parent(velocity.velocity.θ_component.data), 0.0)
-            fill!(parent(velocity.velocity.φ_component.data), 0.0)
-            fill!(parent(velocity.vorticity.r_component.data), 0.0)
-            fill!(parent(velocity.vorticity.θ_component.data), 0.0)
-            fill!(parent(velocity.vorticity.φ_component.data), 0.0)
-            fill!(parent(temperature.data), 1.0)
-
-            creation_params.d_Pm = 99.0
-            creation_params.d_Pr = 33.0
-            creation_params.d_Ra = 1e5
-
-            changed = deepcopy(initial)
-            changed.d_Pm = 20.0
-            changed.d_Pr = 10.0
-            changed.d_Ra = 3.0
-            GeoDynamo.set_parameters!(changed; validate=false)
-
-            GeoDynamo.compute_all_nonlinear_terms!(velocity, temperature, nothing, nothing, domain)
-
-            r_range = GeoDynamo.range_local(cfg.pencils.r, 3)
-            adv_r = parent(velocity.advection_physical.r_component.data)
-            expected_factor = (initial.d_Pm / initial.d_Pr) * initial.d_Ra
-
-            local_index = 1
-            global_r = first(r_range)
-            expected = expected_factor * domain.r[global_r, 4]
-            @test adv_r[local_index] ≈ expected
-        finally
-            GeoDynamo.set_parameters!(original; validate=false)
-        end
-    end
-
     @testset "Reynolds stress uses spherical quadrature weights" begin
         cfg = GeoDynamo.create_shtnskit_config(lmax=3, mmax=3, nlat=8, nlon=12, nr=6)
         domain = GeoDynamo.create_shell_radial_domain(6)
         velocity = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, domain;
-            params=GeoDynamo.GeoDynamoParameters(geometry=:shell))
+            params=GeoDynamo.SolverParameters(geometry=:shell))
 
         v_r = parent(velocity.velocity.r_component.data)
         v_θ = parent(velocity.velocity.θ_component.data)

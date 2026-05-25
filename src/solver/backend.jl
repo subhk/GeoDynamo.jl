@@ -54,10 +54,15 @@ end
 
 Scratch spectral fields used to build scalar gradients for nonlinear terms.
 """
-struct SolverGradientWorkspace{T}
-    ∇θ_spec::SpectralFieldType{T}
-    ∇φ_spec::SpectralFieldType{T}
-    ∇r_spec::SpectralFieldType{T}
+# `S` pins the concrete spectral-field type. Declaring the gradient fields as the
+# bare `SpectralFieldType{T}` (= `SHTnsSpecField{T}`, whose C/DR/DI params are
+# still free) leaves them non-concrete, so every `ws.∇φ_spec` access in the
+# gradient hot loop boxes and the per-element writes dispatch dynamically
+# (~8 KB/call). Parametrising on `S` makes the fields concrete and allocation-free.
+struct SolverGradientWorkspace{T, S<:SpectralFieldType{T}}
+    ∇θ_spec::S
+    ∇φ_spec::S
+    ∇r_spec::S
     theta_full_real::Vector{T}
     theta_full_imag::Vector{T}
     # Precomputed (l±1, m) -> global storage index for the θ-gradient recurrence.
@@ -430,7 +435,10 @@ function create_solver_gradient_workspace(::Type{T}, backend::SolverBackend{<:Ab
     domain = backend.outer_core_domain
     pencil_spec = cfg.pencils.spec
     theta_lm_plus, theta_lm_minus = solver_build_theta_gradient_neighbors(cfg)
-    return SolverGradientWorkspace{T}(
+    # All-inferred constructor so both T and the concrete spectral type S are
+    # taken from the arguments (`SolverGradientWorkspace{T}(...)` would be a
+    # partial parametric application with no matching constructor).
+    return SolverGradientWorkspace(
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
