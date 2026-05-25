@@ -42,6 +42,7 @@ import ..bcs: shtns_spectral_to_physical
 const _GEODYNAMO_TOP = parentmodule(parentmodule(@__MODULE__))
 @inline local_spectral_storage_slot(args...) = _GEODYNAMO_TOP.local_spectral_storage_slot(args...)
 @inline get_mode_index(args...) = _GEODYNAMO_TOP.get_mode_index(args...)
+@inline gather_local_radial_profile!(args...) = _GEODYNAMO_TOP.gather_local_radial_profile!(args...)
 
 # These will be available when the module is loaded in the context of GeoDynamo
 # Define an abstract type for spectral fields - actual implementations will be duck-typed

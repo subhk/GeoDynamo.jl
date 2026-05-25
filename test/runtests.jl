@@ -149,6 +149,7 @@ additional_tests = (
     "temperature_boundary_numerical.jl",
     "composition_boundary_numerical.jl",
     "mpi_parallel_invariants.jl",
+    "mpi_threaded_step_smoke.jl",
     "derivative_accuracy.jl",
     "shell_geometry.jl",
     "programmatic_boundaries.jl",
