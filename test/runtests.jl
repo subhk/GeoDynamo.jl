@@ -1,6 +1,5 @@
 using Test
 include(joinpath(@__DIR__, "precompile_syntax.jl"))
-include(joinpath(@__DIR__, "allocation_static_checks.jl"))
 include(joinpath(@__DIR__, "loop_macro_static_checks.jl"))
 include(joinpath(@__DIR__, "pencil_decomposition_static_checks.jl"))
 include(joinpath(@__DIR__, "io_writer_static_checks.jl"))
@@ -144,6 +143,7 @@ additional_tests = (
     "initial_conditions.jl",
     "solver_diagnostics.jl",
     "composition_magnetic_fields.jl",
+    "allocation_runtime_checks.jl",
     "magnetic_boundary_numerical.jl",
     "velocity_boundary_numerical.jl",
     "temperature_boundary_numerical.jl",
