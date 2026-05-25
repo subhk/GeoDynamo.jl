@@ -7,16 +7,16 @@ function initialize_velocity_field!(state::SolverState{T,<:AbstractArchitecture}
     return state
 end
 
-function solver_prepare_velocity_fields!(velocity_fields, domain)
+function prepare_velocity_fields!(velocity_fields, domain)
     # Nonlinear velocity terms use the current velocity and vorticity in
     # physical space, so refresh both before accumulating body forces.
-    solver_reset_velocity_work_arrays!(velocity_fields)
-    solver_refresh_velocity_physical_fields!(velocity_fields, domain)
-    solver_refresh_vorticity_physical_fields!(velocity_fields, domain)
+    reset_velocity_work_arrays!(velocity_fields)
+    refresh_velocity_physical_fields!(velocity_fields, domain)
+    refresh_vorticity_physical_fields!(velocity_fields, domain)
     return velocity_fields
 end
 
-function solver_accumulate_velocity_nonlinear_terms!(
+function accumulate_velocity_nonlinear_terms!(
     velocity_fields,
     temperature_field,
     composition_field,
@@ -24,7 +24,7 @@ function solver_accumulate_velocity_nonlinear_terms!(
     domain,
     params::SolverParameters,
 )
-    return solver_compute_velocity_body_forces!(
+    return compute_velocity_body_forces!(
         velocity_fields,
         temperature_field,
         composition_field,
@@ -34,7 +34,7 @@ function solver_accumulate_velocity_nonlinear_terms!(
     )
 end
 
-function solver_finish_velocity_nonlinear!(velocity_fields; geometry::Symbol)
+function finish_velocity_nonlinear!(velocity_fields; geometry::Symbol)
     if geometry === :ball
         return solver_ball_vector_analysis!(
             velocity_fields.advection_physical,
@@ -59,7 +59,7 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
 
     if timestepper isa CNAB2
         matrices = state.implicit_matrices[:velocity_tor]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :velocity_toroidal,
             matrices.system_matrices[1].size,
@@ -85,7 +85,7 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_velocity_toroidal::EAB2CacheEntry{T}).map
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :velocity_toroidal,
             runtime.𝒟ᵒᶜ.N,
@@ -114,7 +114,7 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     else
         matrices = state.implicit_matrices[:velocity_tor]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :velocity_toroidal,
             matrices.system_matrices[1].size,
@@ -133,7 +133,7 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
     return state
 end
 
-function solver_apply_velocity_poloidal_no_penetration!(
+function apply_velocity_poloidal_no_penetration!(
     state::SolverState{T,<:AbstractArchitecture},
     velocity_bc_code::Int,
 ) where T
@@ -170,7 +170,7 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
 
     if timestepper isa CNAB2
         matrices = state.implicit_matrices[:velocity_pol]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :velocity_poloidal,
             matrices.system_matrices[1].size,
@@ -196,7 +196,7 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_velocity_poloidal::EAB2CacheEntry{T}).map
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :velocity_poloidal,
             runtime.𝒟ᵒᶜ.N,
@@ -219,7 +219,7 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     else
         matrices = state.implicit_matrices[:velocity_pol]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :velocity_poloidal,
             matrices.system_matrices[1].size,
@@ -235,7 +235,7 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     end
 
-    solver_apply_velocity_poloidal_no_penetration!(state, velocity_bc)
+    apply_velocity_poloidal_no_penetration!(state, velocity_bc)
     return state
 end
 

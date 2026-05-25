@@ -111,7 +111,7 @@ function solver_build_rhs_cnab2!(
     return rhs
 end
 
-function solver_get_radial_work!(
+function get_radial_work!(
     caches::TimestepCaches{T},
     key::Symbol,
     nr::Int,
@@ -126,7 +126,7 @@ function solver_get_radial_work!(
     return work
 end
 
-@inline function solver_boundary_mode_value(mode_values, lm_idx::Int)
+@inline function boundary_mode_value(mode_values, lm_idx::Int)
     return mode_values !== nothing && lm_idx <= length(mode_values) ? mode_values[lm_idx] : nothing
 end
 
@@ -290,8 +290,8 @@ function solver_eab2_update_krylov_cached!(
 
         exp_action_krylov!(u_real_next, Aop, u_real_global, Δt; m, tol, work=krylov_action_work)
         exp_action_krylov!(u_imag_next, Aop, u_imag_global, Δt; m, tol, work=krylov_action_work)
-        solver_phi1_action_krylov!(nl_real_global, Aop, operator_lu, nl_real_global, Δt; m, tol, work=krylov_action_work)
-        solver_phi1_action_krylov!(nl_imag_global, Aop, operator_lu, nl_imag_global, Δt; m, tol, work=krylov_action_work)
+        phi1_action_krylov!(nl_real_global, Aop, operator_lu, nl_real_global, Δt; m, tol, work=krylov_action_work)
+        phi1_action_krylov!(nl_imag_global, Aop, operator_lu, nl_imag_global, Δt; m, tol, work=krylov_action_work)
         @. u_real_next = u_real_next + Δt * nl_real_global
         @. u_imag_next = u_imag_next + Δt * nl_imag_global
 
@@ -299,10 +299,10 @@ function solver_eab2_update_krylov_cached!(
             # Krylov actions operate on the full radial vector and can move the
             # endpoint rows away from their matrix-embedded constraints, so the
             # accepted profile is projected back onto the requested BCs here.
-            inner_val = solver_boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
-            outer_val = solver_boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
-            inner_val_i = solver_boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
-            outer_val_i = solver_boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
+            inner_val = boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
+            outer_val = boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
+            inner_val_i = boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
+            outer_val_i = boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
             solver_enforce_erk2_bc!(u_real_next, bc_spec.inner, 1, ℓ, nr; value_override=inner_val)
             solver_enforce_erk2_bc!(u_real_next, bc_spec.outer, nr, ℓ, nr; value_override=outer_val)
             solver_enforce_erk2_bc!(u_imag_next, bc_spec.inner, 1, ℓ, nr; value_override=inner_val_i)

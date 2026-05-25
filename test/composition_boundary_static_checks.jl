@@ -66,7 +66,7 @@ end
         backend,
         "function create_solver_runtime(",
     )
-    @test occursin("solver_apply_scalar_boundary_parameters!(composition", runtime_create)
+    @test occursin("apply_scalar_boundary_parameters!(composition", runtime_create)
 
     scalar_solve = _composition_bc_static_function_body(
         imex,
@@ -80,7 +80,7 @@ end
         "function apply_composition_implicit_update!(",
     )
     @test occursin("build_solver_erk2_scalar_bc", composition_update)
-    @test occursin("solver_with_boundary_mode_values", composition_update)
+    @test occursin("with_boundary_mode_values", composition_update)
     @test occursin("bc_spec=bc_spec", composition_update)
     @test occursin("_timestepper_krylov_dimension(timestepper, state.parameters)", composition_update)
     @test !occursin("_timestepper_krylov_dimension(state.parameters.timestepper)", composition_update)
@@ -90,5 +90,5 @@ end
         "function integrate_solver_erk2_step!(",
     )
     @test occursin("comp_bc_values = get_bc_vectors(state.fields.composition)", integrate_erk2)
-    @test occursin("comp_bc = solver_with_boundary_mode_values(", integrate_erk2)
+    @test occursin("comp_bc = with_boundary_mode_values(", integrate_erk2)
 end

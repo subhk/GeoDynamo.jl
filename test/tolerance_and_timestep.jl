@@ -28,8 +28,8 @@ using Test
     @testset "solver/numerics.jl has no duplicate constants" begin
         @test !isdefined(GeoDynamo, :SOLVER_PIVOT_SINGULARITY_FACTOR)
         @test !isdefined(GeoDynamo, :SOLVER_SERIES_CONVERGENCE_FACTOR)
-        @test !isdefined(GeoDynamo, :solver_pivot_tolerance)
-        @test !isdefined(GeoDynamo, :solver_series_tolerance)
-        @test !isdefined(GeoDynamo, :solver_rcond_fallback_tolerance)
+        @test !isdefined(GeoDynamo, :pivot_tolerance)
+        @test !isdefined(GeoDynamo, :series_tolerance)
+        @test !isdefined(GeoDynamo, :rcond_fallback_tolerance)
     end
 end

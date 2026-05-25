@@ -20,14 +20,14 @@ end
 
     vorticity_body = _loop_macro_function_body(
         numerics,
-        "function solver_compute_vorticity_spectral!(",
+        "function compute_vorticity_spectral!(",
     )
     @test occursin("@solver_threaded_local_spectral_modes", vorticity_body)
     @test !occursin("Threads.@threads for lm_idx in lm_range", vorticity_body)
 
     curl_body = _loop_macro_function_body(
         numerics,
-        "function solver_spectral_curl_torpol!(",
+        "function spectral_curl_torpol!(",
     )
     @test occursin("@solver_local_spectral_modes", curl_body)
     @test !occursin("for lm_idx in lm_range", curl_body)

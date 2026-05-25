@@ -16,8 +16,8 @@ Record `params` as the active solver parameter set used by shared helpers.
 """
 function apply_solver_parameters!(params::SolverParameters)
     set_parameters!(params; validate=false)
-    solver_set_timing_enabled!(solver_shared_timing_enabled())
-    solver_set_erk2_diagnostics!(
+    set_timing_enabled!(solver_shared_timing_enabled())
+    set_erk2_diagnostics!(
         solver_shared_erk2_diagnostics_enabled(),
         solver_shared_erk2_diagnostics_interval(),
     )

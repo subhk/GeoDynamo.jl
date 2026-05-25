@@ -65,30 +65,30 @@ function initialize_magnetic_field!(state::SolverState{T,<:AbstractArchitecture}
     return state
 end
 
-function solver_prepare_magnetic_fields!(magnetic_fields, outer_domain)
+function prepare_magnetic_fields!(magnetic_fields, outer_domain)
     # Induction terms need magnetic field and current in physical space. Refresh
     # both from the spectral toroidal/poloidal representation before use.
-    solver_reset_magnetic_work_arrays!(magnetic_fields)
-    solver_refresh_magnetic_physical_fields!(magnetic_fields, outer_domain)
-    solver_refresh_current_physical_fields!(magnetic_fields, outer_domain)
+    reset_magnetic_work_arrays!(magnetic_fields)
+    refresh_magnetic_physical_fields!(magnetic_fields, outer_domain)
+    refresh_current_physical_fields!(magnetic_fields, outer_domain)
     return magnetic_fields
 end
 
-function solver_apply_magnetic_nonlinear_terms!(
+function apply_magnetic_nonlinear_terms!(
     magnetic_fields,
     velocity_fields;
     geometry::Symbol,
     rotation_rate::Float64,
 )
     if velocity_fields !== nothing
-        solver_apply_induction_nonlinear!(
+        apply_induction_nonlinear!(
             magnetic_fields,
             velocity_fields;
             geometry,
         )
     end
     if rotation_rate != 0.0
-        solver_apply_inner_core_rotation!(magnetic_fields, rotation_rate)
+        apply_inner_core_rotation!(magnetic_fields, rotation_rate)
     end
     return magnetic_fields
 end
@@ -144,7 +144,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
 
     if timestepper isa CNAB2
         matrices = state.implicit_matrices[:magnetic_tor]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_toroidal,
             matrices.system_matrices[1].size,
@@ -174,7 +174,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             throw(ArgumentError("CONTINUITY_MAG toroidal magnetic inner-boundary increments are not implemented for EAB2() timestepping"))
         end
         alu_map = (state.timestep_caches.etd_magnetic_toroidal::EAB2CacheEntry{T}).map
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_toroidal,
             runtime.𝒟ᵒᶜ.N,
@@ -196,7 +196,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     else
         matrices = state.implicit_matrices[:magnetic_tor]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_toroidal,
             matrices.system_matrices[1].size,
@@ -227,7 +227,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
 
     if timestepper isa CNAB2
         matrices = state.implicit_matrices[:magnetic_pol]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_poloidal,
             matrices.system_matrices[1].size,
@@ -250,7 +250,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_magnetic_poloidal::EAB2CacheEntry{T}).map
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_poloidal,
             runtime.𝒟ᵒᶜ.N,
@@ -272,7 +272,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
         )
     else
         matrices = state.implicit_matrices[:magnetic_pol]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_poloidal,
             matrices.system_matrices[1].size,

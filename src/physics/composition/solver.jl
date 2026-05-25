@@ -80,7 +80,7 @@ function solver_compute_composition_nonlinear!(
         t_transform = mpi_wtime()
     end
 
-    solver_scalar_nonlinear_to_spectral!(
+    scalar_nonlinear_to_spectral!(
         𝔽.advection_physical,
         𝔽.nonlinear,
         geometry,
@@ -106,7 +106,7 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
     # boundary RHS rows, while EAB2 carries a boundary spec for endpoint repair.
     if timestepper isa CNAB2
         matrices = state.implicit_matrices[:composition]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :composition,
             matrices.system_matrices[1].size,
@@ -132,14 +132,14 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_composition::EAB2CacheEntry{T}).map
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :composition,
             runtime.𝒟ᵒᶜ.N,
         )
         composition_bc_code = _composition_bc_code(state.parameters.composition_bcs)
         scalar_bc = build_solver_erk2_scalar_bc(T, runtime.𝒟ᵒᶜ, composition_bc_code)
-        bc_spec = solver_with_boundary_mode_values(
+        bc_spec = with_boundary_mode_values(
             scalar_bc,
             bc.inner_real,
             bc.outer_real,
@@ -162,7 +162,7 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
         )
     else
         matrices = state.implicit_matrices[:composition]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :composition,
             matrices.system_matrices[1].size,

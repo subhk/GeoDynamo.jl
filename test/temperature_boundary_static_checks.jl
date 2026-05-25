@@ -69,7 +69,7 @@ end
         backend,
         "function create_solver_runtime(",
     )
-    @test occursin("solver_apply_scalar_boundary_parameters!(temperature", runtime_create)
+    @test occursin("apply_scalar_boundary_parameters!(temperature", runtime_create)
 
     scalar_solve = _temperature_bc_static_function_body(
         imex,
@@ -105,7 +105,7 @@ end
         "function apply_temperature_implicit_update!(",
     )
     @test occursin("build_solver_erk2_scalar_bc", temperature_update)
-    @test occursin("solver_with_boundary_mode_values", temperature_update)
+    @test occursin("with_boundary_mode_values", temperature_update)
     @test occursin("bc_spec=bc_spec", temperature_update)
     @test occursin("_timestepper_krylov_dimension(timestepper, state.parameters)", temperature_update)
     @test !occursin("_timestepper_krylov_dimension(state.parameters.timestepper)", temperature_update)
@@ -115,5 +115,5 @@ end
         "function integrate_solver_erk2_step!(",
     )
     @test occursin("temp_bc_values = get_bc_vectors(state.fields.temperature)", integrate_erk2)
-    @test occursin("temp_bc = solver_with_boundary_mode_values(", integrate_erk2)
+    @test occursin("temp_bc = with_boundary_mode_values(", integrate_erk2)
 end

@@ -100,7 +100,7 @@ function solver_compute_temperature_nonlinear!(
     if timing_enabled()
         t_transform = mpi_wtime()
     end
-    solver_scalar_nonlinear_to_spectral!(
+    scalar_nonlinear_to_spectral!(
         temp_𝔽.advection_physical,
         temp_𝔽.nonlinear,
         geometry,
@@ -124,7 +124,7 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
     # advances by exponential action and then enforces the same endpoint spec.
     if timestepper isa CNAB2
         matrices = state.implicit_matrices[:temperature]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :temperature,
             matrices.system_matrices[1].size,
@@ -150,14 +150,14 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_temperature::EAB2CacheEntry{T}).map
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :temperature,
             runtime.𝒟ᵒᶜ.N,
         )
         temperature_bc_code = _thermal_bc_code(state.parameters.temperature_bcs)
         scalar_bc = build_solver_erk2_scalar_bc(T, runtime.𝒟ᵒᶜ, temperature_bc_code)
-        bc_spec = solver_with_boundary_mode_values(
+        bc_spec = with_boundary_mode_values(
             scalar_bc,
             bc.inner_real,
             bc.outer_real,
@@ -180,7 +180,7 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
         )
     else
         matrices = state.implicit_matrices[:temperature]
-        radial_work = solver_get_radial_work!(
+        radial_work = get_radial_work!(
             state.timestep_caches,
             :temperature,
             matrices.system_matrices[1].size,

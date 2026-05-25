@@ -33,9 +33,9 @@ import KernelAbstractions
     end
 
     @testset "Architecture symbol conversion" begin
-        @test GeoDynamo.solver_architecture_from_symbol(:cpu) isa CPU
-        @test GeoDynamo.solver_architecture_from_symbol(:gpu) isa GPU
-        @test_throws ArgumentError GeoDynamo.solver_architecture_from_symbol(:cuda)
+        @test GeoDynamo.architecture_from_symbol(:cpu) isa CPU
+        @test GeoDynamo.architecture_from_symbol(:gpu) isa GPU
+        @test_throws ArgumentError GeoDynamo.architecture_from_symbol(:cuda)
     end
 
     @testset "GPU{B} parametric" begin

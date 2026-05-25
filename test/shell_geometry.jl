@@ -39,7 +39,7 @@ const FINALIZE_MPI_SHELL = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
             nlon=16,
             radius_ratio=0.35,
         )
-        _, inner = GeoDynamo.solver_create_radial_domains(params)
+        _, inner = GeoDynamo.create_radial_domains(params)
         @test inner !== nothing
         @test inner.r[1, 4] ≈ 0.0
         @test inner.r[end, 4] ≈ params.radius_ratio / (1 - params.radius_ratio)

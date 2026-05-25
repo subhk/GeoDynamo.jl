@@ -105,8 +105,8 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
 
     @testset "influence-correction scratch is reused (#3)" begin
         tc = GeoDynamo.TimestepCaches{Float64}()
-        w1 = GeoDynamo.solver_get_radial_work!(tc, :velocity_poloidal_influence, domain.N)
-        w2 = GeoDynamo.solver_get_radial_work!(tc, :velocity_poloidal_influence, domain.N)
+        w1 = GeoDynamo.get_radial_work!(tc, :velocity_poloidal_influence, domain.N)
+        w2 = GeoDynamo.get_radial_work!(tc, :velocity_poloidal_influence, domain.N)
         @test w1 === w2
         @test w1.tmp_real === w2.tmp_real      # same backing vector, not reallocated
         @test length(w1.tmp_real) == domain.N

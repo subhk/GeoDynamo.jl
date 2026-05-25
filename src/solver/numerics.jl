@@ -13,7 +13,7 @@ struct SolverModeIndexCacheKey
     m_values_hash::UInt
 end
 
-@inline function solver_mode_index_cache_key(config::SHTnsConfigType)
+@inline function mode_index_cache_key(config::SHTnsConfigType)
     return SolverModeIndexCacheKey(
         config.lmax,
         config.mmax,
@@ -28,7 +28,7 @@ const SOLVER_MODE_INDEX_CACHE_LOCK = ReentrantLock()
 
 @inline local_range(pencil, dim::Int) = pencil.axes_local[dim]
 @inline function mpi_comm()
-    solver_backend_ensure_mpi!()
+    backend_ensure_mpi!()
     return SOLVER_BACKEND_MPI.COMM_WORLD
 end
 @inline mpi_rank(comm=mpi_comm()) = SolverMPI.Comm_rank(comm)
@@ -38,12 +38,12 @@ end
 @inline timing_enabled() = SOLVER_ENABLE_TIMING[]
 @inline solver_buffer_cache_lock() = SOLVER_SHARED_BUFFER_CACHE_LOCK
 
-@inline function solver_set_timing_enabled!(enabled::Bool)
+@inline function set_timing_enabled!(enabled::Bool)
     SOLVER_ENABLE_TIMING[] = enabled
     return nothing
 end
 
-@inline function solver_set_erk2_diagnostics!(enabled::Bool, interval::Integer)
+@inline function set_erk2_diagnostics!(enabled::Bool, interval::Integer)
     SOLVER_ERK2_DIAGNOSTICS_ENABLED[] = enabled
     SOLVER_ERK2_DIAGNOSTICS_INTERVAL[] = Int(interval)
     return nothing
@@ -59,7 +59,7 @@ function build_mode_index_table(config)
 end
 
 function mode_index(config, l::Int, m::Int)
-    key = solver_mode_index_cache_key(config)
+    key = mode_index_cache_key(config)
     table = get(SOLVER_MODE_INDEX_CACHE, key, nothing)
     if table === nothing
         lock(SOLVER_MODE_INDEX_CACHE_LOCK) do
@@ -180,7 +180,7 @@ end
     return MPI.Allreduce(value, MPI.MAX, comm)
 end
 
-@inline function solver_domain_bandwidth(domain::RadialDomainType)
+@inline function domain_bandwidth(domain::RadialDomainType)
     if !isempty(domain.dr_matrices)
         return (size(domain.dr_matrices[1], 1) - 1) ÷ 2
     elseif !isempty(domain.radial_laplacian)
@@ -195,7 +195,7 @@ function build_radial_derivative_matrix(
     domain::RadialDomainType,
 ) where {T}
     N = domain.N
-    bandwidth = solver_domain_bandwidth(domain)
+    bandwidth = domain_bandwidth(domain)
     calc_T = promote_type(T, eltype(domain.r))
     data = zeros(T, 2 * bandwidth + 1, N)
 
@@ -246,7 +246,7 @@ end
 @inline build_radial_derivative_matrix(order::Int, domain::RadialDomainType) =
     build_radial_derivative_matrix(eltype(domain.r), order, domain)
 
-function solver_extract_dense_row(data::AbstractMatrix{T}, bandwidth::Int, nr::Int, row::Int) where T
+function extract_dense_row(data::AbstractMatrix{T}, bandwidth::Int, nr::Int, row::Int) where T
     result = zeros(T, nr)
     @inbounds for j in max(1, row - bandwidth):min(nr, row + bandwidth)
         band_idx = bandwidth + 1 + row - j
@@ -396,7 +396,7 @@ function krylov_exp_action!(
     tol::Float64=1e-8,
 ) where T
     n = length(v)
-    solver_ensure_krylov_work!(work, n, m)
+    ensure_krylov_work!(work, n, m)
 
     if n == 0 || !all(isfinite, v)
         fill!(dest, zero(T))
@@ -522,13 +522,13 @@ end
     return buffers.tlm_out::Union{Matrix{ComplexF64}, Nothing}
 end
 
-@inline function solver_transform_arch(config)
+@inline function transform_arch(config)
     device = config._buffers.transform_device
     device isa AbstractArchitecture && return device
     return SHTnsKit.is_gpu_config(config.sht_config) ? GPU(device) : CPU()
 end
 
-@inline uses_gpu(config) = !(solver_transform_arch(config) isa CPU)
+@inline uses_gpu(config) = !(transform_arch(config) isa CPU)
 
 @inline function sht_synthesis!(plan, synth_out, coeffs_matrix)
     SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
@@ -639,20 +639,20 @@ function collect_vector_coefficients(
     lmax, mmax = config.lmax, config.mmax
 
     coeffs_buffer1 = solver_get_cached_buffer!(config, :solver_vector_coeffs_buffer_1) do
-        solver_workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
+        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
     end::Matrix{ComplexF64}
     coeffs_buffer2 = solver_get_cached_buffer!(config, :solver_vector_coeffs_buffer_2) do
-        solver_workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
+        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
     end::Matrix{ComplexF64}
 
     fill_vector_coeff_buffer!(coeffs_buffer1, spec1_real, spec1_imag, r_local, config)
     fill_vector_coeff_buffer!(coeffs_buffer2, spec2_real, spec2_imag, r_local, config)
 
     coeffs_gathered1 = solver_get_cached_buffer!(config, :solver_vector_coeffs_gathered_1) do
-        solver_workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
+        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
     end::Matrix{ComplexF64}
     coeffs_gathered2 = solver_get_cached_buffer!(config, :solver_vector_coeffs_gathered_2) do
-        solver_workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
+        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
     end::Matrix{ComplexF64}
 
     allreduce_sum!(coeffs_buffer1, coeffs_gathered1)
@@ -681,7 +681,7 @@ function fill_vector_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local,
 end
 
 @inline function cpu_fill_vector_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local, config)
-    return solver_cpu_fill_scalar_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local, config)
+    return cpu_fill_scalar_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local, config)
 end
 
 function store_vector_coefficients!(spec_real, spec_imag, coeffs_matrix, r_local, config)
@@ -978,7 +978,7 @@ function vector_spectral_to_physical!(
                 if r_val > eps(Float64) * domain.r[domain.N, 4]
                     lmax, mmax = config.lmax, config.mmax
                     pol_rad_coeffs = solver_get_cached_buffer!(config, :solver_pol_rad_coeffs_buffer) do
-                        solver_workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
+                        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
                     end::Matrix{ComplexF64}
                     fill!(pol_rad_coeffs, zero(ComplexF64))
 
@@ -1044,10 +1044,10 @@ function vector_physical_to_spectral!(
     for r_local in axes(v_theta, 3)
         nlat, nlon = config.nlat, config.nlon
         vt_buffer = solver_get_cached_buffer!(config, :solver_vector_component_buffer_vt) do
-            solver_workspace_zeros(config, eltype(v_theta), nlat, nlon)
+            workspace_zeros(config, eltype(v_theta), nlat, nlon)
         end::Matrix{Float64}
         vp_buffer = solver_get_cached_buffer!(config, :solver_vector_component_buffer_vp) do
-            solver_workspace_zeros(config, eltype(v_phi), nlat, nlon)
+            workspace_zeros(config, eltype(v_phi), nlat, nlon)
         end::Matrix{Float64}
 
         vt_field = extract_vector_component!(
@@ -1079,7 +1079,7 @@ function vector_physical_to_spectral!(
     return toroidal, poloidal
 end
 
-@inline function solver_reset_velocity_work_arrays!(velocity_fields)
+@inline function reset_velocity_work_arrays!(velocity_fields)
     T = eltype(parent(velocity_fields.work_tor.data_real))
     z = zero(T)
     fill!(parent(velocity_fields.work_tor.data_real), z)
@@ -1099,7 +1099,7 @@ end
     return velocity_fields
 end
 
-function solver_refresh_velocity_physical_fields!(velocity_fields, domain)
+function refresh_velocity_physical_fields!(velocity_fields, domain)
     vector_spectral_to_physical!(
         velocity_fields.𝒯,
         velocity_fields.𝒫,
@@ -1109,8 +1109,8 @@ function solver_refresh_velocity_physical_fields!(velocity_fields, domain)
     return velocity_fields.velocity
 end
 
-function solver_refresh_vorticity_physical_fields!(velocity_fields, domain)
-    solver_compute_vorticity_spectral!(velocity_fields, domain)
+function refresh_vorticity_physical_fields!(velocity_fields, domain)
+    compute_vorticity_spectral!(velocity_fields, domain)
     vector_spectral_to_physical!(
         velocity_fields.ζᵀ,
         velocity_fields.ζᴾ,
@@ -1158,7 +1158,7 @@ function apply_radial_derivative!(
     return output
 end
 
-function solver_compute_vorticity_spectral!(
+function compute_vorticity_spectral!(
     velocity_fields::VelocityFieldsType{T},
     domain,
 ) where T
@@ -1257,7 +1257,7 @@ function solver_compute_vorticity_spectral!(
     return velocity_fields
 end
 
-function solver_compute_velocity_body_forces!(
+function compute_velocity_body_forces!(
     velocity_fields::VelocityFieldsType{T},
     temperature_field,
     composition_field,
@@ -1335,7 +1335,7 @@ function solver_compute_velocity_body_forces!(
     end
 
     if composition_field !== nothing
-        solver_add_compositional_buoyancy_force!(adv_r, composition_field, (Pm / Sc) * RaC, domain)
+        add_compositional_buoyancy_force!(adv_r, composition_field, (Pm / Sc) * RaC, domain)
     end
 
     if magnetic_field !== nothing
@@ -1345,7 +1345,7 @@ function solver_compute_velocity_body_forces!(
     return velocity_fields
 end
 
-function solver_scalar_field_data_and_config(field)
+function scalar_field_data_and_config(field)
     if hasproperty(field, :data) && hasproperty(field, :config)
         return parent(getproperty(field, :data)), getproperty(field, :config)
     elseif hasproperty(field, :temperature)
@@ -1366,7 +1366,7 @@ function solver_add_thermal_buoyancy_force!(
     domain,
 ) where T
     iszero(factor) && return force_r
-    scalar_data, config = solver_scalar_field_data_and_config(scalar_field)
+    scalar_data, config = scalar_field_data_and_config(scalar_field)
     r_range = local_range(config.pencils.r, 3)
     local_size = size(force_r)
 
@@ -1387,14 +1387,14 @@ function solver_add_thermal_buoyancy_force!(
     return force_r
 end
 
-function solver_add_compositional_buoyancy_force!(
+function add_compositional_buoyancy_force!(
     force_r::AbstractArray{T,3},
     composition_field,
     factor::Float64,
     domain,
 ) where T
     iszero(factor) && return force_r
-    composition_data, config = solver_scalar_field_data_and_config(composition_field)
+    composition_data, config = scalar_field_data_and_config(composition_field)
     r_range = local_range(config.pencils.r, 3)
     local_size = size(force_r)
 
@@ -1440,7 +1440,7 @@ function solver_add_lorentz_force!(velocity_fields, magnetic_field, Pm::Float64)
     return velocity_fields
 end
 
-@inline function solver_reset_magnetic_work_arrays!(magnetic_fields)
+@inline function reset_magnetic_work_arrays!(magnetic_fields)
     T = eltype(parent(magnetic_fields.work_tor.data_real))
     z = zero(T)
     fill!(parent(magnetic_fields.work_tor.data_real), z)
@@ -1456,7 +1456,7 @@ end
     return magnetic_fields
 end
 
-function solver_refresh_magnetic_physical_fields!(magnetic_fields, outer_domain)
+function refresh_magnetic_physical_fields!(magnetic_fields, outer_domain)
     vector_spectral_to_physical!(
         magnetic_fields.𝒯,
         magnetic_fields.𝒫,
@@ -1466,7 +1466,7 @@ function solver_refresh_magnetic_physical_fields!(magnetic_fields, outer_domain)
     return magnetic_fields.magnetic
 end
 
-function solver_refresh_current_physical_fields!(magnetic_fields, outer_domain)
+function refresh_current_physical_fields!(magnetic_fields, outer_domain)
     solver_compute_current_density_spectral!(magnetic_fields, outer_domain)
     vector_spectral_to_physical!(
         magnetic_fields.work_tor,
@@ -1477,7 +1477,7 @@ function solver_refresh_current_physical_fields!(magnetic_fields, outer_domain)
     return magnetic_fields.current
 end
 
-function solver_spectral_curl_torpol!(
+function spectral_curl_torpol!(
     dst_tor_r,
     dst_tor_i,
     dst_pol_r,
@@ -1562,7 +1562,7 @@ end
 
 function solver_compute_current_density_spectral!(magnetic_fields, outer_domain)
     T = eltype(parent(magnetic_fields.work_tor.data_real))
-    solver_spectral_curl_torpol!(
+    spectral_curl_torpol!(
         parent(magnetic_fields.work_tor.data_real), parent(magnetic_fields.work_tor.data_imag),
         parent(magnetic_fields.work_pol.data_real), parent(magnetic_fields.work_pol.data_imag),
         parent(magnetic_fields.𝒯.data_real), parent(magnetic_fields.𝒯.data_imag),
@@ -1578,7 +1578,7 @@ function solver_compute_current_density_spectral!(magnetic_fields, outer_domain)
     return magnetic_fields
 end
 
-function solver_apply_induction_nonlinear!(
+function apply_induction_nonlinear!(
     magnetic_fields,
     velocity_fields;
     geometry::Symbol,
@@ -1601,7 +1601,7 @@ function solver_apply_induction_nonlinear!(
     return magnetic_fields
 end
 
-function solver_apply_inner_core_rotation!(magnetic_fields, rotation_rate)
+function apply_inner_core_rotation!(magnetic_fields, rotation_rate)
     ic_tor_real = parent(magnetic_fields.𝒯ⁱᶜ.data_real)
     ic_tor_imag = parent(magnetic_fields.𝒯ⁱᶜ.data_imag)
     ic_pol_real = parent(magnetic_fields.𝒫ⁱᶜ.data_real)
@@ -1676,7 +1676,7 @@ end
 
 function solver_compute_curl_of_induction!(magnetic_fields)
     T = eltype(parent(magnetic_fields.nlᵀ.data_real))
-    solver_spectral_curl_torpol!(
+    spectral_curl_torpol!(
         parent(magnetic_fields.nlᵀ.data_real), parent(magnetic_fields.nlᵀ.data_imag),
         parent(magnetic_fields.nlᴾ.data_real), parent(magnetic_fields.nlᴾ.data_imag),
         parent(magnetic_fields.work_tor.data_real), parent(magnetic_fields.work_tor.data_imag),
@@ -1727,14 +1727,14 @@ function solver_enforce_ball_vector_regularity!(
     return tor_spec, pol_spec
 end
 
-function solver_ball_vector_physical_to_spectral!(vector_field, toroidal, poloidal)
+function ball_vector_physical_to_spectral!(vector_field, toroidal, poloidal)
     vector_physical_to_spectral!(vector_field, toroidal, poloidal)
     solver_enforce_ball_vector_regularity!(toroidal, poloidal)
     return toroidal, poloidal
 end
 
 function solver_ball_vector_analysis!(vector_field, toroidal, poloidal)
-    return solver_ball_vector_physical_to_spectral!(vector_field, toroidal, poloidal)
+    return ball_vector_physical_to_spectral!(vector_field, toroidal, poloidal)
 end
 
 @inline solver_band_row(i::Int, j::Int, bw::Int) = bw + 1 + i - j
@@ -1933,7 +1933,7 @@ function solver_phi1_action_krylov(
     end
 end
 
-function solver_phi1_action_krylov!(
+function phi1_action_krylov!(
     dest::Vector{T},
     Aop!,
     A_lu::Union{OldBandedLU{T}, BandedFactorization{T}},
@@ -1948,7 +1948,7 @@ function solver_phi1_action_krylov!(
         return dest
     end
 
-    solver_ensure_krylov_work!(work, length(v), m)
+    ensure_krylov_work!(work, length(v), m)
 
     if LA.norm(v) < series_tol(T)
         fill!(dest, zero(T))
@@ -2022,7 +2022,7 @@ solver_synchronize_pencil_transforms!(field::SpectralFieldType{T}) where {T} = b
     field
 end
 
-function solver_rcond_estimate(lu_A, A::Matrix{T}) where T
+function rcond_estimate(lu_A, A::Matrix{T}) where T
     anorm = LA.opnorm(A, 1)
     if anorm == zero(T)
         return one(T)
@@ -2035,7 +2035,7 @@ function solver_rcond_estimate(lu_A, A::Matrix{T}) where T
     end
 end
 
-function solver_phi1_series(A::Matrix{T}) where T
+function phi1_series(A::Matrix{T}) where T
     nr = size(A, 1)
     result = Matrix{T}(LA.I, nr, nr)
     A_power = copy(result)
@@ -2050,7 +2050,7 @@ function solver_phi1_series(A::Matrix{T}) where T
     return result
 end
 
-function solver_phi2_series(A::Matrix{T}) where T
+function phi2_series(A::Matrix{T}) where T
     nr = size(A, 1)
     result = Matrix{T}(LA.I, nr, nr) / 2
     A_power = copy(A)
@@ -2079,29 +2079,29 @@ function solver_compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
     end
 
     if LA.opnorm(A) < sqrt(eps(T))
-        return solver_phi1_series(A)
+        return phi1_series(A)
     end
 
     diff = expA - I_mat
 
     try
         lu_A = LA.lu(A)
-        rc = solver_rcond_estimate(lu_A, A)
+        rc = rcond_estimate(lu_A, A)
         if rc < rcond_fallback_tol(T)
             @debug "Ill-conditioned matrix in solver φ1 computation (rcond = $rc), using series expansion"
-            return solver_phi1_series(A)
+            return phi1_series(A)
         end
 
         result = lu_A \ diff
         if !all(isfinite, result)
             @warn "Non-finite result in solver φ1 computation, falling back to series expansion"
-            return solver_phi1_series(A)
+            return phi1_series(A)
         end
         return result
     catch e
         @debug "LU factorization failed in solver φ1 computation: $e, using series expansion"
         try
-            return solver_phi1_series(A)
+            return phi1_series(A)
         catch e2
             @error "Complete failure in solver φ1 computation: $e2, returning identity"
             return I_mat
@@ -2165,14 +2165,14 @@ function solver_compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) w
     end
 
     if LA.opnorm(A) < sqrt(eps(T))
-        return solver_phi2_series(A)
+        return phi2_series(A)
     end
 
     diff = expA - I_mat - A
 
     try
         lu_A = LA.lu(A)
-        rcond_val = solver_rcond_estimate(lu_A, A)
+        rcond_val = rcond_estimate(lu_A, A)
         if SOLVER_PHI2_MONITOR.enable_monitoring && rcond_val < SOLVER_PHI2_MONITOR.worst_rcond
             SOLVER_PHI2_MONITOR.worst_rcond = rcond_val
             SOLVER_PHI2_MONITOR.worst_l = l
@@ -2183,7 +2183,7 @@ function solver_compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) w
                 SOLVER_PHI2_MONITOR.series_expansion_count += 1
             end
             @debug "Ill-conditioned matrix in solver φ2 computation (l=$l, rcond=$rcond_val), using series expansion"
-            return solver_phi2_series(A)
+            return phi2_series(A)
         end
 
         temp = lu_A \ diff
@@ -2191,7 +2191,7 @@ function solver_compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) w
 
         if !all(isfinite, result)
             @warn "Non-finite result in solver φ2 computation, falling back to series expansion"
-            return solver_phi2_series(A)
+            return phi2_series(A)
         end
 
         return result
@@ -2201,7 +2201,7 @@ function solver_compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) w
         end
         @debug "LU factorization failed in solver φ2 computation (l=$l): $e, using series expansion"
         try
-            return solver_phi2_series(A)
+            return phi2_series(A)
         catch e2
             @error "Complete failure in solver φ2 computation: $e2, returning zero matrix"
             return zeros(T, nr, nr)

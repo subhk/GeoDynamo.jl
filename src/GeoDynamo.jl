@@ -82,19 +82,19 @@ module GeoDynamo
     end
 
     function _default_gpu_fill_scalar_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)
-        return solver_cpu_fill_scalar_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local, config)
+        return cpu_fill_scalar_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local, config)
     end
 
     function _default_gpu_store_scalar_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config)
-        return solver_cpu_store_scalar_coefficients!(spec_real, spec_imag, coeffs_matrix, r_local, config)
+        return cpu_store_scalar_coefficients!(spec_real, spec_imag, coeffs_matrix, r_local, config)
     end
 
     function _default_gpu_extract_physical_slice(slice_buffer, phys_data, r_local, config; axes_local=nothing)
-        return solver_cpu_extract_physical_slice!(slice_buffer, phys_data, r_local, config; axes_local=axes_local)
+        return cpu_extract_physical_slice!(slice_buffer, phys_data, r_local, config; axes_local=axes_local)
     end
 
     function _default_gpu_store_physical_slice(phys_data, phys_slice, r_local)
-        return solver_cpu_store_physical_slice!(phys_data, phys_slice, r_local)
+        return cpu_store_physical_slice!(phys_data, phys_slice, r_local)
     end
 
     function _default_gpu_fill_vector_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)

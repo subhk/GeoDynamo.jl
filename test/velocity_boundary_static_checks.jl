@@ -44,7 +44,7 @@ end
         velocity_bc,
         "function solve_velocity_implicit_step!(",
     )
-    solver_velocity_solve = _velocity_bc_static_function_body(
+    velocity_solve = _velocity_bc_static_function_body(
         imex,
         "function solver_solve_velocity_implicit_step!(",
     )
@@ -53,10 +53,10 @@ end
         "function apply_solver_velocity_poloidal_influence_correction!(",
     )
     @test occursin("local_spectral_mode_indices(solution.config)", legacy_velocity_solve)
-    @test occursin("local_spectral_mode_indices(solution.config)", solver_velocity_solve)
+    @test occursin("local_spectral_mode_indices(solution.config)", velocity_solve)
     @test occursin("local_spectral_mode_indices(config)", influence_correction)
     @test !occursin("get_local_range(solution.pencil, 1)", legacy_velocity_solve)
-    @test !occursin("local_range(solution.pencil, 1)", solver_velocity_solve)
+    @test !occursin("local_range(solution.pencil, 1)", velocity_solve)
     @test !occursin("local_range(field.pencil, 1)", influence_correction)
 
     eab2_update = _velocity_bc_static_function_body(
@@ -90,13 +90,13 @@ end
     )
     no_penetration = _velocity_bc_static_function_body(
         velocity_solver,
-        "function solver_apply_velocity_poloidal_no_penetration!(",
+        "function apply_velocity_poloidal_no_penetration!(",
     )
     @test occursin("bc_spec=bc_spec", toroidal_update)
     @test occursin("bc_spec=bc_spec", poloidal_update)
     @test occursin("_timestepper_krylov_dimension(timestepper, state.parameters)", toroidal_update)
     @test occursin("_timestepper_krylov_dimension(timestepper, state.parameters)", poloidal_update)
-    @test occursin("solver_apply_velocity_poloidal_no_penetration!(state, velocity_bc)", poloidal_update)
+    @test occursin("apply_velocity_poloidal_no_penetration!(state, velocity_bc)", poloidal_update)
     @test occursin("get_solver_erk2_influence_matrices!", no_penetration)
     @test occursin("apply_solver_velocity_poloidal_influence_correction!", no_penetration)
 end

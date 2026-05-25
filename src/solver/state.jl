@@ -138,7 +138,7 @@ SolverKrylovWork{T}() where T = SolverKrylovWork{T}(
     Vector{T}(undef, 0),
 )
 
-function solver_ensure_krylov_work!(work::SolverKrylovWork{T}, n::Int, m::Int) where T
+function ensure_krylov_work!(work::SolverKrylovWork{T}, n::Int, m::Int) where T
     if size(work.V, 1) != n || size(work.V, 2) < m
         work.V = Matrix{T}(undef, n, m)
     end
@@ -254,7 +254,7 @@ mutable struct TimestepCaches{T}
     # Cached ERK2 boundary specs keyed by (field role, BC code). The derivative
     # stencils they carry depend only on the domain and BC code, so they are
     # built once instead of every timestep; per-step endpoint values are still
-    # attached separately via `solver_with_boundary_mode_values`.
+    # attached separately via `with_boundary_mode_values`.
     erk2_boundary_specs::Dict{Tuple{Symbol,Int}, SolverERK2BoundarySpec{T}}
 end
 
@@ -385,14 +385,14 @@ function _synchronize_solver_views!(state::SolverState{T,<:AbstractArchitecture}
     return state
 end
 
-function solver_sync_output_physical_scalars!(state::SolverState{T,<:AbstractArchitecture}) where T
-    solver_scalar_spectral_to_physical!(
+function sync_output_physical_scalars!(state::SolverState{T,<:AbstractArchitecture}) where T
+    scalar_spectral_to_physical!(
         state.fields.temperature.spectral,
         state.fields.temperature.temperature,
     )
 
     if state.fields.composition !== nothing
-        solver_scalar_spectral_to_physical!(
+        scalar_spectral_to_physical!(
             state.fields.composition.spectral,
             state.fields.composition.composition,
         )
@@ -410,7 +410,7 @@ This is primarily used by restart/output tooling and tests that need a stable
 container representation independent of the in-memory field types.
 """
 function GeoDynamo.extract_all_fields(state::SolverState{T,<:AbstractArchitecture}) where {T}
-    solver_sync_output_physical_scalars!(state)
+    sync_output_physical_scalars!(state)
 
     fields = Dict{String, Any}()
 

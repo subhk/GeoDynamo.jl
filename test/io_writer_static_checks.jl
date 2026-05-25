@@ -13,7 +13,7 @@ const IO_STATIC_SIMULATION_SRC = read(joinpath(IO_STATIC_ROOT, "src", "api", "si
     @test occursin(r"(?s)if should_define_physical_field_variables\(config\).*?defVar\(ds, \"composition\"", IO_STATIC_NETCDF_SRC)
     @test occursin(r"(?s)if should_define_spectral_field_variables\(config\).*?velocity_toroidal", IO_STATIC_NETCDF_SRC)
 
-    @test occursin("solver_sync_output_physical_scalars!(state)", IO_STATIC_STATE_SRC)
+    @test occursin("sync_output_physical_scalars!(state)", IO_STATIC_STATE_SRC)
     @test occursin("fields[\"temperature\"] = copy(parent(state.fields.temperature.temperature.data))", IO_STATIC_STATE_SRC)
     @test occursin("\"temperature_spectral\"", IO_STATIC_STATE_SRC)
     @test occursin("fields[\"composition\"] = copy(parent(state.fields.composition.composition.data))", IO_STATIC_STATE_SRC)

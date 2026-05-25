@@ -93,7 +93,7 @@ end
 @inline solver_gpu_not_loaded_error() = SOLVER_GPU_NOT_LOADED_ERROR()
 @inline solver_gpu_unavailable_error() = SOLVER_GPU_UNAVAILABLE_ERROR()
 
-function solver_backend_ensure_mpi!()
+function backend_ensure_mpi!()
     solver_backend_mpi_initialized() || SOLVER_BACKEND_MPI.Init()
     return nothing
 end

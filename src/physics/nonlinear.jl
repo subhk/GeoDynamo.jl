@@ -305,7 +305,7 @@ solver_main_physical_field(𝔽::TemperatureFieldType{T}) where T = 𝔽.tempera
 
 solver_main_physical_field(𝔽::CompositionFieldType{T}) where T = 𝔽.composition
 
-function solver_scalar_spectral_to_physical!(
+function scalar_spectral_to_physical!(
     spec::SpectralFieldType{T},
     phys::PhysicalFieldType{T},) where T
 
@@ -324,7 +324,7 @@ function solver_scalar_spectral_to_physical!(
     axes_local = phys.pencil.axes_local
 
     for r_local in axes(phys_data, 3)
-        coeffs_matrix = solver_collect_scalar_coefficients(
+        coeffs_matrix = collect_scalar_coefficients(
             spec_real_data,
             spec_imag_data,
             r_local,
@@ -332,36 +332,36 @@ function solver_scalar_spectral_to_physical!(
         )
 
         if plan !== nothing && synth_out !== nothing
-            solver_synthesize_scalar!(plan, synth_out, coeffs_matrix)
+            synthesize_scalar!(plan, synth_out, coeffs_matrix)
             local_synth = @view synth_out[axes_local[1], axes_local[2]]
-            solver_store_physical_slice!(phys_data, local_synth, r_local, config)
+            store_physical_slice!(phys_data, local_synth, r_local, config)
         else
-            phys_slice = solver_synthesize_scalar(config, coeffs_matrix)
+            phys_slice = synthesize_scalar(config, coeffs_matrix)
             local_slice = @view phys_slice[axes_local[1], axes_local[2]]
-            solver_store_physical_slice!(phys_data, local_slice, r_local, config)
+            store_physical_slice!(phys_data, local_slice, r_local, config)
         end
     end
 
     return phys
 end
 
-@inline function solver_synthesize_scalar!(plan, synth_out, coeffs_matrix)
+@inline function synthesize_scalar!(plan, synth_out, coeffs_matrix)
     return sht_synthesis!(plan, synth_out, coeffs_matrix)
 end
 
-@inline function solver_synthesize_scalar(config, coeffs_matrix)
+@inline function synthesize_scalar(config, coeffs_matrix)
     return sht_synthesis(config, coeffs_matrix)
 end
 
-@inline function solver_analyze_scalar!(plan, anal_out, phys_slice)
+@inline function analyze_scalar!(plan, anal_out, phys_slice)
     return sht_analysis!(plan, anal_out, phys_slice)
 end
 
-@inline function solver_analyze_scalar(config, phys_slice)
+@inline function analyze_scalar(config, phys_slice)
     return sht_analysis(config, phys_slice)
 end
 
-function solver_extract_physical_slice!(
+function extract_physical_slice!(
     slice_buffer::Matrix{T},
     phys_data,
     r_local,
@@ -377,7 +377,7 @@ function solver_extract_physical_slice!(
             axes_local=axes_local,
         )
     end
-    return solver_cpu_extract_physical_slice!(
+    return cpu_extract_physical_slice!(
         slice_buffer,
         phys_data,
         r_local,
@@ -386,7 +386,7 @@ function solver_extract_physical_slice!(
     )
 end
 
-function solver_cpu_extract_physical_slice!(
+function cpu_extract_physical_slice!(
     slice_buffer::Matrix{T},
     phys_data,
     r_local,
@@ -425,7 +425,7 @@ function solver_cpu_extract_physical_slice!(
     return slice_buffer
 end
 
-function solver_extract_physical_slice(
+function extract_physical_slice(
     phys_data,
     r_local,
     config;
@@ -433,12 +433,12 @@ function solver_extract_physical_slice(
 )
     nlat, nlon = config.nlat, config.nlon
     slice_buffer = solver_get_cached_buffer!(config, :solver_generic_slice_buffer) do
-        solver_workspace_zeros(config, eltype(phys_data), nlat, nlon)
+        workspace_zeros(config, eltype(phys_data), nlat, nlon)
     end::Matrix{Float64}
     gathered_buffer = solver_get_cached_buffer!(config, :solver_generic_slice_buffer_gathered) do
-        solver_workspace_zeros(config, eltype(phys_data), nlat, nlon)
+        workspace_zeros(config, eltype(phys_data), nlat, nlon)
     end::Matrix{Float64}
-    solver_extract_physical_slice!(
+    extract_physical_slice!(
         slice_buffer,
         phys_data,
         r_local,
@@ -449,7 +449,7 @@ function solver_extract_physical_slice(
     return gathered_buffer
 end
 
-function solver_store_scalar_coefficients!(
+function store_scalar_coefficients!(
     spec_real,
     spec_imag,
     coeffs_matrix,
@@ -465,7 +465,7 @@ function solver_store_scalar_coefficients!(
             config,
         )
     end
-    return solver_cpu_store_scalar_coefficients!(
+    return cpu_store_scalar_coefficients!(
         spec_real,
         spec_imag,
         coeffs_matrix,
@@ -474,7 +474,7 @@ function solver_store_scalar_coefficients!(
     )
 end
 
-function solver_cpu_store_scalar_coefficients!(
+function cpu_store_scalar_coefficients!(
     spec_real,
     spec_imag,
     coeffs_matrix,
@@ -506,7 +506,7 @@ function solver_cpu_store_scalar_coefficients!(
     return nothing
 end
 
-function solver_scalar_physical_to_spectral!(
+function scalar_physical_to_spectral!(
     phys::PhysicalFieldType{T},
     spec::SpectralFieldType{T},
 ) where T
@@ -526,7 +526,7 @@ function solver_scalar_physical_to_spectral!(
     phys_axes_local = phys.pencil.axes_local
 
     for r_local in axes(phys_data, 3)
-        phys_slice = solver_extract_physical_slice(
+        phys_slice = extract_physical_slice(
             phys_data,
             r_local,
             config;
@@ -534,8 +534,8 @@ function solver_scalar_physical_to_spectral!(
         )
 
         if plan !== nothing && anal_out !== nothing
-            solver_analyze_scalar!(plan, anal_out, phys_slice)
-            solver_store_scalar_coefficients!(
+            analyze_scalar!(plan, anal_out, phys_slice)
+            store_scalar_coefficients!(
                 spec_real_data,
                 spec_imag_data,
                 anal_out,
@@ -543,8 +543,8 @@ function solver_scalar_physical_to_spectral!(
                 config,
             )
         else
-            coeffs_matrix = solver_analyze_scalar(config, phys_slice)
-            solver_store_scalar_coefficients!(
+            coeffs_matrix = analyze_scalar(config, phys_slice)
+            store_scalar_coefficients!(
                 spec_real_data,
                 spec_imag_data,
                 coeffs_matrix,
@@ -557,14 +557,14 @@ function solver_scalar_physical_to_spectral!(
     return spec
 end
 
-function solver_collect_scalar_coefficients(spec_real, spec_imag, r_local, config)
+function collect_scalar_coefficients(spec_real, spec_imag, r_local, config)
     lmax, mmax = config.lmax, config.mmax
 
     coeffs_buffer = solver_get_cached_buffer!(config, :coeffs_buffer) do
-        solver_workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
+        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
     end::Matrix{ComplexF64}
 
-    solver_fill_scalar_coeff_buffer!(
+    fill_scalar_coeff_buffer!(
         coeffs_buffer,
         spec_real,
         spec_imag,
@@ -573,7 +573,7 @@ function solver_collect_scalar_coefficients(spec_real, spec_imag, r_local, confi
     )
 
     coeffs_gathered = solver_get_cached_buffer!(config, :coeffs_buffer_gathered) do
-        solver_workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
+        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
     end::Matrix{ComplexF64}
 
     allreduce_sum!(coeffs_buffer, coeffs_gathered)
@@ -581,7 +581,7 @@ function solver_collect_scalar_coefficients(spec_real, spec_imag, r_local, confi
     return coeffs_gathered
 end
 
-@inline function solver_workspace_zeros(config, ::Type{T}, dims...) where {T}
+@inline function workspace_zeros(config, ::Type{T}, dims...) where {T}
     workspace = config._buffers.solver_transform_workspace
     if workspace isa TransformWorkspace && !(workspace.arch isa CPU)
         return solver_gpu_scratch_zeros(T, dims...)
@@ -645,14 +645,14 @@ function allreduce_sum!(sendbuf, recvbuf)
     return allreduce_sum_buffers!(sendbuf, recvbuf)
 end
 
-@inline function solver_lookup_lm(idx::Int, config)
+@inline function lookup_lm(idx::Int, config)
     if 1 <= idx <= length(config.l_values)
         return config.l_values[idx], config.m_values[idx]
     end
     return -1, -1
 end
 
-function solver_fill_scalar_coeff_buffer!(
+function fill_scalar_coeff_buffer!(
     coeffs_buffer::Matrix{ComplexF64},
     spec_real,
     spec_imag,
@@ -668,7 +668,7 @@ function solver_fill_scalar_coeff_buffer!(
             config,
         )
     end
-    return solver_cpu_fill_scalar_coeff_buffer!(
+    return cpu_fill_scalar_coeff_buffer!(
         coeffs_buffer,
         spec_real,
         spec_imag,
@@ -677,7 +677,7 @@ function solver_fill_scalar_coeff_buffer!(
     )
 end
 
-function solver_cpu_fill_scalar_coeff_buffer!(
+function cpu_fill_scalar_coeff_buffer!(
     coeffs_buffer::Matrix{ComplexF64},
     spec_real,
     spec_imag,
@@ -707,14 +707,14 @@ function solver_cpu_fill_scalar_coeff_buffer!(
     return coeffs_buffer
 end
 
-function solver_store_physical_slice!(phys_data, phys_slice, r_local, config)
+function store_physical_slice!(phys_data, phys_slice, r_local, config)
     if uses_gpu(config) && solver_gpu_device() !== :cuda
         return solver_gpu_store_physical_slice(phys_data, phys_slice, r_local)
     end
-    return solver_cpu_store_physical_slice!(phys_data, phys_slice, r_local)
+    return cpu_store_physical_slice!(phys_data, phys_slice, r_local)
 end
 
-function solver_cpu_store_physical_slice!(phys_data, phys_slice, r_local)
+function cpu_store_physical_slice!(phys_data, phys_slice, r_local)
     common_i_range = 1:min(size(phys_data, 1), size(phys_slice, 1))
     common_j_range = 1:min(size(phys_data, 2), size(phys_slice, 2))
 
@@ -729,7 +729,7 @@ function solver_cpu_store_physical_slice!(phys_data, phys_slice, r_local)
     return phys_data
 end
 
-function solver_apply_scalar_transform_batch!(
+function apply_scalar_transform_batch!(
     spectral_fields::Vector{SpectralFieldType{T}},
     physical_fields::Vector{PhysicalFieldType{T}},
 ) where T
@@ -737,7 +737,7 @@ function solver_apply_scalar_transform_batch!(
 
     # Keep transforms sequential because each synthesis path uses MPI collectives.
     for field_idx in eachindex(spectral_fields)
-        solver_scalar_spectral_to_physical!(
+        scalar_spectral_to_physical!(
             spectral_fields[field_idx],
             physical_fields[field_idx],
         )
@@ -750,10 +750,10 @@ function solver_transform_field_and_gradients_to_physical!(
     ws::SolverGradientWorkspace{T},
 ) where T
     main_physical_field = solver_main_physical_field(𝔽)
-    solver_scalar_spectral_to_physical!(𝔽.spectral, main_physical_field)
-    solver_scalar_spectral_to_physical!(ws.∇θ_spec, 𝔽.gradient.θ_component)
-    solver_scalar_spectral_to_physical!(ws.∇φ_spec, 𝔽.gradient.φ_component)
-    solver_scalar_spectral_to_physical!(ws.∇r_spec, 𝔽.gradient.r_component)
+    scalar_spectral_to_physical!(𝔽.spectral, main_physical_field)
+    scalar_spectral_to_physical!(ws.∇θ_spec, 𝔽.gradient.θ_component)
+    scalar_spectral_to_physical!(ws.∇φ_spec, 𝔽.gradient.φ_component)
+    scalar_spectral_to_physical!(ws.∇r_spec, 𝔽.gradient.r_component)
     return 𝔽
 end
 
@@ -863,24 +863,24 @@ function solver_enforce_ball_scalar_regularity!(spec::SpectralFieldType)
     return spec
 end
 
-function solver_ball_scalar_physical_to_spectral!(
+function ball_scalar_physical_to_spectral!(
     phys::PhysicalFieldType{T},
     spec::SpectralFieldType{T},
 ) where T
-    solver_scalar_physical_to_spectral!(phys, spec)
+    scalar_physical_to_spectral!(phys, spec)
     solver_enforce_ball_scalar_regularity!(spec)
     return spec
 end
 
-function solver_scalar_nonlinear_to_spectral!(
+function scalar_nonlinear_to_spectral!(
     phys::PhysicalFieldType{T},
     spec::SpectralFieldType{T},
     geometry::Symbol,
 ) where T
     if geometry === :ball
-        return solver_ball_scalar_physical_to_spectral!(phys, spec)
+        return ball_scalar_physical_to_spectral!(phys, spec)
     end
-    return solver_scalar_physical_to_spectral!(phys, spec)
+    return scalar_physical_to_spectral!(phys, spec)
 end
 
 function solver_compute_velocity_nonlinear!(
@@ -893,8 +893,8 @@ function solver_compute_velocity_nonlinear!(
     params::Union{Nothing,SolverParameters}=nothing,
 ) where T
     solver_params = isnothing(params) ? create_solver_parameters() : params
-    solver_prepare_velocity_fields!(velocity_fields, domain)
-    solver_accumulate_velocity_nonlinear_terms!(
+    prepare_velocity_fields!(velocity_fields, domain)
+    accumulate_velocity_nonlinear_terms!(
         velocity_fields,
         temperature_field,
         composition_field,
@@ -902,7 +902,7 @@ function solver_compute_velocity_nonlinear!(
         domain,
         solver_params,
     )
-    solver_finish_velocity_nonlinear!(velocity_fields; geometry)
+    finish_velocity_nonlinear!(velocity_fields; geometry)
     return velocity_fields
 end
 
@@ -914,8 +914,8 @@ function solver_compute_magnetic_nonlinear!(
     rotation_rate::Float64=0.0;
     geometry::Symbol=solver_default_geometry(),
 ) where T
-    solver_prepare_magnetic_fields!(magnetic_fields, outer_domain)
-    solver_apply_magnetic_nonlinear_terms!(
+    prepare_magnetic_fields!(magnetic_fields, outer_domain)
+    apply_magnetic_nonlinear_terms!(
         magnetic_fields,
         velocity_fields;
         geometry,

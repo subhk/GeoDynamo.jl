@@ -62,7 +62,7 @@ end
 # stored in `TimestepCaches.erk2_boundary_specs`. The helpers that build and
 # operate on them live here.
 
-function solver_with_boundary_mode_values(
+function with_boundary_mode_values(
     spec::SolverERK2BoundarySpec{T},
     inner_real::Union{Nothing, AbstractVector{T}},
     outer_real::Union{Nothing, AbstractVector{T}},
@@ -455,7 +455,7 @@ Set how often ERK2 stage residual diagnostics are reported.
 function GeoDynamo.set_erk2_diagnostics_interval!(interval::Int)
     interval <= 0 && error("ERK2 diagnostics interval must be positive, got $interval")
     SOLVER_SHARED_ERK2_DIAGNOSTICS_INTERVAL[] = interval
-    solver_set_erk2_diagnostics!(SOLVER_SHARED_ERK2_DIAGNOSTICS_ENABLED[], interval)
+    set_erk2_diagnostics!(SOLVER_SHARED_ERK2_DIAGNOSTICS_ENABLED[], interval)
     return interval
 end
 
@@ -467,7 +467,7 @@ Enable ERK2 residual diagnostics and optionally update the reporting interval.
 function GeoDynamo.enable_erk2_diagnostics!(; interval::Int=SOLVER_SHARED_ERK2_DIAGNOSTICS_INTERVAL[])
     GeoDynamo.set_erk2_diagnostics_interval!(interval)
     SOLVER_SHARED_ERK2_DIAGNOSTICS_ENABLED[] = true
-    solver_set_erk2_diagnostics!(true, interval)
+    set_erk2_diagnostics!(true, interval)
     return nothing
 end
 
@@ -478,7 +478,7 @@ Disable ERK2 residual diagnostics without changing the configured interval.
 """
 function GeoDynamo.disable_erk2_diagnostics!()
     SOLVER_SHARED_ERK2_DIAGNOSTICS_ENABLED[] = false
-    solver_set_erk2_diagnostics!(false, SOLVER_SHARED_ERK2_DIAGNOSTICS_INTERVAL[])
+    set_erk2_diagnostics!(false, SOLVER_SHARED_ERK2_DIAGNOSTICS_INTERVAL[])
     return nothing
 end
 
@@ -507,8 +507,8 @@ codes 1 through 4.
 function build_solver_erk2_scalar_bc(::Type{T}, domain::RadialDomainType, boundary_condition::Int) where T
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
-    d1_inner = solver_extract_dense_row(d1.data, d1.bandwidth, nr, 1)
-    d1_outer = solver_extract_dense_row(d1.data, d1.bandwidth, nr, nr)
+    d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
+    d1_outer = extract_dense_row(d1.data, d1.bandwidth, nr, nr)
 
     inner =
         boundary_condition == 1 || boundary_condition == 2 ?
@@ -1736,8 +1736,8 @@ function build_solver_erk2_velocity_tor_bc(
 ) where T
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
-    d1_inner = solver_extract_dense_row(d1.data, d1.bandwidth, nr, 1)
-    d1_outer = solver_extract_dense_row(d1.data, d1.bandwidth, nr, nr)
+    d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
+    d1_outer = extract_dense_row(d1.data, d1.bandwidth, nr, nr)
     r_inv_inner = T(domain.r[1, 3])
     r_inv_outer = T(domain.r[nr, 3])
 
@@ -1774,10 +1774,10 @@ function build_solver_erk2_velocity_pol_bc(::Type{T}, domain::RadialDomainType, 
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
     d2 = build_radial_derivative_matrix(T, 2, domain)
-    d1_inner = solver_extract_dense_row(d1.data, d1.bandwidth, nr, 1)
-    d1_outer = solver_extract_dense_row(d1.data, d1.bandwidth, nr, nr)
-    d2_inner = solver_extract_dense_row(d2.data, d2.bandwidth, nr, 1)
-    d2_outer = solver_extract_dense_row(d2.data, d2.bandwidth, nr, nr)
+    d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
+    d1_outer = extract_dense_row(d1.data, d1.bandwidth, nr, nr)
+    d2_inner = extract_dense_row(d2.data, d2.bandwidth, nr, 1)
+    d2_outer = extract_dense_row(d2.data, d2.bandwidth, nr, nr)
 
     inner =
         velocity_bc_code == 1 || velocity_bc_code == 2 ?
@@ -1812,8 +1812,8 @@ Create insulating boundary descriptors for magnetic poloidal fields.
 function build_solver_erk2_magnetic_pol_bc(::Type{T}, domain::RadialDomainType) where T
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
-    d1_inner = solver_extract_dense_row(d1.data, d1.bandwidth, nr, 1)
-    d1_outer = solver_extract_dense_row(d1.data, d1.bandwidth, nr, nr)
+    d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
+    d1_outer = extract_dense_row(d1.data, d1.bandwidth, nr, nr)
     r_inv_inner = T(domain.r[1, 3])
     r_inv_outer = T(domain.r[nr, 3])
 
@@ -2465,7 +2465,7 @@ end
 
 const ERK2FieldBuffers = SolverERK2FieldBuffers
 
-function solver_erk2_field_buffers_match(
+function erk2_field_buffers_match(
     buffers::SolverERK2FieldBuffers{T},
     u::SpectralFieldType{T},
     nl::SpectralFieldType{T},
@@ -2492,7 +2492,7 @@ function get_solver_erk2_field_buffers!(
     cache::ERK2StageCache{T},
 ) where T
     buffers = get(caches.erk2_field_buffers, key, nothing)
-    if buffers === nothing || !solver_erk2_field_buffers_match(buffers, u, nl, cache)
+    if buffers === nothing || !erk2_field_buffers_match(buffers, u, nl, cache)
         buffers = SolverERK2FieldBuffers(u, nl, cache)
         caches.erk2_field_buffers[key] = buffers
     end
@@ -2595,8 +2595,8 @@ function prepare_solver_erk2_field!(
         LA.mul!(stage_phi_tmp, phi1_half, nr_vec)
         @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
         if bc_spec !== nothing
-            inner_val = solver_boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
-            outer_val = solver_boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
+            inner_val = boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
+            outer_val = boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
             solver_enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr; value_override=inner_val)
             solver_enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr; value_override=outer_val)
         else
@@ -2624,8 +2624,8 @@ function prepare_solver_erk2_field!(
         LA.mul!(stage_phi_tmp, phi1_half, ni_vec)
         @. stage_tmp = stage_tmp + half_dt * stage_phi_tmp
         if bc_spec !== nothing
-            inner_val_i = solver_boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
-            outer_val_i = solver_boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
+            inner_val_i = boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
+            outer_val_i = boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
             solver_enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr; value_override=inner_val_i)
             solver_enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr; value_override=outer_val_i)
         else
@@ -2791,8 +2791,8 @@ function finalize_solver_erk2_field!(
         LA.mul!(correction, phi2, delta)
         @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
         if bc_spec !== nothing
-            inner_val = solver_boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
-            outer_val = solver_boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
+            inner_val = boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
+            outer_val = boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
             solver_enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr; value_override=inner_val)
             solver_enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr; value_override=outer_val)
         else
@@ -2840,8 +2840,8 @@ function finalize_solver_erk2_field!(
         LA.mul!(correction, phi2, delta)
         @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
         if bc_spec !== nothing
-            inner_val_i = solver_boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
-            outer_val_i = solver_boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
+            inner_val_i = boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
+            outer_val_i = boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
             solver_enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr; value_override=inner_val_i)
             solver_enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr; value_override=outer_val_i)
         else
@@ -3104,7 +3104,7 @@ end
 # on the radial domain and BC code — both fixed for a run — so this avoids
 # rebuilding them (each build runs N dense Vandermonde solves) every timestep.
 # Per-step endpoint values are attached separately via
-# `solver_with_boundary_mode_values`, so the cached base spec is never mutated.
+# `with_boundary_mode_values`, so the cached base spec is never mutated.
 function _get_or_build_erk2_boundary_spec!(
     caches::TimestepCaches{T},
     role::Symbol,
@@ -3146,7 +3146,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         () -> build_solver_erk2_scalar_bc(T, domain, temperature_bc_code),
     )
     temp_bc_values = get_bc_vectors(state.fields.temperature)
-    temp_bc = solver_with_boundary_mode_values(
+    temp_bc = with_boundary_mode_values(
         temp_bc,
         temp_bc_values.inner_real,
         temp_bc_values.outer_real,
@@ -3343,7 +3343,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             () -> build_solver_erk2_scalar_bc(T, domain, composition_bc_code),
         )
         comp_bc_values = get_bc_vectors(state.fields.composition)
-        comp_bc = solver_with_boundary_mode_values(
+        comp_bc = with_boundary_mode_values(
             comp_bc,
             comp_bc_values.inner_real,
             comp_bc_values.outer_real,
@@ -3443,7 +3443,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     pol_nr = size(parent(state.fields.velocity.𝒫.data_real), 3)
     apply_solver_velocity_poloidal_influence_correction!(
         state.fields.velocity.𝒫, vel_pol_influence, runtime.shtns_config;
-        work=solver_get_radial_work!(state.timestep_caches, :velocity_poloidal_influence, pol_nr).tmp_real,
+        work=get_radial_work!(state.timestep_caches, :velocity_poloidal_influence, pol_nr).tmp_real,
     )
 
     if mag_tor_buffers !== nothing

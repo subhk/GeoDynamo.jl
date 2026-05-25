@@ -66,10 +66,10 @@ function compute_total_energy!(state::SolverState{T,<:AbstractArchitecture}) whe
         vector_spectral_to_physical!(magnetic.𝒯, magnetic.𝒫, magnetic.magnetic; domain=domain)
     end
 
-    solver_scalar_spectral_to_physical!(temperature.spectral, temperature.temperature)
+    scalar_spectral_to_physical!(temperature.spectral, temperature.temperature)
 
     if composition !== nothing
-        solver_scalar_spectral_to_physical!(composition.spectral, composition.composition)
+        scalar_spectral_to_physical!(composition.spectral, composition.composition)
     end
 
     kinetic_e = vector_energy(

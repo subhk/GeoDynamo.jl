@@ -176,7 +176,7 @@ function Base.show(io::IO, ::MIME"text/plain", topography::SolverTopographyState
     _solver_print_row(io, "Stefan state", isnothing(topography.stefan) ? "inactive" : "ready")
 end
 
-function solver_create_shtns_config(::CPU, params::SolverParameters)
+function create_shtns_config(::CPU, params::SolverParameters)
     return SOLVER_SHTNS_CONFIG_BUILDER(
         lmax=params.lmax,
         mmax=params.mmax,
@@ -188,7 +188,7 @@ function solver_create_shtns_config(::CPU, params::SolverParameters)
     )
 end
 
-function solver_create_shtns_config(::GPU, params::SolverParameters)
+function create_shtns_config(::GPU, params::SolverParameters)
     # Non-CUDA GPU: SHTnsKit has no native support; use CPU SHTns config.
     # Physical data arrays live on the GPU; transforms run on CPU.
     return SOLVER_SHTNS_CONFIG_BUILDER(
@@ -202,13 +202,13 @@ function solver_create_shtns_config(::GPU, params::SolverParameters)
     )
 end
 
-function solver_architecture_from_symbol(architecture::Symbol)
+function architecture_from_symbol(architecture::Symbol)
     architecture === :cpu && return CPU()
     architecture === :gpu && return GPU(nothing)
     throw(ArgumentError("architecture = $(architecture) must be :cpu or :gpu"))
 end
 
-function solver_scale_radial_domain(domain::RadialDomainType, radius_scale::Real)
+function scale_radial_domain(domain::RadialDomainType, radius_scale::Real)
     scale = Float64(radius_scale)
     scale > 0 || throw(ArgumentError("inner-core radius scale must be positive, got $scale"))
 
@@ -241,16 +241,16 @@ function solver_scale_radial_domain(domain::RadialDomainType, radius_scale::Real
     )
 end
 
-function solver_create_inner_core_domain(params::SolverParameters)
+function create_inner_core_domain(params::SolverParameters)
     unit_ball_domain = SOLVER_BALL_DOMAIN_BUILDER(
         params.nr_inner;
         radial_bandwidth=params.radial_bandwidth,
     )
     inner_core_radius = params.radius_ratio / (1.0 - params.radius_ratio)
-    return solver_scale_radial_domain(unit_ball_domain, inner_core_radius)
+    return scale_radial_domain(unit_ball_domain, inner_core_radius)
 end
 
-function solver_create_radial_domains(params::SolverParameters)
+function create_radial_domains(params::SolverParameters)
     outer_core_domain =
         params.geometry === :ball ?
         SOLVER_BALL_DOMAIN_BUILDER(params.nr; radial_bandwidth=params.radial_bandwidth) :
@@ -262,7 +262,7 @@ function solver_create_radial_domains(params::SolverParameters)
 
     inner_core_domain =
         params.geometry === :shell ?
-        solver_create_inner_core_domain(params) :
+        create_inner_core_domain(params) :
         nothing
 
     return outer_core_domain, inner_core_domain
@@ -279,8 +279,8 @@ useful for advanced workflows that want to inspect or customize backend setup
 before allocating fields.
 """
 function create_solver_backend(arch::AbstractArchitecture, params::SolverParameters)
-    cfg = solver_create_shtns_config(arch, params)
-    outer_core_domain, inner_core_domain = solver_create_radial_domains(params)
+    cfg = create_shtns_config(arch, params)
+    outer_core_domain, inner_core_domain = create_radial_domains(params)
     return SolverBackend(
         params,
         arch,
@@ -293,7 +293,7 @@ function create_solver_backend(arch::AbstractArchitecture, params::SolverParamet
 end
 
 function create_solver_backend(params::SolverParameters)
-    arch = solver_architecture_from_symbol(params.architecture)
+    arch = architecture_from_symbol(params.architecture)
     return create_solver_backend(arch, params)
 end
 
@@ -335,7 +335,7 @@ function create_solver_fields(::Type{T}, backend::SolverBackend{<:AbstractArchit
     return velocity, magnetic, temperature, composition
 end
 
-function solver_build_velocity_implicit_matrices(cfg, domain, E, dt, velocity_bc_code)
+function build_velocity_implicit_matrices(cfg, domain, E, dt, velocity_bc_code)
     return (
         tor=SOLVER_VELOCITY_TOROIDAL_MATRIX_BUILDER(
             cfg, domain, E, dt; velocity_bc_code=velocity_bc_code, mass_coeff=E,
@@ -346,7 +346,7 @@ function solver_build_velocity_implicit_matrices(cfg, domain, E, dt, velocity_bc
     )
 end
 
-function solver_build_magnetic_implicit_matrices(cfg, domain, dt)
+function build_magnetic_implicit_matrices(cfg, domain, dt)
     return (
         tor=SOLVER_MAGNETIC_TOROIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt),
         pol=SOLVER_MAGNETIC_POLOIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt),
@@ -387,8 +387,8 @@ function create_solver_implicit_matrices(::Type{T}, backend::SolverBackend{<:Abs
     # Materialize every linear solve operator once so the timestep loop only
     # selects from prebuilt matrices instead of re-deriving them per field.
     matrices = Dict{Symbol, OldImplicitMatrices{T}}()
-    velocity = solver_build_velocity_implicit_matrices(cfg, outer, E, dt, velocity_bc_code)
-    magnetic = solver_build_magnetic_implicit_matrices(cfg, outer, dt)
+    velocity = build_velocity_implicit_matrices(cfg, outer, E, dt, velocity_bc_code)
+    magnetic = build_magnetic_implicit_matrices(cfg, outer, dt)
     matrices[:velocity_tor] = velocity.tor
     matrices[:velocity_pol] = velocity.pol
     matrices[:magnetic_tor] = magnetic.tor
@@ -410,7 +410,7 @@ end
 # outside the truncation map to 0. Building this table once removes the
 # per-call mode-array hashing that `mode_index` would otherwise incur in the
 # gradient hot loop (called per mode, per radial level, every timestep).
-function solver_build_theta_gradient_neighbors(cfg::SHTnsConfigType)
+function build_theta_gradient_neighbors(cfg::SHTnsConfigType)
     nlm = cfg.nlm
     lvals = cfg.l_values
     mvals = cfg.m_values
@@ -434,7 +434,7 @@ function create_solver_gradient_workspace(::Type{T}, backend::SolverBackend{<:Ab
     cfg = backend.shtns_config
     domain = backend.outer_core_domain
     pencil_spec = cfg.pencils.spec
-    theta_lm_plus, theta_lm_minus = solver_build_theta_gradient_neighbors(cfg)
+    theta_lm_plus, theta_lm_minus = build_theta_gradient_neighbors(cfg)
     # All-inferred constructor so both T and the concrete spectral type S are
     # taken from the arguments (`SolverGradientWorkspace{T}(...)` would be a
     # partial parametric application with no matching constructor).
@@ -465,7 +465,7 @@ function create_solver_timestep_state(backend::SolverBackend{<:AbstractArchitect
     )
 end
 
-function solver_load_field_bc_file!(field, filename, format, config, ::Type{T}, label, rank) where T
+function load_field_bc_file!(field, filename, format, config, ::Type{T}, label, rank) where T
     try
         coefficients = SOLVER_LOAD_SPECTRAL_BC(
             filename,
@@ -485,7 +485,7 @@ end
 
 function load_solver_file_bcs!(runtime::SolverRuntime{T,<:AbstractArchitecture}, params::SolverParameters, rank::Int) where T
     if !isempty(params.temperature_bc_file)
-        solver_load_field_bc_file!(
+        load_field_bc_file!(
             runtime.temperature,
             params.temperature_bc_file,
             params.temperature_bc_format,
@@ -497,7 +497,7 @@ function load_solver_file_bcs!(runtime::SolverRuntime{T,<:AbstractArchitecture},
     end
 
     if !isempty(params.composition_bc_file) && runtime.composition !== nothing
-        solver_load_field_bc_file!(
+        load_field_bc_file!(
             runtime.composition,
             params.composition_bc_file,
             params.composition_bc_format,
@@ -516,7 +516,7 @@ end
 @inline solver_scalar_boundary_value(bc) = bc.value
 
 """
-    solver_apply_scalar_boundary_parameters!(field, boundary_conditions)
+    apply_scalar_boundary_parameters!(field, boundary_conditions)
 
 Install scalar boundary values from `SolverParameters` into the field-owned
 boundary storage used by CNAB2, EAB2, and ERK2.
@@ -525,7 +525,7 @@ Parameter-specified scalar BCs are spatially uniform, so only the `(l,m)=(0,0)`
 mode receives a nonzero endpoint value. File-based spectral BCs can later
 replace this with per-mode real and imaginary values.
 """
-function solver_apply_scalar_boundary_parameters!(field, boundary_conditions::BoundaryConditions)
+function apply_scalar_boundary_parameters!(field, boundary_conditions::BoundaryConditions)
     T = eltype(field.boundary_values)
     fill!(field.bc_type_inner, solver_scalar_boundary_type(boundary_conditions.inner))
     fill!(field.bc_type_outer, solver_scalar_boundary_type(boundary_conditions.outer))
@@ -553,12 +553,12 @@ mean-mode defaults.
 function create_solver_runtime(::Type{T}, backend::SolverBackend{A};
                                auto_optimize::Bool=false,
                                adaptive_threading::Bool=false) where {T, A}
-    solver_backend_ensure_mpi!()
+    backend_ensure_mpi!()
 
     velocity, magnetic, temperature, composition = create_solver_fields(T, backend)
-    solver_apply_scalar_boundary_parameters!(temperature, backend.parameters.temperature_bcs)
+    apply_scalar_boundary_parameters!(temperature, backend.parameters.temperature_bcs)
     if composition !== nothing
-        solver_apply_scalar_boundary_parameters!(composition, backend.parameters.composition_bcs)
+        apply_scalar_boundary_parameters!(composition, backend.parameters.composition_bcs)
     end
     gradient_workspace = create_solver_gradient_workspace(T, backend)
     transform_workspace = create_transform_workspace(T, backend)
