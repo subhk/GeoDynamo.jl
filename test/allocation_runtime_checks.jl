@@ -19,8 +19,8 @@ const FINALIZE_MPI_ALLOC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
 # typed inside the measurement. Calling `@allocated f(x)` directly on non-const
 # test locals would count call-site dynamic dispatch/boxing and mask the real
 # per-call allocation of `f`.
-_alloc_theta_grad(f, ws) = @allocated GeoDynamo.solver_compute_theta_gradient_spectral!(f, ws)
-_alloc_phi_grad(f, ws)   = @allocated GeoDynamo.solver_compute_phi_gradient_spectral!(f, ws)
+_alloc_theta_grad(f, ws) = @allocated GeoDynamo.compute_theta_gradient_spectral!(f, ws)
+_alloc_phi_grad(f, ws)   = @allocated GeoDynamo.compute_phi_gradient_spectral!(f, ws)
 _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
 
 @testset "Runtime allocation & inference guards" begin
@@ -67,8 +67,8 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         # workspace spectral fields, so they are allocation-free once warmed.
         # (A non-concrete workspace field type silently reintroduces ~8 KB/call
         # of per-element boxing — this guards against that regression.)
-        GeoDynamo.solver_compute_theta_gradient_spectral!(temp_field, grad_ws)
-        GeoDynamo.solver_compute_phi_gradient_spectral!(temp_field, grad_ws)
+        GeoDynamo.compute_theta_gradient_spectral!(temp_field, grad_ws)
+        GeoDynamo.compute_phi_gradient_spectral!(temp_field, grad_ws)
         @test _alloc_theta_grad(temp_field, grad_ws) == 0
         @test _alloc_phi_grad(temp_field, grad_ws) == 0
     end
@@ -164,7 +164,7 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         # NB: `mode_index` itself infers to Any (its cache-table local is a
         # Union) — but it is no longer on the gradient hot path (#1 precomputes
         # the (l±1,m) neighbours), so the gradient call below is what matters.
-        @test (@inferred GeoDynamo.solver_compute_theta_gradient_spectral!(temp_field, grad_ws)) === grad_ws
+        @test (@inferred GeoDynamo.compute_theta_gradient_spectral!(temp_field, grad_ws)) === grad_ws
     end
 
     if MPI.Initialized() && FINALIZE_MPI_ALLOC && !MPI.Finalized()

@@ -1,4 +1,4 @@
-function solver_zero_gradient_workspace!(ws::SolverGradientWorkspace{T}) where T
+function zero_gradient_workspace!(ws::SolverGradientWorkspace{T}) where T
     fill!(parent(ws.∇θ_spec.data_real), zero(T))
     fill!(parent(ws.∇θ_spec.data_imag), zero(T))
     fill!(parent(ws.∇φ_spec.data_real), zero(T))
@@ -8,10 +8,7 @@ function solver_zero_gradient_workspace!(ws::SolverGradientWorkspace{T}) where T
     return ws
 end
 
-GeoDynamo.zero_gradient_workspace!(ws::SolverGradientWorkspace{T}) where {T} =
-    solver_zero_gradient_workspace!(ws)
-
-function solver_compute_theta_gradient_spectral!(
+function compute_theta_gradient_spectral!(
     𝔽::ScalarFieldType{T},
     ws::SolverGradientWorkspace{T},
 ) where T
@@ -99,12 +96,7 @@ function solver_compute_theta_gradient_spectral!(
     return ws
 end
 
-GeoDynamo.compute_theta_gradient_spectral!(
-    𝔽::ScalarFieldType{T},
-    ws::SolverGradientWorkspace{T},
-) where {T} = solver_compute_theta_gradient_spectral!(𝔽, ws)
-
-function solver_compute_phi_gradient_spectral!(
+function compute_phi_gradient_spectral!(
     𝔽::ScalarFieldType{T},
     ws::SolverGradientWorkspace{T},
 ) where T
@@ -145,12 +137,7 @@ function solver_compute_phi_gradient_spectral!(
     return ws
 end
 
-GeoDynamo.compute_phi_gradient_spectral!(
-    𝔽::ScalarFieldType{T},
-    ws::SolverGradientWorkspace{T},
-) where {T} = solver_compute_phi_gradient_spectral!(𝔽, ws)
-
-function solver_compute_radial_gradient_spectral!(
+function compute_radial_gradient_spectral!(
     𝔽::ScalarFieldType{T},
     domain::RadialDomainType,
     ws::SolverGradientWorkspace{T},
@@ -202,13 +189,7 @@ function solver_compute_radial_gradient_spectral!(
     return ws
 end
 
-GeoDynamo.compute_radial_gradient_spectral!(
-    𝔽::ScalarFieldType{T},
-    domain::RadialDomainType,
-    ws::SolverGradientWorkspace{T},
-) where {T} = solver_compute_radial_gradient_spectral!(𝔽, domain, ws)
-
-function solver_apply_geometric_factors_spectral!(
+function apply_geometric_factors_spectral!(
     ws::SolverGradientWorkspace{T},
     𝔽::ScalarFieldType{T},
     domain::RadialDomainType,
@@ -273,30 +254,18 @@ function solver_apply_geometric_factors_spectral!(
     return ws
 end
 
-GeoDynamo.apply_geometric_factors_spectral!(
-    ws::SolverGradientWorkspace{T},
-    𝔽::ScalarFieldType{T},
-    domain::RadialDomainType,
-) where {T} = solver_apply_geometric_factors_spectral!(ws, 𝔽, domain)
-
-function solver_compute_all_gradients_spectral!(
+function compute_all_gradients_spectral!(
     𝔽::ScalarFieldType{T},
     domain::RadialDomainType,
     ws::SolverGradientWorkspace{T},) where T
 
-    solver_compute_theta_gradient_spectral!(𝔽, ws)
-    solver_compute_phi_gradient_spectral!(𝔽, ws)
-    solver_compute_radial_gradient_spectral!(𝔽, domain, ws)
-    solver_apply_geometric_factors_spectral!(ws, 𝔽, domain)
+    compute_theta_gradient_spectral!(𝔽, ws)
+    compute_phi_gradient_spectral!(𝔽, ws)
+    compute_radial_gradient_spectral!(𝔽, domain, ws)
+    apply_geometric_factors_spectral!(ws, 𝔽, domain)
 
     return ws
 end
-
-GeoDynamo.compute_all_gradients_spectral!(
-    𝔽::ScalarFieldType{T},
-    domain::RadialDomainType,
-    ws::SolverGradientWorkspace{T},
-) where {T} = solver_compute_all_gradients_spectral!(𝔽, domain, ws)
 
 solver_main_physical_field(𝔽::ScalarFieldType) =
     error("Solver scalar transform does not support $(typeof(𝔽))")
@@ -745,7 +714,7 @@ function apply_scalar_transform_batch!(
     return nothing
 end
 
-function solver_transform_field_and_gradients_to_physical!(
+function transform_field_and_gradients_to_physical!(
     𝔽::ScalarFieldType{T},
     ws::SolverGradientWorkspace{T},
 ) where T
@@ -756,11 +725,6 @@ function solver_transform_field_and_gradients_to_physical!(
     scalar_spectral_to_physical!(ws.∇r_spec, 𝔽.gradient.r_component)
     return 𝔽
 end
-
-GeoDynamo.transform_field_and_gradients_to_physical!(
-    𝔽::ScalarFieldType{T},
-    ws::SolverGradientWorkspace{T},
-) where {T} = solver_transform_field_and_gradients_to_physical!(𝔽, ws)
 
 function solver_zero_scalar_work_arrays!(𝔽::ScalarFieldType{T}) where T
     fill!(parent(𝔽.work_spectral.data_real), zero(T))

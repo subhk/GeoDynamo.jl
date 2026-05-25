@@ -72,14 +72,14 @@ function solver_compute_temperature_nonlinear!(
     t_start = timing_enabled() ? mpi_wtime() : 0.0
 
     solver_zero_scalar_work_arrays!(temp_𝔽)
-    solver_zero_gradient_workspace!(ws)
+    zero_gradient_workspace!(ws)
 
     # Scalar nonlinear terms are formed as physical-space advection/source
     # fields and transformed back to spectral coefficients for timestepping.
     if timing_enabled()
         t_spectral = mpi_wtime()
     end
-    solver_compute_all_gradients_spectral!(temp_𝔽, 𝒟ᵒᶜ, ws)
+    compute_all_gradients_spectral!(temp_𝔽, 𝒟ᵒᶜ, ws)
     if timing_enabled()
         temp_𝔽.spectral_time[] += mpi_wtime() - t_spectral
     end
@@ -87,7 +87,7 @@ function solver_compute_temperature_nonlinear!(
     if timing_enabled()
         t_transform = mpi_wtime()
     end
-    solver_transform_field_and_gradients_to_physical!(temp_𝔽, ws)
+    transform_field_and_gradients_to_physical!(temp_𝔽, ws)
     if timing_enabled()
         temp_𝔽.transform_time[] += mpi_wtime() - t_transform
     end

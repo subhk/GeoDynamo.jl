@@ -52,14 +52,14 @@ function solver_compute_composition_nonlinear!(
     t_start = timing_enabled() ? mpi_wtime() : 0.0
 
     solver_zero_scalar_work_arrays!(𝔽)
-    solver_zero_gradient_workspace!(ws)
+    zero_gradient_workspace!(ws)
 
     # Composition shares the scalar transport path with temperature, but has no
     # internal source term here; only advection is transformed back to spectral.
     if timing_enabled()
         t_spectral = mpi_wtime()
     end
-    solver_compute_all_gradients_spectral!(𝔽, 𝒟ᵒᶜ, ws)
+    compute_all_gradients_spectral!(𝔽, 𝒟ᵒᶜ, ws)
     if timing_enabled()
         𝔽.spectral_time[] += mpi_wtime() - t_spectral
     end
@@ -67,7 +67,7 @@ function solver_compute_composition_nonlinear!(
     if timing_enabled()
         t_transform = mpi_wtime()
     end
-    solver_transform_field_and_gradients_to_physical!(𝔽, ws)
+    transform_field_and_gradients_to_physical!(𝔽, ws)
     if timing_enabled()
         𝔽.transform_time[] += mpi_wtime() - t_transform
     end
