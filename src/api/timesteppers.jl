@@ -69,15 +69,19 @@ _timestepper_scheme(::ETD) = :etd
 _timestepper_scheme(::ThetaMethod) = :theta
 _timestepper_scheme(scheme::Symbol) = scheme
 
-_timestepper_implicit_theta(timestepper, params) = params.implicit_theta
+# Timestepper-derived settings come from the timestepper struct itself; the
+# generic fallbacks use the standard defaults (these match the EAB2/ETD struct
+# defaults and the CNAB2 theta default) for schemes that do not carry the
+# corresponding field. SolverParameters no longer stores these scalars.
+_timestepper_implicit_theta(timestepper, params) = 0.5
 _timestepper_implicit_theta(timestepper::CNAB2, params) = timestepper.implicit_theta
 _timestepper_implicit_theta(timestepper::ThetaMethod, params) = timestepper.theta
 
-_timestepper_krylov_dimension(timestepper, params) = params.etd_krylov_dimension
+_timestepper_krylov_dimension(timestepper, params) = 20
 _timestepper_krylov_dimension(timestepper::EAB2, params) = timestepper.krylov_dimension
 _timestepper_krylov_dimension(timestepper::ETD, params) = timestepper.krylov_dimension
 
-_timestepper_krylov_tolerance(timestepper, params) = params.krylov_tolerance
+_timestepper_krylov_tolerance(timestepper, params) = 1e-8
 _timestepper_krylov_tolerance(timestepper::EAB2, params) = timestepper.tolerance
 _timestepper_krylov_tolerance(timestepper::ETD, params) = timestepper.tolerance
 
@@ -89,13 +93,11 @@ function _resolve_timestepper(
         krylov_tolerance::Union{Real,Nothing},
         params,
     )
+    # Fall back to the timestepper carried on the parameters when no explicit
+    # Simulation-level timestepper is supplied. SolverParameters stores the
+    # timestepper as a struct, so scheme/theta/krylov are derived from it.
     if isnothing(timestepper)
-        return (
-            timestep_scheme = something(timestep_scheme, params.timestep_scheme),
-            implicit_theta = Float64(something(implicit_theta, params.implicit_theta)),
-            etd_krylov_dimension = something(etd_krylov_dimension, params.etd_krylov_dimension),
-            krylov_tolerance = Float64(something(krylov_tolerance, params.krylov_tolerance)),
-        )
+        timestepper = params.timestepper
     end
 
     scheme = _timestepper_scheme(timestepper)
