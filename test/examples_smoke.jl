@@ -88,10 +88,12 @@ end
         )
         @test shell_state.parameters.geometry === :shell
 
-        params = topography_demo.setup_topography_via_params()
+        topo_model = topography_demo.setup_topography_model(
+            nr=16, nr_inner=4, lmax=4, mmax=4, nlat=12, nlon=16,
+        )
         topo = topography_demo.create_topography_examples()
         stefan = topography_demo.setup_stefan_evolution(0.35, 8)
-        @test params.topography_enabled
+        @test topo_model.state.parameters.topography_enabled
         @test topo.cmb !== nothing
         @test topo.cmb.lmax > 0
         @test stefan !== nothing

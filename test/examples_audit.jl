@@ -80,6 +80,6 @@ end
     @test occursin("create_shtns_temperature_field", initial_conditions_demo)
 
     topography_demo = read_example("topography_example.jl")
-    @test occursin("SolverParameters(", topography_demo)
+    @test occursin("GeodynamoModel(", topography_demo)
     @test occursin("initialize_gaunt_cache!", topography_demo)
 end
