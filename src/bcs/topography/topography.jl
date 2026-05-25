@@ -36,6 +36,13 @@ import ..bcs: FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC
 import ..bcs: get_rank, get_comm
 import ..bcs: shtns_spectral_to_physical
 
+# `local_spectral_storage_slot` and `get_mode_index` are defined at the GeoDynamo
+# top level (two modules up: topography -> bcs -> GeoDynamo). Forward to them
+# lazily so this submodule does not depend on package include order.
+const _GEODYNAMO_TOP = parentmodule(parentmodule(@__MODULE__))
+@inline local_spectral_storage_slot(args...) = _GEODYNAMO_TOP.local_spectral_storage_slot(args...)
+@inline get_mode_index(args...) = _GEODYNAMO_TOP.get_mode_index(args...)
+
 # These will be available when the module is loaded in the context of GeoDynamo
 # Define an abstract type for spectral fields - actual implementations will be duck-typed
 abstract type AbstractSpectralField{T} end
