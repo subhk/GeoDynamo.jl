@@ -94,6 +94,14 @@ struct ERK2StageCache{T}
     mpi_consistent::Bool
 end
 
+"""
+    SolverERK2FieldBuffers{T}
+
+Workspace for the two-stage ERK2 update of one spectral field.
+
+The buffers store linear propagation, first-stage nonlinear terms, provisional
+stage values, stage nonlinear terms, and reusable radial work vectors.
+"""
 struct SolverERK2FieldBuffers{T}
     linear_real::Array{T, 3}
     linear_imag::Array{T, 3}

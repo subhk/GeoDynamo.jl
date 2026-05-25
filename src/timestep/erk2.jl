@@ -2427,14 +2427,6 @@ GeoDynamo.apply_velocity_poloidal_influence_correction!(
 )
 
 """
-    SolverERK2FieldBuffers{T}
-
-Workspace for the two-stage ERK2 update of one spectral field.
-
-The buffers store linear propagation, first-stage nonlinear terms, provisional
-stage values, stage nonlinear terms, and reusable radial work vectors.
-"""
-"""
     SolverERK2FieldBuffers(u, nl, cache)
 
 Allocate ERK2 work buffers matching one spectral field, its nonlinear term, and
