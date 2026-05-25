@@ -620,20 +620,24 @@ end
 end
 
 @inline function _solver_get_cached_buffer_field!(create_func::F, config, ::Val{field}) where {F,field}
-    lock(solver_buffer_cache_lock()) do
-        workspace = config._buffers.solver_transform_workspace
-        if workspace isa TransformWorkspace
-            buffers = workspace.buffers
-            val = getfield(buffers, field)
-            if val === nothing
-                val = create_func()
-                setfield!(buffers, field, val)
-            end
-            return val
-        else
-            # Fallback: no solver workspace installed (should not happen in production)
-            return create_func()
-        end
+    workspace = config._buffers.solver_transform_workspace
+    # Fallback: no solver workspace installed (should not happen in production)
+    workspace isa TransformWorkspace || return create_func()
+    buffers = workspace.buffers
+    # Warm path: a buffer slot, once built, is never resized or cleared, so a
+    # populated slot can be returned without taking the lock. This routine runs
+    # per radial level, per transform, every timestep, so the lock + closure on
+    # the hot path was pure overhead.
+    cached = getfield(buffers, field)
+    cached === nothing || return cached
+    # Cold path: build under the lock, re-checking in case another task filled
+    # the slot first (double-checked locking).
+    return lock(solver_buffer_cache_lock()) do
+        existing = getfield(buffers, field)
+        existing === nothing || return existing
+        created = create_func()
+        setfield!(buffers, field, created)
+        return created
     end
 end
 

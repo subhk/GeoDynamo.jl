@@ -192,12 +192,20 @@ end
     temperature_solver = _allocation_static_source("physics", "temperature", "solver.jl")
     composition_solver = _allocation_static_source("physics", "composition", "solver.jl")
     magnetic_solver = _allocation_static_source("physics", "magnetic", "solver.jl")
-    @test occursin("solver_solve_temperature_implicit_step!(\n            temperature.spectral,\n            temperature.nonlinear,\n            state.implicit_matrices[:temperature];\n            bc_inner=bc.inner_real,\n            bc_outer=bc.outer_real,\n            bc_inner_imag=bc.inner_imag,\n            bc_outer_imag=bc.outer_imag,\n            work=radial_work,", temperature_solver)
-    @test occursin("solver_solve_velocity_implicit_step!(\n            velocity.𝒯,\n            velocity.nlᵀ,\n            state.implicit_matrices[:velocity_tor],\n            :toroidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.𝒟ᵒᶜ,\n            work=radial_work,", velocity_solver)
-    @test occursin("solver_solve_velocity_implicit_step!(\n            velocity.𝒫,\n            velocity.nlᴾ,\n            state.implicit_matrices[:velocity_pol],\n            :poloidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.𝒟ᵒᶜ,\n            work=radial_work,", velocity_solver)
-    @test occursin("solver_solve_composition_implicit_step!(\n            composition.spectral,\n            composition.nonlinear,\n            state.implicit_matrices[:composition];\n            bc_inner=bc.inner_real,\n            bc_outer=bc.outer_real,\n            bc_inner_imag=bc.inner_imag,\n            bc_outer_imag=bc.outer_imag,\n            work=radial_work,", composition_solver)
-    @test occursin("solver_solve_magnetic_implicit_step!(\n            magnetic.𝒯,\n            magnetic.nlᵀ,\n            state.implicit_matrices[:magnetic_tor],\n            :toroidal;\n            mag_bc_inner=inner_bc === nothing ? nothing : inner_bc[1],\n            prev_bc_inner=inner_bc === nothing ? nothing : inner_bc[2],\n            mag_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[3],\n            prev_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[4],\n            work=radial_work,", magnetic_solver)
-    @test occursin("solver_solve_magnetic_implicit_step!(\n            magnetic.𝒫,\n            magnetic.nlᴾ,\n            state.implicit_matrices[:magnetic_pol],\n            :poloidal,\n            work=radial_work,", magnetic_solver)
+    # These implicit-step solves must thread the reusable radial-work buffer
+    # instead of allocating per call. Assert the call is present and that
+    # `work=radial_work` is passed, without pinning the exact argument block
+    # (which gets refactored). Velocity and magnetic each have a toroidal and a
+    # poloidal solve, so both must thread the buffer.
+    @test occursin("solver_solve_temperature_implicit_step!(", temperature_solver)
+    @test occursin("work=radial_work,", temperature_solver)
+    @test occursin("solver_solve_composition_implicit_step!(", composition_solver)
+    @test occursin("work=radial_work,", composition_solver)
+    @test occursin("solver_solve_velocity_implicit_step!(", velocity_solver)
+    @test occursin(":toroidal", velocity_solver) && occursin(":poloidal", velocity_solver)
+    @test count("work=radial_work", velocity_solver) >= 2
+    @test occursin("solver_solve_magnetic_implicit_step!(", magnetic_solver)
+    @test count("work=radial_work", magnetic_solver) >= 2
 
     velocity_field = _allocation_static_source("physics", "velocity", "field.jl")
     @test !occursin("_compute_vorticity_spectral_threaded!", velocity_field)
