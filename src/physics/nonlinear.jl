@@ -69,7 +69,9 @@ function solver_compute_theta_gradient_spectral!(
                 dtheta_imag = zero(T)
 
                 if l < 𝔽.config.lmax
-                    lm_plus = mode_index(𝔽.config, l + 1, m)
+                    # Neighbor (l+1, m) storage index is precomputed once in the
+                    # workspace; avoids hashing the full mode arrays every call.
+                    lm_plus = ws.theta_lm_plus[lm_idx]
                     if lm_plus > 0 && lm_plus <= nlm
                         A_plus = T(l) * sqrt(T((l + abs_m + 1) * (l - abs_m + 1)) /
                                              T((2 * l + 1) * (2 * l + 3)))
@@ -79,7 +81,7 @@ function solver_compute_theta_gradient_spectral!(
                 end
 
                 if l > abs_m
-                    lm_minus = mode_index(𝔽.config, l - 1, m)
+                    lm_minus = ws.theta_lm_minus[lm_idx]
                     if lm_minus > 0 && lm_minus <= nlm
                         A_minus = -T(l + 1) * sqrt(T((l + abs_m) * (l - abs_m)) /
                                                    T((2 * l - 1) * (2 * l + 1)))

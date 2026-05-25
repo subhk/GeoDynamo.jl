@@ -253,6 +253,7 @@ Dirichlet boundary values on the inner and outer radial surfaces.
 """
 function enforce_velocity_boundary_values!(𝒰::SHTnsVelocityFields{T}) where T
     domain = 𝒰.domain
+    config = 𝒰.𝒯.config
     tor_real = parent(𝒰.𝒯.data_real)
     tor_imag = parent(𝒰.𝒯.data_imag)
     pol_real = parent(𝒰.𝒫.data_real)

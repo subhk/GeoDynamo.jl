@@ -57,55 +57,10 @@
     function load_erk2_cache_bundle! end
 end
 
-"""
-    SolverERK2BoundarySide{T}
-
-Boundary condition descriptor for one radial endpoint in an ERK2 solve.
-
-`type` selects the physical condition, `stencil` supplies derivative rows for
-Neumann-like constraints, and the correction fields encode the `l`-dependent
-terms used by stress-free and insulating boundary formulas.
-"""
-struct SolverERK2BoundarySide{T}
-    type::Symbol
-    value::T
-    stencil::Vector{T}
-    r_inv::T
-    l_sign::T
-    use_l_correction::Bool
-    fixed_correction::T
-    l0_dirichlet::Bool
-end
-
-"""
-    SolverERK2BoundarySpec{T}
-
-Pair of inner/outer ERK2 boundary descriptors plus optional mode-dependent
-endpoint values.
-
-Mode values are used for cases such as rotating inner-core toroidal velocity,
-where only selected `(l,m)` modes carry a nonzero endpoint value.
-"""
-struct SolverERK2BoundarySpec{T}
-    inner::SolverERK2BoundarySide{T}
-    outer::SolverERK2BoundarySide{T}
-    inner_mode_values::Union{Nothing, AbstractVector{T}}
-    outer_mode_values::Union{Nothing, AbstractVector{T}}
-    inner_mode_values_imag::Union{Nothing, AbstractVector{T}}
-    outer_mode_values_imag::Union{Nothing, AbstractVector{T}}
-end
-
-"""
-    SolverERK2BoundarySpec{T}(inner, outer)
-
-Construct a boundary pair with no mode-dependent endpoint overrides.
-"""
-function SolverERK2BoundarySpec{T}(
-    inner::SolverERK2BoundarySide{T},
-    outer::SolverERK2BoundarySide{T},
-) where T
-    return SolverERK2BoundarySpec{T}(inner, outer, nothing, nothing, nothing, nothing)
-end
+# `SolverERK2BoundarySide` and `SolverERK2BoundarySpec` are defined in
+# `solver/state.jl` (next to the other timestep-cache types) so they can be
+# stored in `TimestepCaches.erk2_boundary_specs`. The helpers that build and
+# operate on them live here.
 
 function solver_with_boundary_mode_values(
     spec::SolverERK2BoundarySpec{T},
@@ -2377,13 +2332,16 @@ modes in a distributed field.
 function apply_solver_velocity_poloidal_influence_correction!(
     field::SpectralFieldType{T},
     influence_matrices::Dict{Int, ERK2InfluenceOp{T}},
-    config::SHTnsConfigType,
+    config::SHTnsConfigType;
+    work::Union{Vector{T}, Nothing}=nothing,
 ) where T
     u_real = parent(field.data_real)
     u_imag = parent(field.data_imag)
     lm_range = local_spectral_mode_indices(config)
     nr = size(u_real, 3)
-    tmp = Vector{T}(undef, nr)
+    # Reuse a caller-provided scratch vector when correctly sized; only allocate
+    # on the fallback path (e.g. external callers that pass no workspace).
+    tmp = (work !== nothing && length(work) == nr) ? work : Vector{T}(undef, nr)
 
     @inbounds for lm_idx in lm_range
         l = config.l_values[lm_idx]
@@ -3149,6 +3107,27 @@ function restore_solver_erk2_nonlinear_terms!(
     return state
 end
 
+# Fetch a cached ERK2 boundary spec for `(role, bc_code)`, building it once via
+# `builder` on first request. The derivative stencils a spec carries depend only
+# on the radial domain and BC code — both fixed for a run — so this avoids
+# rebuilding them (each build runs N dense Vandermonde solves) every timestep.
+# Per-step endpoint values are attached separately via
+# `solver_with_boundary_mode_values`, so the cached base spec is never mutated.
+function _get_or_build_erk2_boundary_spec!(
+    caches::TimestepCaches{T},
+    role::Symbol,
+    bc_code::Int,
+    builder::F,
+) where {T,F}
+    specs = caches.erk2_boundary_specs
+    key = (role, bc_code)
+    cached = get(specs, key, nothing)
+    cached === nothing || return cached
+    spec = builder()::SolverERK2BoundarySpec{T}
+    specs[key] = spec
+    return spec
+end
+
 """
     integrate_solver_erk2_step!(state)
 
@@ -3170,7 +3149,10 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
 
     # Build the boundary embedding for each active field up front so the stage
     # march can stay uniform across temperature, velocity, magnetic, and composition.
-    temp_bc = build_solver_erk2_scalar_bc(T, domain, temperature_bc_code)
+    temp_bc = _get_or_build_erk2_boundary_spec!(
+        state.timestep_caches, :temperature, temperature_bc_code,
+        () -> build_solver_erk2_scalar_bc(T, domain, temperature_bc_code),
+    )
     temp_bc_values = get_bc_vectors(state.fields.temperature)
     temp_bc = solver_with_boundary_mode_values(
         temp_bc,
@@ -3179,14 +3161,20 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         temp_bc_values.inner_imag,
         temp_bc_values.outer_imag,
     )
-    vel_tor_bc = build_solver_erk2_velocity_tor_bc(
-        T,
-        domain,
-        velocity_bc_code;
-        config=runtime.shtns_config,
-        rot_omega=0.0,
+    vel_tor_bc = _get_or_build_erk2_boundary_spec!(
+        state.timestep_caches, :velocity_tor, velocity_bc_code,
+        () -> build_solver_erk2_velocity_tor_bc(
+            T,
+            domain,
+            velocity_bc_code;
+            config=runtime.shtns_config,
+            rot_omega=0.0,
+        ),
     )
-    vel_pol_bc = build_solver_erk2_velocity_pol_bc(T, domain, velocity_bc_code)
+    vel_pol_bc = _get_or_build_erk2_boundary_spec!(
+        state.timestep_caches, :velocity_pol, velocity_bc_code,
+        () -> build_solver_erk2_velocity_pol_bc(T, domain, velocity_bc_code),
+    )
 
     # Velocity poloidal evolution needs an influence operator so the accepted
     # step satisfies the no-penetration constraint after ERK2 finalization.
@@ -3292,8 +3280,14 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     mag_tor_bc = nothing
     mag_pol_bc = nothing
     if params.include_magnetic_field && state.fields.magnetic !== nothing
-        mag_tor_bc = build_solver_erk2_magnetic_tor_bc(T, nr)
-        mag_pol_bc = build_solver_erk2_magnetic_pol_bc(T, domain)
+        mag_tor_bc = _get_or_build_erk2_boundary_spec!(
+            state.timestep_caches, :magnetic_tor, 0,
+            () -> build_solver_erk2_magnetic_tor_bc(T, nr),
+        )
+        mag_pol_bc = _get_or_build_erk2_boundary_spec!(
+            state.timestep_caches, :magnetic_pol, 0,
+            () -> build_solver_erk2_magnetic_pol_bc(T, domain),
+        )
 
         mag_tor_cache = get_solver_erk2_magnetic_toroidal_cache!(
             state.timestep_caches,
@@ -3352,7 +3346,10 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     comp_cache = nothing
     comp_bc = nothing
     if state.fields.composition !== nothing
-        comp_bc = build_solver_erk2_scalar_bc(T, domain, composition_bc_code)
+        comp_bc = _get_or_build_erk2_boundary_spec!(
+            state.timestep_caches, :composition, composition_bc_code,
+            () -> build_solver_erk2_scalar_bc(T, domain, composition_bc_code),
+        )
         comp_bc_values = get_bc_vectors(state.fields.composition)
         comp_bc = solver_with_boundary_mode_values(
             comp_bc,
@@ -3451,7 +3448,11 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         params.timestep;
         bc_spec=vel_pol_bc,
     )
-    apply_solver_velocity_poloidal_influence_correction!(state.fields.velocity.𝒫, vel_pol_influence, runtime.shtns_config)
+    pol_nr = size(parent(state.fields.velocity.𝒫.data_real), 3)
+    apply_solver_velocity_poloidal_influence_correction!(
+        state.fields.velocity.𝒫, vel_pol_influence, runtime.shtns_config;
+        work=solver_get_radial_work!(state.timestep_caches, :velocity_poloidal_influence, pol_nr).tmp_real,
+    )
 
     if mag_tor_buffers !== nothing
         finalize_solver_erk2_field!(

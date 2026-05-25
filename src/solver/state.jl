@@ -170,6 +170,56 @@ SolverRadialWork{T}(nr::Int) where T = SolverRadialWork{T}(
     SolverKrylovWork{T}(),
 )
 
+"""
+    SolverERK2BoundarySide{T}
+
+Boundary condition descriptor for one radial endpoint in an ERK2 solve.
+
+`type` selects the physical condition, `stencil` supplies derivative rows for
+Neumann-like constraints, and the correction fields encode the `l`-dependent
+terms used by stress-free and insulating boundary formulas.
+"""
+struct SolverERK2BoundarySide{T}
+    type::Symbol
+    value::T
+    stencil::Vector{T}
+    r_inv::T
+    l_sign::T
+    use_l_correction::Bool
+    fixed_correction::T
+    l0_dirichlet::Bool
+end
+
+"""
+    SolverERK2BoundarySpec{T}
+
+Pair of inner/outer ERK2 boundary descriptors plus optional mode-dependent
+endpoint values.
+
+Mode values are used for cases such as rotating inner-core toroidal velocity,
+where only selected `(l,m)` modes carry a nonzero endpoint value.
+"""
+struct SolverERK2BoundarySpec{T}
+    inner::SolverERK2BoundarySide{T}
+    outer::SolverERK2BoundarySide{T}
+    inner_mode_values::Union{Nothing, AbstractVector{T}}
+    outer_mode_values::Union{Nothing, AbstractVector{T}}
+    inner_mode_values_imag::Union{Nothing, AbstractVector{T}}
+    outer_mode_values_imag::Union{Nothing, AbstractVector{T}}
+end
+
+"""
+    SolverERK2BoundarySpec{T}(inner, outer)
+
+Construct a boundary pair with no mode-dependent endpoint overrides.
+"""
+function SolverERK2BoundarySpec{T}(
+    inner::SolverERK2BoundarySide{T},
+    outer::SolverERK2BoundarySide{T},
+) where T
+    return SolverERK2BoundarySpec{T}(inner, outer, nothing, nothing, nothing, nothing)
+end
+
 mutable struct TimestepCaches{T}
     # EAB2 exponential integrator caches.
     etd_velocity_toroidal   :: Union{EAB2CacheEntry{T}, Nothing}
@@ -193,6 +243,11 @@ mutable struct TimestepCaches{T}
     # Field-keyed ERK2 stage buffers. These buffers are full spectral arrays, so
     # they must be reused across timesteps rather than rebuilt for each stage.
     erk2_field_buffers::Dict{Symbol, SolverERK2FieldBuffers{T}}
+    # Cached ERK2 boundary specs keyed by (field role, BC code). The derivative
+    # stencils they carry depend only on the domain and BC code, so they are
+    # built once instead of every timestep; per-step endpoint values are still
+    # attached separately via `solver_with_boundary_mode_values`.
+    erk2_boundary_specs::Dict{Tuple{Symbol,Int}, SolverERK2BoundarySpec{T}}
 end
 
 TimestepCaches{T}() where T = TimestepCaches{T}(
@@ -201,6 +256,7 @@ TimestepCaches{T}() where T = TimestepCaches{T}(
     nothing,
     Dict{Symbol, SolverRadialWork{T}}(),
     Dict{Symbol, SolverERK2FieldBuffers{T}}(),
+    Dict{Tuple{Symbol,Int}, SolverERK2BoundarySpec{T}}(),
 )
 
 struct ImplicitMatrixSet{T}

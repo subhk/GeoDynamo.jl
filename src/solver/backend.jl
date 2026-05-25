@@ -60,6 +60,10 @@ struct SolverGradientWorkspace{T}
     ∇r_spec::SpectralFieldType{T}
     theta_full_real::Vector{T}
     theta_full_imag::Vector{T}
+    # Precomputed (l±1, m) -> global storage index for the θ-gradient recurrence.
+    # Built once so the per-mode hot loop avoids hashing the full mode arrays.
+    theta_lm_plus::Vector{Int}
+    theta_lm_minus::Vector{Int}
 end
 
 """
@@ -396,16 +400,44 @@ end
 @inline solver_create_gradient_field(::Type{T}, cfg, domain, pencil_spec) where T =
     SOLVER_SPECTRAL_FIELD_BUILDER(T, cfg, domain, pencil_spec)
 
+# Precompute, for every spectral mode (l, m), the storage index of its
+# (l+1, m) and (l-1, m) neighbors used by the θ-gradient recurrence. Neighbors
+# outside the truncation map to 0. Building this table once removes the
+# per-call mode-array hashing that `mode_index` would otherwise incur in the
+# gradient hot loop (called per mode, per radial level, every timestep).
+function solver_build_theta_gradient_neighbors(cfg::SHTnsConfigType)
+    nlm = cfg.nlm
+    lvals = cfg.l_values
+    mvals = cfg.m_values
+    index_of = Dict{Tuple{Int,Int}, Int}()
+    sizehint!(index_of, nlm)
+    @inbounds for i in 1:nlm
+        index_of[(lvals[i], mvals[i])] = i
+    end
+    lm_plus = zeros(Int, nlm)
+    lm_minus = zeros(Int, nlm)
+    @inbounds for i in 1:nlm
+        l = lvals[i]
+        m = mvals[i]
+        lm_plus[i]  = get(index_of, (l + 1, m), 0)
+        lm_minus[i] = get(index_of, (l - 1, m), 0)
+    end
+    return lm_plus, lm_minus
+end
+
 function create_solver_gradient_workspace(::Type{T}, backend::SolverBackend{<:AbstractArchitecture}) where T
     cfg = backend.shtns_config
     domain = backend.outer_core_domain
     pencil_spec = cfg.pencils.spec
+    theta_lm_plus, theta_lm_minus = solver_build_theta_gradient_neighbors(cfg)
     return SolverGradientWorkspace{T}(
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
         zeros(T, cfg.nlm),
         zeros(T, cfg.nlm),
+        theta_lm_plus,
+        theta_lm_minus,
     )
 end
 
