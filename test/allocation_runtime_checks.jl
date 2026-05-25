@@ -15,6 +15,14 @@ using MPI
 
 const FINALIZE_MPI_ALLOC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
+# Measure allocations through a function barrier so the arguments are concretely
+# typed inside the measurement. Calling `@allocated f(x)` directly on non-const
+# test locals would count call-site dynamic dispatch/boxing and mask the real
+# per-call allocation of `f`.
+_alloc_theta_grad(f, ws) = @allocated GeoDynamo.solver_compute_theta_gradient_spectral!(f, ws)
+_alloc_phi_grad(f, ws)   = @allocated GeoDynamo.solver_compute_phi_gradient_spectral!(f, ws)
+_alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
+
 @testset "Runtime allocation & inference guards" begin
     if MPI.Finalized()
         @warn "MPI already finalized; skipping runtime allocation guards"
@@ -50,20 +58,19 @@ const FINALIZE_MPI_ALLOC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
     domain = state.runtime.𝒟ᵒᶜ
 
     # --- A. Cached lookups are allocation-free; hot paths reuse, not rebuild ---
-    @testset "cached lookups do not allocate" begin
+    @testset "hot paths do not allocate" begin
         # The owned spectral-mode list is cached per config (not rebuilt per call).
         GeoDynamo.local_spectral_mode_indices(cfg)
-        @test (@allocated GeoDynamo.local_spectral_mode_indices(cfg)) == 0
+        @test _alloc_mode_indices(cfg) == 0
 
-        # (Radial-work cache reuse is validated by object identity in the
-        # influence-scratch testset below, which is robust to measurement noise.)
-
-        # The θ/φ-gradient runs and returns its (reused) workspace. We don't
-        # assert @allocated==0 on the gradient itself: its ~8 KB/call residual is
-        # the PencilArrays `axes_local` access inside `local_range`, a separate
-        # pre-existing allocation unrelated to the gradient's own buffers.
-        @test GeoDynamo.solver_compute_theta_gradient_spectral!(temp_field, grad_ws) === grad_ws
-        @test GeoDynamo.solver_compute_phi_gradient_spectral!(temp_field, grad_ws) === grad_ws
+        # The θ/φ-gradient kernels write in place into the (concretely-typed)
+        # workspace spectral fields, so they are allocation-free once warmed.
+        # (A non-concrete workspace field type silently reintroduces ~8 KB/call
+        # of per-element boxing — this guards against that regression.)
+        GeoDynamo.solver_compute_theta_gradient_spectral!(temp_field, grad_ws)
+        GeoDynamo.solver_compute_phi_gradient_spectral!(temp_field, grad_ws)
+        @test _alloc_theta_grad(temp_field, grad_ws) == 0
+        @test _alloc_phi_grad(temp_field, grad_ws) == 0
     end
 
     # --- B. Caches reuse rather than rebuild -----------------------------------
@@ -134,6 +141,12 @@ const FINALIZE_MPI_ALLOC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         @test isconcretetype(typeof(temp_field))
 
         gwT = typeof(grad_ws)
+        # Workspace spectral fields must be concretely typed — a bare
+        # `SpectralFieldType{T}` (params unbound) is non-concrete and boxes in
+        # the gradient hot loop.
+        @test isconcretetype(fieldtype(gwT, :∇θ_spec))
+        @test isconcretetype(fieldtype(gwT, :∇φ_spec))
+        @test isconcretetype(fieldtype(gwT, :∇r_spec))
         @test fieldtype(gwT, :theta_lm_plus) === Vector{Int}
         @test fieldtype(gwT, :theta_lm_minus) === Vector{Int}
         @test fieldtype(gwT, :theta_full_real) === Vector{Float64}
