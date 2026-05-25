@@ -1,12 +1,6 @@
 using Test
 
 @testset "Stability Regressions" begin
-    @testset "typed active parameter access" begin
-        f() = GeoDynamo.active_parameters().i_N + 1
-        ci = only(code_typed(f, (); optimize=true))
-        @test ci.second === Int
-    end
-
     @testset "gpu scratch allocation hook is inferred" begin
         ci = only(code_typed(GeoDynamo.gpu_scratch_zeros, (Type{Float64}, Int, Int); optimize=true))
         @test ci.second !== Any
@@ -17,12 +11,11 @@ using Test
     end
 
     @testset "scalar cache cleanup helpers empty global caches" begin
-        params = GeoDynamo.active_parameters()
         cfg = GeoDynamo.create_shtnskit_config(lmax=2, mmax=2, nlat=8, nlon=16, nr=4)
         GeoDynamo.get_mode_index(cfg, 0, 0)
         @test !isempty(GeoDynamo._MODE_INDEX_CACHE)
 
-        domain = GeoDynamo.create_shell_radial_domain(params.i_N)
+        domain = GeoDynamo.create_shell_radial_domain(4)
         GeoDynamo._TAU_CACHE[domain] = GeoDynamo._TauCache(
             4, zeros(4), zeros(4), 0.0, 0.0, 0.0, 0.0
         )
