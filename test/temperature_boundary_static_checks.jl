@@ -78,8 +78,9 @@ end
     @test occursin("Union{AbstractVector{T}, Nothing}", scalar_solve)
     @test occursin("local_spectral_mode_indices(solution.config)", scalar_solve)
 
+    state = _temperature_bc_static_source("src", "solver", "state.jl")
     boundary_spec = _temperature_bc_static_function_body(
-        erk2,
+        state,
         "struct SolverERK2BoundarySpec",
     )
     @test occursin("inner_mode_values_imag", boundary_spec)
