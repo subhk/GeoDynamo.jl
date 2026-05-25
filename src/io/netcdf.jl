@@ -15,7 +15,7 @@ function check_parallel_netcdf_support(comm)
     tmpfile = rank == 0 ? tempname() * ".nc" : ""
     tmpfile = MPI.bcast(tmpfile, comm; root=0)
     try
-        ds = NCDataset(tmpfile, "c"; comm=comm, info=MPI.Info())
+        ds = NCDataset(comm, tmpfile, "c"; info=MPI.Info())
         close(ds)
     catch e
         error("Parallel NetCDF (MPI-IO) is required but not available. " *
@@ -80,7 +80,7 @@ function create_parallel_netcdf(filename::String, config::OutputConfig,
     end
     MPI.Barrier(comm)
 
-    ds = NCDataset(filename, "c"; comm=comm, info=MPI.Info())
+    ds = NCDataset(comm, filename, "c"; info=MPI.Info())
 
     # Global attributes
     ds.attrib["title"] = "GeoDynamo Simulation Output"
@@ -178,7 +178,8 @@ function setup_variables!(ds, field_info::FieldInfo, config::OutputConfig,
     if config.output_space == MIXED_FIELDS || config.output_space == PHYSICAL_ONLY
         if field_info.nlat > 0
             defVar(ds, "theta", T, ("theta",); attrib=Dict(
-                "long_name" => "colatitude", "units" => "radians"))
+                "long_name" => "latitude", "units" => "radians",
+                "description" => "Latitude (Gauss-Legendre nodes, -pi/2 to pi/2)"))
         end
         if field_info.nlon > 0
             defVar(ds, "phi", T, ("phi",); attrib=Dict(
@@ -591,8 +592,8 @@ function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
         if field_info.nlat > 0
             defDim(ds, "theta", field_info.nlat)
             defVar(ds, "theta", T, ("theta",); attrib=Dict(
-                "long_name" => "colatitude", "units" => "radians",
-                "description" => "Colatitude from north pole (0 to pi)"))
+                "long_name" => "latitude", "units" => "radians",
+                "description" => "Latitude from equator (Gauss-Legendre nodes, -pi/2 to pi/2)"))
         end
 
         if field_info.nlon > 0

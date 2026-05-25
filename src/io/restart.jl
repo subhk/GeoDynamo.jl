@@ -102,7 +102,7 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
     metadata = Dict{String, Any}()
 
     # All ranks open the file collectively for reading
-    ds = NCDataset(filename, "r"; comm=comm, info=MPI.Info())
+    ds = NCDataset(comm, filename, "r"; info=MPI.Info())
 
     try
         # Read metadata (all ranks read scalars)
@@ -218,7 +218,7 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
     restart_data = Dict{String, Any}()
     metadata = Dict{String, Any}()
 
-    ds = NCDataset(filepath, "r"; comm=comm, info=MPI.Info())
+    ds = NCDataset(comm, filepath, "r"; info=MPI.Info())
 
     try
         # Read time and step metadata
