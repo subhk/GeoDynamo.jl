@@ -4,6 +4,34 @@ using Random
 
 const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
+# Restrict a randomly-seeded spectral field to the physically valid SH modes for
+# this config's (l,m) storage layout. The spectral pencil is 2D (l_slot, m_slot, r),
+# whose upper triangle (l < m) holds no degrees of freedom; the imaginary part of
+# m=0 modes is also zero for real fields, and l=0 is invalid for the spheroidal-
+# toroidal vector decomposition. The transform legitimately zeroes all of these,
+# so they must not be seeded if a roundtrip is expected to be the identity.
+# Uses the config's own (l,m)->global-mode map, so it is correct for any pencil
+# layout (1D nlm or 2D l/m).
+function sanitize_spectral_modes!(field, cfg; zero_l0::Bool=false)
+    sr = parent(field.data_real)
+    si = parent(field.data_imag)
+    lm_map = GeoDynamo.local_spectral_lm_map(cfg)
+    for slot in CartesianIndices(lm_map)
+        gl = lm_map[slot]
+        if gl == 0
+            @views sr[slot, :] .= 0.0
+            @views si[slot, :] .= 0.0
+        else
+            (cfg.m_values[gl] == 0) && (@views si[slot, :] .= 0.0)
+            if zero_l0 && cfg.l_values[gl] == 0
+                @views sr[slot, :] .= 0.0
+                @views si[slot, :] .= 0.0
+            end
+        end
+    end
+    return field
+end
+
 @testset "SHTnsKit scalar and vector roundtrip" begin
     if MPI.Finalized()
         @warn "MPI already finalized before SHTnsKit roundtrip tests; skipping"
@@ -35,13 +63,8 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     randn!(parent(spec1.data_real))
     randn!(parent(spec1.data_imag))
 
-    # Enforce spherical harmonic constraint: m=0 modes must have zero imaginary part
-    for idx in eachindex(IndexLinear(), view(parent(spec1.data_real), :, 1, 1))
-        l, m = GeoDynamo.index_to_lm_shtnskit(idx, cfg.lmax, cfg.mmax)
-        if m == 0
-            parent(spec1.data_imag)[idx, :, :] .= 0.0
-        end
-    end
+    # Keep only valid SH modes (zero invalid l<m slots and m=0 imaginary parts).
+    sanitize_spectral_modes!(spec1, cfg)
 
     GeoDynamo.shtnskit_spectral_to_physical!(spec1, phys)
     GeoDynamo.shtnskit_physical_to_spectral!(phys, spec2)
@@ -65,23 +88,10 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     randn!(parent(pol1.data_real))
     randn!(parent(pol1.data_imag))
 
-    # Enforce spherical harmonic constraints for vector fields:
-    # 1. m=0 modes must have zero imaginary part
-    # 2. l=0 modes are not valid for spheroidal-toroidal decomposition
-    for idx in eachindex(IndexLinear(), view(parent(tor1.data_real), :, 1, 1))
-        l, m = GeoDynamo.index_to_lm_shtnskit(idx, cfg.lmax, cfg.mmax)
-        if m == 0
-            parent(tor1.data_imag)[idx, :, :] .= 0.0
-            parent(pol1.data_imag)[idx, :, :] .= 0.0
-        end
-        # Vector fields: l=0 mode is not physical in sph-tor decomposition
-        if l == 0
-            parent(tor1.data_real)[idx, :, :] .= 0.0
-            parent(tor1.data_imag)[idx, :, :] .= 0.0
-            parent(pol1.data_real)[idx, :, :] .= 0.0
-            parent(pol1.data_imag)[idx, :, :] .= 0.0
-        end
-    end
+    # Keep only valid SH modes; for the spheroidal-toroidal vector decomposition
+    # l=0 is also invalid, so drop it too.
+    sanitize_spectral_modes!(tor1, cfg; zero_l0=true)
+    sanitize_spectral_modes!(pol1, cfg; zero_l0=true)
 
     GeoDynamo.shtnskit_vector_synthesis!(tor1, pol1, vec)
     GeoDynamo.shtnskit_vector_analysis!(vec, tor2, pol2)
