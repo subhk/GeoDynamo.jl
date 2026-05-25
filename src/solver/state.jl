@@ -371,7 +371,11 @@ function _collect_solver_fields(runtime::SolverRuntime{T,<:AbstractArchitecture}
     magnetic = params.include_magnetic_field ? runtime.magnetic : nothing
     composition = params.include_composition ? runtime.composition : nothing
 
-    return SolverFields{T}(runtime.velocity, runtime.temperature, magnetic, composition)
+    # Use the all-inferred constructor: `SolverFields{T}(...)` is a partial
+    # parametric application Julia provides no constructor for, whereas the
+    # auto-generated `SolverFields(...)` infers T (and the field type params)
+    # directly from the arguments.
+    return SolverFields(runtime.velocity, runtime.temperature, magnetic, composition)
 end
 
 function _synchronize_solver_views!(state::SolverState{T,<:AbstractArchitecture}) where T
