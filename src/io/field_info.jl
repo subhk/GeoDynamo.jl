@@ -78,7 +78,8 @@ uniform metadata needs.
 """
 function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConfig,Nothing}=nothing,
                            pencils::Union{NamedTuple,Nothing}=nothing;
-                           radius_ratio::Float64=0.35)
+                           radius_ratio::Float64=0.35,
+                           radial_grid::Union{AbstractVector{<:Real},Nothing}=nothing)
     nlat = 0
     nlon = 0
     nr = 0
@@ -153,6 +154,14 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConf
         m_values = config.m_values[1:min(length(config.m_values), nlm)]
         theta = config.theta_grid
         phi = config.phi_grid
+    end
+
+    # Prefer the true radial collocation grid when the caller supplies it. The
+    # equispaced range fabricated above does not match the Chebyshev-clustered
+    # nodes the solver actually integrates on, so without this the NetCDF "r"
+    # coordinate misplaces every radial data point.
+    if radial_grid !== nothing && length(radial_grid) == nr
+        r = collect(Float64, radial_grid)
     end
 
     # Extract local ownership metadata if pencils are provided. Spectral modes
