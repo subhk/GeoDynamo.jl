@@ -69,15 +69,15 @@ using Test
         params = GeoDynamo.SolverParameters(
             architecture=:cpu,
             geometry=:shell,
-            radial_points_outer=8,
-            radial_points_inner=4,
-            spherical_degree=4,
-            spherical_order=4,
-            latitude_points=12,
-            longitude_points=16,
+            nr=8,
+            nr_inner=4,
+            lmax=4,
+            mmax=4,
+            nlat=12,
+            nlon=16,
             timestep=1e-4,
             max_steps=1,
-            timestep_scheme=:erk2,
+            timestepper=GeoDynamo.ERK2(),
             include_magnetic_field=false,
             include_composition=false,
             topography_enabled=false,
@@ -94,10 +94,10 @@ using Test
             Float64,
             cfg,
             domain,
-            params.ekman_number,
+            params.Ek,
             params.timestep,
             1;
-            theta=params.implicit_theta,
+            theta=0.5,
         )
         changed_bc = GeoDynamo.get_solver_erk2_influence_matrices!(
             tc,
@@ -105,10 +105,10 @@ using Test
             Float64,
             cfg,
             domain,
-            params.ekman_number,
+            params.Ek,
             params.timestep,
             4;
-            theta=params.implicit_theta,
+            theta=0.5,
         )
         changed_theta = GeoDynamo.get_solver_erk2_influence_matrices!(
             tc,
@@ -116,10 +116,10 @@ using Test
             Float64,
             cfg,
             domain,
-            params.ekman_number,
+            params.Ek,
             params.timestep,
             4;
-            theta=params.implicit_theta + 0.1,
+            theta=0.5 + 0.1,
         )
 
         @test changed_bc !== base
@@ -130,15 +130,15 @@ using Test
         params = GeoDynamo.SolverParameters(
             architecture=:cpu,
             geometry=:shell,
-            radial_points_outer=8,
-            radial_points_inner=4,
-            spherical_degree=4,
-            spherical_order=4,
-            latitude_points=12,
-            longitude_points=16,
+            nr=8,
+            nr_inner=4,
+            lmax=4,
+            mmax=4,
+            nlat=12,
+            nlon=16,
             timestep=1e-4,
             max_steps=1,
-            timestep_scheme=:eab2,
+            timestepper=GeoDynamo.EAB2(),
             include_magnetic_field=true,
             include_composition=true,
             topography_enabled=false,

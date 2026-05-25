@@ -67,23 +67,23 @@ end
 
         ball_state = ball_demo.main(
             run=false,
-            radial_points_outer=16,
-            spherical_degree=4,
-            spherical_order=4,
-            latitude_points=12,
-            longitude_points=16,
+            nr=16,
+            lmax=4,
+            mmax=4,
+            nlat=12,
+            nlon=16,
             max_steps=1,
         )
         @test ball_state.parameters.geometry === :ball
 
         shell_state = shell_demo.main(
             run=false,
-            radial_points_outer=16,
-            radial_points_inner=4,
-            spherical_degree=4,
-            spherical_order=4,
-            latitude_points=12,
-            longitude_points=16,
+            nr=16,
+            nr_inner=4,
+            lmax=4,
+            mmax=4,
+            nlat=12,
+            nlon=16,
             max_steps=1,
         )
         @test shell_state.parameters.geometry === :shell
