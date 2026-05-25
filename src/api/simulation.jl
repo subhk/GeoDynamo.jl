@@ -97,10 +97,7 @@ function Simulation(model::GeodynamoModel;
         timestep  = Δt_f,
         end_time  = stop_time,
         max_steps = max_steps,
-        timestep_scheme = timestep_options.timestep_scheme,
-        implicit_theta = timestep_options.implicit_theta,
-        etd_krylov_dimension = timestep_options.etd_krylov_dimension,
-        krylov_tolerance = timestep_options.krylov_tolerance,
+        timestepper = timestep_options.timestepper,
         courant = Float64(something(courant, p.courant)),
     )
 

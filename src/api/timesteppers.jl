@@ -85,6 +85,31 @@ _timestepper_krylov_tolerance(timestepper, params) = 1e-8
 _timestepper_krylov_tolerance(timestepper::EAB2, params) = timestepper.tolerance
 _timestepper_krylov_tolerance(timestepper::ETD, params) = timestepper.tolerance
 
+# Construct a timestepper struct from a scheme symbol and optional overrides.
+# Missing overrides fall back to each struct's own defaults.
+function _timestepper_from_scheme(
+        scheme::Symbol,
+        implicit_theta::Union{Real,Nothing},
+        etd_krylov_dimension::Union{Int,Nothing},
+        krylov_tolerance::Union{Real,Nothing},
+    )
+    if scheme === :cnab2
+        return CNAB2(theta = something(implicit_theta, 0.5))
+    elseif scheme === :eab2
+        return EAB2(krylov_dimension = something(etd_krylov_dimension, 20),
+                    tolerance = something(krylov_tolerance, 1e-8))
+    elseif scheme === :erk2
+        return ERK2()
+    elseif scheme === :etd
+        return ETD(krylov_dimension = something(etd_krylov_dimension, 20),
+                   tolerance = something(krylov_tolerance, 1e-8))
+    elseif scheme === :theta
+        return ThetaMethod(theta = something(implicit_theta, 0.5))
+    else
+        throw(ArgumentError("Unknown timestep_scheme=$scheme"))
+    end
+end
+
 function _resolve_timestepper(
         timestepper,
         timestep_scheme::Union{Symbol,Nothing},
@@ -93,34 +118,41 @@ function _resolve_timestepper(
         krylov_tolerance::Union{Real,Nothing},
         params,
     )
-    # Fall back to the timestepper carried on the parameters when no explicit
-    # Simulation-level timestepper is supplied. SolverParameters stores the
+    # Resolve the effective timestepper struct: an explicit `timestepper` wins;
+    # otherwise build one from `timestep_scheme`; otherwise fall back to the
+    # timestepper carried on the parameters. SolverParameters stores the
     # timestepper as a struct, so scheme/theta/krylov are derived from it.
-    if isnothing(timestepper)
-        timestepper = params.timestepper
+    effective = if !isnothing(timestepper)
+        timestepper
+    elseif !isnothing(timestep_scheme)
+        _timestepper_from_scheme(timestep_scheme, implicit_theta,
+                                 etd_krylov_dimension, krylov_tolerance)
+    else
+        params.timestepper
     end
 
-    scheme = _timestepper_scheme(timestepper)
+    scheme = _timestepper_scheme(effective)
     if !isnothing(timestep_scheme) && timestep_scheme !== scheme
         throw(ArgumentError(
-            "timestepper=$(typeof(timestepper)) maps to timestep_scheme=$scheme, " *
+            "timestepper=$(typeof(effective)) maps to timestep_scheme=$scheme, " *
             "but timestep_scheme=$timestep_scheme was also provided",
         ))
     end
 
     return (
+        timestepper = effective,
         timestep_scheme = scheme,
         implicit_theta = Float64(something(
             implicit_theta,
-            _timestepper_implicit_theta(timestepper, params),
+            _timestepper_implicit_theta(effective, params),
         )),
         etd_krylov_dimension = something(
             etd_krylov_dimension,
-            _timestepper_krylov_dimension(timestepper, params),
+            _timestepper_krylov_dimension(effective, params),
         ),
         krylov_tolerance = Float64(something(
             krylov_tolerance,
-            _timestepper_krylov_tolerance(timestepper, params),
+            _timestepper_krylov_tolerance(effective, params),
         )),
     )
 end
