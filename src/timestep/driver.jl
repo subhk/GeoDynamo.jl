@@ -138,11 +138,14 @@ GeoDynamo.initialize_fields!(state::SolverState{T,<:AbstractArchitecture}) where
 
 Return whether field implicit updates can run on Julia threads.
 
-EAB2 performs MPI collectives inside field updates, so multi-rank EAB2 runs use
-the sequential path to keep collective ordering deterministic.
+Field update kernels reach MPI collectives (EAB2 directly; others via influence
+and transpose paths). With more than one rank, issuing those collectives from
+multiple Julia threads lets the per-rank ordering diverge and the collectives
+mismatch, which deadlocks. So restrict threaded field updates to single-rank
+runs regardless of scheme; multi-rank runs use the sequential path.
 """
 @inline function _solver_can_thread_implicit_updates(timestepper)
-    return !(timestepper isa EAB2) || mpi_comm_size() == 1
+    return mpi_comm_size() == 1
 end
 
 """
