@@ -76,3 +76,39 @@ jobs:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  # Multi-rank + multi-thread deadlock guard. The single-process `test` job
+  # cannot exercise it: the regression test in `test/mpi_threaded_step_smoke.jl`
+  # only bites under >=2 MPI ranks each with >=2 Julia threads. Linux/MPICH so
+  # MPIEXEC_TIMEOUT bounds a hang into a non-zero exit; timeout-minutes is a
+  # hard backstop if that ever fails to fire.
+  mpi-deadlock-guard:
+    name: MPI threaded-step deadlock guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnetcdf-dev mpich
+
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v3
+        with:
+          version: '1.11'
+
+      - name: Cache Julia artifacts
+        uses: julia-actions/cache@v3
+
+      - name: Instantiate project
+        run: julia --project -e 'isfile("Manifest.toml") && rm("Manifest.toml"); using Pkg; Pkg.instantiate()'
+
+      - name: Multi-rank threaded smoke test
+        env:
+          MPIEXEC_TIMEOUT: '300'
+          NRANKS: '2'
+          NTHREADS: '2'
+        run: bash test/run_mpi_threaded_smoke.sh
