@@ -8,6 +8,16 @@ struct ShiftDummyConfig
     lmax::Int
     mmax::Int
     nlm::Int
+    _buffers::GeoDynamo.SHTnsBuffers
+end
+
+# Build a dummy config whose spectral-slot lookup is pre-populated for the
+# simple (nlm, 1, nr) layout, so the buffer-backed `local_spectral_storage_slot`
+# resolves without needing full pencil metadata.
+function ShiftDummyConfig(lmax::Int, mmax::Int, nlm::Int)
+    buffers = GeoDynamo.SHTnsBuffers()
+    buffers.local_spectral_slot_lookup = [CartesianIndex(i, 1) for i in 1:nlm]
+    return ShiftDummyConfig(lmax, mmax, nlm, buffers)
 end
 
 struct ShiftDummyPencil
