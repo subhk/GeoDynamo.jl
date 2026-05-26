@@ -150,6 +150,7 @@ additional_tests = (
     "composition_boundary_numerical.jl",
     "mpi_parallel_invariants.jl",
     "mpi_threaded_step_smoke.jl",
+    "mpi_distributed_write_roundtrip.jl",
     "derivative_accuracy.jl",
     "shell_geometry.jl",
     "programmatic_boundaries.jl",
