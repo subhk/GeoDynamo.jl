@@ -62,7 +62,9 @@ using Test
                     :FieldWriter, :CheckpointWriter,
                     :RandomPerturbation, :AnalyticIC, :FileIC, :ZeroIC,
                     :set_initial_condition!, :Callback,
-                    :EnergyDiagnostics, :SolenoidalMonitor, :SimulationProgress, :HealthCheck)
+                    :EnergyDiagnostics, :SolenoidalMonitor, :SimulationProgress, :HealthCheck,
+                    :set!, :Clock, :time_step!, :fields, :prognostic_fields,
+                    :add_callback!)
             @test Base.isexported(GeoDynamo, sym)
         end
     end

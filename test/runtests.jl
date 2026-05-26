@@ -135,6 +135,7 @@ additional_tests = (
     "topography_data.jl",
     "gpu_backend.jl",
     "user_api.jl",
+    "oceananigans_api.jl",
     # MPI-aware tests
     "radial_domain.jl",
     "field_containers.jl",
