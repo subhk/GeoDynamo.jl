@@ -106,23 +106,10 @@ non-timestep physical parameters; only `dt` changes.
 """
 function rebuild_solver_implicit_matrices!(state::SolverState{T,<:AbstractArchitecture}, dt::Real) where {T}
     backend = state.backend
-    cfg = backend.shtns_config
-    outer = backend.outer_core_domain
-    p = backend.parameters
-    dt_f = Float64(dt)
-
-    matrices = Dict{Symbol, OldImplicitMatrices{T}}()
-    velocity = build_velocity_implicit_matrices(cfg, outer, p.Ek, dt_f, _velocity_bc_code(p.velocity_bcs))
-    magnetic = build_magnetic_implicit_matrices(cfg, outer, dt_f)
-    matrices[:velocity_tor] = velocity.tor
-    matrices[:velocity_pol] = velocity.pol
-    matrices[:magnetic_tor] = magnetic.tor
-    matrices[:magnetic_pol] = magnetic.pol
-    matrices[:temperature] = solver_build_temperature_implicit_matrix(cfg, outer, p.Pm / p.Pr, dt_f, _thermal_bc_code(p.temperature_bcs))
-    if p.include_composition
-        matrices[:composition] = solver_build_composition_implicit_matrix(cfg, outer, p.Pm / p.Sc, dt_f, _composition_bc_code(p.composition_bcs))
-    end
-
+    # NOTE: backend.parameters.timestep is frozen at construction and intentionally
+    # ignored here — `dt` is authoritative. Only non-timestep params are read.
+    matrices = _build_implicit_matrices_dict(T, backend.shtns_config, backend.outer_core_domain,
+                                             backend.parameters, Float64(dt))
     state.implicit_matrices = create_solver_implicit_matrix_store(matrices)
     return state
 end

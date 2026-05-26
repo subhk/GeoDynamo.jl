@@ -102,8 +102,8 @@ function Simulation(model::GeodynamoModel;
         courant = Float64(something(courant, p.courant)),
     )
     if Δt_f != old_timestep
-        model.state.runtime.timestep_state.dt = Δt_f
         rebuild_solver_implicit_matrices!(model.state, Δt_f)
+        model.state.runtime.timestep_state.dt = Δt_f
     end
 
     callback_items = _schedule_items_tuple(callbacks)
@@ -136,8 +136,8 @@ function time_step!(model::GeodynamoModel, Δt::Real)
             (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
             timestep = Δt_f,
         )
-        state.runtime.timestep_state.dt = Δt_f
         rebuild_solver_implicit_matrices!(state, Δt_f)
+        state.runtime.timestep_state.dt = Δt_f
     end
     advance_solver_step!(state)
     sync_clock!(model.clock, state)
