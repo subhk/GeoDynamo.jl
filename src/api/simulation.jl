@@ -10,15 +10,14 @@ output writers.  Create with `Simulation(model; Δt, ...)` and advance with
 `run!(sim)`.
 """
 mutable struct Simulation{M,C,O}
-    model          :: M
-    Δt             :: Float64
-    stop_time      :: Float64
-    stop_iteration :: Int
-    callbacks      :: C
-    output_writers :: O
-    step           :: Int
-    time           :: Float64
-    _wall_start    :: Float64
+    model           :: M
+    Δt              :: Float64
+    stop_time       :: Float64
+    stop_iteration  :: Int
+    wall_time_limit :: Float64
+    callbacks       :: C
+    output_writers  :: O
+    _wall_start     :: Float64
 end
 
 _schedule_items_tuple(::Nothing) = ()
@@ -47,6 +46,7 @@ function Simulation(model::GeodynamoModel;
         Δt             :: Real,
         stop_time      :: Float64 = Inf,
         stop_iteration :: Int     = typemax(Int),
+        wall_time_limit :: Real   = Inf,
         timestepper = nothing,
         timestep_scheme :: Union{Symbol, Nothing} = nothing,
         implicit_theta  :: Union{Real, Nothing} = nothing,
@@ -104,12 +104,11 @@ function Simulation(model::GeodynamoModel;
     callback_items = _schedule_items_tuple(callbacks)
     output_writer_items = _schedule_items_tuple(output_writers)
 
+    sync_clock!(model.clock, model.state)
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
-        model, Δt_f, stop_time, stop_iteration,
+        model, Δt_f, stop_time, stop_iteration, Float64(wall_time_limit),
         callback_items,
         output_writer_items,
-        model.state.step,
-        model.state.time,
         0.0,
     )
 end
@@ -121,27 +120,26 @@ end
 """
     run!(sim::Simulation)
 
-Advance the simulation until `sim.time >= sim.stop_time` or
-`sim.step >= sim.stop_iteration`, whichever comes first.
+Advance the simulation until `model.clock.time >= sim.stop_time` or
+`model.clock.iteration >= sim.stop_iteration`, whichever comes first.
 
 Each iteration:
 1. Calls `advance_solver_step!(state)` to advance physics by one timestep.
-2. Syncs `sim.step` / `sim.time` from the updated solver state.
+2. Syncs `model.clock` from the updated solver state via `sync_clock!`.
 3. Fires scheduled callbacks via `_run_callbacks!(sim)`.
 4. Fires scheduled output writers via `_run_output_writers!(sim)`.
 """
 function run!(sim::Simulation)
     sim._wall_start = time()
-    state = sim.model.state
-
-    while sim.time < sim.stop_time && sim.step < sim.stop_iteration
-        advance_solver_step!(state)
-        sim.step = state.step
-        sim.time = state.time
+    clock = sim.model.clock
+    while clock.time < sim.stop_time &&
+          clock.iteration < sim.stop_iteration &&
+          (time() - sim._wall_start) < sim.wall_time_limit
+        advance_solver_step!(sim.model.state)
+        sync_clock!(clock, sim.model.state)
         _run_callbacks!(sim)
         _run_output_writers!(sim)
     end
-
     return sim
 end
 
@@ -150,8 +148,9 @@ end
 # ================================================================================
 
 function Base.show(io::IO, ::MIME"text/plain", sim::Simulation)
+    c = sim.model.clock
     println(io, "Simulation")
     println(io, "  model: $(typeof(sim.model))")
-    println(io, "  Δt=$(sim.Δt), stop_time=$(sim.stop_time)")
-    print(io,   "  step=$(sim.step), time=$(sim.time)")
+    println(io, "  Δt=$(sim.Δt), stop_time=$(sim.stop_time), stop_iteration=$(sim.stop_iteration)")
+    print(io,   "  step=$(c.iteration), time=$(c.time)")
 end

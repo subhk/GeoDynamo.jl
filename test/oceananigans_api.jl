@@ -21,4 +21,16 @@ using Test
         end
     end
 
+    @testset "Clock attaches to model" begin
+        using MPI
+        if !MPI.Initialized(); MPI.Init(); end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax=4, mmax=4, nlat=12, nlon=16, nr=16, nr_inner=4)
+        model = GeoDynamo.GeodynamoModel(grid;
+            Ek=1e-2, Ra=1e4, include_magnetic=false, include_composition=false)
+        @test model.clock isa GeoDynamo.Clock
+        @test model.clock.time == 0.0
+        @test model.clock.iteration == 0
+    end
+
 end

@@ -435,6 +435,7 @@ module GeoDynamo
     export SphericalShellGrid, SphericalBallGrid
     export NoSlip, StressFree, FixedTemperature, FixedFlux
     export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
+    export Clock
     export GeodynamoModel
     export Simulation, run!
     export AbstractTimestepper, CNAB2, EAB2, ERK2, ETD, ThetaMethod
@@ -529,6 +530,7 @@ module GeoDynamo
     include("Shell/Shell.jl")
     include("Ball/Ball.jl")
     include("solver.jl")
+    include("api/clock.jl")
     include("api/model.jl")
     include("api/initial_conditions.jl")
     include("api/callbacks.jl")

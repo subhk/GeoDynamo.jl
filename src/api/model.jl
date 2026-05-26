@@ -1,6 +1,7 @@
 struct GeodynamoModel{T, A<:AbstractArchitecture, G}
     state :: SolverState{T,A}
     grid  :: G
+    clock :: Clock{T}
 end
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -55,7 +56,8 @@ function _build_geodynamo_model(
         ocb_topography_file = ocb_topography_file,
     )
     state = initialize_solver_state(T; params=params)
-    model = GeodynamoModel{T, typeof(state.backend.architecture), typeof(grid)}(state, grid)
+    clock = Clock{T}(T(state.time), state.step, 0, zero(T))
+    model = GeodynamoModel{T, typeof(state.backend.architecture), typeof(grid)}(state, grid, clock)
     if !isnothing(initial_conditions)
         for (field_sym, ic) in pairs(initial_conditions)
             set_initial_condition!(model, field_sym, ic)
