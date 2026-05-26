@@ -8,6 +8,7 @@ module GeoDynamo
     using PencilArrays
     using PencilFFTs
     using NCDatasets
+    using OrderedCollections: OrderedDict
     using Statistics
     using Dates
     using Printf
