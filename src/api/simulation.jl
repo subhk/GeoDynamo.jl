@@ -13,7 +13,7 @@ mutable struct Simulation{M,C,O}
     model          :: M
     Δt             :: Float64
     stop_time      :: Float64
-    max_steps      :: Int
+    stop_iteration :: Int
     callbacks      :: C
     output_writers :: O
     step           :: Int
@@ -28,7 +28,7 @@ _schedule_items_tuple(item) = (item,)
 
 """
     Simulation(model::GeodynamoModel;
-               Δt, stop_time=Inf, max_steps=typemax(Int),
+               Δt, stop_time=Inf, stop_iteration=typemax(Int),
                timestepper, timestep_scheme, implicit_theta,
                etd_krylov_dimension, krylov_tolerance,
                callbacks=[], output_writers=[],
@@ -46,7 +46,7 @@ available.
 function Simulation(model::GeodynamoModel;
         Δt             :: Real,
         stop_time      :: Float64 = Inf,
-        max_steps      :: Int     = typemax(Int),
+        stop_iteration :: Int     = typemax(Int),
         timestepper = nothing,
         timestep_scheme :: Union{Symbol, Nothing} = nothing,
         implicit_theta  :: Union{Real, Nothing} = nothing,
@@ -81,7 +81,7 @@ function Simulation(model::GeodynamoModel;
 
     Δt_f = Float64(Δt)
 
-    # Propagate Δt, stop_time, and max_steps into the solver's SolverParameters so
+    # Propagate Δt, stop_time, and stop_iteration into the solver's SolverParameters so
     # that advance_solver_step! uses the timestep the caller requested.
     p = model.state.parameters
     timestep_options = _resolve_timestepper(
@@ -96,7 +96,7 @@ function Simulation(model::GeodynamoModel;
         (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
         timestep  = Δt_f,
         end_time  = stop_time,
-        max_steps = max_steps,
+        stop_iteration = stop_iteration,
         timestepper = timestep_options.timestepper,
         courant = Float64(something(courant, p.courant)),
     )
@@ -105,7 +105,7 @@ function Simulation(model::GeodynamoModel;
     output_writer_items = _schedule_items_tuple(output_writers)
 
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
-        model, Δt_f, stop_time, max_steps,
+        model, Δt_f, stop_time, stop_iteration,
         callback_items,
         output_writer_items,
         model.state.step,
@@ -122,7 +122,7 @@ end
     run!(sim::Simulation)
 
 Advance the simulation until `sim.time >= sim.stop_time` or
-`sim.step >= sim.max_steps`, whichever comes first.
+`sim.step >= sim.stop_iteration`, whichever comes first.
 
 Each iteration:
 1. Calls `advance_solver_step!(state)` to advance physics by one timestep.
@@ -134,7 +134,7 @@ function run!(sim::Simulation)
     sim._wall_start = time()
     state = sim.model.state
 
-    while sim.time < sim.stop_time && sim.step < sim.max_steps
+    while sim.time < sim.stop_time && sim.step < sim.stop_iteration
         advance_solver_step!(state)
         sim.step = state.step
         sim.time = state.time

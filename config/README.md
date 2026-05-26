@@ -23,7 +23,7 @@ model = GeodynamoModel(
     grid;
     Ek=1e-4, Pr=1.0, Pm=2.0, Sc=1.0, Ra=1e6,
 )
-simulation = Simulation(model; Δt=1e-5, max_steps=10_000)
+simulation = Simulation(model; Δt=1e-5, stop_iteration=10_000)
 ```
 
 ### Creating New Parameter Files
@@ -48,7 +48,7 @@ create_parameter_template("my_new_params.jl")
 
 ### Timestepping Parameters
 - `timestep`: Time step size
-- `max_steps`: Maximum number of timesteps
+- `stop_iteration`: Maximum number of timesteps
 - `timestep_error`: Error tolerance
 
 See the parameter files for complete documentation of all available parameters.

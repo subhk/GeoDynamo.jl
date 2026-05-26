@@ -26,7 +26,7 @@ Sc = 1.0
 timestep = 5e-5
 start_time = 0.0
 end_time = 1.0
-max_steps = 10_000
+stop_iteration = 10_000
 timestepper = CNAB2(theta = 0.5)
 timestep_error = 1e-8
 courant = 0.5

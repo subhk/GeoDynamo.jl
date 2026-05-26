@@ -40,10 +40,10 @@ using Test
         @test !is_valid
         @test any(contains(e, "timestep") for e in errors)
 
-        params = GeoDynamo.SolverParameters(max_steps=0)
+        params = GeoDynamo.SolverParameters(stop_iteration=0)
         is_valid, errors, _ = GeoDynamo.validate_parameters(params; strict=false)
         @test !is_valid
-        @test any(contains(e, "max_steps") for e in errors)
+        @test any(contains(e, "stop_iteration") for e in errors)
     end
 
     @testset "End time must exceed start time" begin

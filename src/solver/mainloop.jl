@@ -100,12 +100,12 @@ end
     run_solver!(state)
 
 Run the rewritten solver until `state.parameters.end_time` or
-`state.parameters.max_steps` is reached.
+`state.parameters.stop_iteration` is reached.
 """
 function run_solver!(state::SolverState{T,<:AbstractArchitecture}) where T
     state.is_initialized || initialize_solver_fields!(state)
 
-    while state.time < state.parameters.end_time && state.step < state.parameters.max_steps
+    while state.time < state.parameters.end_time && state.step < state.parameters.stop_iteration
         advance_solver_step!(state)
     end
 

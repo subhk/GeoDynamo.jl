@@ -72,7 +72,7 @@ end
             mmax=4,
             nlat=12,
             nlon=16,
-            max_steps=1,
+            stop_iteration=1,
         )
         @test ball_state.parameters.geometry === :ball
 
@@ -84,7 +84,7 @@ end
             mmax=4,
             nlat=12,
             nlon=16,
-            max_steps=1,
+            stop_iteration=1,
         )
         @test shell_state.parameters.geometry === :shell
 

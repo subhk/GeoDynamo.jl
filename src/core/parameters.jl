@@ -38,7 +38,7 @@ Base.@kwdef struct SolverParameters
     timestep_error::Float64 = 1e-8
     courant::Float64 = 0.5
     end_time::Float64 = 1.0
-    max_steps::Int = 10_000
+    stop_iteration::Int = 10_000
     timestepper::AbstractTimestepper = CNAB2()
 
     output_precision::Symbol = :float64
@@ -111,7 +111,7 @@ function Base.show(io::IO, ::MIME"text/plain", params::SolverParameters)
 
     print_section(io, "Timestepping")
     for key in (:timestepper, :timestep, :start_time, :end_time,
-                :max_steps, :timestep_error, :courant)
+                :stop_iteration, :timestep_error, :courant)
         print_entry(io, key, getfield(params, key))
     end
 
@@ -199,7 +199,7 @@ function _parameter_errors_warnings(params::SolverParameters)
         push!(warnings, "timestep = $(params.timestep) is very large; check CFL condition")
     end
 
-    params.max_steps >= 1 || push!(errors, "max_steps = $(params.max_steps) must be >= 1")
+    params.stop_iteration >= 1 || push!(errors, "stop_iteration = $(params.stop_iteration) must be >= 1")
 
     if params.end_time <= params.start_time
         push!(errors, "end_time = $(params.end_time) must be greater than start_time = $(params.start_time)")
@@ -376,6 +376,8 @@ function safe_eval_expr(expr, param_dict::Dict{Symbol, Any})
     end
 end
 
+const _LEGACY_PARAM_ALIASES = Dict{Symbol,Symbol}(:max_steps => :stop_iteration)
+
 function _parameter_assignments_from_file(config_file::String)
     param_dict = Dict{Symbol, Any}()
     content = read(config_file, String)
@@ -390,6 +392,12 @@ function _parameter_assignments_from_file(config_file::String)
 
         param_name = Symbol(match_result.captures[1])
         param_value_str = strip(match_result.captures[2])
+
+        if haskey(_LEGACY_PARAM_ALIASES, param_name)
+            new_name = _LEGACY_PARAM_ALIASES[param_name]
+            @warn "Parameter `$param_name` is deprecated; use `$new_name`."
+            param_name = new_name
+        end
 
         if param_name ∉ fieldnames(SolverParameters)
             @debug "Ignoring unknown solver parameter $param_name"
