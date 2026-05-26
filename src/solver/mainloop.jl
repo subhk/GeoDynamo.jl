@@ -14,7 +14,7 @@ function initialize_solver_state(::Type{T}=Float64;
     # still shares a few kernels and file-loading paths with the older runtime.
     apply_solver_parameters!(params)
     backend = create_solver_backend(params)
-    implicit_matrices = create_solver_implicit_matrices(T, backend)
+    implicit_matrices, magnetic_ic_admittance = create_solver_implicit_matrices(T, backend)
     runtime = create_solver_runtime(
         T,
         backend;
@@ -38,6 +38,7 @@ function initialize_solver_state(::Type{T}=Float64;
         TimestepCaches{T}(),
         create_solver_energy_tracker(),
         create_solver_solenoidal_monitor(),
+        magnetic_ic_admittance,
         params.start_time,
         0,
         false,
