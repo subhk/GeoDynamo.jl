@@ -7,6 +7,9 @@ Oceananigans-style tracker for simulation `time`, `iteration`, integrator
 
 The authoritative time/step live on the solver state; this `Clock` is a mirror.
 It is correct to read between steps, not mid-step.
+
+`stage` mirrors Oceananigans' multi-stage field and is reserved for future use;
+the current drivers are single-stage, so it stays `0`.
 """
 mutable struct Clock{T}
     time      :: T
