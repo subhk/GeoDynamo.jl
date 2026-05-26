@@ -47,10 +47,16 @@ GeoDynamo
 │   ├── SphericalShellGrid     # Shell grid
 │   ├── SphericalBallGrid      # Ball grid
 │   ├── GeodynamoModel        # Physical model
+│   ├── Clock                 # Tracks time and iteration count
 │   └── Simulation            # Time integration wrapper
 │
 ├── Simulation
 │   ├── run!                  # Main time loop
+│   ├── time_step!            # Advance a single step
+│   ├── set!                  # Set initial conditions by field name
+│   ├── fields                # NamedTuple of all model fields
+│   ├── prognostic_fields     # NamedTuple of prognostic fields only
+│   ├── add_callback!         # Register a scheduled callback
 │   ├── Callback              # Scheduled callbacks
 │   └── FieldWriter           # Scheduled field output
 │
@@ -81,7 +87,13 @@ GeoDynamo.SphericalShellGrid
 GeoDynamo.SphericalBallGrid
 GeoDynamo.GeodynamoModel
 GeoDynamo.Simulation
+GeoDynamo.Clock
 GeoDynamo.run!
+GeoDynamo.time_step!
+GeoDynamo.set!
+GeoDynamo.fields
+GeoDynamo.prognostic_fields
+GeoDynamo.add_callback!
 ```
 
 ### Timestep And Output API
