@@ -46,4 +46,35 @@ using Test
         @test isfinite(model.clock.time)
     end
 
+    @testset "time_step! with a new Δt rebuilds implicit matrices" begin
+        using MPI
+        if !MPI.Initialized(); MPI.Init(); end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax=4, mmax=4, nlat=12, nlon=16, nr=16, nr_inner=4)
+        model = GeoDynamo.GeodynamoModel(grid;
+            Ek=1e-2, Ra=1e4, include_magnetic=false, include_composition=false)
+        old_id = objectid(model.state.implicit_matrices)
+        GeoDynamo.time_step!(model, 1e-4)   # differs from the model's default timestep
+        @test model.state.parameters.timestep == 1e-4
+        @test model.state.runtime.timestep_state.dt == 1e-4
+        @test objectid(model.state.implicit_matrices) != old_id   # store was rebuilt
+        @test all(isfinite, parent(model.state.fields.temperature.spectral.data_real))
+    end
+
+    @testset "Simulation rebuilds implicit matrices for its Δt" begin
+        using MPI
+        if !MPI.Initialized(); MPI.Init(); end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax=4, mmax=4, nlat=12, nlon=16, nr=16, nr_inner=4)
+        model = GeoDynamo.GeodynamoModel(grid;
+            Ek=1e-2, Ra=1e4, include_magnetic=false, include_composition=false)
+        old_id = objectid(model.state.implicit_matrices)
+        default_dt = model.state.parameters.timestep
+        sim = GeoDynamo.Simulation(model; Δt=2e-4, stop_iteration=1)
+        @test model.state.parameters.timestep == 2e-4
+        @test model.state.runtime.timestep_state.dt == 2e-4
+        @test 2e-4 != default_dt          # sanity: we actually changed it
+        @test objectid(model.state.implicit_matrices) != old_id
+    end
+
 end
