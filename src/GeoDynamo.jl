@@ -437,6 +437,7 @@ module GeoDynamo
     export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
     export Clock
     export GeodynamoModel
+    export fields, prognostic_fields
     export Simulation, run!, time_step!, add_callback!
     export AbstractTimestepper, CNAB2, EAB2, ERK2, ETD, ThetaMethod
     export TimeInterval, IterationInterval, WallTimeInterval
@@ -534,6 +535,7 @@ module GeoDynamo
     include("api/model.jl")
     include("api/initial_conditions.jl")
     include("api/set.jl")
+    include("api/fields.jl")
     include("api/callbacks.jl")
     include("api/output_writers.jl")
     include("api/simulation.jl")

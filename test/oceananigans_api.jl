@@ -111,4 +111,21 @@ using Test
         @test any(temp .!= 0.0)
     end
 
+    @testset "fields / prognostic_fields accessors" begin
+        using MPI
+        if !MPI.Initialized(); MPI.Init(); end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax=4, mmax=4, nlat=12, nlon=16, nr=16, nr_inner=4)
+        model = GeoDynamo.GeodynamoModel(grid;
+            Ek=1e-2, Ra=1e4, include_magnetic=false, include_composition=false)
+        f = GeoDynamo.fields(model)
+        @test f isa NamedTuple
+        @test keys(f) == (:velocity, :temperature, :magnetic, :composition)
+        @test f.magnetic === nothing
+        pf = GeoDynamo.prognostic_fields(model)
+        @test :magnetic ∉ keys(pf)
+        @test :velocity ∈ keys(pf)
+        @test :temperature ∈ keys(pf)
+    end
+
 end
