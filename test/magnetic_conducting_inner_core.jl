@@ -66,6 +66,10 @@ end
         timestepper = GeoDynamo.CNAB2(),
         topography_enabled = false,
         stefan_enabled = false,
+        # Enable the conducting inner core via the opt-in parameter. This builds
+        # the ICB admittances and the conducting Robin inner row (Part 1) and
+        # sets CONTINUITY_MAG on the magnetic tor/pol modes during field init.
+        magnetic_inner_bc = :conducting_inner_core,
     )
 
     state = GeoDynamo.initialize_simulation(Float64, params)
@@ -78,9 +82,9 @@ end
     # the inner core not evolving — not an all-zero magnetic state.
     @test maximum(abs, parent(mag.𝒫.data_real)) > 0.0
 
-    # Enable conducting inner core (continuity at ICB) on all magnetic modes.
-    fill!(mag.𝒯.bc_type_inner, Int(GeoDynamo.CONTINUITY_MAG))
-    fill!(mag.𝒫.bc_type_inner, Int(GeoDynamo.CONTINUITY_MAG))
+    # The conducting flag must have set CONTINUITY_MAG on the magnetic modes.
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒯.bc_type_inner)
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒫.bc_type_inner)
 
     # Advance enough steps for the field to diffuse across the ICB.
     for _ in 1:30
