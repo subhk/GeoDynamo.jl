@@ -642,34 +642,25 @@ function set_analytical_temperature!(temp_field, pattern::Symbol, amplitude; par
         end
 
     elseif pattern == :hot_blob
-        # Hot thermal blob in center
+        # Radially-localized hot shell (l=0, spherically symmetric): background
+        # conductive profile plus a Gaussian bump centered at r_center. Stored as
+        # the (0,0) coefficient ×√(4π) (orthonormal SH, Y_0^0 = 1/√(4π)).
+        # Non-axisymmetric symmetry breaking, if wanted, comes from
+        # generate_random_initial_conditions!.
         r_center = get(parameters, :r_center, 0.5)
         blob_width = get(parameters, :blob_width, 0.2)
+        s4π = sqrt(4 * T(π))
 
         for global_lm in lm_range
-            if global_lm <= length(l_values)
-                l = l_values[global_lm]
+            if global_lm <= length(l_values) && l_values[global_lm] == 0
                 slot = local_spectral_storage_slot(spectral.config, global_lm)
                 slot === nothing && continue
                 for (local_r, global_r) in enumerate(r_range)
                     if local_r <= size(real_data, 3)
                         r_frac = (global_r - 1) / max(nr - 1, 1)
-
-                        if l == 0
-                            # Background conductive profile (physical mean ×√(4π), orthonormal SH)
-                            set_local_spectral_value!(real_data, slot, local_r, sqrt(4 * T(π)) * T(0.5 * (1.0 - r_frac)))
-                            # Add hot blob (physical amplitude ×√(4π))
-                            if abs(r_frac - r_center) < blob_width
-                                set_local_spectral_value!(
-                                    real_data, slot, local_r,
-                                    local_spectral_value(real_data, slot, local_r) + sqrt(4 * T(π)) * T(amplitude),
-                                )
-                            end
-                        elseif l == 1 && abs(r_frac - r_center) < blob_width
-                            set_local_spectral_value!(real_data, slot, local_r, T(0.3 * amplitude))
-                        elseif l == 2 && abs(r_frac - r_center) < blob_width
-                            set_local_spectral_value!(real_data, slot, local_r, T(0.2 * amplitude))
-                        end
+                        bump = exp(-0.5 * ((r_frac - r_center) / blob_width)^2)
+                        value = 0.5 * (1.0 - r_frac) + amplitude * bump
+                        set_local_spectral_value!(real_data, slot, local_r, s4π * T(value))
                     end
                 end
             end
@@ -844,30 +835,25 @@ function set_analytical_composition!(comp_field, pattern::Symbol, amplitude; par
         end
 
     elseif pattern == :blob
-        # Compositional blob
+        # Radially-localized compositional shell (l=0, spherically symmetric):
+        # background 0.1 with a Gaussian bump peaking at blob_composition, centered
+        # at r_center. Stored as the (0,0) coefficient ×√(4π) (orthonormal SH).
         r_center = get(parameters, :r_center, 0.3)
         blob_width = get(parameters, :blob_width, 0.2)
         blob_composition = get(parameters, :blob_composition, 0.8)
+        background = 0.1
+        s4π = sqrt(4 * T(π))
 
         for global_lm in lm_range
-            if global_lm <= length(l_values)
-                l = l_values[global_lm]
+            if global_lm <= length(l_values) && l_values[global_lm] == 0
                 slot = local_spectral_storage_slot(spectral.config, global_lm)
                 slot === nothing && continue
                 for (local_r, global_r) in enumerate(r_range)
                     if local_r <= size(real_data, 3)
                         r_frac = (global_r - 1) / max(nr - 1, 1)
-
-                        if l == 0
-                            # Background + blob; physical means ×√(4π) (orthonormal SH, Y_0^0 = 1/√(4π)).
-                            if abs(r_frac - r_center) < blob_width
-                                set_local_spectral_value!(real_data, slot, local_r, sqrt(4 * T(π)) * T(blob_composition))
-                            else
-                                set_local_spectral_value!(real_data, slot, local_r, sqrt(4 * T(π)) * T(0.1))
-                            end
-                        elseif l == 1 && abs(r_frac - r_center) < blob_width
-                            set_local_spectral_value!(real_data, slot, local_r, T(0.1 * blob_composition))
-                        end
+                        bump = exp(-0.5 * ((r_frac - r_center) / blob_width)^2)
+                        value = background + (blob_composition - background) * bump
+                        set_local_spectral_value!(real_data, slot, local_r, s4π * T(value))
                     end
                 end
             end
