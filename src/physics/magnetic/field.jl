@@ -270,6 +270,9 @@ end
 # Include matrix-embedded magnetic BC functions
 include("../../bcs/magnetic_bc.jl")
 
+# Include conducting inner-core admittance module
+include("inner_core.jl")
+
 # ========================================================
 # Main nonlinear computation using enhanced transforms
 # ========================================================
