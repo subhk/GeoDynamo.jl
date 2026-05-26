@@ -67,11 +67,14 @@ Magnetic fields also use toroidal-poloidal decomposition: **B** = ∇×(T**r**) 
 
 ### Available BC Types
 
-| BC Type | Symbol | Toroidal | Poloidal Inner | Poloidal Outer |
-|:--------|:-------|:---------|:---------------|:---------------|
-| **Insulating** | `:insulating` | T = 0 | (∂/∂r - l/r)P = 0 | (∂/∂r + (l+1)/r)P = 0 |
-| **Conducting IC** | `:conducting_inner_core` | Continuous ∂T/∂r | Continuous ∂P/∂r | (∂/∂r + (l+1)/r)P = 0 |
-| **Perfect Conductor** | `:perfect_conductor` | T = 0 | P = 0 | P = 0 |
+| BC Type | Symbol | Toroidal | Poloidal Inner | Poloidal Outer | Status |
+|:--------|:-------|:---------|:---------------|:---------------|:-------|
+| **Insulating** | `:insulating` | T = 0 | (∂/∂r - l/r)P = 0 | (∂/∂r + (l+1)/r)P = 0 | ✅ Implemented (default, always applied) |
+| **Conducting IC** | `:conducting_inner_core` | Continuous ∂T/∂r | Continuous ∂P/∂r | (∂/∂r + (l+1)/r)P = 0 | 🚧 Not yet implemented |
+| **Perfect Conductor** | `:perfect_conductor` | T = 0 | P = 0 | P = 0 | 🚧 Not yet implemented |
+
+!!! warning "Only insulating is implemented"
+    The magnetic solver currently embeds **insulating** boundary conditions directly in the implicit time-stepping matrices, and they are applied automatically whenever the magnetic field is enabled. **Conducting inner core** and **perfect conductor** are documented as design targets but are **not yet implemented** — the solver runs with an insulating inner core regardless of configuration. See the spec at `docs/superpowers/specs/2026-05-26-conducting-inner-core-design.md`.
 
 ### Physical Interpretation
 
@@ -103,6 +106,13 @@ For simulations with a solid, electrically conducting inner core:
 - Outer boundary remains insulating (CMB)
 - Inner core field satisfies regularity at r = 0
 
+!!! warning "Not yet implemented"
+    This option is **not yet functional**. The inner-core spectral fields are
+    allocated but never evolved or coupled at the ICB, so enabling a conducting
+    inner core has no effect — the run is identical to an insulating inner core.
+    Implementing it requires a coupled two-domain induction solve; see the design
+    spec under `docs/superpowers/specs/`.
+
 #### Perfect Conductor
 ```
 Boundary material has σ → ∞
@@ -110,17 +120,21 @@ Tangential magnetic field = 0
 B_θ = B_φ = 0 at boundary
 ```
 
-Rarely used in geodynamo context but available for special applications.
+Rarely used in geodynamo context, and **not yet implemented**.
 
 ### Usage
 
-```julia
-# Insulating boundaries (most common)
-enforce_magnetic_boundary_constraints!(magnetic_field, :insulating)
+Magnetic boundary conditions are not selected through a runtime API. **Insulating**
+conditions are embedded directly in the implicit solver matrices and are applied
+automatically whenever the magnetic field is enabled — there is nothing to call.
 
-# With conducting inner core
-enforce_magnetic_boundary_constraints!(magnetic_field, :conducting_inner_core)
+```julia
+# Enabling the magnetic field automatically applies insulating magnetic BCs:
+params = SolverParameters(; include_magnetic_field = true, geometry = :shell, ...)
 ```
+
+There is no `enforce_magnetic_boundary_constraints!` function. Conducting inner
+core and perfect conductor are not yet selectable (see the warnings above).
 
 ---
 

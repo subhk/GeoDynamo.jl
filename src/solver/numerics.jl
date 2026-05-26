@@ -316,7 +316,10 @@ function krylov_exp_action(
 
         for i in 1:j
             H[i, j] = LA.dot(view(V, :, i), w)
-            @. w = w - H[i, j] * V[:, i]
+            # View, not a copy, of column i: matches the workspace `!` variant and
+            # avoids an O(n) allocation per inner Arnoldi iteration on this
+            # (no-workspace fallback / `exp_action_krylov` utility) path.
+            @views @. w = w - H[i, j] * V[:, i]
         end
 
         if j < m
