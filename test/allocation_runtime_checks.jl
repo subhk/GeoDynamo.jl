@@ -145,11 +145,11 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         builds = Ref(0)
         b1 = GeoDynamo.solver_get_cached_buffer!(cfg, :coeffs_buffer) do
             builds[] += 1
-            zeros(ComplexF64, cfg.nlm)
+            zeros(ComplexF64, cfg.lmax + 1, cfg.mmax + 1)
         end
         b2 = GeoDynamo.solver_get_cached_buffer!(cfg, :coeffs_buffer) do
             builds[] += 1
-            zeros(ComplexF64, cfg.nlm)
+            zeros(ComplexF64, cfg.lmax + 1, cfg.mmax + 1)
         end
         @test b1 === b2          # warm path hands back the same buffer
         @test builds[] <= 1      # built at most once across both calls
