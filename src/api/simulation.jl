@@ -114,6 +114,43 @@ function Simulation(model::GeodynamoModel;
 end
 
 # ================================================================================
+# time_step!
+# ================================================================================
+
+"""
+    time_step!(model::GeodynamoModel, Δt)
+
+Advance the model by one step with timestep `Δt`, then sync the clock.
+"""
+function time_step!(model::GeodynamoModel, Δt::Real)
+    state = model.state
+    Δt_f = Float64(Δt)
+    if Δt_f != state.parameters.timestep
+        p = state.parameters
+        state.parameters = SolverParameters(;
+            (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
+            timestep = Δt_f,
+        )
+    end
+    advance_solver_step!(state)
+    sync_clock!(model.clock, state)
+    model.clock.last_Δt = Δt_f
+    return model
+end
+
+"""
+    time_step!(sim::Simulation)
+
+Advance the simulation by one step at `sim.Δt`, firing callbacks and writers.
+"""
+function time_step!(sim::Simulation)
+    time_step!(sim.model, sim.Δt)
+    _run_callbacks!(sim)
+    _run_output_writers!(sim)
+    return sim
+end
+
+# ================================================================================
 # run!
 # ================================================================================
 
@@ -123,11 +160,8 @@ end
 Advance the simulation until `model.clock.time >= sim.stop_time` or
 `model.clock.iteration >= sim.stop_iteration`, whichever comes first.
 
-Each iteration:
-1. Calls `advance_solver_step!(state)` to advance physics by one timestep.
-2. Syncs `model.clock` from the updated solver state via `sync_clock!`.
-3. Fires scheduled callbacks via `_run_callbacks!(sim)`.
-4. Fires scheduled output writers via `_run_output_writers!(sim)`.
+Each iteration calls `time_step!(sim)` which advances physics, syncs the clock,
+and fires scheduled callbacks and output writers.
 """
 function run!(sim::Simulation)
     sim._wall_start = time()
@@ -135,10 +169,7 @@ function run!(sim::Simulation)
     while clock.time < sim.stop_time &&
           clock.iteration < sim.stop_iteration &&
           (time() - sim._wall_start) < sim.wall_time_limit
-        advance_solver_step!(sim.model.state)
-        sync_clock!(clock, sim.model.state)
-        _run_callbacks!(sim)
-        _run_output_writers!(sim)
+        time_step!(sim)
     end
     return sim
 end

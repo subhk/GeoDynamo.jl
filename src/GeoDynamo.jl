@@ -437,7 +437,7 @@ module GeoDynamo
     export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
     export Clock
     export GeodynamoModel
-    export Simulation, run!
+    export Simulation, run!, time_step!
     export AbstractTimestepper, CNAB2, EAB2, ERK2, ETD, ThetaMethod
     export TimeInterval, IterationInterval, WallTimeInterval
     export FieldWriter, CheckpointWriter
