@@ -154,10 +154,3 @@ function GeodynamoModel(grid::SphericalBallGrid;
         String(icb_topography_file), String(ocb_topography_file))
 end
 
-function Base.show(io::IO, ::MIME"text/plain", m::GeodynamoModel{T}) where {T}
-    p = m.state.parameters
-    println(io, "GeodynamoModel{$T}")
-    println(io, "  grid: $(typeof(m.grid))")
-    println(io, "  Ek=$(p.Ek), Pr=$(p.Pr), Pm=$(p.Pm), Sc=$(p.Sc), Ra=$(p.Ra)")
-    print(io,   "  magnetic=$(p.include_magnetic_field), composition=$(p.include_composition)")
-end

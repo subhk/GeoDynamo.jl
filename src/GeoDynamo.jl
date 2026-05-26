@@ -539,6 +539,7 @@ module GeoDynamo
     include("api/callbacks.jl")
     include("api/output_writers.jl")
     include("api/simulation.jl")
+    include("api/show.jl")
     # Import all Ball exports into GeoDynamo namespace
     using .GeoDynamoBall
 

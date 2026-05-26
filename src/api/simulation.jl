@@ -208,14 +208,3 @@ function add_callback!(sim::Simulation, func; schedule,
     return sim
 end
 
-# ================================================================================
-# show
-# ================================================================================
-
-function Base.show(io::IO, ::MIME"text/plain", sim::Simulation)
-    c = sim.model.clock
-    println(io, "Simulation")
-    println(io, "  model: $(typeof(sim.model))")
-    println(io, "  Δt=$(sim.Δt), stop_time=$(sim.stop_time), stop_iteration=$(sim.stop_iteration)")
-    print(io,   "  step=$(c.iteration), time=$(c.time)")
-end

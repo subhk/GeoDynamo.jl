@@ -128,4 +128,13 @@ using Test
         @test :temperature ∈ keys(pf)
     end
 
+    @testset "summary one-liners" begin
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU(); lmax=4, nr=16)
+        s = summary(grid)
+        @test occursin("SphericalShellGrid", s)
+        @test occursin("lmax=4", s)
+        c = GeoDynamo.Clock(; time=1.5, iteration=3)
+        @test occursin("iteration=3", summary(c))
+    end
+
 end
