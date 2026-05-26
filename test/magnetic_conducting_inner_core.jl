@@ -4,6 +4,22 @@ using LinearAlgebra
 
 const FINALIZE_MPI_CONDIC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
+# Task 1: Opt-in flag — this testset must PASS.
+@testset "conducting flag sets CONTINUITY_MAG bc_type_inner" begin
+    params = GeoDynamo.SolverParameters(
+        architecture=:cpu, geometry=:shell, nr=16, nr_inner=8,
+        lmax=4, mmax=4, nlat=12, nlon=16,
+        include_magnetic_field=true, include_composition=false,
+        timestepper=GeoDynamo.CNAB2(),
+        magnetic_inner_bc=:conducting_inner_core,
+    )
+    state = GeoDynamo.initialize_simulation(Float64, params)
+    GeoDynamo.initialize_fields!(state)
+    mag = state.fields.magnetic
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒯.bc_type_inner)
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒫.bc_type_inner)
+end
+
 # Acceptance test for a CONDUCTING INNER CORE (magnetic).
 #
 # Physics contract: when the inner core is electrically conducting, the

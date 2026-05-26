@@ -62,6 +62,11 @@ function initialize_magnetic_field!(state::SolverState{T,<:AbstractArchitecture}
         end
     end
 
+    if state.parameters.magnetic_inner_bc === :conducting_inner_core
+        fill!(magnetic.𝒯.bc_type_inner, Int(CONTINUITY_MAG))
+        fill!(magnetic.𝒫.bc_type_inner, Int(CONTINUITY_MAG))
+    end
+
     return state
 end
 
