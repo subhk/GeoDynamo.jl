@@ -442,7 +442,7 @@ module GeoDynamo
     export TimeInterval, IterationInterval, WallTimeInterval
     export FieldWriter, CheckpointWriter
     export RandomPerturbation, AnalyticIC, FileIC, ZeroIC
-    export set_initial_condition!
+    export set_initial_condition!, set!
     export Callback, EnergyDiagnostics, SolenoidalMonitor, SimulationProgress, HealthCheck
 
     # ================================================================================
@@ -533,6 +533,7 @@ module GeoDynamo
     include("api/clock.jl")
     include("api/model.jl")
     include("api/initial_conditions.jl")
+    include("api/set.jl")
     include("api/callbacks.jl")
     include("api/output_writers.jl")
     include("api/simulation.jl")

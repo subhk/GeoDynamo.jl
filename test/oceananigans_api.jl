@@ -97,4 +97,18 @@ using Test
         @test fired[] == 2
     end
 
+    @testset "set! applies ICs by field kwarg" begin
+        using MPI
+        if !MPI.Initialized(); MPI.Init(); end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax=6, mmax=6, nlat=16, nlon=24, nr=16, nr_inner=4)
+        model = GeoDynamo.GeodynamoModel(grid;
+            Ek=1e-2, Ra=1e4, include_magnetic=false, include_composition=false)
+        returned = GeoDynamo.set!(model;
+            temperature = GeoDynamo.RandomPerturbation(amplitude=1e-3, lmax=4))
+        @test returned === model
+        temp = parent(model.state.fields.temperature.spectral.data_real)
+        @test any(temp .!= 0.0)
+    end
+
 end
