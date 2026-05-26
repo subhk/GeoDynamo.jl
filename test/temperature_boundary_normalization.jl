@@ -67,4 +67,16 @@ end
         phys_outer = _physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00])
         @test isapprox(phys_inner - phys_outer, 2.0; atol=1e-10)
     end
+
+    @testset "FixedFlux(q) ⇒ physical mean gradient q (same √4π scaling)" begin
+        # The Neumann boundary row enforces (d1·T_coeff) = boundary_value, and the
+        # (0,0) physical gradient is that coefficient gradient / √(4π); so a
+        # prescribed physical gradient q must be stored as q·√(4π), identical to
+        # the Dirichlet case. Verify the stored value reconstructs to q.
+        G.apply_scalar_boundary_parameters!(temp,
+            G.BoundaryConditions(inner=G.FixedFlux(-1.0),
+                                 outer=G.FixedFlux(0.5)))
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, temp.boundary_values[1, m00]), -1.0; atol=1e-10)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00]), 0.5; atol=1e-10)
+    end
 end

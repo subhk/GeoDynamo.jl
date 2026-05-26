@@ -371,9 +371,10 @@ function generate_random_temperature!(temp_field, amplitude, modes_range)
                     r_frac = (global_r - 1) / max(nr - 1, 1)
 
                     if l == 0  # l=0, m=0 mode - base conductive profile
+                        # Orthonormal SH (Y_0^0 = 1/√(4π)): store physical mean ×√(4π).
                         base_temp = T(1.0 - 0.8 * r_frac)
                         set_local_spectral_value!(real_data, slot, local_r,
-                                                  base_temp + T(amplitude * 0.1 * (rand() - 0.5)))
+                                                  sqrt(4 * T(π)) * (base_temp + T(amplitude * 0.1 * (rand() - 0.5))))
                     elseif l in modes_range
                         # Random perturbations with radial dependence
                         radial_factor = sin(π * r_frac)
@@ -632,8 +633,9 @@ function set_analytical_temperature!(temp_field, pattern::Symbol, amplitude; par
                 for (local_r, global_r) in enumerate(r_range)
                     if local_r <= size(real_data, 3)
                         r_frac = (global_r - 1) / max(nr - 1, 1)
+                        # Orthonormal SH (Y_0^0 = 1/√(4π)): store physical mean ×√(4π).
                         set_local_spectral_value!(real_data, slot, local_r,
-                                                  T(amplitude * (1.0 - r_frac)))
+                                                  sqrt(4 * T(π)) * T(amplitude * (1.0 - r_frac)))
                     end
                 end
             end
@@ -654,13 +656,13 @@ function set_analytical_temperature!(temp_field, pattern::Symbol, amplitude; par
                         r_frac = (global_r - 1) / max(nr - 1, 1)
 
                         if l == 0
-                            # Background conductive profile
-                            set_local_spectral_value!(real_data, slot, local_r, T(0.5 * (1.0 - r_frac)))
-                            # Add hot blob
+                            # Background conductive profile (physical mean ×√(4π), orthonormal SH)
+                            set_local_spectral_value!(real_data, slot, local_r, sqrt(4 * T(π)) * T(0.5 * (1.0 - r_frac)))
+                            # Add hot blob (physical amplitude ×√(4π))
                             if abs(r_frac - r_center) < blob_width
                                 set_local_spectral_value!(
                                     real_data, slot, local_r,
-                                    local_spectral_value(real_data, slot, local_r) + T(amplitude),
+                                    local_spectral_value(real_data, slot, local_r) + sqrt(4 * T(π)) * T(amplitude),
                                 )
                             end
                         elseif l == 1 && abs(r_frac - r_center) < blob_width
