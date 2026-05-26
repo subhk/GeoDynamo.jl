@@ -295,6 +295,13 @@ solver_main_physical_field(𝔽::TemperatureFieldType{T}) where T = 𝔽.tempera
 
 solver_main_physical_field(𝔽::CompositionFieldType{T}) where T = 𝔽.composition
 
+# Number of batched cross-rank gather passes performed by the most recent scalar
+# transform (`scalar_spectral_to_physical!` / `scalar_physical_to_spectral!`).
+# Under multi-rank MPI each pass is one collective; batching keeps it at 1 per
+# transform regardless of the radial-level count (versus nr for the former
+# per-level gather). A pass issues no collective when the data is already local.
+const _SCALAR_GATHER_REDUCE_COUNT = Ref(0)
+
 function scalar_spectral_to_physical!(
     spec::SpectralFieldType{T},
     phys::PhysicalFieldType{T},) where T
@@ -313,14 +320,35 @@ function scalar_spectral_to_physical!(
     synth_out = get_synth_out(config._buffers)
     axes_local = phys.pencil.axes_local
 
-    for r_local in axes(phys_data, 3)
-        coeffs_matrix = collect_scalar_coefficients(
+    nr = size(phys_data, 3)
+    lmax, mmax = config.lmax, config.mmax
+    # Distributed spectral modes need the full coefficient matrix summed across
+    # ranks; when the matrix is already local the gather is a no-op.
+    needs_collective = !coefficient_matrix_is_local(config)
+
+    # Phase 1: stack every radial level's locally-owned coefficients into one
+    # buffer (zero elsewhere) so the cross-rank sum is a single collective.
+    coeffs_stack = solver_get_cached_buffer!(config, :coeffs_buffer_batched) do
+        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1, nr)
+    end::Array{ComplexF64,3}
+
+    @inbounds for r_local in 1:nr
+        fill_scalar_coeff_buffer!(
+            view(coeffs_stack, :, :, r_local),
             spec_real_data,
             spec_imag_data,
             r_local,
             config,
         )
+    end
 
+    # Phase 2: one collective over the whole stack (skipped when local).
+    _SCALAR_GATHER_REDUCE_COUNT[] += 1
+    needs_collective && allreduce_sum_in_place!(coeffs_stack, mpi_comm())
+
+    # Phase 3: synthesize each radial level from the gathered coefficients.
+    @inbounds for r_local in 1:nr
+        coeffs_matrix = view(coeffs_stack, :, :, r_local)
         if plan !== nothing && synth_out !== nothing
             synthesize_scalar!(plan, synth_out, coeffs_matrix)
             local_synth = @view synth_out[axes_local[1], axes_local[2]]
@@ -352,7 +380,7 @@ end
 end
 
 function extract_physical_slice!(
-    slice_buffer::Matrix{T},
+    slice_buffer::AbstractMatrix{T},
     phys_data,
     r_local,
     config;
@@ -377,7 +405,7 @@ function extract_physical_slice!(
 end
 
 function cpu_extract_physical_slice!(
-    slice_buffer::Matrix{T},
+    slice_buffer::AbstractMatrix{T},
     phys_data,
     r_local,
     config;
@@ -515,14 +543,37 @@ function scalar_physical_to_spectral!(
     anal_out = get_anal_out(config._buffers)
     phys_axes_local = phys.pencil.axes_local
 
-    for r_local in axes(phys_data, 3)
-        phys_slice = extract_physical_slice(
+    nr = size(phys_data, 3)
+    nlat, nlon = config.nlat, config.nlon
+    # A θ/φ-distributed physical grid needs the full slice assembled across
+    # ranks; a fully-local grid skips the gather.
+    needs_collective = !physical_grid_is_local(
+        (size(phys_data, 1), size(phys_data, 2)), phys_axes_local, nlat, nlon,
+    )
+
+    # Phase 1: stack every radial level's locally-owned physical slice into one
+    # buffer (zero elsewhere) so the cross-rank sum is a single collective.
+    slice_stack = solver_get_cached_buffer!(config, :slice_buffer_batched) do
+        workspace_zeros(config, Float64, nlat, nlon, nr)
+    end::Array{Float64,3}
+
+    @inbounds for r_local in 1:nr
+        extract_physical_slice!(
+            view(slice_stack, :, :, r_local),
             phys_data,
             r_local,
             config;
             axes_local=phys_axes_local,
         )
+    end
 
+    # Phase 2: one collective over the whole stack (skipped when local).
+    _SCALAR_GATHER_REDUCE_COUNT[] += 1
+    needs_collective && allreduce_sum_in_place!(slice_stack, mpi_comm())
+
+    # Phase 3: analyze each gathered radial slice into spectral coefficients.
+    @inbounds for r_local in 1:nr
+        phys_slice = view(slice_stack, :, :, r_local)
         if plan !== nothing && anal_out !== nothing
             analyze_scalar!(plan, anal_out, phys_slice)
             store_scalar_coefficients!(
@@ -591,6 +642,8 @@ const _SOLVER_BUFFERS_KEY_MAP = Dict{Symbol, Symbol}(
     :solver_generic_slice_buffer_gathered   => :generic_slice_gathered,
     :coeffs_buffer                          => :coeffs_buffer,
     :coeffs_buffer_gathered                 => :coeffs_gathered,
+    :coeffs_buffer_batched                  => :coeffs_buffer_batched,
+    :slice_buffer_batched                   => :slice_buffer_batched,
 )
 
 @inline function _solver_buffer_field(::Val{key}) where {key}
@@ -643,7 +696,7 @@ end
 end
 
 function fill_scalar_coeff_buffer!(
-    coeffs_buffer::Matrix{ComplexF64},
+    coeffs_buffer::AbstractMatrix{ComplexF64},
     spec_real,
     spec_imag,
     r_local,
@@ -668,7 +721,7 @@ function fill_scalar_coeff_buffer!(
 end
 
 function cpu_fill_scalar_coeff_buffer!(
-    coeffs_buffer::Matrix{ComplexF64},
+    coeffs_buffer::AbstractMatrix{ComplexF64},
     spec_real,
     spec_imag,
     r_local,
