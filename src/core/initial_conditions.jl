@@ -835,8 +835,9 @@ function set_analytical_composition!(comp_field, pattern::Symbol, amplitude; par
                 for (local_r, global_r) in enumerate(r_range)
                     if local_r <= size(real_data, 3)
                         r_frac = (global_r - 1) / max(nr - 1, 1)
+                        # Orthonormal SH (Y_0^0 = 1/√(4π)): store physical mean ×√(4π).
                         set_local_spectral_value!(real_data, slot, local_r,
-                                                  T(bottom_comp + (top_comp - bottom_comp) * r_frac))
+                                                  sqrt(4 * T(π)) * T(bottom_comp + (top_comp - bottom_comp) * r_frac))
                     end
                 end
             end
@@ -858,11 +859,11 @@ function set_analytical_composition!(comp_field, pattern::Symbol, amplitude; par
                         r_frac = (global_r - 1) / max(nr - 1, 1)
 
                         if l == 0
-                            # Background + blob
+                            # Background + blob; physical means ×√(4π) (orthonormal SH, Y_0^0 = 1/√(4π)).
                             if abs(r_frac - r_center) < blob_width
-                                set_local_spectral_value!(real_data, slot, local_r, T(blob_composition))
+                                set_local_spectral_value!(real_data, slot, local_r, sqrt(4 * T(π)) * T(blob_composition))
                             else
-                                set_local_spectral_value!(real_data, slot, local_r, T(0.1))
+                                set_local_spectral_value!(real_data, slot, local_r, sqrt(4 * T(π)) * T(0.1))
                             end
                         elseif l == 1 && abs(r_frac - r_center) < blob_width
                             set_local_spectral_value!(real_data, slot, local_r, T(0.1 * blob_composition))
