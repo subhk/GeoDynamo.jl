@@ -17,8 +17,10 @@ GeoDynamo.jl/
 ├── src/
 │   ├── GeoDynamo.jl              # Module entry point & exports
 │   ├── core/
+│   │   ├── architecture.jl       # CPU/GPU architecture types
 │   │   ├── parameters.jl         # Internal parameter I/O and validation
 │   │   ├── initial_conditions.jl # InitialConditions module and loaders
+│   │   ├── simulation_health.jl  # Runtime health / NaN checks
 │   │   └── spectral_history.jl   # Shared spectral-history helpers
 │   ├── parallel/
 │   │   ├── mpi.jl                # MPI runtime helpers
@@ -39,11 +41,14 @@ GeoDynamo.jl/
 │   │   ├── erk2.jl               # Solver-side ERK2 helpers
 │   │   └── driver.jl             # Solver-side timestep driver
 │   ├── physics/
+│   │   ├── nonlinear.jl          # Shared nonlinear-term assembly
+│   │   ├── topography.jl         # Topography physics coupling
 │   │   ├── velocity/
 │   │   │   ├── field.jl          # Velocity field containers/operators
 │   │   │   └── solver.jl         # Solver-owned velocity helpers
 │   │   ├── magnetic/
 │   │   │   ├── field.jl          # Magnetic field containers/operators
+│   │   │   ├── inner_core.jl     # Conducting inner-core admittance & ICB coupling
 │   │   │   └── solver.jl         # Solver-owned magnetic helpers
 │   │   ├── temperature/
 │   │   │   ├── field.jl          # Temperature field containers/operators
@@ -62,20 +67,39 @@ GeoDynamo.jl/
 │   │   ├── history.jl            # Time-series history utilities
 │   │   ├── restart.jl            # Restart file read/write
 │   │   └── utilities.jl          # Shared I/O utilities
-│   ├── performance/
-│   │   └── tools.jl              # Performance utilities
+│   ├── api/                      # High-level user-facing API
+│   │   ├── model.jl              # GeodynamoModel constructors
+│   │   ├── simulation.jl         # Simulation type and run loop
+│   │   ├── grids.jl              # SphericalShellGrid / SphericalBallGrid
+│   │   ├── boundary_conditions.jl
+│   │   ├── initial_conditions.jl
+│   │   ├── timesteppers.jl
+│   │   ├── output_writers.jl
+│   │   ├── callbacks.jl
+│   │   └── schedules.jl
 │   ├── bcs/
-│   │   ├── bcs.jl               # Main BC module
+│   │   ├── bcs.jl                # Main BC module
 │   │   ├── common.jl             # Shared BC utilities
+│   │   ├── scalar_bc.jl          # Shared scalar BC core
 │   │   ├── thermal_bc.jl         # Temperature BCs
+│   │   ├── compositional_bc.jl   # Composition BCs
 │   │   ├── velocity_bc.jl        # Velocity BCs
-│   │   ├── magnetic_bc.jl        # Magnetic BCs
-│   │   ├── composition.jl        # Composition BCs
+│   │   ├── magnetic_bc.jl        # Magnetic BCs (incl. conducting inner core)
 │   │   ├── interpolation.jl      # BC interpolation
 │   │   ├── integration.jl        # BC time integration
 │   │   ├── timestepping.jl       # BC timestepping
+│   │   ├── file_bc_loader.jl     # Load BCs from files
 │   │   ├── netcdf_io.jl          # BC NetCDF I/O
-│   │   └── programmatic.jl       # Programmatic BC definitions
+│   │   ├── programmatic.jl       # Programmatic BC definitions
+│   │   └── topography/           # Boundary topography subsystem
+│   │       ├── topography.jl
+│   │       ├── topography_data.jl
+│   │       ├── derivatives.jl
+│   │       ├── gaunt_tensors.jl
+│   │       ├── thermal_coupling.jl
+│   │       ├── velocity_coupling.jl
+│   │       ├── magnetic_coupling.jl
+│   │       └── stefan_condition.jl
 │   ├── Shell/                    # Spherical shell geometry
 │   │   └── Shell.jl
 │   ├── Ball/                     # Solid ball geometry
@@ -87,8 +111,6 @@ GeoDynamo.jl/
 │       ├── backend.jl           # Backend/runtime assembly
 │       ├── state.jl             # SolverState and cache containers
 │       ├── numerics.jl          # Shared solver numerics
-│       ├── imex.jl              # IMEX/CNAB2-EAB2 helpers
-│       ├── erk2.jl              # ERK2 helpers and caches
 │       └── mainloop.jl          # Solver initialization and run loop
 ├── ext/
 │   └── GeoDynamoCUDAExt.jl       # CUDA backend registration for the solver path
@@ -299,7 +321,7 @@ Boundary definitions live under `src/bcs/`.
 | `physics/temperature/field.jl` | Temperature advection-diffusion field module |
 | `physics/velocity/field.jl` | Velocity field module |
 | `physics/magnetic/field.jl` | Magnetic field module |
-| `composition.jl` | Composition boundary handling |
+| `compositional_bc.jl` | Composition boundary handling |
 | `interpolation.jl` | Spatial/temporal interpolation |
 | `netcdf_io.jl` | NetCDF read/write |
 | `programmatic.jl` | Code-defined boundaries |
