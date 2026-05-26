@@ -18,7 +18,11 @@ function initialize_composition_field!(state::SolverState{T,<:AbstractArchitectu
 
         for r_idx in r_range
             if l == 0 && m == 0
-                set_local_spectral_value!(spec_real, slot, r_idx, T(0.5))
+                # Orthonormal SH (Y_0^0 = 1/√(4π)): the uniform physical mean
+                # composition 0.5 is stored as the (0,0) coefficient 0.5·√(4π),
+                # matching apply_scalar_boundary_parameters! and the temperature
+                # conductive IC so physical-space buoyancy sees the intended value.
+                set_local_spectral_value!(spec_real, slot, r_idx, sqrt(4 * T(π)) * T(0.5))
             elseif 1 <= l <= 3
                 amplitude = T(1e-4)
                 set_local_spectral_value!(

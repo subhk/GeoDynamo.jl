@@ -529,6 +529,10 @@ boundary storage used by CNAB2, EAB2, and ERK2.
 Parameter-specified scalar BCs are spatially uniform, so only the `(l,m)=(0,0)`
 mode receives a nonzero endpoint value. File-based spectral BCs can later
 replace this with per-mode real and imaginary values.
+
+The transform is orthonormal (`Y_0^0 = 1/√(4π)`), so a uniform physical value
+`v` maps to the `(0,0)` spectral coefficient `v·√(4π)`; the boundary endpoints
+are scaled accordingly (same convention as `bcs/topography/topography_data.jl`).
 """
 function apply_scalar_boundary_parameters!(field, boundary_conditions::BoundaryConditions)
     T = eltype(field.boundary_values)
@@ -538,8 +542,9 @@ function apply_scalar_boundary_parameters!(field, boundary_conditions::BoundaryC
 
     mean_mode = get_mode_index(field.config, 0, 0)
     if mean_mode > 0
-        field.boundary_values[1, mean_mode] = T(solver_scalar_boundary_value(boundary_conditions.inner))
-        field.boundary_values[2, mean_mode] = T(solver_scalar_boundary_value(boundary_conditions.outer))
+        sqrt_4pi = sqrt(4 * convert(T, π))
+        field.boundary_values[1, mean_mode] = sqrt_4pi * T(solver_scalar_boundary_value(boundary_conditions.inner))
+        field.boundary_values[2, mean_mode] = sqrt_4pi * T(solver_scalar_boundary_value(boundary_conditions.outer))
     end
 
     return field
