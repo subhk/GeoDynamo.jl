@@ -1,8 +1,13 @@
-# Clock — Oceananigans-style time/iteration tracker.
-#
-# The authoritative time/step live on the SolverState; this Clock is a mirror
-# synced after each advance (see sync_clock!). It is correct to read between
-# steps, not mid-step.
+"""
+    mutable struct Clock{T}
+
+Oceananigans-style tracker for simulation `time`, `iteration`, integrator
+`stage`, and the last timestep `last_Δt`. A `Clock` is attached to each
+[`GeodynamoModel`](@ref) and synced after every advance via `sync_clock!`.
+
+The authoritative time/step live on the solver state; this `Clock` is a mirror.
+It is correct to read between steps, not mid-step.
+"""
 mutable struct Clock{T}
     time      :: T
     iteration :: Int
