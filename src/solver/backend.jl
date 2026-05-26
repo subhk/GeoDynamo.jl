@@ -63,8 +63,12 @@ struct SolverGradientWorkspace{T, S<:SpectralFieldType{T}}
     ∇θ_spec::S
     ∇φ_spec::S
     ∇r_spec::S
-    theta_full_real::Vector{T}
-    theta_full_imag::Vector{T}
+    # Cross-rank gather scratch, shaped (nlm, nr_local). The θ-recurrence couples
+    # (l,m) with (l±1,m), which may live on other ranks, so the full spectrum is
+    # summed in. Holding every radial level at once lets the gather use a single
+    # collective per component instead of one per radial level.
+    theta_full_real::Matrix{T}
+    theta_full_imag::Matrix{T}
     # Precomputed (l±1, m) -> global storage index for the θ-gradient recurrence.
     # Built once so the per-mode hot loop avoids hashing the full mode arrays.
     theta_lm_plus::Vector{Int}
@@ -435,6 +439,7 @@ function create_solver_gradient_workspace(::Type{T}, backend::SolverBackend{<:Ab
     domain = backend.outer_core_domain
     pencil_spec = cfg.pencils.spec
     theta_lm_plus, theta_lm_minus = build_theta_gradient_neighbors(cfg)
+    nr_local = length(local_range(pencil_spec, 3))
     # All-inferred constructor so both T and the concrete spectral type S are
     # taken from the arguments (`SolverGradientWorkspace{T}(...)` would be a
     # partial parametric application with no matching constructor).
@@ -442,8 +447,8 @@ function create_solver_gradient_workspace(::Type{T}, backend::SolverBackend{<:Ab
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
         solver_create_gradient_field(T, cfg, domain, pencil_spec),
-        zeros(T, cfg.nlm),
-        zeros(T, cfg.nlm),
+        zeros(T, cfg.nlm, nr_local),
+        zeros(T, cfg.nlm, nr_local),
         theta_lm_plus,
         theta_lm_minus,
     )
