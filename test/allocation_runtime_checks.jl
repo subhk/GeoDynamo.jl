@@ -73,6 +73,18 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         @test _alloc_phi_grad(temp_field, grad_ws) == 0
     end
 
+    # --- A2. θ-gradient batches the cross-rank spectral gather ------------------
+    @testset "θ-gradient issues one gather reduction, not one per radial level (#5)" begin
+        # The (l,m)<->(l±1,m) recurrence needs the full spectrum gathered across
+        # ranks. Gathering per radial level issues O(nr) collectives; batching all
+        # radial levels into a single buffer issues O(1). `_THETA_GATHER_REDUCE_COUNT`
+        # tracks gather-reduce passes (== MPI collective count under multi-rank).
+        # nr=16 here, so the former per-level path registered 2*16 = 32.
+        GeoDynamo._THETA_GATHER_REDUCE_COUNT[] = 0
+        GeoDynamo.compute_theta_gradient_spectral!(temp_field, grad_ws)
+        @test GeoDynamo._THETA_GATHER_REDUCE_COUNT[] == 2
+    end
+
     # --- B. Caches reuse rather than rebuild -----------------------------------
     @testset "ERK2 boundary-spec cache reuses, matches fresh build (#2)" begin
         tc = GeoDynamo.TimestepCaches{Float64}()
