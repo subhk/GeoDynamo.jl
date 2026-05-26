@@ -85,6 +85,22 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         @test GeoDynamo._THETA_GATHER_REDUCE_COUNT[] == 2
     end
 
+    # --- A3. Scalar transforms batch the per-radial-level slice gather ----------
+    @testset "scalar synthesis/analysis gather once, not once per radial level (#6)" begin
+        # Synthesis (spectral→physical) gathered the full coefficient matrix and
+        # analysis (physical→spectral) gathered the full physical slice once per
+        # radial level — O(nr) collectives. Batching stacks all levels into one
+        # buffer and gathers once. `_SCALAR_GATHER_REDUCE_COUNT` counts batched
+        # gather passes; nr=16 here, so the former per-level path registered 16.
+        GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] = 0
+        GeoDynamo.scalar_spectral_to_physical!(temp_field.spectral, temp_field.temperature)
+        @test GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] == 1
+
+        GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] = 0
+        GeoDynamo.scalar_physical_to_spectral!(temp_field.temperature, temp_field.spectral)
+        @test GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] == 1
+    end
+
     # --- B. Caches reuse rather than rebuild -----------------------------------
     @testset "ERK2 boundary-spec cache reuses, matches fresh build (#2)" begin
         tc = GeoDynamo.TimestepCaches{Float64}()
