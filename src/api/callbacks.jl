@@ -184,7 +184,7 @@ simulation state, and fires each callback whose schedule returns `true` from
 function _run_callbacks!(sim)
     wtime = sim._wall_start > 0.0 ? time() - sim._wall_start : 0.0
     ctx = _ScheduleContext(sim.model.clock.time, sim.model.clock.iteration, wtime)
-    for cb in sim.callbacks
+    for cb in values(sim.callbacks)
         if should_fire(_callback_schedule(cb), ctx)
             _fire_callback!(cb, sim)
         end

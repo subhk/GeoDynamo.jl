@@ -20,10 +20,26 @@ mutable struct Simulation{M,C,O}
     _wall_start     :: Float64
 end
 
-_schedule_items_tuple(::Nothing) = ()
-_schedule_items_tuple(items::Tuple) = items
-_schedule_items_tuple(items::AbstractVector) = Tuple(items)
-_schedule_items_tuple(item) = (item,)
+_to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol,Any}()
+function _to_ordered(items, prefix::Symbol)
+    d = OrderedDict{Symbol,Any}()
+    if items isa AbstractDict
+        for (k, v) in items
+            d[Symbol(k)] = v
+        end
+    elseif items isa NamedTuple
+        for k in keys(items)
+            d[k] = items[k]
+        end
+    else
+        seq = items isa Tuple ? items :
+              items isa AbstractVector ? items : (items,)
+        for (i, v) in enumerate(seq)
+            d[Symbol(prefix, i)] = v
+        end
+    end
+    return d
+end
 
 """
     Simulation(model::GeodynamoModel;
@@ -106,8 +122,8 @@ function Simulation(model::GeodynamoModel;
         model.state.runtime.timestep_state.dt = Δt_f
     end
 
-    callback_items = _schedule_items_tuple(callbacks)
-    output_writer_items = _schedule_items_tuple(output_writers)
+    callback_items = _to_ordered(callbacks, :callback)
+    output_writer_items = _to_ordered(output_writers, :writer)
 
     sync_clock!(model.clock, model.state)
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
@@ -178,6 +194,17 @@ function run!(sim::Simulation)
           (time() - sim._wall_start) < sim.wall_time_limit
         time_step!(sim)
     end
+    return sim
+end
+
+"""
+    add_callback!(sim, func; schedule, name=auto)
+
+Register `func(sim)` to fire on `schedule`. Returns `sim`.
+"""
+function add_callback!(sim::Simulation, func; schedule,
+                       name::Symbol = Symbol(:callback, length(sim.callbacks) + 1))
+    sim.callbacks[name] = Callback(func; schedule = schedule)
     return sim
 end
 

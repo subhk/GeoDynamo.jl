@@ -77,4 +77,24 @@ using Test
         @test objectid(model.state.implicit_matrices) != old_id
     end
 
+    @testset "OrderedDict writers/callbacks + add_callback!" begin
+        using MPI
+        if !MPI.Initialized(); MPI.Init(); end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax=4, mmax=4, nlat=12, nlon=16, nr=16, nr_inner=4)
+        model = GeoDynamo.GeodynamoModel(grid;
+            Ek=1e-2, Ra=1e4, include_magnetic=false, include_composition=false)
+        sim = GeoDynamo.Simulation(model; Δt=1e-4, stop_iteration=2)
+        @test sim.callbacks isa GeoDynamo.OrderedDict{Symbol,<:Any}
+        @test sim.output_writers isa GeoDynamo.OrderedDict{Symbol,<:Any}
+
+        fired = Ref(0)
+        GeoDynamo.add_callback!(sim, _ -> (fired[] += 1);
+            schedule = GeoDynamo.IterationInterval(1), name = :counter)
+        @test haskey(sim.callbacks, :counter)
+
+        GeoDynamo.run!(sim)
+        @test fired[] == 2
+    end
+
 end
