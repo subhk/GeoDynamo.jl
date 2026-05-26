@@ -8,6 +8,13 @@ function zero_gradient_workspace!(ws::SolverGradientWorkspace{T}) where T
     return ws
 end
 
+# Number of cross-rank spectral gather-reduce passes performed by the most recent
+# `compute_theta_gradient_spectral!` call. Under multi-rank MPI this equals the
+# number of MPI collectives issued; the batched gather keeps it at 2 (real +
+# imaginary) regardless of the radial-level count, versus 2*nr for a per-level
+# gather. Tests reset it to 0 and assert it stays at 2.
+const _THETA_GATHER_REDUCE_COUNT = Ref(0)
+
 function compute_theta_gradient_spectral!(
     𝔽::ScalarFieldType{T},
     ws::SolverGradientWorkspace{T},
@@ -24,33 +31,47 @@ function compute_theta_gradient_spectral!(
     comm = mpi_comm()
     multi = mpi_initialized() && mpi_comm_size(comm) > 1
 
+    # Gather scratch shaped (nlm, nr_local): column `local_r` holds the full
+    # spectrum at that radial level. Stacking every level lets the cross-rank
+    # sum use one collective per component instead of one per level.
     full_real = ws.theta_full_real
     full_imag = ws.theta_full_imag
-    length(full_real) == nlm || error("theta-gradient workspace real buffer has length $(length(full_real)); expected $nlm")
-    length(full_imag) == nlm || error("theta-gradient workspace imaginary buffer has length $(length(full_imag)); expected $nlm")
+    size(full_real, 1) == nlm || error("theta-gradient workspace real buffer has $(size(full_real, 1)) modes; expected $nlm")
+    size(full_imag, 1) == nlm || error("theta-gradient workspace imaginary buffer has $(size(full_imag, 1)) modes; expected $nlm")
 
+    # Phase 1: scatter this rank's owned modes into every radial column. Cleared
+    # first so modes owned by other ranks contribute zero before the sum.
+    fill!(full_real, zero(T))
+    fill!(full_imag, zero(T))
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         if local_r > size(∇θ_real, 3)
             continue
         end
-
-        fill!(full_real, zero(T))
-        fill!(full_imag, zero(T))
         for lm_idx in lm_range
             if lm_idx <= nlm
                 slot = local_spectral_storage_slot(𝔽.config, lm_idx)
                 if slot !== nothing
-                    full_real[lm_idx] = local_spectral_value(spec_real, slot, local_r)
-                    full_imag[lm_idx] = local_spectral_value(spec_imag, slot, local_r)
+                    full_real[lm_idx, local_r] = local_spectral_value(spec_real, slot, local_r)
+                    full_imag[lm_idx, local_r] = local_spectral_value(spec_imag, slot, local_r)
                 end
             end
         end
-        if multi
-            allreduce_sum_in_place!(full_real, comm)
-            allreduce_sum_in_place!(full_imag, comm)
-        end
+    end
 
+    # Phase 2: one collective per component over all radial levels at once
+    # (the former per-level reduce issued 2*nr collectives).
+    _THETA_GATHER_REDUCE_COUNT[] += 1
+    multi && allreduce_sum_in_place!(full_real, comm)
+    _THETA_GATHER_REDUCE_COUNT[] += 1
+    multi && allreduce_sum_in_place!(full_imag, comm)
+
+    # Phase 3: apply the ∂/∂θ recurrence using the gathered full spectrum.
+    @inbounds for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r > size(∇θ_real, 3)
+            continue
+        end
         for lm_idx in lm_range
             if lm_idx <= nlm
                 slot = local_spectral_storage_slot(𝔽.config, lm_idx)
@@ -72,8 +93,8 @@ function compute_theta_gradient_spectral!(
                     if lm_plus > 0 && lm_plus <= nlm
                         A_plus = T(l) * sqrt(T((l + abs_m + 1) * (l - abs_m + 1)) /
                                              T((2 * l + 1) * (2 * l + 3)))
-                        dtheta_real += A_plus * full_real[lm_plus]
-                        dtheta_imag += A_plus * full_imag[lm_plus]
+                        dtheta_real += A_plus * full_real[lm_plus, local_r]
+                        dtheta_imag += A_plus * full_imag[lm_plus, local_r]
                     end
                 end
 
@@ -82,8 +103,8 @@ function compute_theta_gradient_spectral!(
                     if lm_minus > 0 && lm_minus <= nlm
                         A_minus = -T(l + 1) * sqrt(T((l + abs_m) * (l - abs_m)) /
                                                    T((2 * l - 1) * (2 * l + 1)))
-                        dtheta_real += A_minus * full_real[lm_minus]
-                        dtheta_imag += A_minus * full_imag[lm_minus]
+                        dtheta_real += A_minus * full_real[lm_minus, local_r]
+                        dtheta_imag += A_minus * full_imag[lm_minus, local_r]
                     end
                 end
 

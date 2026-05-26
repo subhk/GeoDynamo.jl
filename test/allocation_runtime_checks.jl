@@ -161,7 +161,7 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         @test isconcretetype(fieldtype(gwT, :∇r_spec))
         @test fieldtype(gwT, :theta_lm_plus) === Vector{Int}
         @test fieldtype(gwT, :theta_lm_minus) === Vector{Int}
-        @test fieldtype(gwT, :theta_full_real) === Vector{Float64}
+        @test fieldtype(gwT, :theta_full_real) === Matrix{Float64}
     end
 
     @testset "structural invariants" begin
