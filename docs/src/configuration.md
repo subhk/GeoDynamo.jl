@@ -45,7 +45,7 @@ GeoDynamo.Simulation
 
     - **Geometry**: `SphericalShellGrid`, `SphericalBallGrid`, `nr`, `nr_inner`, `lmax`, `mmax`, `nlat`, `nlon`
     - **Physics**: `Ek`, `Ra`, `Pr`, `Pm`
-    - **Time**: `Simulation(model; Δt, stop_time, max_steps)`
+    - **Time**: `Simulation(model; Δt, stop_time, stop_iteration)`
     - **Boundaries**: `BoundaryConditions(inner=..., outer=...)`
 
 ---
