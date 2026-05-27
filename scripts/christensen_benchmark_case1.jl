@@ -111,6 +111,27 @@ function case1_parameters(; mode::Symbol = :smoke)
     )
 end
 
+# Christensen Case 0: non-magnetic rotating convection (same E, Ra=100, Pr=1; no
+# field). NOT blocked by the magnetic IC, so it is the tractable FIRST validation
+# — and it still exercises the velocity poloidal reconstruction, so it is the
+# right evolution-level check for the reconstruction fix. Converged ref (Table 1):
+const REF_CASE0 = (Ekin = 58.348, T = 0.42812, uφ = -10.157, ω = 0.18241)
+
+function case0_parameters(; mode::Symbol = :smoke)
+    nr, lmax = mode === :full ? (48, 48) : (16, 8)
+    return G.SolverParameters(
+        geometry = :shell, radius_ratio = 0.35,
+        nr = nr, lmax = lmax, mmax = lmax,
+        nlat = max(lmax + 2, 12), nlon = max(2lmax + 1, 24),
+        Ek = 5e-4, Ra = 100.0, Pr = 1.0,          # same OPEN Ra-mapping caveat as Case 1
+        include_magnetic_field = false, include_composition = false,
+        velocity_bcs    = G.BoundaryConditions(inner = G.NoSlip(), outer = G.NoSlip()),
+        temperature_bcs = G.BoundaryConditions(inner = G.FixedTemperature(1.0),
+                                               outer = G.FixedTemperature(0.0)),
+        timestepper = G.CNAB2(),
+    )
+end
+
 # ---- Initial conditions ------------------------------------------------------
 # Temperature: conductive background + the Eq.(9) perturbation. The perturbation
 # is a physical pattern (sin⁴θ cos4φ); the faithful route is to build T(r,θ,φ) on
