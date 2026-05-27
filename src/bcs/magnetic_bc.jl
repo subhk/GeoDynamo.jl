@@ -58,7 +58,8 @@ function create_magnetic_toroidal_matrices(config::SHTnsKitConfig,
                                             diffusivity::Float64,
                                             dt::Float64;
                                             theta::Float64=0.5,
-                                            T::Type{<:Number}=Float64)
+                                            T::Type{<:Number}=Float64,
+                                            inner_alpha::Union{Dict{Int,<:Real},Nothing}=nothing)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
     r_inv_sq = @views domain.r[1:domain.N, 2]
@@ -70,6 +71,8 @@ function create_magnetic_toroidal_matrices(config::SHTnsKitConfig,
     l_values = Vector{Int}(undef, length(unique_l))
     lookup = Dict{Int,Int}()
 
+    # First derivative matrix (needed for the conducting-inner-core Robin row)
+    d1_matrix = create_derivative_matrix(T, 1, domain)
     bw = radial_bandwidth(domain)
     N = domain.N
 
@@ -105,10 +108,19 @@ function create_magnetic_toroidal_matrices(config::SHTnsKitConfig,
             system_data[bw + 1 + N - j, j] = zero(T)
         end
 
-        # Insulating BC: BT = 0 at both boundaries (identity rows)
-        # Inner boundary
-        system_data[bw + 1, 1] = one(T)
-        # Outer boundary
+        # Inner boundary row
+        if inner_alpha === nothing || !haskey(inner_alpha, l)
+            # Insulating BC: BT = 0 (identity row)
+            # (also the fallback for l not in inner_alpha, e.g. l=0)
+            system_data[bw + 1, 1] = one(T)
+        else
+            # Conducting inner core: Robin row (∂/∂r − α_l) BT = φ0
+            @inbounds for j in 1:(1 + bw)
+                system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
+            end
+            system_data[bw + 1, 1] -= T(inner_alpha[l])
+        end
+        # Outer boundary: insulating BT = 0 (identity row)
         system_data[bw + 1, N] = one(T)
 
         system_matrix = BandedMatrix{T}(system_data, bw, N)
@@ -137,7 +149,8 @@ function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
                                             diffusivity::Float64,
                                             dt::Float64;
                                             theta::Float64=0.5,
-                                            T::Type{<:Number}=Float64)
+                                            T::Type{<:Number}=Float64,
+                                            inner_alpha::Union{Dict{Int,<:Real},Nothing}=nothing)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
     r_inv_sq = @views domain.r[1:domain.N, 2]
@@ -186,13 +199,22 @@ function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
             system_data[bw + 1 + N - j, j] = zero(T)
         end
 
-        # Insulating poloidal BC at inner boundary:
-        # (∂/∂r - l/r) BP = 0
-        # Copy first derivative row and subtract l/r[1] on diagonal
-        @inbounds for j in 1:(1 + bw)
-            system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
+        # Inner boundary row
+        if inner_alpha === nothing || !haskey(inner_alpha, l)
+            # Insulating poloidal BC: (∂/∂r - l/r) BP = 0
+            # (also the fallback for l not in inner_alpha, e.g. l=0)
+            # Copy first derivative row and subtract l/r[1] on diagonal
+            @inbounds for j in 1:(1 + bw)
+                system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
+            end
+            system_data[bw + 1, 1] -= T(l * domain.r[1, 3])  # subtract l/r[1]
+        else
+            # Conducting inner core: Robin row (∂/∂r − α_l) BP = φ0
+            @inbounds for j in 1:(1 + bw)
+                system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
+            end
+            system_data[bw + 1, 1] -= T(inner_alpha[l])
         end
-        system_data[bw + 1, 1] -= T(l * domain.r[1, 3])  # subtract l/r[1]
 
         # Insulating poloidal BC at outer boundary:
         # (∂/∂r + (l+1)/r) BP = 0

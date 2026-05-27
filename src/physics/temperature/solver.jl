@@ -33,11 +33,16 @@ function initialize_temperature_field!(state::SolverState{T,<:AbstractArchitectu
         for r_idx in r_range
             if l == 0 && m == 0
                 r = domain.r[r_idx, 4]
+                # Orthonormal SH (Y_0^0 = 1/√(4π)): the physical conductive
+                # profile is stored as the (0,0) coefficient value·√(4π), the
+                # same convention used for boundary values in
+                # apply_scalar_boundary_parameters!, so the field starts on the
+                # FixedTemperature boundary condition rather than √(4π) away.
                 set_local_spectral_value!(
                     spec_real,
                     slot,
                     r_idx,
-                    T(conductive_profile(state.parameters, r)),
+                    sqrt(4 * T(π)) * T(conductive_profile(state.parameters, r)),
                 )
             elseif 1 <= l <= 4
                 amplitude = T(1e-3)

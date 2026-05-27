@@ -73,6 +73,34 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         @test _alloc_phi_grad(temp_field, grad_ws) == 0
     end
 
+    # --- A2. θ-gradient batches the cross-rank spectral gather ------------------
+    @testset "θ-gradient issues one gather reduction, not one per radial level (#5)" begin
+        # The (l,m)<->(l±1,m) recurrence needs the full spectrum gathered across
+        # ranks. Gathering per radial level issues O(nr) collectives; batching all
+        # radial levels into a single buffer issues O(1). `_THETA_GATHER_REDUCE_COUNT`
+        # tracks gather-reduce passes (== MPI collective count under multi-rank).
+        # nr=16 here, so the former per-level path registered 2*16 = 32.
+        GeoDynamo._THETA_GATHER_REDUCE_COUNT[] = 0
+        GeoDynamo.compute_theta_gradient_spectral!(temp_field, grad_ws)
+        @test GeoDynamo._THETA_GATHER_REDUCE_COUNT[] == 2
+    end
+
+    # --- A3. Scalar transforms batch the per-radial-level slice gather ----------
+    @testset "scalar synthesis/analysis gather once, not once per radial level (#6)" begin
+        # Synthesis (spectral→physical) gathered the full coefficient matrix and
+        # analysis (physical→spectral) gathered the full physical slice once per
+        # radial level — O(nr) collectives. Batching stacks all levels into one
+        # buffer and gathers once. `_SCALAR_GATHER_REDUCE_COUNT` counts batched
+        # gather passes; nr=16 here, so the former per-level path registered 16.
+        GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] = 0
+        GeoDynamo.scalar_spectral_to_physical!(temp_field.spectral, temp_field.temperature)
+        @test GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] == 1
+
+        GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] = 0
+        GeoDynamo.scalar_physical_to_spectral!(temp_field.temperature, temp_field.spectral)
+        @test GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] == 1
+    end
+
     # --- B. Caches reuse rather than rebuild -----------------------------------
     @testset "ERK2 boundary-spec cache reuses, matches fresh build (#2)" begin
         tc = GeoDynamo.TimestepCaches{Float64}()
@@ -117,11 +145,11 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         builds = Ref(0)
         b1 = GeoDynamo.solver_get_cached_buffer!(cfg, :coeffs_buffer) do
             builds[] += 1
-            zeros(ComplexF64, cfg.nlm)
+            zeros(ComplexF64, cfg.lmax + 1, cfg.mmax + 1)
         end
         b2 = GeoDynamo.solver_get_cached_buffer!(cfg, :coeffs_buffer) do
             builds[] += 1
-            zeros(ComplexF64, cfg.nlm)
+            zeros(ComplexF64, cfg.lmax + 1, cfg.mmax + 1)
         end
         @test b1 === b2          # warm path hands back the same buffer
         @test builds[] <= 1      # built at most once across both calls
@@ -149,7 +177,7 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         @test isconcretetype(fieldtype(gwT, :∇r_spec))
         @test fieldtype(gwT, :theta_lm_plus) === Vector{Int}
         @test fieldtype(gwT, :theta_lm_minus) === Vector{Int}
-        @test fieldtype(gwT, :theta_full_real) === Vector{Float64}
+        @test fieldtype(gwT, :theta_full_real) === Matrix{Float64}
     end
 
     @testset "structural invariants" begin

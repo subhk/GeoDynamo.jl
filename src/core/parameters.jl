@@ -49,6 +49,7 @@ Base.@kwdef struct SolverParameters
     include_magnetic_field::Bool = false
     include_composition::Bool = true
     impose_magnetic_field::Bool = false
+    magnetic_inner_bc::Symbol = :insulating   # :insulating | :conducting_inner_core
 
     velocity_bcs::BoundaryConditions = BoundaryConditions(inner=NoSlip(), outer=NoSlip())
     temperature_bcs::BoundaryConditions = BoundaryConditions(inner=FixedTemperature(1.0), outer=FixedTemperature(0.0))
@@ -149,6 +150,13 @@ function _parameter_errors_warnings(params::SolverParameters)
 
     if params.geometry === :shell && params.nr_inner < 2
         push!(errors, "nr_inner = $(params.nr_inner) must be >= 2 for shell geometry")
+    end
+
+    if !(params.magnetic_inner_bc in (:insulating, :conducting_inner_core))
+        push!(errors, "magnetic_inner_bc = $(params.magnetic_inner_bc) must be :insulating or :conducting_inner_core")
+    end
+    if params.magnetic_inner_bc === :conducting_inner_core && params.geometry !== :shell
+        push!(errors, "magnetic_inner_bc=:conducting_inner_core requires geometry=:shell")
     end
 
     if params.lmax < 1

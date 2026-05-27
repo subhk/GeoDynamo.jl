@@ -8,6 +8,13 @@ function zero_gradient_workspace!(ws::SolverGradientWorkspace{T}) where T
     return ws
 end
 
+# Number of cross-rank spectral gather-reduce passes performed by the most recent
+# `compute_theta_gradient_spectral!` call. Under multi-rank MPI this equals the
+# number of MPI collectives issued; the batched gather keeps it at 2 (real +
+# imaginary) regardless of the radial-level count, versus 2*nr for a per-level
+# gather. Tests reset it to 0 and assert it stays at 2.
+const _THETA_GATHER_REDUCE_COUNT = Ref(0)
+
 function compute_theta_gradient_spectral!(
     𝔽::ScalarFieldType{T},
     ws::SolverGradientWorkspace{T},
@@ -24,33 +31,47 @@ function compute_theta_gradient_spectral!(
     comm = mpi_comm()
     multi = mpi_initialized() && mpi_comm_size(comm) > 1
 
+    # Gather scratch shaped (nlm, nr_local): column `local_r` holds the full
+    # spectrum at that radial level. Stacking every level lets the cross-rank
+    # sum use one collective per component instead of one per level.
     full_real = ws.theta_full_real
     full_imag = ws.theta_full_imag
-    length(full_real) == nlm || error("theta-gradient workspace real buffer has length $(length(full_real)); expected $nlm")
-    length(full_imag) == nlm || error("theta-gradient workspace imaginary buffer has length $(length(full_imag)); expected $nlm")
+    size(full_real, 1) == nlm || error("theta-gradient workspace real buffer has $(size(full_real, 1)) modes; expected $nlm")
+    size(full_imag, 1) == nlm || error("theta-gradient workspace imaginary buffer has $(size(full_imag, 1)) modes; expected $nlm")
 
+    # Phase 1: scatter this rank's owned modes into every radial column. Cleared
+    # first so modes owned by other ranks contribute zero before the sum.
+    fill!(full_real, zero(T))
+    fill!(full_imag, zero(T))
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         if local_r > size(∇θ_real, 3)
             continue
         end
-
-        fill!(full_real, zero(T))
-        fill!(full_imag, zero(T))
         for lm_idx in lm_range
             if lm_idx <= nlm
                 slot = local_spectral_storage_slot(𝔽.config, lm_idx)
                 if slot !== nothing
-                    full_real[lm_idx] = local_spectral_value(spec_real, slot, local_r)
-                    full_imag[lm_idx] = local_spectral_value(spec_imag, slot, local_r)
+                    full_real[lm_idx, local_r] = local_spectral_value(spec_real, slot, local_r)
+                    full_imag[lm_idx, local_r] = local_spectral_value(spec_imag, slot, local_r)
                 end
             end
         end
-        if multi
-            allreduce_sum_in_place!(full_real, comm)
-            allreduce_sum_in_place!(full_imag, comm)
-        end
+    end
 
+    # Phase 2: one collective per component over all radial levels at once
+    # (the former per-level reduce issued 2*nr collectives).
+    _THETA_GATHER_REDUCE_COUNT[] += 1
+    multi && allreduce_sum_in_place!(full_real, comm)
+    _THETA_GATHER_REDUCE_COUNT[] += 1
+    multi && allreduce_sum_in_place!(full_imag, comm)
+
+    # Phase 3: apply the ∂/∂θ recurrence using the gathered full spectrum.
+    @inbounds for r_idx in r_range
+        local_r = r_idx - first(r_range) + 1
+        if local_r > size(∇θ_real, 3)
+            continue
+        end
         for lm_idx in lm_range
             if lm_idx <= nlm
                 slot = local_spectral_storage_slot(𝔽.config, lm_idx)
@@ -72,8 +93,8 @@ function compute_theta_gradient_spectral!(
                     if lm_plus > 0 && lm_plus <= nlm
                         A_plus = T(l) * sqrt(T((l + abs_m + 1) * (l - abs_m + 1)) /
                                              T((2 * l + 1) * (2 * l + 3)))
-                        dtheta_real += A_plus * full_real[lm_plus]
-                        dtheta_imag += A_plus * full_imag[lm_plus]
+                        dtheta_real += A_plus * full_real[lm_plus, local_r]
+                        dtheta_imag += A_plus * full_imag[lm_plus, local_r]
                     end
                 end
 
@@ -82,8 +103,8 @@ function compute_theta_gradient_spectral!(
                     if lm_minus > 0 && lm_minus <= nlm
                         A_minus = -T(l + 1) * sqrt(T((l + abs_m) * (l - abs_m)) /
                                                    T((2 * l - 1) * (2 * l + 1)))
-                        dtheta_real += A_minus * full_real[lm_minus]
-                        dtheta_imag += A_minus * full_imag[lm_minus]
+                        dtheta_real += A_minus * full_real[lm_minus, local_r]
+                        dtheta_imag += A_minus * full_imag[lm_minus, local_r]
                     end
                 end
 
@@ -274,6 +295,13 @@ solver_main_physical_field(𝔽::TemperatureFieldType{T}) where T = 𝔽.tempera
 
 solver_main_physical_field(𝔽::CompositionFieldType{T}) where T = 𝔽.composition
 
+# Number of batched cross-rank gather passes performed by the most recent scalar
+# transform (`scalar_spectral_to_physical!` / `scalar_physical_to_spectral!`).
+# Under multi-rank MPI each pass is one collective; batching keeps it at 1 per
+# transform regardless of the radial-level count (versus nr for the former
+# per-level gather). A pass issues no collective when the data is already local.
+const _SCALAR_GATHER_REDUCE_COUNT = Ref(0)
+
 function scalar_spectral_to_physical!(
     spec::SpectralFieldType{T},
     phys::PhysicalFieldType{T},) where T
@@ -292,14 +320,35 @@ function scalar_spectral_to_physical!(
     synth_out = get_synth_out(config._buffers)
     axes_local = phys.pencil.axes_local
 
-    for r_local in axes(phys_data, 3)
-        coeffs_matrix = collect_scalar_coefficients(
+    nr = size(phys_data, 3)
+    lmax, mmax = config.lmax, config.mmax
+    # Distributed spectral modes need the full coefficient matrix summed across
+    # ranks; when the matrix is already local the gather is a no-op.
+    needs_collective = !coefficient_matrix_is_local(config)
+
+    # Phase 1: stack every radial level's locally-owned coefficients into one
+    # buffer (zero elsewhere) so the cross-rank sum is a single collective.
+    coeffs_stack = solver_get_cached_buffer!(config, :coeffs_buffer_batched) do
+        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1, nr)
+    end::Array{ComplexF64,3}
+
+    @inbounds for r_local in 1:nr
+        fill_scalar_coeff_buffer!(
+            view(coeffs_stack, :, :, r_local),
             spec_real_data,
             spec_imag_data,
             r_local,
             config,
         )
+    end
 
+    # Phase 2: one collective over the whole stack (skipped when local).
+    _SCALAR_GATHER_REDUCE_COUNT[] += 1
+    needs_collective && allreduce_sum_in_place!(coeffs_stack, mpi_comm())
+
+    # Phase 3: synthesize each radial level from the gathered coefficients.
+    @inbounds for r_local in 1:nr
+        coeffs_matrix = view(coeffs_stack, :, :, r_local)
         if plan !== nothing && synth_out !== nothing
             synthesize_scalar!(plan, synth_out, coeffs_matrix)
             local_synth = @view synth_out[axes_local[1], axes_local[2]]
@@ -331,7 +380,7 @@ end
 end
 
 function extract_physical_slice!(
-    slice_buffer::Matrix{T},
+    slice_buffer::AbstractMatrix{T},
     phys_data,
     r_local,
     config;
@@ -356,7 +405,7 @@ function extract_physical_slice!(
 end
 
 function cpu_extract_physical_slice!(
-    slice_buffer::Matrix{T},
+    slice_buffer::AbstractMatrix{T},
     phys_data,
     r_local,
     config;
@@ -494,14 +543,37 @@ function scalar_physical_to_spectral!(
     anal_out = get_anal_out(config._buffers)
     phys_axes_local = phys.pencil.axes_local
 
-    for r_local in axes(phys_data, 3)
-        phys_slice = extract_physical_slice(
+    nr = size(phys_data, 3)
+    nlat, nlon = config.nlat, config.nlon
+    # A θ/φ-distributed physical grid needs the full slice assembled across
+    # ranks; a fully-local grid skips the gather.
+    needs_collective = !physical_grid_is_local(
+        (size(phys_data, 1), size(phys_data, 2)), phys_axes_local, nlat, nlon,
+    )
+
+    # Phase 1: stack every radial level's locally-owned physical slice into one
+    # buffer (zero elsewhere) so the cross-rank sum is a single collective.
+    slice_stack = solver_get_cached_buffer!(config, :slice_buffer_batched) do
+        workspace_zeros(config, Float64, nlat, nlon, nr)
+    end::Array{Float64,3}
+
+    @inbounds for r_local in 1:nr
+        extract_physical_slice!(
+            view(slice_stack, :, :, r_local),
             phys_data,
             r_local,
             config;
             axes_local=phys_axes_local,
         )
+    end
 
+    # Phase 2: one collective over the whole stack (skipped when local).
+    _SCALAR_GATHER_REDUCE_COUNT[] += 1
+    needs_collective && allreduce_sum_in_place!(slice_stack, mpi_comm())
+
+    # Phase 3: analyze each gathered radial slice into spectral coefficients.
+    @inbounds for r_local in 1:nr
+        phys_slice = view(slice_stack, :, :, r_local)
         if plan !== nothing && anal_out !== nothing
             analyze_scalar!(plan, anal_out, phys_slice)
             store_scalar_coefficients!(
@@ -570,6 +642,8 @@ const _SOLVER_BUFFERS_KEY_MAP = Dict{Symbol, Symbol}(
     :solver_generic_slice_buffer_gathered   => :generic_slice_gathered,
     :coeffs_buffer                          => :coeffs_buffer,
     :coeffs_buffer_gathered                 => :coeffs_gathered,
+    :coeffs_buffer_batched                  => :coeffs_buffer_batched,
+    :slice_buffer_batched                   => :slice_buffer_batched,
 )
 
 @inline function _solver_buffer_field(::Val{key}) where {key}
@@ -622,7 +696,7 @@ end
 end
 
 function fill_scalar_coeff_buffer!(
-    coeffs_buffer::Matrix{ComplexF64},
+    coeffs_buffer::AbstractMatrix{ComplexF64},
     spec_real,
     spec_imag,
     r_local,
@@ -647,7 +721,7 @@ function fill_scalar_coeff_buffer!(
 end
 
 function cpu_fill_scalar_coeff_buffer!(
-    coeffs_buffer::Matrix{ComplexF64},
+    coeffs_buffer::AbstractMatrix{ComplexF64},
     spec_real,
     spec_imag,
     r_local,

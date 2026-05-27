@@ -317,6 +317,11 @@ mutable struct SolverState{
     timestep_caches::TimestepCaches{T}
     energy_tracker::SolverEnergyTracker
     solenoidal_monitor::SolverSolenoidalMonitor
+    # Conducting-inner-core ICB admittances (toroidal/poloidal), or `nothing` for
+    # the default insulating magnetic inner boundary. When present, the magnetic
+    # CNAB2 update couples the outer-core solve to the inner-core diffusion across
+    # the ICB and reconstructs the inner-core scalars 𝒯ⁱᶜ / 𝒫ⁱᶜ.
+    magnetic_ic_admittance::Union{NamedTuple, Nothing}
     time::Float64
     step::Int
     is_initialized::Bool

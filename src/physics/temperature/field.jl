@@ -376,27 +376,32 @@ and outer boundaries.
 """
 function compute_nusselt_number(temp_𝔽::SHTnsTemperatureField{T},
                                domain::RadialDomain) where T
-    # Compute heat flux from radial gradient
     ∇r = temp_𝔽.gradient.r_component
+    config = temp_𝔽.config
 
-    # Get flux at boundaries (requires communication)
-    flux_inner = compute_surface_flux(∇r, 1, temp_𝔽.config)
-    flux_outer = compute_surface_flux(∇r, domain.N, temp_𝔽.config)
-
-    # Nusselt number: ratio of actual to conductive heat flux
-    # For spherical shell with ΔT=1: Q_cond = 4π·r_i·r_o / (r_o - r_i)
     r_inner = domain.r[1, 4]
     r_outer = domain.r[domain.N, 4]
     if r_outer <= r_inner
         return T(NaN)
     end
-    conductive_flux = 4π * r_inner * r_outer / (r_outer - r_inner)
-    if conductive_flux <= eps(T)
+
+    # Nu = ⟨∂T/∂r⟩_outer / ⟨∂T/∂r⟩_conductive_outer — a ratio of solid-angle means.
+    # compute_surface_flux returns the quadrature sum ∮(·)dΩ; dividing by the same
+    # quadrature on a unit field (surface_solid_angle) gives the physical mean, so
+    # both the Gauss-weight normalization and the r² area factor cancel in the
+    # ratio. Conductive reference: T_cond(r)=ri·ro/(ro−ri)·(1/r−1/ro) for the ΔT=1
+    # spherical-shell solution, so dT/dr|_ro = −ri/((ro−ri)·ro).
+    flux_outer = compute_surface_flux(∇r, domain.N, config)
+    norm_outer = surface_solid_angle(domain.N, config)
+    if norm_outer <= eps(T)
         return T(NaN)
     end
-    Nu = abs(flux_outer) / conductive_flux
-
-    return Nu
+    mean_grad_outer = flux_outer / norm_outer
+    cond_grad_outer = -r_inner / ((r_outer - r_inner) * r_outer)
+    if abs(cond_grad_outer) <= eps(T)
+        return T(NaN)
+    end
+    return abs(mean_grad_outer / cond_grad_outer)
 end
 
 
@@ -474,6 +479,22 @@ function compute_surface_flux(field::SHTnsPhysField{T}, r_level::Int,
     
     # Global reduction
     return MPI.Allreduce(local_flux, MPI.SUM, get_comm())
+end
+
+# Quadrature norm ∮dΩ at radial level r_level, using the same Gauss weights and
+# summation as compute_surface_flux. compute_nusselt_number divides by this to
+# form the solid-angle mean, so the weight-normalization convention cancels.
+function surface_solid_angle(r_level::Int, config::C) where {C<:SHTnsKitConfig}
+    local_norm = 0.0
+    θ_range, φ_range, r_range = range_local(config.pencils.r)
+    if r_level in r_range
+        for φ_idx in φ_range, θ_idx in θ_range
+            if θ_idx <= config.nlat && φ_idx <= config.nlon
+                local_norm += config.gauss_weights[θ_idx] * (2π / config.nlon)
+            end
+        end
+    end
+    return MPI.Allreduce(local_norm, MPI.SUM, get_comm())
 end
 
 

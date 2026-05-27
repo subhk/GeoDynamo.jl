@@ -112,3 +112,9 @@ jobs:
           NRANKS: '2'
           NTHREADS: '2'
         run: bash test/run_mpi_threaded_smoke.sh
+
+      - name: Multi-rank distributed write round-trip
+        env:
+          MPIEXEC_TIMEOUT: '300'
+          NRANKS: '2'
+        run: bash test/run_mpi_write_roundtrip_smoke.sh
