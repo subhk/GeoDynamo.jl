@@ -145,29 +145,16 @@ julia> @show info.has_energy_functions
 ```julia
 using GeoDynamo
 
-# === Configure grid, model, and simulation ===
+grid  = SphericalShellGrid(CPU(); lmax=32, nr=64, nr_inner=16)
+model = GeodynamoModel(grid; Ek=1e-4, Ra=1e6, include_magnetic=true)
 
-grid = SphericalShellGrid(
-    nr = 64,
-    nr_inner = 16,
-    lmax = 31,
-    mmax = 31,
-    nlat = 64,
-    nlon = 128,
-)
+set!(model; temperature = RandomPerturbation(amplitude=0.1, lmax=10),
+            magnetic    = AnalyticIC(:dipole; amplitude=1.0))
 
-model = GeodynamoModel(
-    grid;
-    Ek = 1e-4,
-    Pr = 1.0,
-    Pm = 1.0,
-    Sc = 1.0,
-    Ra = 1e6,
-    include_magnetic = true,
-)
-
-simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
-run!(simulation)
+sim = Simulation(model; Δt=1e-5, stop_time=0.1, stop_iteration=10_000)
+add_callback!(sim, sim -> @info("step", n=sim.model.clock.iteration);
+              schedule=IterationInterval(100))
+run!(sim)
 ```
 
 ### Running with MPI
@@ -266,13 +253,25 @@ GeoDynamo.bcs.load_boundary_conditions!(state.temperature, GeoDynamo.TEMPERATURE
 
 ### Setting Up Fields
 
+Use the high-level `set!` interface to apply initial conditions by field name:
+
 ```julia
 using GeoDynamo
-using Random
 
-grid = SphericalShellGrid(nr = 64, lmax = 31)
+grid  = SphericalShellGrid(CPU(); lmax=32, nr=64, nr_inner=16)
 model = GeodynamoModel(grid; include_magnetic = true)
+
+# Oceananigans-style: set! dispatches to set_initial_condition! per field
+set!(model;
+     temperature = RandomPerturbation(amplitude=0.1, lmax=10),
+     magnetic    = AnalyticIC(:dipole; amplitude=1.0))
+
 simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
+```
+
+For lower-level access the field-specific helpers remain available:
+
+```julia
 state = simulation.model.state
 
 # Temperature

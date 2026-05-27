@@ -240,7 +240,7 @@ function example_simulation_with_topography(; run=false)
 
     # 1. Create a model with topography enabled
     model = setup_topography_model()
-    simulation = Simulation(model; Δt=1e-4, max_steps=10)
+    simulation = Simulation(model; Δt=1e-4, stop_iteration=10)
     params = model.state.parameters
 
     println("\n1. Model configured with topography:")

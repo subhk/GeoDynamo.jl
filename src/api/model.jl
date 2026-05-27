@@ -1,6 +1,7 @@
 struct GeodynamoModel{T, A<:AbstractArchitecture, G}
     state :: SolverState{T,A}
     grid  :: G
+    clock :: Clock{T}
 end
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -57,7 +58,8 @@ function _build_geodynamo_model(
         magnetic_inner_bc = magnetic_inner_bc,
     )
     state = initialize_solver_state(T; params=params)
-    model = GeodynamoModel{T, typeof(state.backend.architecture), typeof(grid)}(state, grid)
+    clock = Clock{T}(T(state.time), state.step, 0, zero(T))
+    model = GeodynamoModel{T, typeof(state.backend.architecture), typeof(grid)}(state, grid, clock)
     if !isnothing(initial_conditions)
         for (field_sym, ic) in pairs(initial_conditions)
             set_initial_condition!(model, field_sym, ic)
@@ -158,10 +160,3 @@ function GeodynamoModel(grid::SphericalBallGrid;
         magnetic_inner_bc)
 end
 
-function Base.show(io::IO, ::MIME"text/plain", m::GeodynamoModel{T}) where {T}
-    p = m.state.parameters
-    println(io, "GeodynamoModel{$T}")
-    println(io, "  grid: $(typeof(m.grid))")
-    println(io, "  Ek=$(p.Ek), Pr=$(p.Pr), Pm=$(p.Pm), Sc=$(p.Sc), Ra=$(p.Ra)")
-    print(io,   "  magnetic=$(p.include_magnetic_field), composition=$(p.include_composition)")
-end

@@ -60,7 +60,7 @@ end
         timestep = 1e-4,
         start_time = 0.0,
         end_time = 1.0,
-        max_steps = 1000,
+        stop_iteration = 1000,
         include_magnetic_field = true,
         include_composition = false,
         timestepper = GeoDynamo.CNAB2(),

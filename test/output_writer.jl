@@ -104,7 +104,7 @@ const FINALIZE_MPI_OW = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true
             Ek=1e-2,
             timestep=1e-4,
             end_time=1e-3,
-            max_steps=10,
+            stop_iteration=10,
             include_magnetic_field=false,
             include_composition=false,
             topography_enabled=false,

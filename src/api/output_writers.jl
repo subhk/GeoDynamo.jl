@@ -171,8 +171,8 @@ current simulation state, and fires each writer whose schedule returns `true`.
 """
 function _run_output_writers!(sim)
     wtime = sim._wall_start > 0.0 ? time() - sim._wall_start : 0.0
-    ctx = _ScheduleContext(sim.time, sim.step, wtime)
-    for ow in sim.output_writers
+    ctx = _ScheduleContext(sim.model.clock.time, sim.model.clock.iteration, wtime)
+    for ow in values(sim.output_writers)
         _run_output_writer!(ow, sim, ctx)
     end
     return nothing
