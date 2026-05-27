@@ -80,6 +80,20 @@ end
 @inline spectral_mode_grid_dims(lmax::Int, mmax::Int, nr::Int) = (lmax + 1, mmax + 1, nr)
 @inline spectral_mode_grid_dims(config, nr::Int) = spectral_mode_grid_dims(config.lmax, config.mmax, nr)
 
+"""
+    create_inner_core_spectral_pencil(config, reference_spec_pencil, nr_inner) -> Pencil
+
+Spectral pencil for inner-core fields. Reuses the (l, m) process topology and
+decomposition of the outer-core spectral pencil but sizes the (local) radial
+dimension to the inner-core grid (`nr_inner`) instead of the outer-core `nr`,
+so `𝒯ⁱᶜ/𝒫ⁱᶜ` own exactly their physical radial extent rather than padding to `nr`.
+The mode-slot (l, m) layout is identical to the outer-core spectral pencil.
+"""
+function create_inner_core_spectral_pencil(config, reference_spec_pencil, nr_inner::Int)
+    spec_dims = spectral_mode_grid_dims(config, nr_inner)
+    return Pencil(topology(reference_spec_pencil), spec_dims, (1, 2))
+end
+
 
 """
     create_pencil_topology(shtns_config; nr, optimize=true)
