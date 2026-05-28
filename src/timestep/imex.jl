@@ -553,15 +553,18 @@ function solver_solve_magnetic_implicit_step!(
         fill!(tmp_imag, zero(T))
         gather_local_radial_profile!(tmp_real, tmp_imag, rhs_real, rhs_imag, slot, r_range)
 
+        # Inner-boundary RHS injection. Used by the conducting-inner-core path
+        # for BOTH components (the Robin inner row consumes φ0 as its RHS); the
+        # insulating default never supplies these, so it stays homogeneous.
         inner_real = zero(T)
         inner_imag = zero(T)
-        if component === :toroidal && mag_bc_inner !== nothing && lm_idx <= length(mag_bc_inner)
+        if mag_bc_inner !== nothing && lm_idx <= length(mag_bc_inner)
             inner_real = mag_bc_inner[lm_idx]
             if prev_bc_inner !== nothing && lm_idx <= length(prev_bc_inner)
                 inner_real -= prev_bc_inner[lm_idx]
             end
         end
-        if component === :toroidal && mag_bc_inner_imag !== nothing && lm_idx <= length(mag_bc_inner_imag)
+        if mag_bc_inner_imag !== nothing && lm_idx <= length(mag_bc_inner_imag)
             inner_imag = mag_bc_inner_imag[lm_idx]
             if prev_bc_inner_imag !== nothing && lm_idx <= length(prev_bc_inner_imag)
                 inner_imag -= prev_bc_inner_imag[lm_idx]

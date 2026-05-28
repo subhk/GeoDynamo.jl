@@ -4,6 +4,22 @@ using LinearAlgebra
 
 const FINALIZE_MPI_CONDIC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
+# Task 1: Opt-in flag — this testset must PASS.
+@testset "conducting flag sets CONTINUITY_MAG bc_type_inner" begin
+    params = GeoDynamo.SolverParameters(
+        architecture=:cpu, geometry=:shell, nr=16, nr_inner=8,
+        lmax=4, mmax=4, nlat=12, nlon=16,
+        include_magnetic_field=true, include_composition=false,
+        timestepper=GeoDynamo.CNAB2(),
+        magnetic_inner_bc=:conducting_inner_core,
+    )
+    state = GeoDynamo.initialize_simulation(Float64, params)
+    GeoDynamo.initialize_fields!(state)
+    mag = state.fields.magnetic
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒯.bc_type_inner)
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒫.bc_type_inner)
+end
+
 # Acceptance test for a CONDUCTING INNER CORE (magnetic).
 #
 # Physics contract: when the inner core is electrically conducting, the
@@ -44,12 +60,16 @@ const FINALIZE_MPI_CONDIC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
         timestep = 1e-4,
         start_time = 0.0,
         end_time = 1.0,
-        max_steps = 1000,
+        stop_iteration = 1000,
         include_magnetic_field = true,
         include_composition = false,
         timestepper = GeoDynamo.CNAB2(),
         topography_enabled = false,
         stefan_enabled = false,
+        # Enable the conducting inner core via the opt-in parameter. This builds
+        # the ICB admittances and the conducting Robin inner row (Part 1) and
+        # sets CONTINUITY_MAG on the magnetic tor/pol modes during field init.
+        magnetic_inner_bc = :conducting_inner_core,
     )
 
     state = GeoDynamo.initialize_simulation(Float64, params)
@@ -62,9 +82,9 @@ const FINALIZE_MPI_CONDIC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
     # the inner core not evolving — not an all-zero magnetic state.
     @test maximum(abs, parent(mag.𝒫.data_real)) > 0.0
 
-    # Enable conducting inner core (continuity at ICB) on all magnetic modes.
-    fill!(mag.𝒯.bc_type_inner, Int(GeoDynamo.CONTINUITY_MAG))
-    fill!(mag.𝒫.bc_type_inner, Int(GeoDynamo.CONTINUITY_MAG))
+    # The conducting flag must have set CONTINUITY_MAG on the magnetic modes.
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒯.bc_type_inner)
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒫.bc_type_inner)
 
     # Advance enough steps for the field to diffuse across the ICB.
     for _ in 1:30

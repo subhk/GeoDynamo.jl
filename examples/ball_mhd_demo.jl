@@ -56,7 +56,7 @@ function main(;
     Sc=1.0,
     Ra=1e6,
     Δt=1e-4,
-    max_steps=500,
+    stop_iteration=500,
     kwargs...,
 )
     println("Setting up ball MHD dynamo simulation...")
@@ -75,7 +75,7 @@ function main(;
         ; kwargs...,
     )
 
-    simulation = Simulation(model; Δt=Δt, max_steps=max_steps)
+    simulation = Simulation(model; Δt=Δt, stop_iteration=stop_iteration)
     state = simulation.model.state
     GeoDynamo.initialize_fields!(state)
     domain = state.runtime.𝒟ᵒᶜ

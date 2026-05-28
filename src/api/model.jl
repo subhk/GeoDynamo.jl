@@ -1,6 +1,7 @@
 struct GeodynamoModel{T, A<:AbstractArchitecture, G}
     state :: SolverState{T,A}
     grid  :: G
+    clock :: Clock{T}
 end
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ function _build_geodynamo_model(
         include_topography_shift_terms, stefan_enabled, stefan_number,
         inner_core_conductivity_ratio, latent_heat,
         icb_topography_file, ocb_topography_file,
+        magnetic_inner_bc::Symbol,
     )
     params = SolverParameters(
         architecture           = arch_sym,
@@ -53,9 +55,11 @@ function _build_geodynamo_model(
         latent_heat = latent_heat,
         icb_topography_file = icb_topography_file,
         ocb_topography_file = ocb_topography_file,
+        magnetic_inner_bc = magnetic_inner_bc,
     )
     state = initialize_solver_state(T; params=params)
-    model = GeodynamoModel{T, typeof(state.backend.architecture), typeof(grid)}(state, grid)
+    clock = Clock{T}(T(state.time), state.step, 0, zero(T))
+    model = GeodynamoModel{T, typeof(state.backend.architecture), typeof(grid)}(state, grid, clock)
     if !isnothing(initial_conditions)
         for (field_sym, ic) in pairs(initial_conditions)
             set_initial_condition!(model, field_sym, ic)
@@ -95,6 +99,7 @@ function GeodynamoModel(grid::SphericalShellGrid;
         latent_heat::Real = 1.0,
         icb_topography_file::AbstractString = "",
         ocb_topography_file::AbstractString = "",
+        magnetic_inner_bc::Symbol = :insulating,
     )
     arch_sym = grid.arch isa CPU ? :cpu : :gpu
     return _build_geodynamo_model(grid, T, arch_sym, :shell,
@@ -107,7 +112,8 @@ function GeodynamoModel(grid::SphericalShellGrid;
         include_topography_thermal, include_topography_slope_terms,
         include_topography_shift_terms, stefan_enabled, Float64(stefan_number),
         Float64(inner_core_conductivity_ratio), Float64(latent_heat),
-        String(icb_topography_file), String(ocb_topography_file))
+        String(icb_topography_file), String(ocb_topography_file),
+        magnetic_inner_bc)
 end
 
 function GeodynamoModel(grid::SphericalBallGrid;
@@ -137,6 +143,7 @@ function GeodynamoModel(grid::SphericalBallGrid;
         latent_heat::Real = 1.0,
         icb_topography_file::AbstractString = "",
         ocb_topography_file::AbstractString = "",
+        magnetic_inner_bc::Symbol = :insulating,
     )
     arch_sym = grid.arch isa CPU ? :cpu : :gpu
     return _build_geodynamo_model(grid, T, arch_sym, :ball,
@@ -149,13 +156,7 @@ function GeodynamoModel(grid::SphericalBallGrid;
         include_topography_thermal, include_topography_slope_terms,
         include_topography_shift_terms, stefan_enabled, Float64(stefan_number),
         Float64(inner_core_conductivity_ratio), Float64(latent_heat),
-        String(icb_topography_file), String(ocb_topography_file))
+        String(icb_topography_file), String(ocb_topography_file),
+        magnetic_inner_bc)
 end
 
-function Base.show(io::IO, ::MIME"text/plain", m::GeodynamoModel{T}) where {T}
-    p = m.state.parameters
-    println(io, "GeodynamoModel{$T}")
-    println(io, "  grid: $(typeof(m.grid))")
-    println(io, "  Ek=$(p.Ek), Pr=$(p.Pr), Pm=$(p.Pm), Sc=$(p.Sc), Ra=$(p.Ra)")
-    print(io,   "  magnetic=$(p.include_magnetic_field), composition=$(p.include_composition)")
-end

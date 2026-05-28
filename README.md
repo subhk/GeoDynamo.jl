@@ -62,6 +62,27 @@ For MPI-parallel runs:
 mpiexecjl -n 4 julia my_simulation.jl
 ```
 
+## Boundary Conditions
+
+Magnetic boundary conditions default to **insulating** and are applied automatically
+when the magnetic field is enabled. A **conducting inner core** is available as an
+opt-in for shell geometry:
+
+```julia
+model = GeodynamoModel(
+    grid;
+    include_magnetic = true,
+    magnetic_inner_bc = :conducting_inner_core,  # default: :insulating
+)
+```
+
+The inner core then evolves by magnetic diffusion and couples to the outer core at
+the inner-core boundary (continuity of the field and its radial derivative). Current
+scope: shell geometry, `CNAB2` timestepper, equal inner/outer conductivity.
+
+See the [boundary conditions documentation](https://subhk.github.io/GeoDynamo.jl/stable/boundary-conditions/)
+for the full set of velocity, temperature, composition, and magnetic options.
+
 ## GPU Backend
 
 The rewritten solver path supports a first real GPU backend through SHTnsKit's

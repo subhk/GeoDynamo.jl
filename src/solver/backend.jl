@@ -364,11 +364,82 @@ function build_magnetic_implicit_matrices(cfg, domain, dt)
     )
 end
 
+"""
+    build_magnetic_implicit_matrices_conducting(T, cfg, domain, ic_domain, dt; theta)
+
+Build the magnetic toroidal/poloidal implicit matrices for a conducting inner
+core together with the inner-core ICB admittances.
+
+For each component the inner-core diffusion operator and its ICB admittance `α_l`
+are precomputed (`create_inner_core_admittance`), and the outer-core matrices are
+built with the conducting Robin inner row `(∂/∂r − α_l) S = φ0` via the
+`inner_alpha` kwarg. The magnetic diffusivity (`1.0`), `dt`, and `theta` MUST
+match the values used to shift the outer-core system matrices so the CNAB2
+history RHS is consistent across the ICB.
+
+Returns `(tor, pol, admittance)` where `admittance` is a
+`NamedTuple{(:tor,:pol)}` of `InnerCoreAdmittance{T}` objects.
+"""
+function build_magnetic_implicit_matrices_conducting(::Type{T}, cfg, domain, ic_domain, dt;
+                                                     theta::Float64=0.5) where T
+    η = 1.0  # magnetic diffusivity (matches build_magnetic_implicit_matrices)
+    uniq_l = filter(>(0), sort(unique(cfg.l_values)))
+
+    adm_tor = create_inner_core_admittance(T, uniq_l, ic_domain, η, dt; theta=theta)
+    adm_pol = create_inner_core_admittance(T, uniq_l, ic_domain, η, dt; theta=theta)
+
+    alpha_tor = Dict{Int,T}(l => inner_core_alpha(adm_tor, l) for l in uniq_l)
+    alpha_pol = Dict{Int,T}(l => inner_core_alpha(adm_pol, l) for l in uniq_l)
+
+    tor = SOLVER_MAGNETIC_TOROIDAL_MATRIX_BUILDER(cfg, domain, η, dt;
+                                                  theta=theta, T=T, inner_alpha=alpha_tor)
+    pol = SOLVER_MAGNETIC_POLOIDAL_MATRIX_BUILDER(cfg, domain, η, dt;
+                                                  theta=theta, T=T, inner_alpha=alpha_pol)
+
+    return (tor=tor, pol=pol, admittance=(tor=adm_tor, pol=adm_pol))
+end
+
 @inline solver_build_temperature_implicit_matrix(cfg, domain, diffusivity, dt, temperature_bc_code) =
     SOLVER_TEMPERATURE_MATRIX_BUILDER(cfg, domain, diffusivity, dt; temperature_bc_code=temperature_bc_code)
 
 @inline solver_build_composition_implicit_matrix(cfg, domain, diffusivity, dt, composition_bc_code) =
     SOLVER_COMPOSITION_MATRIX_BUILDER(cfg, domain, diffusivity, dt; composition_bc_code=composition_bc_code)
+
+# Shared core for both the eager (construction-time) and rebuild (Δt-change)
+# implicit-matrix paths. `dt` is the authoritative timestep — callers pass it
+# explicitly so the rebuild path can override the (frozen) backend timestep.
+function _build_implicit_matrices_dict(
+        ::Type{T}, cfg, outer, ic_domain, p::SolverParameters, dt::Float64,
+    ) where {T}
+    matrices = Dict{Symbol, OldImplicitMatrices{T}}()
+    velocity = build_velocity_implicit_matrices(cfg, outer, p.Ek, dt, _velocity_bc_code(p.velocity_bcs))
+    matrices[:velocity_tor] = velocity.tor
+    matrices[:velocity_pol] = velocity.pol
+
+    magnetic_ic_admittance = nothing
+    if p.magnetic_inner_bc === :conducting_inner_core
+        # Conducting inner core: build the ICB admittances and outer-core
+        # matrices with the conducting Robin inner row. Requires the inner-core
+        # ball domain (present for shell geometry, enforced by parameter checks).
+        ic_domain === nothing && error(
+            "magnetic_inner_bc=:conducting_inner_core requires an inner-core domain " *
+            "(geometry=:shell); got inner_core_domain === nothing")
+        magnetic = build_magnetic_implicit_matrices_conducting(T, cfg, outer, ic_domain, dt)
+        magnetic_ic_admittance = magnetic.admittance
+    else
+        magnetic = build_magnetic_implicit_matrices(cfg, outer, dt)
+    end
+    matrices[:magnetic_tor] = magnetic.tor
+    matrices[:magnetic_pol] = magnetic.pol
+
+    matrices[:temperature] = solver_build_temperature_implicit_matrix(
+        cfg, outer, p.Pm / p.Pr, dt, _thermal_bc_code(p.temperature_bcs))
+    if p.include_composition
+        matrices[:composition] = solver_build_composition_implicit_matrix(
+            cfg, outer, p.Pm / p.Sc, dt, _composition_bc_code(p.composition_bcs))
+    end
+    return matrices, magnetic_ic_admittance
+end
 
 """
     create_solver_implicit_matrices(T, backend)
@@ -378,39 +449,16 @@ element type `T`.
 
 The returned matrices are later wrapped into the solver-owned matrix store so
 the timestep loop can reuse them without rebuilding operators on each step.
+
+Returns `(matrices, magnetic_ic_admittance)`. `magnetic_ic_admittance` is a
+`NamedTuple{(:tor,:pol)}` of `InnerCoreAdmittance` objects when the conducting
+inner-core path is enabled (`params.magnetic_inner_bc === :conducting_inner_core`)
+and `nothing` otherwise. The insulating default path is byte-for-byte unchanged.
 """
-function create_solver_implicit_matrices(::Type{T}, backend::SolverBackend{<:AbstractArchitecture}) where T
-    params = backend.parameters
-    cfg = backend.shtns_config
-    outer = backend.outer_core_domain
-
-    dt = params.timestep
-    E = params.Ek
-    Pm = params.Pm
-    Pr = params.Pr
-    Sc = params.Sc
-    velocity_bc_code = _velocity_bc_code(params.velocity_bcs)
-    temperature_bc_code = _thermal_bc_code(params.temperature_bcs)
-    composition_bc_code = _composition_bc_code(params.composition_bcs)
-
-    # Boundary choices are baked into the radial matrix rows. The timestep
-    # kernels later supply only the boundary RHS values for each mode.
-    # Materialize every linear solve operator once so the timestep loop only
-    # selects from prebuilt matrices instead of re-deriving them per field.
-    matrices = Dict{Symbol, OldImplicitMatrices{T}}()
-    velocity = build_velocity_implicit_matrices(cfg, outer, E, dt, velocity_bc_code)
-    magnetic = build_magnetic_implicit_matrices(cfg, outer, dt)
-    matrices[:velocity_tor] = velocity.tor
-    matrices[:velocity_pol] = velocity.pol
-    matrices[:magnetic_tor] = magnetic.tor
-    matrices[:magnetic_pol] = magnetic.pol
-    matrices[:temperature] = solver_build_temperature_implicit_matrix(cfg, outer, Pm / Pr, dt, temperature_bc_code)
-
-    if params.include_composition
-        matrices[:composition] = solver_build_composition_implicit_matrix(cfg, outer, Pm / Sc, dt, composition_bc_code)
-    end
-
-    return matrices
+function create_solver_implicit_matrices(::Type{T}, backend::SolverBackend{<:AbstractArchitecture}) where {T}
+    p = backend.parameters
+    return _build_implicit_matrices_dict(T, backend.shtns_config, backend.outer_core_domain,
+                                         backend.inner_core_domain, p, Float64(p.timestep))
 end
 
 @inline solver_create_gradient_field(::Type{T}, cfg, domain, pencil_spec) where T =

@@ -221,9 +221,12 @@ function create_shtns_magnetic_fields(::Type{T}, config::C,
     𝒯 = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
     𝒫 = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
     
-    # Inner core fields (different domain)
-    𝒯ⁱᶜ = create_shtns_spectral_field(T, config, 𝒟ⁱᶜ, pencil_spec)
-    𝒫ⁱᶜ = create_shtns_spectral_field(T, config, 𝒟ⁱᶜ, pencil_spec)
+    # Inner core fields (different domain). Give them an inner-core-sized spectral
+    # pencil (nr_inner radial points) instead of padding to the outer-core nr; the
+    # (l, m) topology/slot layout is identical to the outer-core fields.
+    pencil_spec_ic = create_inner_core_spectral_pencil(config, pencil_spec, 𝒟ⁱᶜ.N)
+    𝒯ⁱᶜ = create_shtns_spectral_field(T, config, 𝒟ⁱᶜ, pencil_spec_ic)
+    𝒫ⁱᶜ = create_shtns_spectral_field(T, config, 𝒟ⁱᶜ, pencil_spec_ic)
     
     # Nonlinear terms
     nlᵀ = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
@@ -269,6 +272,9 @@ end
 
 # Include matrix-embedded magnetic BC functions
 include("../../bcs/magnetic_bc.jl")
+
+# Include conducting inner-core admittance module
+include("inner_core.jl")
 
 # ========================================================
 # Main nonlinear computation using enhanced transforms

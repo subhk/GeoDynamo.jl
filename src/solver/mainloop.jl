@@ -14,7 +14,7 @@ function initialize_solver_state(::Type{T}=Float64;
     # still shares a few kernels and file-loading paths with the older runtime.
     apply_solver_parameters!(params)
     backend = create_solver_backend(params)
-    implicit_matrices = create_solver_implicit_matrices(T, backend)
+    implicit_matrices, magnetic_ic_admittance = create_solver_implicit_matrices(T, backend)
     runtime = create_solver_runtime(
         T,
         backend;
@@ -38,6 +38,7 @@ function initialize_solver_state(::Type{T}=Float64;
         TimestepCaches{T}(),
         create_solver_energy_tracker(),
         create_solver_solenoidal_monitor(),
+        magnetic_ic_admittance,
         params.start_time,
         0,
         false,
@@ -97,15 +98,36 @@ function advance_solver_step!(state::SolverState{T,<:AbstractArchitecture}) wher
 end
 
 """
+    rebuild_solver_implicit_matrices!(state, dt)
+
+Rebuild the pre-factored implicit matrix store for a new timestep `dt`.
+The implicit operators bake `dt` in at factorization time, so changing the
+timestep requires re-factorization. Reuses the backend's grid/config and all
+non-timestep physical parameters; only `dt` changes.
+"""
+function rebuild_solver_implicit_matrices!(state::SolverState{T,<:AbstractArchitecture}, dt::Real) where {T}
+    backend = state.backend
+    # NOTE: backend.parameters.timestep is frozen at construction and intentionally
+    # ignored here — `dt` is authoritative. Only non-timestep params are read.
+    # The conducting-inner-core ICB admittance also depends on dt, so refresh it too.
+    matrices, magnetic_ic_admittance = _build_implicit_matrices_dict(
+        T, backend.shtns_config, backend.outer_core_domain,
+        backend.inner_core_domain, backend.parameters, Float64(dt))
+    state.implicit_matrices = create_solver_implicit_matrix_store(matrices)
+    state.magnetic_ic_admittance = magnetic_ic_admittance
+    return state
+end
+
+"""
     run_solver!(state)
 
 Run the rewritten solver until `state.parameters.end_time` or
-`state.parameters.max_steps` is reached.
+`state.parameters.stop_iteration` is reached.
 """
 function run_solver!(state::SolverState{T,<:AbstractArchitecture}) where T
     state.is_initialized || initialize_solver_fields!(state)
 
-    while state.time < state.parameters.end_time && state.step < state.parameters.max_steps
+    while state.time < state.parameters.end_time && state.step < state.parameters.stop_iteration
         advance_solver_step!(state)
     end
 

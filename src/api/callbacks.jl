@@ -127,7 +127,7 @@ end
 Logs the current simulation time and step number.
 """
 function _fire_callback!(cb::SimulationProgress, sim)
-    @info "Simulation progress" step=sim.step time=sim.time Δt=sim.Δt
+    @info "Simulation progress" step=sim.model.clock.iteration time=sim.model.clock.time Δt=sim.Δt
     return nothing
 end
 
@@ -141,9 +141,9 @@ function _fire_callback!(cb::EnergyDiagnostics, sim)
     model = sim.model
     if hasproperty(model, :velocity_fields) && hasproperty(model, :domain)
         ke = compute_kinetic_energy(model.velocity_fields, model.domain)
-        @info "EnergyDiagnostics" step=sim.step time=sim.time kinetic_energy=ke
+        @info "EnergyDiagnostics" step=sim.model.clock.iteration time=sim.model.clock.time kinetic_energy=ke
     else
-        @info "EnergyDiagnostics (placeholder)" step=sim.step time=sim.time kinetic_energy="unavailable"
+        @info "EnergyDiagnostics (placeholder)" step=sim.model.clock.iteration time=sim.model.clock.time kinetic_energy="unavailable"
     end
     return nothing
 end
@@ -155,7 +155,7 @@ Placeholder — divergence-checking requires spectral field access that is
 not yet wired through the public API.  Logs a note and returns.
 """
 function _fire_callback!(cb::SolenoidalMonitor, sim)
-    @info "SolenoidalMonitor (placeholder)" step=sim.step time=sim.time threshold=cb.threshold
+    @info "SolenoidalMonitor (placeholder)" step=sim.model.clock.iteration time=sim.model.clock.time threshold=cb.threshold
     return nothing
 end
 
@@ -166,7 +166,7 @@ Placeholder — NaN/Inf detection requires per-field iteration that is not
 yet wired through the public API.  Logs a note and returns.
 """
 function _fire_callback!(cb::HealthCheck, sim)
-    @info "HealthCheck (placeholder)" step=sim.step time=sim.time abort=cb.abort
+    @info "HealthCheck (placeholder)" step=sim.model.clock.iteration time=sim.model.clock.time abort=cb.abort
     return nothing
 end
 
@@ -183,8 +183,8 @@ simulation state, and fires each callback whose schedule returns `true` from
 """
 function _run_callbacks!(sim)
     wtime = sim._wall_start > 0.0 ? time() - sim._wall_start : 0.0
-    ctx = _ScheduleContext(sim.time, sim.step, wtime)
-    for cb in sim.callbacks
+    ctx = _ScheduleContext(sim.model.clock.time, sim.model.clock.iteration, wtime)
+    for cb in values(sim.callbacks)
         if should_fire(_callback_schedule(cb), ctx)
             _fire_callback!(cb, sim)
         end

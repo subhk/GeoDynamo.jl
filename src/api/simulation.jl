@@ -10,25 +10,40 @@ output writers.  Create with `Simulation(model; Δt, ...)` and advance with
 `run!(sim)`.
 """
 mutable struct Simulation{M,C,O}
-    model          :: M
-    Δt             :: Float64
-    stop_time      :: Float64
-    max_steps      :: Int
-    callbacks      :: C
-    output_writers :: O
-    step           :: Int
-    time           :: Float64
-    _wall_start    :: Float64
+    model           :: M
+    Δt              :: Float64
+    stop_time       :: Float64
+    stop_iteration  :: Int
+    wall_time_limit :: Float64
+    callbacks       :: C
+    output_writers  :: O
+    _wall_start     :: Float64
 end
 
-_schedule_items_tuple(::Nothing) = ()
-_schedule_items_tuple(items::Tuple) = items
-_schedule_items_tuple(items::AbstractVector) = Tuple(items)
-_schedule_items_tuple(item) = (item,)
+_to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol,Any}()
+function _to_ordered(items, prefix::Symbol)
+    d = OrderedDict{Symbol,Any}()
+    if items isa AbstractDict
+        for (k, v) in items
+            d[Symbol(k)] = v
+        end
+    elseif items isa NamedTuple
+        for k in keys(items)
+            d[k] = items[k]
+        end
+    else
+        seq = items isa Tuple ? items :
+              items isa AbstractVector ? items : (items,)
+        for (i, v) in enumerate(seq)
+            d[Symbol(prefix, i)] = v
+        end
+    end
+    return d
+end
 
 """
     Simulation(model::GeodynamoModel;
-               Δt, stop_time=Inf, max_steps=typemax(Int),
+               Δt, stop_time=Inf, stop_iteration=typemax(Int),
                timestepper, timestep_scheme, implicit_theta,
                etd_krylov_dimension, krylov_tolerance,
                callbacks=[], output_writers=[],
@@ -46,7 +61,8 @@ available.
 function Simulation(model::GeodynamoModel;
         Δt             :: Real,
         stop_time      :: Float64 = Inf,
-        max_steps      :: Int     = typemax(Int),
+        stop_iteration :: Int     = typemax(Int),
+        wall_time_limit :: Real   = Inf,
         timestepper = nothing,
         timestep_scheme :: Union{Symbol, Nothing} = nothing,
         implicit_theta  :: Union{Real, Nothing} = nothing,
@@ -81,9 +97,10 @@ function Simulation(model::GeodynamoModel;
 
     Δt_f = Float64(Δt)
 
-    # Propagate Δt, stop_time, and max_steps into the solver's SolverParameters so
+    # Propagate Δt, stop_time, and stop_iteration into the solver's SolverParameters so
     # that advance_solver_step! uses the timestep the caller requested.
     p = model.state.parameters
+    old_timestep = model.state.parameters.timestep
     timestep_options = _resolve_timestepper(
         timestepper,
         timestep_scheme,
@@ -96,22 +113,64 @@ function Simulation(model::GeodynamoModel;
         (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
         timestep  = Δt_f,
         end_time  = stop_time,
-        max_steps = max_steps,
+        stop_iteration = stop_iteration,
         timestepper = timestep_options.timestepper,
         courant = Float64(something(courant, p.courant)),
     )
+    if Δt_f != old_timestep
+        rebuild_solver_implicit_matrices!(model.state, Δt_f)
+        model.state.runtime.timestep_state.dt = Δt_f
+    end
 
-    callback_items = _schedule_items_tuple(callbacks)
-    output_writer_items = _schedule_items_tuple(output_writers)
+    callback_items = _to_ordered(callbacks, :callback)
+    output_writer_items = _to_ordered(output_writers, :writer)
 
+    sync_clock!(model.clock, model.state)
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
-        model, Δt_f, stop_time, max_steps,
+        model, Δt_f, stop_time, stop_iteration, Float64(wall_time_limit),
         callback_items,
         output_writer_items,
-        model.state.step,
-        model.state.time,
         0.0,
     )
+end
+
+# ================================================================================
+# time_step!
+# ================================================================================
+
+"""
+    time_step!(model::GeodynamoModel, Δt)
+
+Advance the model by one step with timestep `Δt`, then sync the clock.
+"""
+function time_step!(model::GeodynamoModel, Δt::Real)
+    state = model.state
+    Δt_f = Float64(Δt)
+    if Δt_f != state.parameters.timestep
+        p = state.parameters
+        state.parameters = SolverParameters(;
+            (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
+            timestep = Δt_f,
+        )
+        rebuild_solver_implicit_matrices!(state, Δt_f)
+        state.runtime.timestep_state.dt = Δt_f
+    end
+    advance_solver_step!(state)
+    sync_clock!(model.clock, state)
+    model.clock.last_Δt = Δt_f
+    return model
+end
+
+"""
+    time_step!(sim::Simulation)
+
+Advance the simulation by one step at `sim.Δt`, firing callbacks and writers.
+"""
+function time_step!(sim::Simulation)
+    time_step!(sim.model, sim.Δt)
+    _run_callbacks!(sim)
+    _run_output_writers!(sim)
+    return sim
 end
 
 # ================================================================================
@@ -121,37 +180,31 @@ end
 """
     run!(sim::Simulation)
 
-Advance the simulation until `sim.time >= sim.stop_time` or
-`sim.step >= sim.max_steps`, whichever comes first.
+Advance the simulation until `model.clock.time >= sim.stop_time` or
+`model.clock.iteration >= sim.stop_iteration`, whichever comes first.
 
-Each iteration:
-1. Calls `advance_solver_step!(state)` to advance physics by one timestep.
-2. Syncs `sim.step` / `sim.time` from the updated solver state.
-3. Fires scheduled callbacks via `_run_callbacks!(sim)`.
-4. Fires scheduled output writers via `_run_output_writers!(sim)`.
+Each iteration calls `time_step!(sim)` which advances physics, syncs the clock,
+and fires scheduled callbacks and output writers.
 """
 function run!(sim::Simulation)
     sim._wall_start = time()
-    state = sim.model.state
-
-    while sim.time < sim.stop_time && sim.step < sim.max_steps
-        advance_solver_step!(state)
-        sim.step = state.step
-        sim.time = state.time
-        _run_callbacks!(sim)
-        _run_output_writers!(sim)
+    clock = sim.model.clock
+    while clock.time < sim.stop_time &&
+          clock.iteration < sim.stop_iteration &&
+          (time() - sim._wall_start) < sim.wall_time_limit
+        time_step!(sim)
     end
-
     return sim
 end
 
-# ================================================================================
-# show
-# ================================================================================
+"""
+    add_callback!(sim, func; schedule, name=auto)
 
-function Base.show(io::IO, ::MIME"text/plain", sim::Simulation)
-    println(io, "Simulation")
-    println(io, "  model: $(typeof(sim.model))")
-    println(io, "  Δt=$(sim.Δt), stop_time=$(sim.stop_time)")
-    print(io,   "  step=$(sim.step), time=$(sim.time)")
+Register `func(sim)` to fire on `schedule`. Returns `sim`.
+"""
+function add_callback!(sim::Simulation, func; schedule,
+                       name::Symbol = Symbol(:callback, length(sim.callbacks) + 1))
+    sim.callbacks[name] = Callback(func; schedule = schedule)
+    return sim
 end
+

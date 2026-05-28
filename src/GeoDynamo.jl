@@ -8,6 +8,7 @@ module GeoDynamo
     using PencilArrays
     using PencilFFTs
     using NCDatasets
+    using OrderedCollections: OrderedDict
     using Statistics
     using Dates
     using Printf
@@ -434,13 +435,15 @@ module GeoDynamo
     export SphericalShellGrid, SphericalBallGrid
     export NoSlip, StressFree, FixedTemperature, FixedFlux
     export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
+    export Clock
     export GeodynamoModel
-    export Simulation, run!
+    export fields, prognostic_fields
+    export Simulation, run!, time_step!, add_callback!
     export AbstractTimestepper, CNAB2, EAB2, ERK2, ETD, ThetaMethod
     export TimeInterval, IterationInterval, WallTimeInterval
     export FieldWriter, CheckpointWriter
     export RandomPerturbation, AnalyticIC, FileIC, ZeroIC
-    export set_initial_condition!
+    export set_initial_condition!, set!
     export Callback, EnergyDiagnostics, SolenoidalMonitor, SimulationProgress, HealthCheck
 
     # ================================================================================
@@ -528,11 +531,15 @@ module GeoDynamo
     include("Shell/Shell.jl")
     include("Ball/Ball.jl")
     include("solver.jl")
+    include("api/clock.jl")
     include("api/model.jl")
     include("api/initial_conditions.jl")
+    include("api/set.jl")
+    include("api/fields.jl")
     include("api/callbacks.jl")
     include("api/output_writers.jl")
     include("api/simulation.jl")
+    include("api/show.jl")
     # Import all Ball exports into GeoDynamo namespace
     using .GeoDynamoBall
 
