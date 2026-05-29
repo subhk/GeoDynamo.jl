@@ -61,15 +61,15 @@ end
     vel = G.create_shtns_velocity_fields(Float64, cfg, dom;
         params = G.SolverParameters(
             geometry = :shell, nr = nr, lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon))
-    fill!(parent(vel.𝒯.data_real), 0.0);
-    fill!(parent(vel.𝒯.data_imag), 0.0)
-    fill!(parent(vel.𝒫.data_real), 0.0);
-    fill!(parent(vel.𝒫.data_imag), 0.0)
-    _setmode!(vel.𝒫, 1, 0, dom, r -> r * (dom.r[nr, 4] - r))   # P(r)=r(r_o−r), nonconstant
+    fill!(parent(vel.toroidal.data_real), 0.0);
+    fill!(parent(vel.toroidal.data_imag), 0.0)
+    fill!(parent(vel.poloidal.data_real), 0.0);
+    fill!(parent(vel.poloidal.data_imag), 0.0)
+    _setmode!(vel.poloidal, 1, 0, dom, r -> r * (dom.r[nr, 4] - r))   # P(r)=r(r_o−r), nonconstant
 
     vec = G.create_shtns_vector_field(Float64, cfg, dom, (
         cfg.pencils.phi, cfg.pencils.phi, cfg.pencils.phi))
-    G.shtnskit_vector_synthesis!(vel.𝒯, vel.𝒫, vec; domain = dom)
+    G.shtnskit_vector_synthesis!(vel.toroidal, vel.poloidal, vec; domain = dom)
 
     # Analyze B_r (a physical scalar) back to spectral to get Q_lm(r).
     qspec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
@@ -77,9 +77,9 @@ end
 
     m10 = G.get_mode_index(cfg, 1, 0)
     qslot = G.local_spectral_storage_slot(cfg, m10)
-    pslot = G.local_spectral_storage_slot(vel.𝒫.config, m10)
+    pslot = G.local_spectral_storage_slot(vel.poloidal.config, m10)
     Q = [G.local_spectral_value(parent(qspec.data_real), qslot, r) for r in 1:nr]   # B_r coeff
-    S = [G.local_spectral_value(parent(vel.𝒫.data_real), pslot, r) for r in 1:nr]   # spheroidal (pol)
+    S = [G.local_spectral_value(parent(vel.poloidal.data_real), pslot, r) for r in 1:nr]   # spheroidal (pol)
 
     d1 = G.create_derivative_matrix(Float64, 1, dom)
     dr_r2Q = d1 * (rvals .^ 2 .* Q)                       # d(r²Q)/dr

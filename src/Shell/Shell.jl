@@ -101,10 +101,10 @@ end
     create_shell_magnetic_fields(T, cfg::ShellConfig; nr_oc, nr_ic)
 """
 function create_shell_magnetic_fields(::Type{T}, cfg::ShellConfig; nr_oc::Int, nr_ic::Int) where {T}
-    𝒟ᵒᶜ = create_shell_radial_domain(nr_oc)
-    𝒟ⁱᶜ = create_shell_radial_domain(nr_ic)
+    outer_core_domain = create_shell_radial_domain(nr_oc)
+    inner_core_domain = create_shell_radial_domain(nr_ic)
     pencils = create_shell_pencils(cfg; nr = nr_oc)
-    return GeoDynamo.create_shtns_magnetic_fields(T, cfg, 𝒟ᵒᶜ, 𝒟ⁱᶜ, pencils, pencils.spec)
+    return GeoDynamo.create_shtns_magnetic_fields(T, cfg, outer_core_domain, inner_core_domain, pencils, pencils.spec)
 end
 
 """

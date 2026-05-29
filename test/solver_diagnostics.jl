@@ -94,7 +94,7 @@ const FINALIZE_MPI_DIAGNOSTICS = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true")
         # been synchronized yet.
         state.step = 1
         state.runtime.timestep_state.step = 2
-        parent(state.fields.velocity.𝒯.data_real)[1, 1, 1] = NaN
+        parent(state.fields.velocity.toroidal.data_real)[1, 1, 1] = NaN
 
         config = GeoDynamo.NaNDetectionConfig(true, 2, false, false)
         @test GeoDynamo.check_runtime_for_nan(state; config = config) == true

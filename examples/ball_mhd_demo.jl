@@ -78,7 +78,7 @@ function main(;
     simulation = Simulation(model; dt = dt, stop_iteration = stop_iteration)
     state = simulation.model.state
     GeoDynamo.initialize_fields!(state)
-    domain = state.runtime.𝒟ᵒᶜ
+    domain = state.runtime.outer_core_domain
 
     set_boundary_conditions!(state.fields.temperature;
         inner_bc_type = Int(DIRICHLET),

@@ -81,7 +81,7 @@ using Test
         state = GeoDynamo.initialize_simulation(Float64, params)
         tc = state.timestep_caches
         cfg = state.runtime.shtns_config
-        domain = state.runtime.𝒟ᵒᶜ
+        domain = state.runtime.outer_core_domain
 
         base = GeoDynamo.get_solver_erk2_influence_matrices!(
             tc,

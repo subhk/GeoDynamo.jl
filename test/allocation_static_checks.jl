@@ -199,19 +199,19 @@ end
         "solver_solve_temperature_implicit_step!(\n            temperature.spectral,\n            temperature.nonlinear,\n            matrices;\n            bc_inner=bc.inner_real,\n            bc_outer=bc.outer_real,\n            bc_inner_imag=bc.inner_imag,\n            bc_outer_imag=bc.outer_imag,\n            work=radial_work,",
         temperature_solver)
     @test occursin(
-        "solver_solve_velocity_implicit_step!(\n            velocity.𝒯,\n            velocity.nlᵀ,\n            matrices,\n            :toroidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.𝒟ᵒᶜ,\n            work=radial_work,",
+        "solver_solve_velocity_implicit_step!(\n            velocity.toroidal,\n            velocity.nl_toroidal,\n            matrices,\n            :toroidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.outer_core_domain,\n            work=radial_work,",
         velocity_solver)
     @test occursin(
-        "solver_solve_velocity_implicit_step!(\n            velocity.𝒫,\n            velocity.nlᴾ,\n            matrices,\n            :poloidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.𝒟ᵒᶜ,\n            work=radial_work,",
+        "solver_solve_velocity_implicit_step!(\n            velocity.poloidal,\n            velocity.nl_poloidal,\n            matrices,\n            :poloidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.outer_core_domain,\n            work=radial_work,",
         velocity_solver)
     @test occursin(
         "solver_solve_composition_implicit_step!(\n            composition.spectral,\n            composition.nonlinear,\n            matrices;\n            bc_inner=bc.inner_real,\n            bc_outer=bc.outer_real,\n            bc_inner_imag=bc.inner_imag,\n            bc_outer_imag=bc.outer_imag,\n            work=radial_work,",
         composition_solver)
     @test occursin(
-        "solver_solve_magnetic_implicit_step!(\n            magnetic.𝒯,\n            magnetic.nlᵀ,\n            matrices,\n            :toroidal;\n            mag_bc_inner=inner_bc === nothing ? nothing : inner_bc[1],\n            prev_bc_inner=inner_bc === nothing ? nothing : inner_bc[2],\n            mag_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[3],\n            prev_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[4],\n            work=radial_work,",
+        "solver_solve_magnetic_implicit_step!(\n            magnetic.toroidal,\n            magnetic.nl_toroidal,\n            matrices,\n            :toroidal;\n            mag_bc_inner=inner_bc === nothing ? nothing : inner_bc[1],\n            prev_bc_inner=inner_bc === nothing ? nothing : inner_bc[2],\n            mag_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[3],\n            prev_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[4],\n            work=radial_work,",
         magnetic_solver)
     @test occursin(
-        "solver_solve_magnetic_implicit_step!(\n            magnetic.𝒫,\n            magnetic.nlᴾ,\n            matrices,\n            :poloidal,\n            work=radial_work,",
+        "solver_solve_magnetic_implicit_step!(\n            magnetic.poloidal,\n            magnetic.nl_poloidal,\n            matrices,\n            :poloidal,\n            work=radial_work,",
         magnetic_solver)
 
     velocity_field = _allocation_static_source("physics", "velocity", "field.jl")

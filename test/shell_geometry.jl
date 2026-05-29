@@ -84,14 +84,14 @@ const FINALIZE_MPI_SHELL = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
     @testset "Shell velocity fields" begin
         vel = Shell.create_shell_velocity_fields(Float64, cfg; nr = nr)
         @test vel !== nothing
-        @test all(parent(vel.𝒯.data_real) .== 0.0)
-        @test all(parent(vel.𝒫.data_real) .== 0.0)
+        @test all(parent(vel.toroidal.data_real) .== 0.0)
+        @test all(parent(vel.poloidal.data_real) .== 0.0)
     end
 
     @testset "Shell magnetic fields" begin
         mag = Shell.create_shell_magnetic_fields(Float64, cfg; nr_oc = nr, nr_ic = nr)
         @test mag !== nothing
-        @test all(parent(mag.𝒯.data_real) .== 0.0)
+        @test all(parent(mag.toroidal.data_real) .== 0.0)
     end
 
     if MPI.Initialized()

@@ -153,8 +153,8 @@ struct SolverRuntime{
     gradient_workspace::GW
     transform_workspace::TW
     shtns_config::C
-    𝒟ᵒᶜ::RadialDomainType
-    𝒟ⁱᶜ::RadialDomainType
+    outer_core_domain::RadialDomainType
+    inner_core_domain::RadialDomainType
     timestep_state::SolverTimestepState
 end
 

@@ -1116,8 +1116,8 @@ end
 
 function refresh_velocity_physical_fields!(velocity_fields, domain)
     vector_spectral_to_physical!(
-        velocity_fields.𝒯,
-        velocity_fields.𝒫,
+        velocity_fields.toroidal,
+        velocity_fields.poloidal,
         velocity_fields.velocity;
         domain
     )
@@ -1177,17 +1177,17 @@ function compute_vorticity_spectral!(
         velocity_fields::VelocityFieldsType{T},
         domain
 ) where {T}
-    u_tor_real = parent(velocity_fields.𝒯.data_real)
-    u_tor_imag = parent(velocity_fields.𝒯.data_imag)
-    u_pol_real = parent(velocity_fields.𝒫.data_real)
-    u_pol_imag = parent(velocity_fields.𝒫.data_imag)
+    u_tor_real = parent(velocity_fields.toroidal.data_real)
+    u_tor_imag = parent(velocity_fields.toroidal.data_imag)
+    u_pol_real = parent(velocity_fields.poloidal.data_real)
+    u_pol_imag = parent(velocity_fields.poloidal.data_imag)
 
     ζ_tor_real = parent(velocity_fields.ζᵀ.data_real)
     ζ_tor_imag = parent(velocity_fields.ζᵀ.data_imag)
     ζ_pol_real = parent(velocity_fields.ζᴾ.data_real)
     ζ_pol_imag = parent(velocity_fields.ζᴾ.data_imag)
 
-    config = velocity_fields.𝒯.config
+    config = velocity_fields.toroidal.config
     lm_range = local_spectral_mode_indices(config)
     r_range = local_range(config.pencils.spec, 3)
     nr = domain.N
@@ -1205,10 +1205,10 @@ function compute_vorticity_spectral!(
     pol_profile_imag_bufs = workspace.Pᴾ_profile_imag
     tor_profile_real_bufs = workspace.Tᵀ_profile_real
     tor_profile_imag_bufs = workspace.Tᵀ_profile_imag
-    dpol_dr_real_bufs = workspace.∂ᵣ𝒫_real
-    dpol_dr_imag_bufs = workspace.∂ᵣ𝒫_imag
-    d2pol_dr2_real_bufs = workspace.∂ᵣᵣ𝒫_real
-    d2pol_dr2_imag_bufs = workspace.∂ᵣᵣ𝒫_imag
+    dpol_dr_real_bufs = workspace.∂ᵣpoloidal_real
+    dpol_dr_imag_bufs = workspace.∂ᵣpoloidal_imag
+    d2pol_dr2_real_bufs = workspace.∂ᵣᵣpoloidal_real
+    d2pol_dr2_imag_bufs = workspace.∂ᵣᵣpoloidal_imag
 
     @solver_threaded_local_spectral_modes lm_idx slot lm_range config velocity_fields.l_factors u_pol_real begin
         tid = Threads.threadid()
@@ -1490,8 +1490,8 @@ end
 
 function refresh_magnetic_physical_fields!(magnetic_fields, outer_domain)
     vector_spectral_to_physical!(
-        magnetic_fields.𝒯,
-        magnetic_fields.𝒫,
+        magnetic_fields.toroidal,
+        magnetic_fields.poloidal,
         magnetic_fields.magnetic;
         domain = outer_domain
     )
@@ -1604,13 +1604,13 @@ function solver_compute_current_density_spectral!(magnetic_fields, outer_domain)
     spectral_curl_torpol!(
         parent(magnetic_fields.work_tor.data_real), parent(magnetic_fields.work_tor.data_imag),
         parent(magnetic_fields.work_pol.data_real), parent(magnetic_fields.work_pol.data_imag),
-        parent(magnetic_fields.𝒯.data_real), parent(magnetic_fields.𝒯.data_imag),
-        parent(magnetic_fields.𝒫.data_real), parent(magnetic_fields.𝒫.data_imag),
+        parent(magnetic_fields.toroidal.data_real), parent(magnetic_fields.toroidal.data_imag),
+        parent(magnetic_fields.poloidal.data_real), parent(magnetic_fields.poloidal.data_imag),
         magnetic_fields.l_factors,
         magnetic_fields.∂r,
         magnetic_fields.∂²r,
         outer_domain,
-        magnetic_fields.𝒯.config,
+        magnetic_fields.toroidal.config,
         T;
         _work = magnetic_fields.curl_work
     )
@@ -1641,25 +1641,25 @@ function apply_induction_nonlinear!(
 end
 
 function apply_inner_core_rotation!(magnetic_fields, rotation_rate)
-    ic_tor_real = parent(magnetic_fields.𝒯ⁱᶜ.data_real)
-    ic_tor_imag = parent(magnetic_fields.𝒯ⁱᶜ.data_imag)
-    ic_pol_real = parent(magnetic_fields.𝒫ⁱᶜ.data_real)
-    ic_pol_imag = parent(magnetic_fields.𝒫ⁱᶜ.data_imag)
+    ic_tor_real = parent(magnetic_fields.toroidal_ic.data_real)
+    ic_tor_imag = parent(magnetic_fields.toroidal_ic.data_imag)
+    ic_pol_real = parent(magnetic_fields.poloidal_ic.data_real)
+    ic_pol_imag = parent(magnetic_fields.poloidal_ic.data_imag)
 
-    nl_tor_real = parent(magnetic_fields.nlᵀ.data_real)
-    nl_tor_imag = parent(magnetic_fields.nlᵀ.data_imag)
-    nl_pol_real = parent(magnetic_fields.nlᴾ.data_real)
-    nl_pol_imag = parent(magnetic_fields.nlᴾ.data_imag)
+    nl_tor_real = parent(magnetic_fields.nl_toroidal.data_real)
+    nl_tor_imag = parent(magnetic_fields.nl_toroidal.data_imag)
+    nl_pol_real = parent(magnetic_fields.nl_poloidal.data_real)
+    nl_pol_imag = parent(magnetic_fields.nl_poloidal.data_imag)
 
-    lm_range = local_range(magnetic_fields.𝒯ⁱᶜ.pencil, 1)
-    r_range = local_range(magnetic_fields.𝒯ⁱᶜ.pencil, 3)
+    lm_range = local_range(magnetic_fields.toroidal_ic.pencil, 1)
+    r_range = local_range(magnetic_fields.toroidal_ic.pencil, 3)
     rotation_factor = rotation_rate
 
     @inbounds for lm_idx in lm_range
-        if lm_idx <= magnetic_fields.𝒯ⁱᶜ.nlm
-            slot = local_spectral_storage_slot(magnetic_fields.𝒯.config, lm_idx)
+        if lm_idx <= magnetic_fields.toroidal_ic.nlm
+            slot = local_spectral_storage_slot(magnetic_fields.toroidal.config, lm_idx)
             slot === nothing && continue
-            m = magnetic_fields.𝒯.config.m_values[lm_idx]
+            m = magnetic_fields.toroidal.config.m_values[lm_idx]
             if m != 0 && 1 in r_range
                 local_r = 1 - first(r_range) + 1
                 if local_r <= size(nl_tor_real, 3)
@@ -1714,17 +1714,17 @@ function solver_compute_velocity_cross_magnetic!(magnetic_fields, velocity_field
 end
 
 function solver_compute_curl_of_induction!(magnetic_fields)
-    T = eltype(parent(magnetic_fields.nlᵀ.data_real))
+    T = eltype(parent(magnetic_fields.nl_toroidal.data_real))
     spectral_curl_torpol!(
-        parent(magnetic_fields.nlᵀ.data_real), parent(magnetic_fields.nlᵀ.data_imag),
-        parent(magnetic_fields.nlᴾ.data_real), parent(magnetic_fields.nlᴾ.data_imag),
+        parent(magnetic_fields.nl_toroidal.data_real), parent(magnetic_fields.nl_toroidal.data_imag),
+        parent(magnetic_fields.nl_poloidal.data_real), parent(magnetic_fields.nl_poloidal.data_imag),
         parent(magnetic_fields.work_tor.data_real), parent(magnetic_fields.work_tor.data_imag),
         parent(magnetic_fields.work_pol.data_real), parent(magnetic_fields.work_pol.data_imag),
         magnetic_fields.l_factors,
         magnetic_fields.∂r,
         magnetic_fields.∂²r,
         magnetic_fields.outer_domain,
-        magnetic_fields.𝒯.config,
+        magnetic_fields.toroidal.config,
         T;
         _work = magnetic_fields.curl_work
     )

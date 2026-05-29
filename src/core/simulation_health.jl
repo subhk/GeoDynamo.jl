@@ -93,7 +93,7 @@ function check_simulation_state_for_nan(
 
     has_nan, has_inf,
     _, _ = check_spectral_field_for_nan(
-        state.velocity.𝒯,
+        state.velocity.toroidal,
         "velocity_toroidal",
         config,
         step
@@ -102,7 +102,7 @@ function check_simulation_state_for_nan(
 
     has_nan, has_inf,
     _, _ = check_spectral_field_for_nan(
-        state.velocity.𝒫,
+        state.velocity.poloidal,
         "velocity_poloidal",
         config,
         step
@@ -111,7 +111,7 @@ function check_simulation_state_for_nan(
 
     has_nan, has_inf,
     _, _ = check_spectral_field_for_nan(
-        state.magnetic.𝒯,
+        state.magnetic.toroidal,
         "magnetic_toroidal",
         config,
         step
@@ -120,7 +120,7 @@ function check_simulation_state_for_nan(
 
     has_nan, has_inf,
     _, _ = check_spectral_field_for_nan(
-        state.magnetic.𝒫,
+        state.magnetic.poloidal,
         "magnetic_poloidal",
         config,
         step

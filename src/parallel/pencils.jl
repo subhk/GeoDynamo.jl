@@ -85,7 +85,7 @@ end
 Spectral pencil for inner-core fields. Reuses the (l, m) process topology and
 decomposition of the outer-core spectral pencil but sizes the (local) radial
 dimension to the inner-core grid (`nr_inner`) instead of the outer-core `nr`,
-so `𝒯ⁱᶜ/𝒫ⁱᶜ` own exactly their physical radial extent rather than padding to `nr`.
+so `toroidal_ic/poloidal_ic` own exactly their physical radial extent rather than padding to `nr`.
 The mode-slot (l, m) layout is identical to the outer-core spectral pencil.
 """
 function create_inner_core_spectral_pencil(config, reference_spec_pencil, nr_inner::Int)

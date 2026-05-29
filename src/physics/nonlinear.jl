@@ -972,14 +972,14 @@ end
 function GeoDynamo.compute_temperature_nonlinear!(
         temp_𝔽::TemperatureFieldType{T},
         vel_fields,
-        𝒟ᵒᶜ::RadialDomainType,
+        outer_core_domain::RadialDomainType,
         ws::SolverGradientWorkspace{T};
         geometry::Symbol = solver_default_geometry()
 ) where {T}
     return solver_compute_temperature_nonlinear!(
         temp_𝔽,
         vel_fields,
-        𝒟ᵒᶜ,
+        outer_core_domain,
         ws;
         geometry
     )
@@ -988,14 +988,14 @@ end
 function GeoDynamo.compute_composition_nonlinear!(
         𝔽::CompositionFieldType{T},
         vel_fields,
-        𝒟ᵒᶜ::RadialDomainType,
+        outer_core_domain::RadialDomainType,
         ws::SolverGradientWorkspace{T};
         geometry::Symbol = solver_default_geometry()
 ) where {T}
     return solver_compute_composition_nonlinear!(
         𝔽,
         vel_fields,
-        𝒟ᵒᶜ,
+        outer_core_domain,
         ws;
         geometry
     )

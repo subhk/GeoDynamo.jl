@@ -16,17 +16,17 @@ const FINALIZE_MPI_CONDIC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
     state = GeoDynamo.initialize_simulation(Float64, params)
     GeoDynamo.initialize_fields!(state)
     mag = state.fields.magnetic
-    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒯.bc_type_inner)
-    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒫.bc_type_inner)
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.toroidal.bc_type_inner)
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.poloidal.bc_type_inner)
 end
 
 # Acceptance test for a CONDUCTING INNER CORE (magnetic).
 #
 # Physics contract: when the inner core is electrically conducting, the
 # magnetic field diffuses across the ICB into the solid inner core. The
-# inner-core toroidal/poloidal scalars (𝒯ⁱᶜ / 𝒫ⁱᶜ) must therefore develop a
+# inner-core toroidal/poloidal scalars (toroidal_ic / poloidal_ic) must therefore develop a
 # nonzero internal field over time, and at the ICB the field must be continuous
-# with the outer-core solution (𝒯ⁱᶜ[ICB] ≈ 𝒯[ICB], same for poloidal).
+# with the outer-core solution (toroidal_ic[ICB] ≈ toroidal[ICB], same for poloidal).
 #
 # Enable signal: bc_type_inner == CONTINUITY_MAG on the magnetic tor/pol fields
 # (enum bcs.jl:161, "Conducting inner core: ∂B/∂r continuous at ICB").
@@ -80,19 +80,19 @@ end
 
     # Sanity: the outer-core seed field is nonzero, so a failure below is due to
     # the inner core not evolving — not an all-zero magnetic state.
-    @test maximum(abs, parent(mag.𝒫.data_real)) > 0.0
+    @test maximum(abs, parent(mag.poloidal.data_real)) > 0.0
 
     # The conducting flag must have set CONTINUITY_MAG on the magnetic modes.
-    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒯.bc_type_inner)
-    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.𝒫.bc_type_inner)
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.toroidal.bc_type_inner)
+    @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.poloidal.bc_type_inner)
 
     # Advance enough steps for the field to diffuse across the ICB.
     for _ in 1:30
         GeoDynamo.advance_solver_step!(state)
     end
 
-    ic_tor = parent(mag.𝒯ⁱᶜ.data_real)
-    ic_pol = parent(mag.𝒫ⁱᶜ.data_real)
+    ic_tor = parent(mag.toroidal_ic.data_real)
+    ic_pol = parent(mag.poloidal_ic.data_real)
 
     # A conducting inner core must develop a nonzero internal field.
     @test maximum(abs, ic_tor) > 1e-12

@@ -55,7 +55,7 @@ const FINALIZE_MPI_INTEG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         @test state !== nothing
         @test state.parameters.geometry === :shell
         @test state.backend.shtns_config.lmax == 4
-        @test state.runtime.𝒟ᵒᶜ.N == 16
+        @test state.runtime.outer_core_domain.N == 16
 
         # Fields should exist and be finite after initialization
         GeoDynamo.initialize_fields!(state)
@@ -63,7 +63,7 @@ const FINALIZE_MPI_INTEG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         temp_real = parent(state.fields.temperature.spectral.data_real)
         @test all(isfinite, temp_real)
 
-        vel_tor = parent(state.fields.velocity.𝒯.data_real)
+        vel_tor = parent(state.fields.velocity.toroidal.data_real)
         @test all(isfinite, vel_tor)
         # Velocity starts at zero
         @test all(vel_tor .== 0.0)
@@ -84,10 +84,10 @@ const FINALIZE_MPI_INTEG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         # All fields should remain finite
         @test all(isfinite, parent(state.fields.temperature.spectral.data_real))
         @test all(isfinite, parent(state.fields.temperature.spectral.data_imag))
-        @test all(isfinite, parent(state.fields.velocity.𝒯.data_real))
-        @test all(isfinite, parent(state.fields.velocity.𝒯.data_imag))
-        @test all(isfinite, parent(state.fields.velocity.𝒫.data_real))
-        @test all(isfinite, parent(state.fields.velocity.𝒫.data_imag))
+        @test all(isfinite, parent(state.fields.velocity.toroidal.data_real))
+        @test all(isfinite, parent(state.fields.velocity.toroidal.data_imag))
+        @test all(isfinite, parent(state.fields.velocity.poloidal.data_real))
+        @test all(isfinite, parent(state.fields.velocity.poloidal.data_imag))
     end
 
     # ------------------------------------------------------------------
@@ -118,8 +118,8 @@ const FINALIZE_MPI_INTEG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
 
         # All fields still finite
         @test all(isfinite, parent(state.fields.temperature.spectral.data_real))
-        @test all(isfinite, parent(state.fields.velocity.𝒯.data_real))
-        @test all(isfinite, parent(state.fields.velocity.𝒫.data_real))
+        @test all(isfinite, parent(state.fields.velocity.toroidal.data_real))
+        @test all(isfinite, parent(state.fields.velocity.poloidal.data_real))
     end
 
     # ------------------------------------------------------------------

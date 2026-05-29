@@ -55,7 +55,7 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
     temp_field = state.fields.temperature
     grad_ws = state.runtime.gradient_workspace
     cfg = state.backend.shtns_config
-    domain = state.runtime.𝒟ᵒᶜ
+    domain = state.runtime.outer_core_domain
 
     # --- A. Cached lookups are allocation-free; hot paths reuse, not rebuild ---
     @testset "hot paths do not allocate" begin

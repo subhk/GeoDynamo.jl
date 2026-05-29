@@ -63,7 +63,7 @@ end
 function solver_compute_composition_nonlinear!(
         𝔽::CompositionFieldType{T},
         vel_fields,
-        𝒟ᵒᶜ::RadialDomainType,
+        outer_core_domain::RadialDomainType,
         ws::SolverGradientWorkspace{T};
         geometry::Symbol = solver_default_geometry()) where {T}
     t_start = timing_enabled() ? mpi_wtime() : 0.0
@@ -76,7 +76,7 @@ function solver_compute_composition_nonlinear!(
     if timing_enabled()
         t_spectral = mpi_wtime()
     end
-    compute_all_gradients_spectral!(𝔽, 𝒟ᵒᶜ, ws)
+    compute_all_gradients_spectral!(𝔽, outer_core_domain, ws)
     if timing_enabled()
         𝔽.spectral_time[] += mpi_wtime() - t_spectral
     end
@@ -153,10 +153,10 @@ function apply_composition_implicit_update!(state::SolverState{
         radial_work = get_radial_work!(
             state.timestep_caches,
             :composition,
-            runtime.𝒟ᵒᶜ.N
+            runtime.outer_core_domain.N
         )
         composition_bc_code = _composition_bc_code(state.parameters.composition_bcs)
-        scalar_bc = build_solver_erk2_scalar_bc(T, runtime.𝒟ᵒᶜ, composition_bc_code)
+        scalar_bc = build_solver_erk2_scalar_bc(T, runtime.outer_core_domain, composition_bc_code)
         bc_spec = with_boundary_mode_values(
             scalar_bc,
             bc.inner_real,
@@ -169,7 +169,7 @@ function apply_composition_implicit_update!(state::SolverState{
             composition.nonlinear,
             composition.prev_nonlinear,
             alu_map,
-            runtime.𝒟ᵒᶜ,
+            runtime.outer_core_domain,
             diffusivity,
             runtime.shtns_config,
             dt;

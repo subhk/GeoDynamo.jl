@@ -1,9 +1,9 @@
 function initialize_velocity_field!(state::SolverState{T, <:AbstractArchitecture}) where {T}
     velocity = state.fields.velocity
-    fill!(parent(velocity.𝒯.data_real), zero(T))
-    fill!(parent(velocity.𝒯.data_imag), zero(T))
-    fill!(parent(velocity.𝒫.data_real), zero(T))
-    fill!(parent(velocity.𝒫.data_imag), zero(T))
+    fill!(parent(velocity.toroidal.data_real), zero(T))
+    fill!(parent(velocity.toroidal.data_imag), zero(T))
+    fill!(parent(velocity.poloidal.data_real), zero(T))
+    fill!(parent(velocity.poloidal.data_imag), zero(T))
     return state
 end
 
@@ -38,14 +38,14 @@ function finish_velocity_nonlinear!(velocity_fields; geometry::Symbol)
     if geometry === :ball
         return solver_ball_vector_analysis!(
             velocity_fields.advection_physical,
-            velocity_fields.nlᵀ,
-            velocity_fields.nlᴾ
+            velocity_fields.nl_toroidal,
+            velocity_fields.nl_poloidal
         )
     end
     return vector_physical_to_spectral!(
         velocity_fields.advection_physical,
-        velocity_fields.nlᵀ,
-        velocity_fields.nlᴾ
+        velocity_fields.nl_toroidal,
+        velocity_fields.nl_poloidal
     )
 end
 
@@ -67,21 +67,21 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{
         )
         solver_build_rhs_cnab2!(
             velocity.work_tor,
-            velocity.𝒯,
-            velocity.nlᵀ,
-            velocity.prev_nlᵀ,
+            velocity.toroidal,
+            velocity.nl_toroidal,
+            velocity.prev_nl_toroidal,
             dt,
             matrices;
             mass_coeff = E,
             work = radial_work
         )
         solver_solve_velocity_implicit_step!(
-            velocity.𝒯,
+            velocity.toroidal,
             velocity.work_tor,
             matrices,
             :toroidal;
             velocity_bc_code = velocity_bc,
-            domain = runtime.𝒟ᵒᶜ,
+            domain = runtime.outer_core_domain,
             work = radial_work
         )
     elseif timestepper isa EAB2
@@ -89,21 +89,21 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{
         radial_work = get_radial_work!(
             state.timestep_caches,
             :velocity_toroidal,
-            runtime.𝒟ᵒᶜ.N
+            runtime.outer_core_domain.N
         )
         bc_spec = build_solver_erk2_velocity_tor_bc(
             T,
-            runtime.𝒟ᵒᶜ,
+            runtime.outer_core_domain,
             velocity_bc;
             config = runtime.shtns_config,
             rot_omega = 0.0
         )
         solver_eab2_update_krylov_cached!(
-            velocity.𝒯,
-            velocity.nlᵀ,
-            velocity.prev_nlᵀ,
+            velocity.toroidal,
+            velocity.nl_toroidal,
+            velocity.prev_nl_toroidal,
             alu_map,
-            runtime.𝒟ᵒᶜ,
+            runtime.outer_core_domain,
             E,
             runtime.shtns_config,
             dt;
@@ -121,12 +121,12 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{
             matrices.system_matrices[1].size
         )
         solver_solve_velocity_implicit_step!(
-            velocity.𝒯,
-            velocity.nlᵀ,
+            velocity.toroidal,
+            velocity.nl_toroidal,
             matrices,
             :toroidal;
             velocity_bc_code = velocity_bc,
-            domain = runtime.𝒟ᵒᶜ,
+            domain = runtime.outer_core_domain,
             work = radial_work
         )
     end
@@ -147,14 +147,14 @@ function apply_velocity_poloidal_no_penetration!(
         :velocity_poloidal,
         T,
         runtime.shtns_config,
-        runtime.𝒟ᵒᶜ,
+        runtime.outer_core_domain,
         effective_diffusivity,
         params.timestep,
         velocity_bc_code;
         theta = theta
     )
     apply_solver_velocity_poloidal_influence_correction!(
-        state.fields.velocity.𝒫,
+        state.fields.velocity.poloidal,
         influence,
         runtime.shtns_config
     )
@@ -179,21 +179,21 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{
         )
         solver_build_rhs_cnab2!(
             velocity.work_pol,
-            velocity.𝒫,
-            velocity.nlᴾ,
-            velocity.prev_nlᴾ,
+            velocity.poloidal,
+            velocity.nl_poloidal,
+            velocity.prev_nl_poloidal,
             dt,
             matrices;
             mass_coeff = E,
             work = radial_work
         )
         solver_solve_velocity_implicit_step!(
-            velocity.𝒫,
+            velocity.poloidal,
             velocity.work_pol,
             matrices,
             :poloidal;
             velocity_bc_code = velocity_bc,
-            domain = runtime.𝒟ᵒᶜ,
+            domain = runtime.outer_core_domain,
             work = radial_work
         )
     elseif timestepper isa EAB2
@@ -201,15 +201,15 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{
         radial_work = get_radial_work!(
             state.timestep_caches,
             :velocity_poloidal,
-            runtime.𝒟ᵒᶜ.N
+            runtime.outer_core_domain.N
         )
-        bc_spec = build_solver_erk2_velocity_pol_bc(T, runtime.𝒟ᵒᶜ, velocity_bc)
+        bc_spec = build_solver_erk2_velocity_pol_bc(T, runtime.outer_core_domain, velocity_bc)
         solver_eab2_update_krylov_cached!(
-            velocity.𝒫,
-            velocity.nlᴾ,
-            velocity.prev_nlᴾ,
+            velocity.poloidal,
+            velocity.nl_poloidal,
+            velocity.prev_nl_poloidal,
             alu_map,
-            runtime.𝒟ᵒᶜ,
+            runtime.outer_core_domain,
             E,
             runtime.shtns_config,
             dt;
@@ -227,12 +227,12 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{
             matrices.system_matrices[1].size
         )
         solver_solve_velocity_implicit_step!(
-            velocity.𝒫,
-            velocity.nlᴾ,
+            velocity.poloidal,
+            velocity.nl_poloidal,
             matrices,
             :poloidal;
             velocity_bc_code = velocity_bc,
-            domain = runtime.𝒟ᵒᶜ,
+            domain = runtime.outer_core_domain,
             work = radial_work
         )
     end

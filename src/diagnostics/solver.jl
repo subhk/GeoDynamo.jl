@@ -65,9 +65,9 @@ function compute_total_energy!(state::SolverState{T, <:AbstractArchitecture}) wh
     composition = state.fields.composition
     domain = state.backend.outer_core_domain
 
-    vector_spectral_to_physical!(velocity.𝒯, velocity.𝒫, velocity.velocity; domain = domain)
+    vector_spectral_to_physical!(velocity.toroidal, velocity.poloidal, velocity.velocity; domain = domain)
     if magnetic !== nothing
-        vector_spectral_to_physical!(magnetic.𝒯, magnetic.𝒫, magnetic.magnetic; domain = domain)
+        vector_spectral_to_physical!(magnetic.toroidal, magnetic.poloidal, magnetic.magnetic; domain = domain)
     end
 
     scalar_spectral_to_physical!(temperature.spectral, temperature.temperature)
@@ -187,8 +187,8 @@ function check_solenoidal_constraint!(state::SolverState)
 
     vel_l2,
     vel_linf = compute_divergence_spectral(
-        state.fields.velocity.𝒯,
-        state.fields.velocity.𝒫,
+        state.fields.velocity.toroidal,
+        state.fields.velocity.poloidal,
         state.backend.outer_core_domain
     )
 
@@ -196,8 +196,8 @@ function check_solenoidal_constraint!(state::SolverState)
     if state.fields.magnetic !== nothing
         mag_l2,
         mag_linf = compute_divergence_spectral(
-            state.fields.magnetic.𝒯,
-            state.fields.magnetic.𝒫,
+            state.fields.magnetic.toroidal,
+            state.fields.magnetic.poloidal,
             state.backend.outer_core_domain
         )
     end
@@ -268,7 +268,7 @@ function check_runtime_for_nan(
     has_nan, has_inf,
     _,
     _ = check_spectral_field_for_nan(
-        state.fields.velocity.𝒯,
+        state.fields.velocity.toroidal,
         "velocity_toroidal",
         config,
         step
@@ -278,7 +278,7 @@ function check_runtime_for_nan(
     has_nan, has_inf,
     _,
     _ = check_spectral_field_for_nan(
-        state.fields.velocity.𝒫,
+        state.fields.velocity.poloidal,
         "velocity_poloidal",
         config,
         step
@@ -289,7 +289,7 @@ function check_runtime_for_nan(
         has_nan, has_inf,
         _,
         _ = check_spectral_field_for_nan(
-            state.fields.magnetic.𝒯,
+            state.fields.magnetic.toroidal,
             "magnetic_toroidal",
             config,
             step
@@ -299,7 +299,7 @@ function check_runtime_for_nan(
         has_nan, has_inf,
         _,
         _ = check_spectral_field_for_nan(
-            state.fields.magnetic.𝒫,
+            state.fields.magnetic.poloidal,
             "magnetic_poloidal",
             config,
             step

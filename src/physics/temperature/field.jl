@@ -137,7 +137,7 @@ get_main_physical_field(𝔽::SHTnsTemperatureField{T}) where {T} = 𝔽.tempera
 Allocate and initialize the temperature field container for a simulation.
 """
 function create_shtns_temperature_field(::Type{T}, config::C,
-        𝒟ᵒᶜ::RadialDomain,
+        outer_core_domain::RadialDomain,
         pencils = nothing, pencil_spec = nothing) where {T, C <: SHTnsKitConfig}
     # Use config's pencils by default (consistent with velocity/magnetic creators)
     if pencils === nothing
@@ -148,24 +148,24 @@ function create_shtns_temperature_field(::Type{T}, config::C,
     end
 
     # Temperature field in r-pencil for efficient radial operations
-    temperature = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
+    temperature = create_shtns_physical_field(T, config, outer_core_domain, pencils.r)
 
     # Gradient components
-    gradient = create_shtns_vector_field(T, config, 𝒟ᵒᶜ,
+    gradient = create_shtns_vector_field(T, config, outer_core_domain,
         (pencils.θ, pencils.φ, pencils.r))
 
     # Spectral representation using spectral pencil
-    spectral = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    nonlinear = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    prev_nonlinear = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    spectral = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    nonlinear = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    prev_nonlinear = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
 
     # Work arrays
-    work_spectral = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    work_physical = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
-    advection_physical = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
+    work_spectral = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    work_physical = create_shtns_physical_field(T, config, outer_core_domain, pencils.r)
+    advection_physical = create_shtns_physical_field(T, config, outer_core_domain, pencils.r)
 
     # Sources and boundary conditions
-    internal_sources = zeros(T, 𝒟ᵒᶜ.N)
+    internal_sources = zeros(T, outer_core_domain.N)
     boundary_values = zeros(T, 2, config.nlm)
 
     # Default BC types (DIRICHLET = fixed temperature, NEUMANN = fixed flux)
@@ -178,8 +178,8 @@ function create_shtns_temperature_field(::Type{T}, config::C,
     # Transform manager removed in SHTnsKit migration
 
     # Create radial derivative matrices
-    ∂r = create_derivative_matrix(T, 1, 𝒟ᵒᶜ)
-    ∂²r = create_derivative_matrix(T, 2, 𝒟ᵒᶜ)
+    ∂r = create_derivative_matrix(T, 1, outer_core_domain)
+    ∂²r = create_derivative_matrix(T, 2, outer_core_domain)
 
     # Pre-compute spectral derivative operators
     theta_derivative_matrix = build_∂θ(T, config)
@@ -195,7 +195,7 @@ function create_shtns_temperature_field(::Type{T}, config::C,
         ∂r, ∂²r,
         theta_derivative_matrix, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),
-        𝒟ᵒᶜ
+        outer_core_domain
     )
 end
 
@@ -206,7 +206,7 @@ include("../../bcs/thermal_bc.jl")
 # Main nonlinear computation with full spectral optimization
 # ================================================================================
 function compute_temperature_nonlinear!(temp_𝔽::SHTnsTemperatureField{T},
-        vel_fields, 𝒟ᵒᶜ::RadialDomain,
+        vel_fields, outer_core_domain::RadialDomain,
         ws::GradientWorkspace{T};
         geometry::Symbol) where {T}
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
@@ -219,7 +219,7 @@ function compute_temperature_nonlinear!(temp_𝔽::SHTnsTemperatureField{T},
     if ENABLE_TIMING[]
         t_spectral = MPI.Wtime()
     end
-    compute_all_gradients_spectral!(temp_𝔽, 𝒟ᵒᶜ, ws)
+    compute_all_gradients_spectral!(temp_𝔽, outer_core_domain, ws)
     if ENABLE_TIMING[]
         temp_𝔽.spectral_time[] += MPI.Wtime() - t_spectral
     end
@@ -239,7 +239,7 @@ function compute_temperature_nonlinear!(temp_𝔽::SHTnsTemperatureField{T},
     end
 
     # Step 4: Add internal heat sources (local operation)
-    add_internal_sources_local!(temp_𝔽, 𝒟ᵒᶜ)
+    add_internal_sources_local!(temp_𝔽, outer_core_domain)
 
     # Step 5: Transform advection + sources back to spectral space
     if ENABLE_TIMING[]

@@ -326,7 +326,7 @@ mutable struct SolverState{
     # Conducting-inner-core ICB admittances (toroidal/poloidal), or `nothing` for
     # the default insulating magnetic inner boundary. When present, the magnetic
     # CNAB2 update couples the outer-core solve to the inner-core diffusion across
-    # the ICB and reconstructs the inner-core scalars 𝒯ⁱᶜ / 𝒫ⁱᶜ.
+    # the ICB and reconstructs the inner-core scalars toroidal_ic / poloidal_ic.
     magnetic_ic_admittance::Union{NamedTuple, Nothing}
     time::Float64
     step::Int
@@ -431,33 +431,33 @@ function GeoDynamo.extract_all_fields(state::SolverState{
     fields = Dict{String, Any}()
 
     fields["velocity_toroidal"] = Dict(
-        "real" => copy(parent(state.fields.velocity.𝒯.data_real)),
-        "imag" => copy(parent(state.fields.velocity.𝒯.data_imag))
+        "real" => copy(parent(state.fields.velocity.toroidal.data_real)),
+        "imag" => copy(parent(state.fields.velocity.toroidal.data_imag))
     )
 
     fields["velocity_poloidal"] = Dict(
-        "real" => copy(parent(state.fields.velocity.𝒫.data_real)),
-        "imag" => copy(parent(state.fields.velocity.𝒫.data_imag))
+        "real" => copy(parent(state.fields.velocity.poloidal.data_real)),
+        "imag" => copy(parent(state.fields.velocity.poloidal.data_imag))
     )
 
     magnetic = state.fields.magnetic
     if magnetic !== nothing
         fields["magnetic_toroidal"] = Dict(
-            "real" => copy(parent(magnetic.𝒯.data_real)),
-            "imag" => copy(parent(magnetic.𝒯.data_imag))
+            "real" => copy(parent(magnetic.toroidal.data_real)),
+            "imag" => copy(parent(magnetic.toroidal.data_imag))
         )
         fields["magnetic_poloidal"] = Dict(
-            "real" => copy(parent(magnetic.𝒫.data_real)),
-            "imag" => copy(parent(magnetic.𝒫.data_imag))
+            "real" => copy(parent(magnetic.poloidal.data_real)),
+            "imag" => copy(parent(magnetic.poloidal.data_imag))
         )
     else
         fields["magnetic_toroidal"] = Dict(
-            "real" => copy(parent(state.runtime.magnetic.𝒯.data_real)),
-            "imag" => copy(parent(state.runtime.magnetic.𝒯.data_imag))
+            "real" => copy(parent(state.runtime.magnetic.toroidal.data_real)),
+            "imag" => copy(parent(state.runtime.magnetic.toroidal.data_imag))
         )
         fields["magnetic_poloidal"] = Dict(
-            "real" => copy(parent(state.runtime.magnetic.𝒫.data_real)),
-            "imag" => copy(parent(state.runtime.magnetic.𝒫.data_imag))
+            "real" => copy(parent(state.runtime.magnetic.poloidal.data_real)),
+            "imag" => copy(parent(state.runtime.magnetic.poloidal.data_imag))
         )
     end
 
@@ -501,14 +501,14 @@ function restore_fields_from_restart!(
 ) where {T}
     if haskey(restart_data, "velocity_toroidal")
         _restore_restart_spectral_pair!(
-            state.fields.velocity.𝒯,
+            state.fields.velocity.toroidal,
             restart_data["velocity_toroidal"],
             "velocity_toroidal"
         )
     end
     if haskey(restart_data, "velocity_poloidal")
         _restore_restart_spectral_pair!(
-            state.fields.velocity.𝒫,
+            state.fields.velocity.poloidal,
             restart_data["velocity_poloidal"],
             "velocity_poloidal"
         )
@@ -518,14 +518,14 @@ function restore_fields_from_restart!(
                state.fields.magnetic
     if haskey(restart_data, "magnetic_toroidal")
         _restore_restart_spectral_pair!(
-            magnetic.𝒯,
+            magnetic.toroidal,
             restart_data["magnetic_toroidal"],
             "magnetic_toroidal"
         )
     end
     if haskey(restart_data, "magnetic_poloidal")
         _restore_restart_spectral_pair!(
-            magnetic.𝒫,
+            magnetic.poloidal,
             restart_data["magnetic_poloidal"],
             "magnetic_poloidal"
         )
