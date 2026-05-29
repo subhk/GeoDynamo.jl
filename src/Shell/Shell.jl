@@ -8,7 +8,13 @@ implementations to work with a spherical shell geometry (inner radius > 0).
 
 using ..GeoDynamo
 
-# Re-export the core config type for clarity in shell context
+"""
+    ShellConfig
+
+Alias for [`SHTnsKitConfig`](@ref), re-exported under a shell-specific name for
+clarity when working in spherical-shell geometry (inner radius > 0). It carries
+the spherical-harmonic transform plans, parallel layout, and buffers.
+"""
 const ShellConfig = GeoDynamo.SHTnsKitConfig
 
 export ShellConfig

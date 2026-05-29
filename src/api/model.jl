@@ -1,3 +1,34 @@
+"""
+    GeodynamoModel(grid; T=Float64, Ek=1e-4, Pr=1.0, Pm=1.0, Sc=1.0, Ra=1e6,
+                   velocity_bcs, temperature_bcs, composition_bcs,
+                   include_magnetic=false, include_composition=false,
+                   initial_conditions=nothing, kwargs...)
+
+Physical model built on a [`SphericalShellGrid`](@ref) or
+[`SphericalBallGrid`](@ref). It bundles the solver `state`, the `grid`, and a
+[`Clock`](@ref), and is the object handed to a [`Simulation`](@ref).
+
+# Arguments
+- `grid`: a [`SphericalShellGrid`](@ref) or [`SphericalBallGrid`](@ref).
+- `T`: floating-point element type (`Float64` by default).
+- `Ek`, `Pr`, `Pm`, `Sc`, `Ra`: Ekman, Prandtl, magnetic-Prandtl, Schmidt, and
+  Rayleigh numbers.
+- `velocity_bcs`, `temperature_bcs`, `composition_bcs`: per-field inner/outer
+  `BoundaryConditions`.
+- `include_magnetic`, `include_composition`: enable the magnetic / compositional
+  equations.
+- `initial_conditions`: initial-condition spec, or `nothing` to start from rest.
+
+Topography- and Stefan-coupling keywords (`topography_enabled`,
+`topography_epsilon`, `stefan_enabled`, …) are also accepted; see the
+configuration guide.
+
+# Example
+```julia
+grid  = SphericalShellGrid(lmax = 31, nr = 64)
+model = GeodynamoModel(grid; Ra = 1e6, include_magnetic = true)
+```
+"""
 struct GeodynamoModel{T, A<:AbstractArchitecture, G}
     state :: SolverState{T,A}
     grid  :: G

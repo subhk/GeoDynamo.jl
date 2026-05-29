@@ -1,0 +1,55 @@
+# Physics & Fields
+
+Field types for the velocity, magnetic, temperature, and composition equations,
+plus the lower-level field-infrastructure and operator helpers they are built on.
+
+## Physics Field API
+
+```@docs
+GeoDynamo.SHTnsVelocityFields
+GeoDynamo.create_shtns_velocity_fields
+GeoDynamo.compute_kinetic_energy
+GeoDynamo.compute_reynolds_stress
+GeoDynamo.SHTnsMagneticFields
+GeoDynamo.create_shtns_magnetic_fields
+GeoDynamo.compute_magnetic_energy
+GeoDynamo.compute_ohmic_dissipation
+GeoDynamo.SHTnsTemperatureField
+GeoDynamo.create_shtns_temperature_field
+GeoDynamo.compute_nusselt_number
+GeoDynamo.compute_thermal_energy
+GeoDynamo.get_temperature_statistics
+GeoDynamo.SHTnsCompositionField
+GeoDynamo.create_shtns_composition_field
+GeoDynamo.compute_composition_rms
+GeoDynamo.compute_composition_energy
+GeoDynamo.get_composition_statistics
+```
+
+## Field Infrastructure And Operator API
+
+```@docs
+GeoDynamo.RadialDomain
+GeoDynamo.SHTnsTorPolField
+GeoDynamo.create_radial_domain
+GeoDynamo.create_shtns_physical_field
+GeoDynamo.create_shtns_vector_field
+GeoDynamo.GradientWorkspace
+GeoDynamo.create_gradient_workspace
+GeoDynamo.clear_mode_index_cache!
+GeoDynamo.clear_scalar_field_caches!
+GeoDynamo.VelocityWorkspace
+GeoDynamo.create_velocity_workspace
+GeoDynamo.set_velocity_workspace!
+GeoDynamo.compute_surface_flux
+GeoDynamo.set_temperature_ic!
+GeoDynamo.set_boundary_conditions!
+GeoDynamo.set_internal_heating!
+GeoDynamo.set_composition_ic!
+GeoDynamo.set_composition_boundary_conditions!
+GeoDynamo.create_velocity_green_matrices
+GeoDynamo.solve_velocity_implicit_step!
+GeoDynamo.solve_temperature_implicit_step!
+GeoDynamo.solve_composition_implicit_step!
+GeoDynamo.solve_magnetic_implicit_step!
+```

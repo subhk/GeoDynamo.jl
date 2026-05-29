@@ -41,46 +41,31 @@ function solver_build_rhs_cnab2!(
     linear_real = add_linear ? (work_ok ? work.linear_real : zeros(T, nr_global)) : T[]
     linear_imag = add_linear ? (work_ok ? work.linear_imag : zeros(T, nr_global)) : T[]
 
-    comm = mpi_comm()
-    multi_rank = mpi_comm_size(comm) > 1
-
+    # Each spherical-harmonic mode owns a COMPLETE radial profile on a single
+    # rank (the spectral pencil keeps the radial dimension local), and the CNAB2
+    # RHS couples only in radius. The owning rank therefore assembles each mode
+    # with no inter-rank communication; non-owners skip it entirely.
     @inbounds for lm_idx in 1:uₙ.nlm
         slot = local_spectral_storage_slot(uₙ.config, lm_idx)
+        slot === nothing && continue
+
         ℓ = uₙ.config.l_values[lm_idx]
-        matrix_idx = add_linear ? get(matrices.lookup, ℓ, nothing) : nothing
 
         if add_linear
-            # The implicit operator is assembled as a full radial system for each
-            # degree ℓ, so local pencil data is gathered into a global radial view
-            # before applying the linear contribution.
+            # Explicit linear term L·u over this mode's full (local) radial
+            # profile. No Allreduce: the previous per-mode reduction summed the
+            # owner's profile against all-zero contributions from the other ranks
+            # and so never changed the owner's result.
+            matrix_idx = get(matrices.lookup, ℓ, nothing)
             matrix_idx === nothing && error("Missing implicit matrix for ℓ=$ℓ")
             fill!(u_real_global, zero(T))
             fill!(u_imag_global, zero(T))
-
-            if slot !== nothing
-                gather_local_radial_profile!(u_real_global, u_imag_global, u_real, u_imag, slot, r_range)
-            end
-
-            if multi_rank
-                allreduce_sum_in_place!(u_real_global, comm)
-                allreduce_sum_in_place!(u_imag_global, comm)
-            end
-
+            gather_local_radial_profile!(u_real_global, u_imag_global, u_real, u_imag, slot, r_range)
             fill!(linear_real, zero(T))
             fill!(linear_imag, zero(T))
-            apply_banded_full!(
-                linear_real,
-                matrices.linear_matrices[matrix_idx],
-                u_real_global,
-            )
-            apply_banded_full!(
-                linear_imag,
-                matrices.linear_matrices[matrix_idx],
-                u_imag_global,
-            )
+            apply_banded_full!(linear_real, matrices.linear_matrices[matrix_idx], u_real_global)
+            apply_banded_full!(linear_imag, matrices.linear_matrices[matrix_idx], u_imag_global)
         end
-
-        slot === nothing && continue
 
         # CNAB2 combines the current state, current nonlinear term, previous
         # nonlinear term, and optional explicit linear carry-over into the RHS

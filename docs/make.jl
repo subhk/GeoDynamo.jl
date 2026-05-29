@@ -40,7 +40,18 @@ pages = [
     "Boundary Topography" => "topography.md",
     "Data Output" => "io.md",
     "Developer Guide" => "developer.md",
-    "API Reference" => "api.md",
+    "API Reference" => [
+        "Overview"               => "api.md",
+        "Solver & Timestep"      => "api/solver.md",
+        "Physics & Fields"       => "api/fields.md",
+        "Transforms & Spectral"  => "api/transforms.md",
+        "Internals"              => "api/internals.md",
+        "Boundary Conditions"    => "api/boundary-conditions.md",
+        "Boundary Topography"    => "api/topography.md",
+        "Initial Conditions"     => "api/initial-conditions.md",
+        "Shell Geometry"         => "api/shell.md",
+        "Ball Geometry"          => "api/ball.md",
+    ],
 ]
 
 format = Documenter.HTML(;

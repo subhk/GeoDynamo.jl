@@ -1,0 +1,64 @@
+# Transforms & Spectral
+
+SHTnsKit configuration, MPI/PencilArrays parallel layout, and the spectral
+operator toolbox (energy spectra, rotations, filters, horizontal Laplacian).
+
+## Parallel And Transform API
+
+```@docs
+GeoDynamo.SHTnsKitConfig
+GeoDynamo.create_shtnskit_config
+GeoDynamo.shtnskit_spectral_to_physical!
+GeoDynamo.shtnskit_physical_to_spectral!
+GeoDynamo.shtnskit_vector_synthesis!
+GeoDynamo.shtnskit_vector_analysis!
+GeoDynamo.batch_shtnskit_transforms!
+GeoDynamo.get_shtnskit_performance_stats
+GeoDynamo.set_shtnskit_threads
+GeoDynamo.get_shtnskit_version_info
+GeoDynamo.get_comm
+GeoDynamo.get_rank
+GeoDynamo.get_nprocs
+GeoDynamo.create_pencil_topology
+GeoDynamo.create_transpose_plans
+GeoDynamo.transpose_with_timer!
+GeoDynamo.print_transpose_statistics
+GeoDynamo.create_pencil_array
+GeoDynamo.print_pencil_info
+GeoDynamo.print_pencil_axes
+GeoDynamo.optimize_communication_order
+GeoDynamo.validate_radial_distribution
+GeoDynamo.check_transform_synchronization
+```
+
+## Advanced Spectral Tools API
+
+```@docs
+GeoDynamo.compute_scalar_energy_spectrum
+GeoDynamo.compute_vector_energy_spectrum
+GeoDynamo.compute_total_scalar_energy
+GeoDynamo.compute_total_vector_energy
+GeoDynamo.compute_enstrophy
+GeoDynamo.spectral_gradient!
+GeoDynamo.extract_divergence_coefficients
+GeoDynamo.extract_vorticity_coefficients
+GeoDynamo.shtnskit_qst_to_spatial!
+GeoDynamo.shtnskit_spatial_to_qst!
+GeoDynamo.shtnskit_synthesis_inplace!
+GeoDynamo.shtnskit_analysis_inplace!
+GeoDynamo.rotate_field_z!
+GeoDynamo.rotate_field_y!
+GeoDynamo.rotate_field_90y!
+GeoDynamo.rotate_field_90x!
+GeoDynamo.rotate_field_euler!
+GeoDynamo.apply_horizontal_laplacian!
+GeoDynamo.apply_inverse_horizontal_laplacian!
+GeoDynamo.compute_horizontal_gradient_magnitude
+GeoDynamo.apply_spectral_filter!
+GeoDynamo.apply_exponential_filter!
+GeoDynamo.truncate_spectral_modes!
+GeoDynamo.index_to_lm_fast
+GeoDynamo.build_lm_lookup_tables
+GeoDynamo.get_cached_buffer!
+GeoDynamo.clear_buffer_cache!
+```

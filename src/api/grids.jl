@@ -1,4 +1,27 @@
-# SphericalShellGrid — spherical shell geometry (fluid between two concentric spheres)
+"""
+    SphericalShellGrid(arch=CPU(); lmax, nr, mmax=lmax, nlat=3lmax÷2,
+                       nlon=2nlat, nr_inner=max(2, nr÷4),
+                       r_inner=0.35, r_outer=1.0)
+
+Spherical shell geometry: fluid contained between two concentric spheres
+(`r_inner < r < r_outer`), like Earth's outer core. This is the grid passed to
+[`GeodynamoModel`](@ref).
+
+# Arguments
+- `arch`: compute architecture, `CPU()` or `GPU` (positional or `arch=`).
+- `lmax`: maximum spherical-harmonic degree (required).
+- `nr`: number of radial points (required).
+- `mmax`: maximum order (defaults to `lmax`).
+- `nlat`, `nlon`: latitude/longitude grid sizes (defaults follow the transform's
+  anti-aliasing rule).
+- `nr_inner`: radial points resolving the inner-core region.
+- `r_inner`, `r_outer`: dimensionless shell radii (`0 < r_inner < r_outer`).
+
+# Example
+```julia
+grid = SphericalShellGrid(lmax = 31, nr = 64)
+```
+"""
 struct SphericalShellGrid
     arch    :: AbstractArchitecture
     lmax    :: Int
@@ -39,7 +62,29 @@ function Base.show(io::IO, ::MIME"text/plain", g::SphericalShellGrid)
     print(io,   "  r_inner=$(g.r_inner), r_outer=$(g.r_outer)")
 end
 
-# SphericalBallGrid — full sphere geometry (fluid in a ball)
+"""
+    SphericalBallGrid(arch=CPU(); lmax, nr, mmax=lmax, nlat=3lmax÷2, nlon=2nlat)
+
+Full-sphere geometry: fluid filling a ball (`0 ≤ r ≤ 1`) with no inner boundary,
+like a stellar core or early planetary interior. This is the grid passed to
+[`GeodynamoModel`](@ref).
+
+# Arguments
+- `arch`: compute architecture, `CPU()` or `GPU` (positional or `arch=`).
+- `lmax`: maximum spherical-harmonic degree (required).
+- `nr`: number of radial points (required).
+- `mmax`: maximum order (defaults to `lmax`).
+- `nlat`, `nlon`: latitude/longitude grid sizes (defaults follow the transform's
+  anti-aliasing rule).
+
+Unlike [`SphericalShellGrid`](@ref) there is no `r_inner`/`nr_inner`; regularity
+at the origin is enforced by the ball solver.
+
+# Example
+```julia
+grid = SphericalBallGrid(lmax = 31, nr = 48)
+```
+"""
 struct SphericalBallGrid
     arch :: AbstractArchitecture
     lmax :: Int

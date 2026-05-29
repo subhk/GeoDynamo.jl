@@ -9,7 +9,13 @@ sphere (inner radius = 0). Transforms reuse the core SHTnsKit machinery.
 using ..GeoDynamo
 using LinearAlgebra
 
-# Re-export the core config type for clarity in ball context
+"""
+    BallConfig
+
+Alias for [`SHTnsKitConfig`](@ref), re-exported under a ball-specific name for
+clarity when working in full-sphere geometry (inner radius = 0). It carries the
+spherical-harmonic transform plans, parallel layout, and buffers.
+"""
 const BallConfig = GeoDynamo.SHTnsKitConfig
 
 export BallConfig
