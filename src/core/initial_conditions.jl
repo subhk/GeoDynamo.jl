@@ -33,14 +33,14 @@ export load_initial_conditions!, generate_random_initial_conditions!
 export set_analytical_initial_conditions!, save_initial_conditions
 export randomize_scalar_field!, randomize_vector_field!, randomize_magnetic_field!
 
-function _maybe_enforce_ball_scalar!(field, domain)
+function __maybe_enforce_ball_scalar!(field, domain)
     if domain !== nothing && domain.r[1, 4] == 0.0
         apply_ball_scalar_regularity!(field)
     end
     return field
 end
 
-function _maybe_enforce_ball_vector!(field, domain)
+function __maybe_enforce_ball_vector!(field, domain)
     if domain !== nothing && domain.r[1, 4] == 0.0
         apply_ball_vector_regularity!(field)
     end
@@ -77,7 +77,7 @@ function randomize_scalar_field!(field; amplitude::Real, lmax::Int, domain=nothi
             end
         end
     end
-    _maybe_enforce_ball_scalar!(field, domain)
+    __maybe_enforce_ball_scalar!(field, domain)
     # Verify initial conditions are finite after all transformations
     spectral = getproperty(field, :spectral)
     if any(isnan, parent(spectral.data_real)) || any(isinf, parent(spectral.data_real))
@@ -116,7 +116,7 @@ function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain=nothi
             end
         end
     end
-    _maybe_enforce_ball_vector!(field, domain)
+    __maybe_enforce_ball_vector!(field, domain)
     for spectral in (field.𝒯, field.𝒫)
         if any(isnan, parent(spectral.data_real)) || any(isinf, parent(spectral.data_real))
             error("Non-finite values in vector field initial conditions (real part)")
@@ -155,7 +155,7 @@ function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain=not
             end
         end
     end
-    _maybe_enforce_ball_vector!(field, domain)
+    __maybe_enforce_ball_vector!(field, domain)
     for spectral in (field.𝒯, field.𝒫)
         if any(isnan, parent(spectral.data_real)) || any(isinf, parent(spectral.data_real))
             error("Non-finite values in magnetic field initial conditions (real part)")
@@ -388,7 +388,7 @@ function generate_random_temperature!(temp_field, amplitude, modes_range)
         end
     end
 
-    _maybe_enforce_ball_scalar!(temp_field, temp_field.domain)
+    __maybe_enforce_ball_scalar!(temp_field, temp_field.domain)
     return temp_field
 end
 
@@ -443,7 +443,7 @@ function generate_random_magnetic!(mag_field, amplitude, modes_range)
         end
     end
 
-    _maybe_enforce_ball_vector!(mag_field, mag_field.outer_domain)
+    __maybe_enforce_ball_vector!(mag_field, mag_field.outer_domain)
     return mag_field
 end
 
@@ -493,7 +493,7 @@ function generate_random_velocity!(vel_field, amplitude, modes_range)
         end
     end
 
-    _maybe_enforce_ball_vector!(vel_field, vel_field.domain)
+    __maybe_enforce_ball_vector!(vel_field, vel_field.domain)
     return vel_field
 end
 
@@ -546,7 +546,7 @@ function generate_random_composition!(comp_field, amplitude, modes_range)
         end
     end
 
-    _maybe_enforce_ball_scalar!(comp_field, comp_field.domain)
+    __maybe_enforce_ball_scalar!(comp_field, comp_field.domain)
     return comp_field
 end
 
@@ -670,7 +670,7 @@ function set_analytical_temperature!(temp_field, pattern::Symbol, amplitude; par
         throw(ArgumentError("Unknown temperature pattern: $pattern"))
     end
 
-    _maybe_enforce_ball_scalar!(temp_field, temp_field.domain)
+    __maybe_enforce_ball_scalar!(temp_field, temp_field.domain)
     return temp_field
 end
 
@@ -731,7 +731,7 @@ function set_analytical_magnetic!(mag_field, pattern::Symbol, amplitude; paramet
         throw(ArgumentError("Unknown magnetic pattern: $pattern"))
     end
 
-    _maybe_enforce_ball_vector!(mag_field, mag_field.outer_domain)
+    __maybe_enforce_ball_vector!(mag_field, mag_field.outer_domain)
     return mag_field
 end
 
@@ -786,7 +786,7 @@ function set_analytical_velocity!(vel_field, pattern::Symbol, amplitude; paramet
         throw(ArgumentError("Unknown velocity pattern: $pattern"))
     end
 
-    _maybe_enforce_ball_vector!(vel_field, vel_field.domain)
+    __maybe_enforce_ball_vector!(vel_field, vel_field.domain)
     return vel_field
 end
 
@@ -863,7 +863,7 @@ function set_analytical_composition!(comp_field, pattern::Symbol, amplitude; par
         throw(ArgumentError("Unknown composition pattern: $pattern"))
     end
 
-    _maybe_enforce_ball_scalar!(comp_field, comp_field.domain)
+    __maybe_enforce_ball_scalar!(comp_field, comp_field.domain)
     return comp_field
 end
 

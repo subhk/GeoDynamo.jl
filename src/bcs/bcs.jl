@@ -75,7 +75,7 @@
 #   - velocity_bcs: BoundaryConditions object for velocity
 #   - magnetic_boundary: Magnetic BC type
 #
-# Matrix creation functions (in respective *_bc.jl files):
+# Matrix creation functions (in respective *__bc.jl files):
 #   create_temperature_matrices(config, domain, diffusivity, dt; temperature_bc_code)
 #   create_composition_matrices(config, domain, diffusivity, dt; composition_bc_code)
 #   create_velocity_toroidal_matrices(config, domain, dt)
@@ -91,7 +91,7 @@
 #
 # 1. Check BC parameter: `println(state.parameters.temperature_bcs)`
 # 2. Verify matrix boundary rows: check first/last rows of LHS matrix
-# 3. Check RHS boundary values after set_*_rhs_bc! calls
+# 3. Check RHS boundary values after set_*__rhs_bc! calls
 # 4. For MPI issues, ensure all processes use same BC parameters
 #
 # ================================================================================
@@ -110,17 +110,17 @@ using Dates
 
 # For Julia 1.10 compatibility: Define simple statistics functions
 # to avoid module resolution issues with Statistics stdlib in submodules
-_mean(x) = sum(x) / length(x)
-_std(x) = begin
-    m = _mean(x)
+__mean(x) = sum(x) / length(x)
+__std(x) = begin
+    m = __mean(x)
     n = length(x)
     n <= 1 && return zero(eltype(x))
     sqrt(sum((xi - m)^2 for xi in x) / (n - 1))
 end
 
 # Create a module-like object for compatibility with existing code
-module _Statistics
-    import ..bcs: _mean as mean, _std as std
+module __Statistics
+    import ..bcs: __mean as mean, __std as std
 end
 
 # ================================================================================
@@ -318,8 +318,8 @@ function update_time_dependent_boundaries!(field, field_type::FieldType, current
         end
 
         config = field.config
-        inner_slice = _extract_boundary_slice(boundary_set.inner_boundary, time_index)
-        outer_slice = _extract_boundary_slice(boundary_set.outer_boundary, time_index)
+        inner_slice = __extract_boundary_slice(boundary_set.inner_boundary, time_index)
+        outer_slice = __extract_boundary_slice(boundary_set.outer_boundary, time_index)
         inner_coeffs = shtns_physical_to_spectral(inner_slice, config)
         outer_coeffs = shtns_physical_to_spectral(outer_slice, config)
 
@@ -370,7 +370,7 @@ function validate_boundary_files(field_type::FieldType, boundary_specs::Dict, co
         elseif spec isa Tuple
             if field_type == TEMPERATURE || field_type == COMPOSITION
                 config === nothing && throw(ArgumentError("Programmatic scalar boundary validation requires a config"))
-                _parse_boundary_spec(spec, config)
+                __parse_boundary_spec(spec, config)
             else
                 throw(ArgumentError(
                     "Tuple boundary specs are only supported for temperature and composition by validate_boundary_files; " *
@@ -385,7 +385,7 @@ function validate_boundary_files(field_type::FieldType, boundary_specs::Dict, co
     return true
 end
 
-function _extract_boundary_slice(boundary_data::BoundaryData, time_index::Int)
+function __extract_boundary_slice(boundary_data::BoundaryData, time_index::Int)
     values = boundary_data.values
     if !boundary_data.is_time_dependent
         return values
@@ -477,25 +477,25 @@ export validate_boundary_files, get_current_boundaries, print_boundary_summary
 # ================================================================================
 # This avoids recreating configs for each boundary transform call
 
-const _BC_SHTNS_CONFIG_CACHE = Dict{Tuple{Int,Int,Int,Int}, Any}()
-const _BC_SHTNS_CONFIG_LOCK = ReentrantLock()
+const __BC_SHTNS_CONFIG_CACHE = Dict{Tuple{Int,Int,Int,Int}, Any}()
+const __BC_SHTNS_CONFIG_LOCK = ReentrantLock()
 
 """
-    _get_cached_bc_shtns_config(lmax, mmax, nlat, nlon)
+    __get_cached_bc_shtns_config(lmax, mmax, nlat, nlon)
 
 Get or create a cached SHTnsKit configuration for boundary transforms.
 Reuses configurations to avoid repeated setup/teardown overhead.
 Thread-safe implementation using a lock for the check-then-set pattern.
 """
-function _get_cached_bc_shtns_config(lmax::Int, mmax::Int, nlat::Int, nlon::Int)
+function __get_cached_bc_shtns_config(lmax::Int, mmax::Int, nlat::Int, nlon::Int)
     key = (lmax, mmax, nlat, nlon)
 
     # Julia Dict is not thread-safe for concurrent read/write — always lock
-    lock(_BC_SHTNS_CONFIG_LOCK) do
-        if !haskey(_BC_SHTNS_CONFIG_CACHE, key)
-            _BC_SHTNS_CONFIG_CACHE[key] = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon)
+    lock(__BC_SHTNS_CONFIG_LOCK) do
+        if !haskey(__BC_SHTNS_CONFIG_CACHE, key)
+            __BC_SHTNS_CONFIG_CACHE[key] = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon)
         end
-        return _BC_SHTNS_CONFIG_CACHE[key]
+        return __BC_SHTNS_CONFIG_CACHE[key]
     end
 end
 
@@ -507,15 +507,15 @@ Call this when grid parameters change or to free memory.
 Thread-safe implementation.
 """
 function clear_bc_shtns_config_cache!()
-    lock(_BC_SHTNS_CONFIG_LOCK) do
-        for (key, cfg) in _BC_SHTNS_CONFIG_CACHE
+    lock(__BC_SHTNS_CONFIG_LOCK) do
+        for (key, cfg) in __BC_SHTNS_CONFIG_CACHE
             try
                 SHTnsKit.destroy_config(cfg)
             catch
                 # Ignore errors during cleanup
             end
         end
-        empty!(_BC_SHTNS_CONFIG_CACHE)
+        empty!(__BC_SHTNS_CONFIG_CACHE)
     end
 end
 
@@ -541,7 +541,7 @@ function shtns_physical_to_spectral(physical_data::Matrix{T}, config; return_com
     try
         # Use cached configuration for efficiency (v1.1.15 optimization)
         nlat, nlon = size(physical_data)
-        shtconfig = _get_cached_bc_shtns_config(config.lmax, config.mmax, nlat, nlon)
+        shtconfig = __get_cached_bc_shtns_config(config.lmax, config.mmax, nlat, nlon)
 
         # Perform forward transform - returns (lmax+1)×(mmax+1) matrix
         coeffs_matrix = SHTnsKit.analysis(shtconfig, physical_data)
@@ -599,7 +599,7 @@ Matrix of physical values on (nlat, nlon) grid.
 function shtns_spectral_to_physical(coeffs::Vector{T}, config, nlat::Int, nlon::Int) where T
     try
         # Use cached configuration
-        shtconfig = _get_cached_bc_shtns_config(config.lmax, config.mmax, nlat, nlon)
+        shtconfig = __get_cached_bc_shtns_config(config.lmax, config.mmax, nlat, nlon)
 
         # Convert 1D coefficients to (lmax+1)×(mmax+1) matrix
         lmax, mmax_val = config.lmax, config.mmax

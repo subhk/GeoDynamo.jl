@@ -153,8 +153,8 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
         for component in ["velocity_toroidal", "velocity_poloidal",
                           "magnetic_toroidal", "magnetic_poloidal",
                           "temperature_spectral", "composition_spectral"]
-            real_name = "$(component)_real"
-            imag_name = "$(component)_imag"
+            real_name = "$(component)__real"
+            imag_name = "$(component)__imag"
 
             if haskey(ds, real_name) && haskey(ds, imag_name)
                 if pencils !== nothing
@@ -169,7 +169,7 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
                             "imag" => imag_data,
                         )
                     else
-                        lm_range, r_range = _legacy_linear_spectral_io_ranges(pencils)
+                        lm_range, r_range = __legacy_linear_spectral_io_ranges(pencils)
                         real_slice = Array(ds[real_name][lm_range, r_range])
                         imag_slice = Array(ds[imag_name][lm_range, r_range])
                         restart_data[component] = Dict(
@@ -197,12 +197,12 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
 end
 
 """
-    _load_restart_file(filepath, tracker, config; pencils=nothing)
+    __load_restart_file(filepath, tracker, config; pencils=nothing)
 
 Load simulation state from a specific restart NetCDF file path using parallel I/O.
 All ranks open the file collectively and read their local slices.
 """
-function _load_restart_file(filepath::String, tracker::TimeTracker, config::OutputConfig;
+function __load_restart_file(filepath::String, tracker::TimeTracker, config::OutputConfig;
                            pencils::Union{NamedTuple,Nothing}=nothing,
                            shtns_config::Union{SHTnsKitConfig,Nothing}=nothing)
     comm = output_comm()
@@ -273,8 +273,8 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
         for component in ["velocity_toroidal", "velocity_poloidal",
                           "magnetic_toroidal", "magnetic_poloidal",
                           "temperature_spectral", "composition_spectral"]
-            real_name = "$(component)_real"
-            imag_name = "$(component)_imag"
+            real_name = "$(component)__real"
+            imag_name = "$(component)__imag"
 
             if haskey(ds, real_name) && haskey(ds, imag_name)
                 if pencils !== nothing
@@ -289,7 +289,7 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
                             "imag" => imag_data,
                         )
                     else
-                        lm_range, r_range = _legacy_linear_spectral_io_ranges(pencils)
+                        lm_range, r_range = __legacy_linear_spectral_io_ranges(pencils)
                         real_slice = Array(ds[real_name][lm_range, r_range])
                         imag_slice = Array(ds[imag_name][lm_range, r_range])
                         restart_data[component] = Dict(

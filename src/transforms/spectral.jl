@@ -55,7 +55,7 @@ const SHTNSKIT_USE_SCRATCH_BUFFERS = true  # Use scratch_spatial/scratch_fft hel
 abstract type AbstractTransformWorkspace end
 
 # ================================================================================
-# SHTnsBuffers — typed replacement for _buffer_cache::Dict{Symbol,Any}
+# SHTnsBuffers — typed replacement for __buffer_cache::Dict{Symbol,Any}
 # ================================================================================
 
 """
@@ -148,7 +148,7 @@ SHTnsBuffers() = SHTnsBuffers(
 # Keys not in this map (e.g. :sht_plan, :solver_transform_workspace, :transform_device,
 # :spatial_scratch, :fft_scratch) are set directly and not routed through this function.
 
-const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
+const __BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
     :synth_out                   => :synth_out,
     :anal_out                    => :anal_out,
     :vt_out                      => :vt_out,
@@ -173,12 +173,12 @@ const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
     :mie_spheroidal_imag         => :mie_spheroidal_imag,
 )
 
-@inline function _shtns_buffer_field(::Val{key}) where {key}
-    error("get_cached_buffer!: unknown buffer key $(repr(key)). Add it to SHTnsBuffers and _BUFFERS_FIELD_MAP.")
+@inline function __shtns_buffer_field(::Val{key}) where {key}
+    error("get_cached_buffer!: unknown buffer key $(repr(key)). Add it to SHTnsBuffers and __BUFFERS_FIELD_MAP.")
 end
 
-for (key, field) in _BUFFERS_FIELD_MAP
-    @eval @inline _shtns_buffer_field(::Val{$(QuoteNode(key))}) = Val{$(QuoteNode(field))}()
+for (key, field) in __BUFFERS_FIELD_MAP
+    @eval @inline __shtns_buffer_field(::Val{$(QuoteNode(key))}) = Val{$(QuoteNode(field))}()
 end
 
 # ================================================================================
@@ -188,12 +188,12 @@ end
 # race conditions when multiple threads access or create buffers simultaneously.
 
 """
-    _BUFFER_CACHE_LOCK
+    __BUFFER_CACHE_LOCK
 
 Global ReentrantLock for thread-safe access to SHTnsKitConfig buffer caches.
-All access to config._buffers should be protected by this lock.
+All access to config.__buffers should be protected by this lock.
 """
-const _BUFFER_CACHE_LOCK = ReentrantLock()
+const __BUFFER_CACHE_LOCK = ReentrantLock()
 
 """
     get_cached_buffer!(create_func, config, key::Symbol)
@@ -207,7 +207,7 @@ When using `do` block, Julia desugars it to pass the closure as the first argume
 
 # Arguments
 - `create_func`: Zero-argument function to create buffer if not cached
-- `config`: SHTnsKitConfig object containing `_buffers::SHTnsBuffers`
+- `config`: SHTnsKitConfig object containing `__buffers::SHTnsBuffers`
 - `key::Symbol`: Key to look up (mapped to a field of `SHTnsBuffers`)
 
 # Returns
@@ -225,12 +225,12 @@ end
 end
 
 @inline function get_cached_buffer!(create_func::F, config, ::Val{key}) where {F,key}
-    return _get_cached_buffer_field!(create_func, config, _shtns_buffer_field(Val(key)))
+    return __get_cached_buffer_field!(create_func, config, __shtns_buffer_field(Val(key)))
 end
 
-@inline function _get_cached_buffer_field!(create_func::F, config, ::Val{field}) where {F,field}
-    lock(_BUFFER_CACHE_LOCK) do
-        b = config._buffers
+@inline function __get_cached_buffer_field!(create_func::F, config, ::Val{field}) where {F,field}
+    lock(__BUFFER_CACHE_LOCK) do
+        b = config.__buffers
         val = getfield(b, field)
         if val === nothing
             val = create_func()
@@ -249,8 +249,8 @@ configurations or to free memory. Does NOT clear `sht_plan`, `solver_transform_w
 construction/initialization and should persist).
 """
 function clear_buffer_cache!(config)
-    lock(_BUFFER_CACHE_LOCK) do
-        b = config._buffers
+    lock(__BUFFER_CACHE_LOCK) do
+        b = config.__buffers
         b.synth_out              = nothing
         b.anal_out               = nothing
         b.vt_out                 = nothing
@@ -279,7 +279,7 @@ end
 # ================================================================================
 
 """
-    _shtns_make_transpose(pair)
+    __shtns_make_transpose(pair)
 
 Create a PencilArrays transpose plan between two pencil configurations.
 Used internally to set up efficient data redistribution operations.
@@ -290,7 +290,7 @@ Used internally to set up efficient data redistribution operations.
 # Returns
 - A Transposition object that can be used with `mul!` for data redistribution
 """
-@inline function _shtns_make_transpose(pair)
+@inline function __shtns_make_transpose(pair)
     src = first(pair)
     dest = last(pair)
 
@@ -379,7 +379,7 @@ This struct encapsulates all parameters needed for transforms and parallelizatio
 - `gauss_weights::Vector{Float64}`: Gauss-Legendre quadrature weights
 
 ## Internal
-- `_buffers::SHTnsBuffers`: Reusable work arrays to reduce allocations
+- `__buffers::SHTnsBuffers`: Reusable work arrays to reduce allocations
 
 # Usage
 ```julia
@@ -423,7 +423,7 @@ struct SHTnsKitConfig{T<:AbstractFloat,P,FP,TP,B<:SHTnsBuffers} <: AbstractSHTns
     gauss_weights::Vector{Float64} # Quadrature weights for integration
 
     # Internal typed buffer store to avoid repeated allocations
-    _buffers::B
+    __buffers::B
 end
 
 """
@@ -859,8 +859,8 @@ function create_shtnskit_transpose_plans(pencils)
     # Theta ↔ Phi transposes (most common for SH transforms)
     if haskey(pencils, :theta) && haskey(pencils, :phi)
         try
-            transpose_plans[:theta_to_phi] = _shtns_make_transpose(pencils.theta => pencils.phi)
-            transpose_plans[:phi_to_theta] = _shtns_make_transpose(pencils.phi => pencils.theta)
+            transpose_plans[:theta_to_phi] = __shtns_make_transpose(pencils.theta => pencils.phi)
+            transpose_plans[:phi_to_theta] = __shtns_make_transpose(pencils.phi => pencils.theta)
         catch e
             if get_rank() == 0
                 @debug "Could not create theta<->phi transpose: $e"
@@ -871,8 +871,8 @@ function create_shtnskit_transpose_plans(pencils)
     # Theta ↔ R transposes (for switching to radial operations)
     if haskey(pencils, :r) && haskey(pencils, :theta)
         try
-            transpose_plans[:theta_to_r] = _shtns_make_transpose(pencils.theta => pencils.r)
-            transpose_plans[:r_to_theta] = _shtns_make_transpose(pencils.r => pencils.theta)
+            transpose_plans[:theta_to_r] = __shtns_make_transpose(pencils.theta => pencils.r)
+            transpose_plans[:r_to_theta] = __shtns_make_transpose(pencils.r => pencils.theta)
         catch e
             if get_rank() == 0
                 @debug "Could not create theta<->r transpose: $e"
@@ -885,8 +885,8 @@ function create_shtnskit_transpose_plans(pencils)
     # In that case, use multi-step: phi → theta → r
     if haskey(pencils, :phi) && haskey(pencils, :r)
         try
-            transpose_plans[:phi_to_r] = _shtns_make_transpose(pencils.phi => pencils.r)
-            transpose_plans[:r_to_phi] = _shtns_make_transpose(pencils.r => pencils.phi)
+            transpose_plans[:phi_to_r] = __shtns_make_transpose(pencils.phi => pencils.r)
+            transpose_plans[:r_to_phi] = __shtns_make_transpose(pencils.r => pencils.phi)
         catch e
             # Expected failure - try multi-step approach
             if haskey(transpose_plans, :phi_to_theta) && haskey(transpose_plans, :theta_to_r)

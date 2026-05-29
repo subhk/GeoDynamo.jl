@@ -146,9 +146,9 @@ using MPI
     end
 
     @testset "BC code mapping matches BoundaryConditions types" begin
-        @test GeoDynamo._velocity_bc_code(bc_ns_ns) == 1
-        @test GeoDynamo._velocity_bc_code(bc_ns_sf) == 2
-        @test GeoDynamo._velocity_bc_code(bc_sf_ns) == 3
-        @test GeoDynamo._velocity_bc_code(bc_sf_sf) == 4
+        @test GeoDynamo.__velocity_bc_code(bc_ns_ns) == 1
+        @test GeoDynamo.__velocity_bc_code(bc_ns_sf) == 2
+        @test GeoDynamo.__velocity_bc_code(bc_sf_ns) == 3
+        @test GeoDynamo.__velocity_bc_code(bc_sf_sf) == 4
     end
 end

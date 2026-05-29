@@ -26,7 +26,7 @@ function initialize_solver_state(::Type{T}=Float64;
     # enabled, disabled, or swapped without rebuilding the spectral fields.
     topography = create_solver_topography_state(T, params)
     activate_solver_topography!(topography)
-    fields = _collect_solver_fields(runtime, params)
+    fields = __collect_solver_fields(runtime, params)
 
     return SolverState(
         params,
@@ -110,7 +110,7 @@ function rebuild_solver_implicit_matrices!(state::SolverState{T,<:AbstractArchit
     # NOTE: backend.parameters.timestep is frozen at construction and intentionally
     # ignored here — `dt` is authoritative. Only non-timestep params are read.
     # The conducting-inner-core ICB admittance also depends on dt, so refresh it too.
-    matrices, magnetic_ic_admittance = _build_implicit_matrices_dict(
+    matrices, magnetic_ic_admittance = __build_implicit_matrices_dict(
         T, backend.shtns_config, backend.outer_core_domain,
         backend.inner_core_domain, backend.parameters, Float64(dt))
     state.implicit_matrices = create_solver_implicit_matrix_store(matrices)

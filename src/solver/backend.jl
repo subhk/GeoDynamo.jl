@@ -159,32 +159,32 @@ function Base.show(io::IO, ::MIME"text/plain", backend::SolverBackend)
     cfg = backend.shtns_config
     println(io, "GeoDynamo SolverBackend")
     println(io, "├─ transforms")
-    _solver_print_row(io, "backend", "SHTnsKit + PencilArrays + PencilFFTs")
-    _solver_print_row(io, "architecture", backend.architecture)
-    _solver_print_row(io, "compute device", SHTnsKit.get_config_device(cfg.sht_config))
-    _solver_print_row(io, "lmax / mmax", "$(cfg.lmax) / $(cfg.mmax)")
-    _solver_print_row(io, "Nθ × Nφ", "$(cfg.nlat) × $(cfg.nlon)")
-    _solver_print_row(io, "spectral modes", cfg.nlm)
+    __solver_print_row(io, "backend", "SHTnsKit + PencilArrays + PencilFFTs")
+    __solver_print_row(io, "architecture", backend.architecture)
+    __solver_print_row(io, "compute device", SHTnsKit.get_config_device(cfg.sht_config))
+    __solver_print_row(io, "lmax / mmax", "$(cfg.lmax) / $(cfg.mmax)")
+    __solver_print_row(io, "Nθ × Nφ", "$(cfg.nlat) × $(cfg.nlon)")
+    __solver_print_row(io, "spectral modes", cfg.nlm)
     println(io, "├─ domains")
-    _solver_print_row(io, "outer core Nᵣ", backend.outer_core_domain.N)
-    _solver_print_row(io, "inner core Nᵣ", isnothing(backend.inner_core_domain) ? "none" : backend.inner_core_domain.N)
+    __solver_print_row(io, "outer core Nᵣ", backend.outer_core_domain.N)
+    __solver_print_row(io, "inner core Nᵣ", isnothing(backend.inner_core_domain) ? "none" : backend.inner_core_domain.N)
     println(io, "└─ parallel")
-    _solver_print_row(io, "rank", backend.rank)
-    _solver_print_row(io, "processes", backend.process_count)
+    __solver_print_row(io, "rank", backend.rank)
+    __solver_print_row(io, "processes", backend.process_count)
 end
 
 function Base.show(io::IO, ::MIME"text/plain", topography::SolverTopographyState)
     println(io, "GeoDynamo SolverTopographyState")
     println(io, "├─ coupling")
-    _solver_print_row(io, "enabled", _solver_yesno(topography.config.enabled))
-    _solver_print_row(io, "ε", topography.config.epsilon)
-    _solver_print_row(io, "velocity", _solver_yesno(topography.config.velocity_coupling))
-    _solver_print_row(io, "magnetic", _solver_yesno(topography.config.magnetic_coupling))
-    _solver_print_row(io, "thermal", _solver_yesno(topography.config.thermal_coupling))
+    __solver_print_row(io, "enabled", __solver_yesno(topography.config.enabled))
+    __solver_print_row(io, "ε", topography.config.epsilon)
+    __solver_print_row(io, "velocity", __solver_yesno(topography.config.velocity_coupling))
+    __solver_print_row(io, "magnetic", __solver_yesno(topography.config.magnetic_coupling))
+    __solver_print_row(io, "thermal", __solver_yesno(topography.config.thermal_coupling))
     println(io, "└─ boundaries")
-    _solver_print_row(io, "ICB topography", topography.data === nothing || topography.data.icb === nothing ? "none" : "loaded")
-    _solver_print_row(io, "OCB topography", topography.data === nothing || topography.data.cmb === nothing ? "none" : "loaded")
-    _solver_print_row(io, "Stefan state", isnothing(topography.stefan) ? "inactive" : "ready")
+    __solver_print_row(io, "ICB topography", topography.data === nothing || topography.data.icb === nothing ? "none" : "loaded")
+    __solver_print_row(io, "OCB topography", topography.data === nothing || topography.data.cmb === nothing ? "none" : "loaded")
+    __solver_print_row(io, "Stefan state", isnothing(topography.stefan) ? "inactive" : "ready")
 end
 
 function create_shtns_config(::CPU, params::SolverParameters)
@@ -408,11 +408,11 @@ end
 # Shared core for both the eager (construction-time) and rebuild (dt-change)
 # implicit-matrix paths. `dt` is the authoritative timestep — callers pass it
 # explicitly so the rebuild path can override the (frozen) backend timestep.
-function _build_implicit_matrices_dict(
+function __build_implicit_matrices_dict(
         ::Type{T}, cfg, outer, ic_domain, p::SolverParameters, dt::Float64,
     ) where {T}
     matrices = Dict{Symbol, OldImplicitMatrices{T}}()
-    velocity = build_velocity_implicit_matrices(cfg, outer, p.Ek, dt, _velocity_bc_code(p.velocity_bcs))
+    velocity = build_velocity_implicit_matrices(cfg, outer, p.Ek, dt, __velocity_bc_code(p.velocity_bcs))
     matrices[:velocity_tor] = velocity.tor
     matrices[:velocity_pol] = velocity.pol
 
@@ -433,10 +433,10 @@ function _build_implicit_matrices_dict(
     matrices[:magnetic_pol] = magnetic.pol
 
     matrices[:temperature] = solver_build_temperature_implicit_matrix(
-        cfg, outer, p.Pm / p.Pr, dt, _thermal_bc_code(p.temperature_bcs))
+        cfg, outer, p.Pm / p.Pr, dt, __thermal_bc_code(p.temperature_bcs))
     if p.include_composition
         matrices[:composition] = solver_build_composition_implicit_matrix(
-            cfg, outer, p.Pm / p.Sc, dt, _composition_bc_code(p.composition_bcs))
+            cfg, outer, p.Pm / p.Sc, dt, __composition_bc_code(p.composition_bcs))
     end
     return matrices, magnetic_ic_admittance
 end
@@ -457,7 +457,7 @@ and `nothing` otherwise. The insulating default path is byte-for-byte unchanged.
 """
 function create_solver_implicit_matrices(::Type{T}, backend::SolverBackend{<:AbstractArchitecture}) where {T}
     p = backend.parameters
-    return _build_implicit_matrices_dict(T, backend.shtns_config, backend.outer_core_domain,
+    return __build_implicit_matrices_dict(T, backend.shtns_config, backend.outer_core_domain,
                                          backend.inner_core_domain, p, Float64(p.timestep))
 end
 
@@ -628,9 +628,9 @@ function create_solver_runtime(::Type{T}, backend::SolverBackend{A};
     gradient_workspace = create_solver_gradient_workspace(T, backend)
     transform_workspace = create_transform_workspace(T, backend)
     timestep_state = create_solver_timestep_state(backend)
-    backend.shtns_config._buffers.solver_transform_workspace = transform_workspace
+    backend.shtns_config.__buffers.solver_transform_workspace = transform_workspace
     # Store arch in SHTnsBuffers so SHT dispatch functions can retrieve it (Task 3)
-    backend.shtns_config._buffers.transform_device = backend.architecture
+    backend.shtns_config.__buffers.transform_device = backend.architecture
 
     runtime = SolverRuntime(
         velocity,

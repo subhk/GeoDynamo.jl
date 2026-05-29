@@ -17,11 +17,11 @@ mutable struct Simulation{M,C,O}
     wall_time_limit :: Float64
     callbacks       :: C
     output_writers  :: O
-    _wall_start     :: Float64
+    __wall_start     :: Float64
 end
 
-_to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol,Any}()
-function _to_ordered(items, prefix::Symbol)
+__to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol,Any}()
+function __to_ordered(items, prefix::Symbol)
     d = OrderedDict{Symbol,Any}()
     if items isa AbstractDict
         for (k, v) in items
@@ -101,7 +101,7 @@ function Simulation(model::GeodynamoModel;
     # that advance_solver_step! uses the timestep the caller requested.
     p = model.state.parameters
     old_timestep = model.state.parameters.timestep
-    timestep_options = _resolve_timestepper(
+    timestep_options = __resolve_timestepper(
         timestepper,
         timestep_scheme,
         implicit_theta,
@@ -122,8 +122,8 @@ function Simulation(model::GeodynamoModel;
         model.state.runtime.timestep_state.dt = dt_f
     end
 
-    callback_items = _to_ordered(callbacks, :callback)
-    output_writer_items = _to_ordered(output_writers, :writer)
+    callback_items = __to_ordered(callbacks, :callback)
+    output_writer_items = __to_ordered(output_writers, :writer)
 
     sync_clock!(model.clock, model.state)
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
@@ -168,8 +168,8 @@ Advance the simulation by one step at `sim.dt`, firing callbacks and writers.
 """
 function time_step!(sim::Simulation)
     time_step!(sim.model, sim.dt)
-    _run_callbacks!(sim)
-    _run_output_writers!(sim)
+    __run_callbacks!(sim)
+    __run_output_writers!(sim)
     return sim
 end
 
@@ -187,11 +187,11 @@ Each iteration calls `time_step!(sim)` which advances physics, syncs the clock,
 and fires scheduled callbacks and output writers.
 """
 function run!(sim::Simulation)
-    sim._wall_start = time()
+    sim.__wall_start = time()
     clock = sim.model.clock
     while clock.time < sim.stop_time &&
           clock.iteration < sim.stop_iteration &&
-          (time() - sim._wall_start) < sim.wall_time_limit
+          (time() - sim.__wall_start) < sim.wall_time_limit
         time_step!(sim)
     end
     return sim

@@ -5,7 +5,7 @@
 using PencilArrays
 using PencilArrays: Pencil, PencilArray
 
-@inline function _pencil_make_transpose(pair)
+@inline function __pencil_make_transpose(pair)
     trans_mod = PencilArrays.Transpositions
     src = first(pair)
     dest = last(pair)
@@ -27,7 +27,7 @@ function create_transpose_plans(pencils)
 
     function try_create_transpose(name::Symbol, pair)
         try
-            plans[name] = _pencil_make_transpose(pair)
+            plans[name] = __pencil_make_transpose(pair)
         catch e
             if e isa ArgumentError
                 @debug "Skipping transpose $name: $e"
@@ -57,7 +57,7 @@ end
 const ENABLE_TIMING = Ref(false)
 const TRANSPOSE_TIMES = Dict{Symbol, Float64}()
 const TRANSPOSE_COUNTS = Dict{Symbol, Int}()
-const _TIMING_LOCK = ReentrantLock()
+const __TIMING_LOCK = ReentrantLock()
 
 """
     transpose_with_timer!(dest, src, label=:default)
@@ -70,7 +70,7 @@ function transpose_with_timer!(dest::PencilArray, src::PencilArray, label::Symbo
         PencilArrays.transpose!(dest, src)
         t_end = MPI.Wtime()
 
-        lock(_TIMING_LOCK) do
+        lock(__TIMING_LOCK) do
             TRANSPOSE_TIMES[label] = get(TRANSPOSE_TIMES, label, 0.0) + (t_end - t_start)
             TRANSPOSE_COUNTS[label] = get(TRANSPOSE_COUNTS, label, 0) + 1
         end

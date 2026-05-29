@@ -12,18 +12,18 @@ end
 
 # Global MPI state (initialized lazily)
 const MPI_STATE = MPIState(false, nothing, -1, -1)
-const _MPI_INIT_LOCK = ReentrantLock()
+const __MPI_INIT_LOCK = ReentrantLock()
 
 """
     get_comm()
 
 Get MPI communicator, initializing MPI if needed.
-Thread-safe via double-checked locking with `_MPI_INIT_LOCK`.
+Thread-safe via double-checked locking with `__MPI_INIT_LOCK`.
 """
 function get_comm()
     MPI_STATE.initialized && return MPI_STATE.comm
 
-    lock(_MPI_INIT_LOCK) do
+    lock(__MPI_INIT_LOCK) do
         if !MPI_STATE.initialized
             if !MPI.Initialized()
                 MPI.Init()

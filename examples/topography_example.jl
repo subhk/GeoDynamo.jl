@@ -214,7 +214,7 @@ end
 
 function evolve_icb_topography!(stefan, dt, velocity, T_ic, T_oc; topo_data=nothing, gaunt=nothing, config=nothing)
     # Update ICB topography based on Stefan condition:
-    # ε ∂_t h = u_n + (k_ic ∂_n T_ic - k ∂_n T) / (ρ L)
+    # ε ∂__t h = u_n + (k_ic ∂__n T_ic - k ∂__n T) / (ρ L)
 
     update_icb_topography!(
         stefan, dt, velocity, T_ic, T_oc;

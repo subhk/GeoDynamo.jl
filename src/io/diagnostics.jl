@@ -18,9 +18,9 @@ function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
     use_mpi = nprocs > 1
 
     # Helper: reduce a scalar across all ranks
-    _global_sum(x)  = use_mpi ? MPI.Allreduce(x, MPI.SUM, comm) : x
-    _global_max(x)  = use_mpi ? MPI.Allreduce(x, MPI.MAX, comm) : x
-    _global_min(x)  = use_mpi ? MPI.Allreduce(x, MPI.MIN, comm) : x
+    __global_sum(x)  = use_mpi ? MPI.Allreduce(x, MPI.SUM, comm) : x
+    __global_max(x)  = use_mpi ? MPI.Allreduce(x, MPI.MAX, comm) : x
+    __global_min(x)  = use_mpi ? MPI.Allreduce(x, MPI.MIN, comm) : x
 
     # Physical-space fields: need global reduction for correct mean/min/max/std
     for (key, prefix) in [("temperature", "temp"), ("composition", "comp")]
@@ -31,20 +31,20 @@ function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
             local_min = Float64(minimum(F))
             local_max = Float64(maximum(F))
 
-            global_n   = _global_sum(local_n)
-            global_sum = _global_sum(local_sum)
-            global_min = _global_min(local_min)
-            global_max = _global_max(local_max)
+            global_n   = __global_sum(local_n)
+            global_sum = __global_sum(local_sum)
+            global_min = __global_min(local_min)
+            global_max = __global_max(local_max)
             global_mean = global_sum / global_n
 
             # Two-pass variance via parallel algorithm: sum of (x - global_mean)^2
             local_sq_sum = sum(x -> (Float64(x) - global_mean)^2, F)
-            global_sq_sum = _global_sum(local_sq_sum)
+            global_sq_sum = __global_sum(local_sq_sum)
 
-            diagnostics["$(prefix)_mean"] = global_mean
-            diagnostics["$(prefix)_std"]  = sqrt(max(zero(Float64), global_sq_sum / global_n))
-            diagnostics["$(prefix)_min"]  = global_min
-            diagnostics["$(prefix)_max"]  = global_max
+            diagnostics["$(prefix)__mean"] = global_mean
+            diagnostics["$(prefix)__std"]  = sqrt(max(zero(Float64), global_sq_sum / global_n))
+            diagnostics["$(prefix)__min"]  = global_min
+            diagnostics["$(prefix)__max"]  = global_max
         end
     end
 
@@ -72,13 +72,13 @@ function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
                     local_max_mag = max(local_max_mag, sqrt(magnitude_sq))
                 end
 
-                global_energy = _global_sum(local_energy)
-                global_max_mag = _global_max(local_max_mag)
-                global_count = _global_sum(local_count)
+                global_energy = __global_sum(local_energy)
+                global_max_mag = __global_max(local_max_mag)
+                global_count = __global_sum(local_count)
 
-                diagnostics["$(component)_energy"] = 0.5 * global_energy
-                diagnostics["$(component)_rms"] = sqrt(max(zero(Float64), global_energy / global_count))
-                diagnostics["$(component)_max"] = global_max_mag
+                diagnostics["$(component)__energy"] = 0.5 * global_energy
+                diagnostics["$(component)__rms"] = sqrt(max(zero(Float64), global_energy / global_count))
+                diagnostics["$(component)__max"] = global_max_mag
 
                 if field_info.has_config && !isempty(field_info.l_values)
                     compute_spectral_energy_diagnostics!(diagnostics, component,
@@ -127,12 +127,12 @@ function compute_spectral_energy_diagnostics!(diagnostics::Dict{String,Float64},
     total_energy = sum(l_energies)
     if total_energy > 0
         peak_l = argmax(l_energies) - 1
-        diagnostics["$(component)_peak_l"] = Float64(peak_l)
+        diagnostics["$(component)__peak_l"] = Float64(peak_l)
 
         spectral_centroid = sum((0:l_max) .* l_energies) / total_energy
-        diagnostics["$(component)_spectral_centroid"] = spectral_centroid
+        diagnostics["$(component)__spectral_centroid"] = spectral_centroid
 
         low_mode_energy = sum(l_energies[1:min(11, length(l_energies))])
-        diagnostics["$(component)_low_mode_fraction"] = low_mode_energy / total_energy
+        diagnostics["$(component)__low_mode_fraction"] = low_mode_energy / total_energy
     end
 end

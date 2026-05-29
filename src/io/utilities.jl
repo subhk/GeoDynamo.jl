@@ -29,7 +29,7 @@ function verify_all_ranks_wrote(output_dir::String, hist_number::Int;
                                geometry::String="shell",
                                expected_dims::Union{Dict{String,Int},Nothing}=nothing)
     # Look for the single shared file
-    pattern = Regex("$(geometry)_hist_$(hist_number)\\.nc")
+    pattern = Regex("$(geometry)__hist_$(hist_number)\\.nc")
     files = readdir(output_dir)
     matching = filter(f -> occursin(pattern, f), files)
 
@@ -79,7 +79,7 @@ Remove older history files from `output_dir`, keeping the most recent
 function cleanup_old_files(output_dir::String, keep_last_n::Int = 10)
     files = readdir(output_dir)
     # Match hist_N.nc pattern (no rank in name)
-    hist_pattern = r"_hist_(\d+)\.nc$"
+    hist_pattern = r"__hist_(\d+)\.nc$"
     output_files = filter(f -> occursin(hist_pattern, f), files)
 
     if isempty(output_files)
@@ -124,7 +124,7 @@ break post-processing.
 """
 function get_time_series(output_dir::String)
     files = readdir(output_dir)
-    hist_pattern = r"_hist_(\d+)\.nc$"
+    hist_pattern = r"__hist_(\d+)\.nc$"
     hist_files = filter(f -> occursin(hist_pattern, f) && !contains(f, "restart"), files)
 
     times = Float64[]

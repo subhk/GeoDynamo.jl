@@ -5,21 +5,21 @@
 # This file implements the Stefan condition at the inner-core boundary (ICB)
 # for modeling phase change and topography evolution:
 #
-#   k_ic ∂_n T_ic - k ∂_n T = ρ L (V_b - uₙ)      (Eq. 21 from PDF)
+#   k_ic ∂__n T_ic - k ∂__n T = ρ L (V_b - uₙ)      (Eq. 21 from PDF)
 #
 # where:
 # - k_ic, k = thermal conductivities (inner core, outer core)
 # - T_ic, T = temperatures (inner core, outer core)
 # - ρ = density
 # - L = latent heat of fusion
-# - V_b = boundary velocity (= ε ∂_t h_i for moving boundary)
+# - V_b = boundary velocity (= ε ∂__t h_i for moving boundary)
 # - uₙ = normal fluid velocity
 #
 # The implementable update for topography evolution is (Eq. 22):
-#   ε ∂_t h_i = uₙ + (k_ic ∂_n T_ic - k ∂_n T) / (ρ L)
+#   ε ∂__t h_i = uₙ + (k_ic ∂__n T_ic - k ∂__n T) / (ρ L)
 #
 # In spectral form (Eq. 31):
-#   ε ∂_t h^i_{lm} = u_{n,lm} + (1/ρL) F_{lm}
+#   ε ∂__t h^i_{lm} = u_{n,lm} + (1/ρL) F_{lm}
 #
 # where F_{lm} collects the heat flux contributions.
 #
@@ -40,7 +40,7 @@ mutable struct StefanState{T<:AbstractFloat}
 
     # State variables (spectral)
     topography::TopographyField{T}           # h_i(θ, φ)
-    topography_rate::TopographyField{T}      # ∂_t h_i
+    topography_rate::TopographyField{T}      # ∂__t h_i
     heat_flux_ic::Vector{Complex{T}}         # Inner core flux
     heat_flux_oc::Vector{Complex{T}}         # Outer core flux
     normal_velocity::Vector{Complex{T}}      # uₙ at ICB
@@ -181,14 +181,14 @@ end
 
 Compute the Stefan flux contribution F_{lm} for topography evolution.
 
-F_{lm} = k_ic ∂_n Θ^{ic}_{lm} - k ∂_n Θ_{lm}
+F_{lm} = k_ic ∂__n Θ^{ic}_{lm} - k ∂__n Θ_{lm}
 
 Returns spectral coefficients of the net heat flux imbalance.
 """
 function compute_stefan_flux(state::StefanState{T}) where T
     nlm = state.topography.nlm
 
-    # Net flux: k_ic ∂_n T_ic - k ∂_n T
+    # Net flux: k_ic ∂__n T_ic - k ∂__n T
     flux = zeros(Complex{T}, nlm)
     for i in 1:nlm
         flux[i] = state.k_ic * state.heat_flux_ic[i] - state.k_oc * state.heat_flux_oc[i]
@@ -206,7 +206,7 @@ end
 Compute Stefan flux including topography corrections to the normal derivative.
 
 The linearized normal derivative at r = r_i is:
-∂_n ≈ ∂_r - ε ∇_H h_i · ∇_H + εh_i ∂_rr
+∂__n ≈ ∂__r - ε ∇__H h_i · ∇__H + εh_i ∂__rr
 
 This adds coupling between modes through Gaunt tensors.
 """
@@ -242,7 +242,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                                                      hasfield(typeof(temperature_ic), :∂²r) ?
                                                          temperature_ic.∂²r : nothing,
                                                      temperature_ic.domain)
-    elseif _is_spectral_field_like(temperature_ic)
+    elseif __is_spectral_field_like(temperature_ic)
         cache_ic = nothing
     end
 
@@ -254,7 +254,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                                                      hasfield(typeof(temperature_oc), :∂²r) ?
                                                          temperature_oc.∂²r : nothing,
                                                      temperature_oc.domain)
-    elseif _is_spectral_field_like(temperature_oc)
+    elseif __is_spectral_field_like(temperature_oc)
         cache_oc = nothing
     end
 
@@ -292,7 +292,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                             continue
                         end
 
-                        # Slope term: -∇_H h · ∇_H T
+                        # Slope term: -∇__H h · ∇__H T
                         if config.include_slope_terms && abs(G_grad) > 1e-15
                             # For outer core
                             if cache_oc === nothing
@@ -311,7 +311,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                             correction -= h_LM * state.k_ic * G_grad / ri^2 * Theta_ic
                         end
 
-                        # Shift term: h · ∂_rr T
+                        # Shift term: h · ∂__rr T
                         if config.include_shift_terms && abs(G) > 1e-15
                             if cache_oc === nothing || cache_oc.d2_inner === nothing ||
                                cache_ic === nothing || cache_ic.d2_inner === nothing
@@ -352,10 +352,10 @@ end
 Update the ICB topography based on the Stefan condition.
 
 From Eq. 22/40:
-ε ∂_t h_i = uₙ + (k_ic ∂_n T_ic - k ∂_n T) / (ρ L)
+ε ∂__t h_i = uₙ + (k_ic ∂__n T_ic - k ∂__n T) / (ρ L)
 
 or equivalently with Stefan number:
-ε ∂_t h_i = uₙ + (1/St) (λ ∂_n Θ_ic - ∂_n Θ)
+ε ∂__t h_i = uₙ + (1/St) (λ ∂__n Θ_ic - ∂__n Θ)
 
 # Arguments
 - `state`: StefanState to update
@@ -395,7 +395,7 @@ function update_icb_topography!(state::StefanState{T}, dt::T, velocity_field,
     # Get epsilon from config or use default
     ε = config !== nothing ? config.epsilon : T(0.01)
 
-    # Compute topography rate: ε ∂_t h = uₙ + F/(ρL)
+    # Compute topography rate: ε ∂__t h = uₙ + F/(ρL)
     for i in 1:nlm
         dh_dt = (state.normal_velocity[i] + stefan_flux[i] / rho_L) / ε
         state.topography_rate.coeffs_real[i] = real(dh_dt)
@@ -510,13 +510,13 @@ Compute spectral coefficients of heat flux at a boundary.
 - `r`: Boundary radius
 - `side`: :inner or :outer
 
-Returns vector of spectral coefficients for ∂_r T at the boundary.
+Returns vector of spectral coefficients for ∂__r T at the boundary.
 """
 function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symbol) where T
     # Get spectral field
     if hasfield(typeof(temperature_field), :spectral)
         spectral = temperature_field.spectral
-    elseif _is_spectral_field_like(temperature_field)
+    elseif __is_spectral_field_like(temperature_field)
         spectral = temperature_field
     else
         return Complex{T}[]
@@ -535,7 +535,7 @@ function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symb
                                                   temperature_field.domain)
     end
 
-    # Store ∂_r T (k absorbed into coefficients elsewhere)
+    # Store ∂__r T (k absorbed into coefficients elsewhere)
     for lm_idx in 1:nlm
         l, m = index_to_lm(lm_idx, spectral.config.lmax)
 
@@ -603,7 +603,7 @@ function get_spectral_coefficient(field, l::Int, m::Int,
                                   location::BoundaryLocation=OUTER_BOUNDARY)
     if hasfield(typeof(field), :spectral)
         spectral = field.spectral
-    elseif _is_spectral_field_like(field)
+    elseif __is_spectral_field_like(field)
         spectral = field
     else
         return zero(Complex{Float64})

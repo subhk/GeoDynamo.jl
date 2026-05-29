@@ -5,7 +5,7 @@ const FINALIZE_MPI_THREADED_SMOKE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "tru
 
 # Regression guard for the multi-rank + multi-thread CNAB2 deadlock.
 #
-# Before the fix, `_solver_can_thread_implicit_updates` allowed threaded field
+# Before the fix, `__solver_can_thread_implicit_updates` allowed threaded field
 # updates at any rank count. With ≥2 MPI ranks each running ≥2 Julia threads, the
 # `@spawn`'d field solves reached MPI collectives in nondeterministic per-rank
 # order, mismatched, and deadlocked (observed: hours of busy-wait). The fix

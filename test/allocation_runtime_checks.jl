@@ -19,9 +19,9 @@ const FINALIZE_MPI_ALLOC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
 # typed inside the measurement. Calling `@allocated f(x)` directly on non-const
 # test locals would count call-site dynamic dispatch/boxing and mask the real
 # per-call allocation of `f`.
-_alloc_theta_grad(f, ws) = @allocated GeoDynamo.compute_theta_gradient_spectral!(f, ws)
-_alloc_phi_grad(f, ws)   = @allocated GeoDynamo.compute_phi_gradient_spectral!(f, ws)
-_alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
+__alloc_theta_grad(f, ws) = @allocated GeoDynamo.compute_theta_gradient_spectral!(f, ws)
+__alloc_phi_grad(f, ws)   = @allocated GeoDynamo.compute_phi_gradient_spectral!(f, ws)
+__alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
 
 @testset "Runtime allocation & inference guards" begin
     if MPI.Finalized()
@@ -61,7 +61,7 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
     @testset "hot paths do not allocate" begin
         # The owned spectral-mode list is cached per config (not rebuilt per call).
         GeoDynamo.local_spectral_mode_indices(cfg)
-        @test _alloc_mode_indices(cfg) == 0
+        @test __alloc_mode_indices(cfg) == 0
 
         # The θ/φ-gradient kernels write in place into the (concretely-typed)
         # workspace spectral fields, so they are allocation-free once warmed.
@@ -69,20 +69,20 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         # of per-element boxing — this guards against that regression.)
         GeoDynamo.compute_theta_gradient_spectral!(temp_field, grad_ws)
         GeoDynamo.compute_phi_gradient_spectral!(temp_field, grad_ws)
-        @test _alloc_theta_grad(temp_field, grad_ws) == 0
-        @test _alloc_phi_grad(temp_field, grad_ws) == 0
+        @test __alloc_theta_grad(temp_field, grad_ws) == 0
+        @test __alloc_phi_grad(temp_field, grad_ws) == 0
     end
 
     # --- A2. θ-gradient batches the cross-rank spectral gather ------------------
     @testset "θ-gradient issues one gather reduction, not one per radial level (#5)" begin
         # The (l,m)<->(l±1,m) recurrence needs the full spectrum gathered across
         # ranks. Gathering per radial level issues O(nr) collectives; batching all
-        # radial levels into a single buffer issues O(1). `_THETA_GATHER_REDUCE_COUNT`
+        # radial levels into a single buffer issues O(1). `__THETA_GATHER_REDUCE_COUNT`
         # tracks gather-reduce passes (== MPI collective count under multi-rank).
         # nr=16 here, so the former per-level path registered 2*16 = 32.
-        GeoDynamo._THETA_GATHER_REDUCE_COUNT[] = 0
+        GeoDynamo.__THETA_GATHER_REDUCE_COUNT[] = 0
         GeoDynamo.compute_theta_gradient_spectral!(temp_field, grad_ws)
-        @test GeoDynamo._THETA_GATHER_REDUCE_COUNT[] == 2
+        @test GeoDynamo.__THETA_GATHER_REDUCE_COUNT[] == 2
     end
 
     # --- A3. Scalar transforms batch the per-radial-level slice gather ----------
@@ -90,26 +90,26 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         # Synthesis (spectral→physical) gathered the full coefficient matrix and
         # analysis (physical→spectral) gathered the full physical slice once per
         # radial level — O(nr) collectives. Batching stacks all levels into one
-        # buffer and gathers once. `_SCALAR_GATHER_REDUCE_COUNT` counts batched
+        # buffer and gathers once. `__SCALAR_GATHER_REDUCE_COUNT` counts batched
         # gather passes; nr=16 here, so the former per-level path registered 16.
-        GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] = 0
+        GeoDynamo.__SCALAR_GATHER_REDUCE_COUNT[] = 0
         GeoDynamo.scalar_spectral_to_physical!(temp_field.spectral, temp_field.temperature)
-        @test GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] == 1
+        @test GeoDynamo.__SCALAR_GATHER_REDUCE_COUNT[] == 1
 
-        GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] = 0
+        GeoDynamo.__SCALAR_GATHER_REDUCE_COUNT[] = 0
         GeoDynamo.scalar_physical_to_spectral!(temp_field.temperature, temp_field.spectral)
-        @test GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] == 1
+        @test GeoDynamo.__SCALAR_GATHER_REDUCE_COUNT[] == 1
     end
 
     # --- B. Caches reuse rather than rebuild -----------------------------------
     @testset "ERK2 boundary-spec cache reuses, matches fresh build (#2)" begin
         tc = GeoDynamo.TimestepCaches{Float64}()
         rebuilt = Ref(false)
-        s1 = GeoDynamo._get_or_build_erk2_boundary_spec!(
+        s1 = GeoDynamo.__get_or_build_erk2_boundary_spec!(
             tc, :temperature, 1,
             () -> GeoDynamo.build_solver_erk2_scalar_bc(Float64, domain, 1),
         )
-        s2 = GeoDynamo._get_or_build_erk2_boundary_spec!(
+        s2 = GeoDynamo.__get_or_build_erk2_boundary_spec!(
             tc, :temperature, 1,
             () -> (rebuilt[] = true; GeoDynamo.build_solver_erk2_scalar_bc(Float64, domain, 1)),
         )
@@ -123,7 +123,7 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         @test s1.outer.stencil == fresh.outer.stencil
 
         # A different BC code keys a distinct entry.
-        s3 = GeoDynamo._get_or_build_erk2_boundary_spec!(
+        s3 = GeoDynamo.__get_or_build_erk2_boundary_spec!(
             tc, :temperature, 4,
             () -> GeoDynamo.build_solver_erk2_scalar_bc(Float64, domain, 4),
         )
@@ -141,7 +141,7 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
     end
 
     @testset "transform buffer cache warm path returns cached object (#4)" begin
-        @test cfg._buffers.solver_transform_workspace isa GeoDynamo.TransformWorkspace
+        @test cfg.__buffers.solver_transform_workspace isa GeoDynamo.TransformWorkspace
         builds = Ref(0)
         b1 = GeoDynamo.solver_get_cached_buffer!(cfg, :coeffs_buffer) do
             builds[] += 1
@@ -181,8 +181,8 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
     end
 
     @testset "structural invariants" begin
-        @test hasfield(typeof(cfg), :_buffers)
-        @test !hasfield(typeof(cfg), :_buffer_cache)
+        @test hasfield(typeof(cfg), :__buffers)
+        @test !hasfield(typeof(cfg), :__buffer_cache)
         @test hasfield(typeof(state), :timestep_caches)
         @test fieldtype(typeof(state.timestep_caches), :erk2_boundary_specs) <:
               Dict{Tuple{Symbol,Int}, <:GeoDynamo.SolverERK2BoundarySpec}

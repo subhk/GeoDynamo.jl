@@ -13,7 +13,7 @@ end
 # number of MPI collectives issued; the batched gather keeps it at 2 (real +
 # imaginary) regardless of the radial-level count, versus 2*nr for a per-level
 # gather. Tests reset it to 0 and assert it stays at 2.
-const _THETA_GATHER_REDUCE_COUNT = Ref(0)
+const __THETA_GATHER_REDUCE_COUNT = Ref(0)
 
 function compute_theta_gradient_spectral!(
     𝔽::ScalarFieldType{T},
@@ -61,9 +61,9 @@ function compute_theta_gradient_spectral!(
 
     # Phase 2: one collective per component over all radial levels at once
     # (the former per-level reduce issued 2*nr collectives).
-    _THETA_GATHER_REDUCE_COUNT[] += 1
+    __THETA_GATHER_REDUCE_COUNT[] += 1
     multi && allreduce_sum_in_place!(full_real, comm)
-    _THETA_GATHER_REDUCE_COUNT[] += 1
+    __THETA_GATHER_REDUCE_COUNT[] += 1
     multi && allreduce_sum_in_place!(full_imag, comm)
 
     # Phase 3: apply the ∂/∂θ recurrence using the gathered full spectrum.
@@ -300,7 +300,7 @@ solver_main_physical_field(𝔽::CompositionFieldType{T}) where T = 𝔽.composi
 # Under multi-rank MPI each pass is one collective; batching keeps it at 1 per
 # transform regardless of the radial-level count (versus nr for the former
 # per-level gather). A pass issues no collective when the data is already local.
-const _SCALAR_GATHER_REDUCE_COUNT = Ref(0)
+const __SCALAR_GATHER_REDUCE_COUNT = Ref(0)
 
 function scalar_spectral_to_physical!(
     spec::SpectralFieldType{T},
@@ -316,8 +316,8 @@ function scalar_spectral_to_physical!(
         "spectral=$(size(spec_real_data, 3)). SH transforms require radial to be local."
     )
 
-    plan = get_sht_plan(config._buffers)
-    synth_out = get_synth_out(config._buffers)
+    plan = get_sht_plan(config.__buffers)
+    synth_out = get_synth_out(config.__buffers)
     axes_local = phys.pencil.axes_local
 
     nr = size(phys_data, 3)
@@ -343,7 +343,7 @@ function scalar_spectral_to_physical!(
     end
 
     # Phase 2: one collective over the whole stack (skipped when local).
-    _SCALAR_GATHER_REDUCE_COUNT[] += 1
+    __SCALAR_GATHER_REDUCE_COUNT[] += 1
     needs_collective && allreduce_sum_in_place!(coeffs_stack, mpi_comm())
 
     # Phase 3: synthesize each radial level from the gathered coefficients.
@@ -539,8 +539,8 @@ function scalar_physical_to_spectral!(
         "SH transforms require radial to be local."
     )
 
-    plan = get_sht_plan(config._buffers)
-    anal_out = get_anal_out(config._buffers)
+    plan = get_sht_plan(config.__buffers)
+    anal_out = get_anal_out(config.__buffers)
     phys_axes_local = phys.pencil.axes_local
 
     nr = size(phys_data, 3)
@@ -568,7 +568,7 @@ function scalar_physical_to_spectral!(
     end
 
     # Phase 2: one collective over the whole stack (skipped when local).
-    _SCALAR_GATHER_REDUCE_COUNT[] += 1
+    __SCALAR_GATHER_REDUCE_COUNT[] += 1
     needs_collective && allreduce_sum_in_place!(slice_stack, mpi_comm())
 
     # Phase 3: analyze each gathered radial slice into spectral coefficients.
@@ -623,14 +623,14 @@ function collect_scalar_coefficients(spec_real, spec_imag, r_local, config)
 end
 
 @inline function workspace_zeros(config, ::Type{T}, dims...) where {T}
-    workspace = config._buffers.solver_transform_workspace
+    workspace = config.__buffers.solver_transform_workspace
     if workspace isa TransformWorkspace && !(workspace.arch isa CPU)
         return solver_gpu_scratch_zeros(T, dims...)
     end
     return zeros(T, dims...)
 end
 
-const _SOLVER_BUFFERS_KEY_MAP = Dict{Symbol, Symbol}(
+const __SOLVER_BUFFERS_KEY_MAP = Dict{Symbol, Symbol}(
     :solver_vector_coeffs_buffer_1          => :vector_coeffs_1,
     :solver_vector_coeffs_buffer_2          => :vector_coeffs_2,
     :solver_vector_coeffs_gathered_1        => :vector_coeffs_gathered_1,
@@ -646,12 +646,12 @@ const _SOLVER_BUFFERS_KEY_MAP = Dict{Symbol, Symbol}(
     :slice_buffer_batched                   => :slice_buffer_batched,
 )
 
-@inline function _solver_buffer_field(::Val{key}) where {key}
-    error("solver_get_cached_buffer!: unknown key $(repr(key)). Add it to SolverTransformBuffers and _SOLVER_BUFFERS_KEY_MAP.")
+@inline function __solver_buffer_field(::Val{key}) where {key}
+    error("solver_get_cached_buffer!: unknown key $(repr(key)). Add it to SolverTransformBuffers and __SOLVER_BUFFERS_KEY_MAP.")
 end
 
-for (key, field) in _SOLVER_BUFFERS_KEY_MAP
-    @eval @inline _solver_buffer_field(::Val{$(QuoteNode(key))}) = Val{$(QuoteNode(field))}()
+for (key, field) in __SOLVER_BUFFERS_KEY_MAP
+    @eval @inline __solver_buffer_field(::Val{$(QuoteNode(key))}) = Val{$(QuoteNode(field))}()
 end
 
 @inline function solver_get_cached_buffer!(create_func::F, config, key::Symbol) where {F}
@@ -659,11 +659,11 @@ end
 end
 
 @inline function solver_get_cached_buffer!(create_func::F, config, ::Val{key}) where {F,key}
-    return _solver_get_cached_buffer_field!(create_func, config, _solver_buffer_field(Val(key)))
+    return __solver_get_cached_buffer_field!(create_func, config, __solver_buffer_field(Val(key)))
 end
 
-@inline function _solver_get_cached_buffer_field!(create_func::F, config, ::Val{field}) where {F,field}
-    workspace = config._buffers.solver_transform_workspace
+@inline function __solver_get_cached_buffer_field!(create_func::F, config, ::Val{field}) where {F,field}
+    workspace = config.__buffers.solver_transform_workspace
     # Fallback: no solver workspace installed (should not happen in production)
     workspace isa TransformWorkspace || return create_func()
     buffers = workspace.buffers

@@ -383,7 +383,7 @@ function create_radial_domain(nr::Union{Int,Nothing}=nothing;
     end
 
     domain = RadialDomain(N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)
-    _populate_radial_operators!(domain)
+    __populate_radial_operators!(domain)
     return domain
 end
 

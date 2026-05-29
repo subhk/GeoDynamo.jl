@@ -137,7 +137,7 @@ function main()
 
     println("\n=== Current workflow summary ===")
     println("Use `create_programmatic_temperature_boundaries` for simple analytic")
-    println("Dirichlet/Neumann boundary sets, `create_hybrid_*_boundaries` when one")
+    println("Dirichlet/Neumann boundary sets, `create_hybrid_*__boundaries` when one")
     println("boundary comes from file data, and `create_programmatic_boundary` when")
     println("you need standalone `Ylm`-driven boundary datasets.")
 end

@@ -1,5 +1,5 @@
 using Test, MPI, LinearAlgebra
-function _row(bm, i)  # materialize banded row i as dense
+function __row(bm, i)  # materialize banded row i as dense
     N=bm.size; bw=bm.bandwidth; r=zeros(eltype(bm.data),N)
     for j in max(1,i-bw):min(N,i+bw); br=bw+1+i-j; (1<=br<=2bw+1)&&(r[j]=bm.data[br,j]); end; r
 end
@@ -12,7 +12,7 @@ end
     d1 = GeoDynamo.create_derivative_matrix(1,dom)
     for (idx,l) in enumerate(pol.l_values)
         l==0 && continue
-        row=_row(pol.system_matrices[idx],1); exp=_row(d1,1); exp[1]-=α[l]
+        row=__row(pol.system_matrices[idx],1); exp=__row(d1,1); exp[1]-=α[l]
         @test row ≈ exp atol=1e-12
     end
     # default unchanged:

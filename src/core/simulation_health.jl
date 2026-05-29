@@ -56,13 +56,13 @@ function check_spectral_field_for_nan(
 )
     has_nan_r, has_inf_r, nan_r, inf_r = check_field_for_nan(
         parent(field.data_real),
-        "$(field_name)_real",
+        "$(field_name)__real",
         config,
         step,
     )
     has_nan_i, has_inf_i, nan_i, inf_i = check_field_for_nan(
         parent(field.data_imag),
-        "$(field_name)_imag",
+        "$(field_name)__imag",
         config,
         step,
     )

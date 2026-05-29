@@ -446,12 +446,12 @@ function get_interpolation_statistics(boundary_data::BoundaryData, interpolated_
     
     # Compute basic statistics
     src_min, src_max = extrema(src_data)
-    src_mean = _Statistics.mean(src_data)
-    src_std = _Statistics.std(src_data)
+    src_mean = __Statistics.mean(src_data)
+    src_std = __Statistics.std(src_data)
 
     interp_min, interp_max = extrema(interp_slice)
-    interp_mean = _Statistics.mean(interp_slice)
-    interp_std = _Statistics.std(interp_slice)
+    interp_mean = __Statistics.mean(interp_slice)
+    interp_std = __Statistics.std(interp_slice)
     
     return Dict(
         "source_range" => (src_min, src_max),

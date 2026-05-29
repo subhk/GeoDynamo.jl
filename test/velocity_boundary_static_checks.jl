@@ -2,11 +2,11 @@ using Test
 
 const VELOCITY_BC_STATIC_ROOT = normpath(joinpath(@__DIR__, ".."))
 
-function _velocity_bc_static_source(path_parts...)
+function __velocity_bc_static_source(path_parts...)
     return read(joinpath(VELOCITY_BC_STATIC_ROOT, path_parts...), String)
 end
 
-function _velocity_bc_static_function_body(source::String, signature::String)
+function __velocity_bc_static_function_body(source::String, signature::String)
     start = findfirst(signature, source)
     start === nothing && error("Could not find function signature: $signature")
     next_function = findnext("\nfunction ", source, last(start) + 1)
@@ -14,22 +14,22 @@ function _velocity_bc_static_function_body(source::String, signature::String)
 end
 
 @testset "Velocity boundary-condition static contract" begin
-    api = _velocity_bc_static_source("src", "api", "boundary_conditions.jl")
-    velocity_bc = _velocity_bc_static_source("src", "bcs", "velocity_bc.jl")
-    velocity_solver = _velocity_bc_static_source("src", "physics", "velocity", "solver.jl")
-    imex = _velocity_bc_static_source("src", "timestep", "imex.jl")
-    erk2 = _velocity_bc_static_source("src", "timestep", "erk2.jl")
+    api = __velocity_bc_static_source("src", "api", "boundary_conditions.jl")
+    velocity_bc = __velocity_bc_static_source("src", "bcs", "velocity_bc.jl")
+    velocity_solver = __velocity_bc_static_source("src", "physics", "velocity", "solver.jl")
+    imex = __velocity_bc_static_source("src", "timestep", "imex.jl")
+    erk2 = __velocity_bc_static_source("src", "timestep", "erk2.jl")
 
-    @test occursin("_velocity_bc_code(::BoundaryConditions{NoSlip,     NoSlip})     = 1", api)
-    @test occursin("_velocity_bc_code(::BoundaryConditions{NoSlip,     StressFree}) = 2", api)
-    @test occursin("_velocity_bc_code(::BoundaryConditions{StressFree, NoSlip})     = 3", api)
-    @test occursin("_velocity_bc_code(::BoundaryConditions{StressFree, StressFree}) = 4", api)
+    @test occursin("__velocity_bc_code(::BoundaryConditions{NoSlip,     NoSlip})     = 1", api)
+    @test occursin("__velocity_bc_code(::BoundaryConditions{NoSlip,     StressFree}) = 2", api)
+    @test occursin("__velocity_bc_code(::BoundaryConditions{StressFree, NoSlip})     = 3", api)
+    @test occursin("__velocity_bc_code(::BoundaryConditions{StressFree, StressFree}) = 4", api)
 
-    tor_matrices = _velocity_bc_static_function_body(
+    tor_matrices = __velocity_bc_static_function_body(
         velocity_bc,
         "function create_velocity_toroidal_matrices(",
     )
-    pol_matrices = _velocity_bc_static_function_body(
+    pol_matrices = __velocity_bc_static_function_body(
         velocity_bc,
         "function create_velocity_poloidal_matrices(",
     )
@@ -40,15 +40,15 @@ end
     @test occursin("= d1_matrix.data", pol_matrices)
     @test occursin("= d2_matrix.data", pol_matrices)
 
-    legacy_velocity_solve = _velocity_bc_static_function_body(
+    legacy_velocity_solve = __velocity_bc_static_function_body(
         velocity_bc,
         "function solve_velocity_implicit_step!(",
     )
-    velocity_solve = _velocity_bc_static_function_body(
+    velocity_solve = __velocity_bc_static_function_body(
         imex,
         "function solver_solve_velocity_implicit_step!(",
     )
-    influence_correction = _velocity_bc_static_function_body(
+    influence_correction = __velocity_bc_static_function_body(
         erk2,
         "function apply_solver_velocity_poloidal_influence_correction!(",
     )
@@ -59,15 +59,15 @@ end
     @test !occursin("local_range(solution.pencil, 1)", velocity_solve)
     @test !occursin("local_range(field.pencil, 1)", influence_correction)
 
-    eab2_update = _velocity_bc_static_function_body(
+    eab2_update = __velocity_bc_static_function_body(
         imex,
         "function solver_eab2_update_krylov_cached!(",
     )
-    prepare_erk2 = _velocity_bc_static_function_body(
+    prepare_erk2 = __velocity_bc_static_function_body(
         erk2,
         "function prepare_solver_erk2_field!(",
     )
-    finalize_erk2 = _velocity_bc_static_function_body(
+    finalize_erk2 = __velocity_bc_static_function_body(
         erk2,
         "function finalize_solver_erk2_field!(",
     )
@@ -78,24 +78,24 @@ end
     @test !occursin("local_range(u.pencil, 1)", finalize_erk2)
     @test occursin("bc_spec.inner_mode_values_imag", prepare_erk2)
     @test occursin("bc_spec.inner_mode_values_imag", finalize_erk2)
-    @test occursin("theta = _timestepper_implicit_theta(params.timestepper, params)", erk2)
+    @test occursin("theta = __timestepper_implicit_theta(params.timestepper, params)", erk2)
 
-    poloidal_update = _velocity_bc_static_function_body(
+    poloidal_update = __velocity_bc_static_function_body(
         velocity_solver,
         "function apply_velocity_poloidal_implicit_update!(",
     )
-    toroidal_update = _velocity_bc_static_function_body(
+    toroidal_update = __velocity_bc_static_function_body(
         velocity_solver,
         "function apply_velocity_toroidal_implicit_update!(",
     )
-    no_penetration = _velocity_bc_static_function_body(
+    no_penetration = __velocity_bc_static_function_body(
         velocity_solver,
         "function apply_velocity_poloidal_no_penetration!(",
     )
     @test occursin("bc_spec=bc_spec", toroidal_update)
     @test occursin("bc_spec=bc_spec", poloidal_update)
-    @test occursin("_timestepper_krylov_dimension(timestepper, state.parameters)", toroidal_update)
-    @test occursin("_timestepper_krylov_dimension(timestepper, state.parameters)", poloidal_update)
+    @test occursin("__timestepper_krylov_dimension(timestepper, state.parameters)", toroidal_update)
+    @test occursin("__timestepper_krylov_dimension(timestepper, state.parameters)", poloidal_update)
     @test occursin("apply_velocity_poloidal_no_penetration!(state, velocity_bc)", poloidal_update)
     @test occursin("get_solver_erk2_influence_matrices!", no_penetration)
     @test occursin("apply_solver_velocity_poloidal_influence_correction!", no_penetration)

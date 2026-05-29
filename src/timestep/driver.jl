@@ -15,50 +15,50 @@ function reset_solver_clock!(state::SolverState; time::Float64, step::Int)
 end
 
 """
-    _solver_uses_two_step_history(timestepper)
+    __solver_uses_two_step_history(timestepper)
 
 Return `true` for timestep schemes that need previous nonlinear terms.
 """
-_solver_uses_two_step_history(timestepper) =
+__solver_uses_two_step_history(timestepper) =
     timestepper isa CNAB2 || timestepper isa EAB2 || timestepper isa ERK2
 
 """
-    _sync_solver_history!(previous, current)
+    __sync_solver_history!(previous, current)
 
 Copy spectral field storage from `current` into the matching `previous` buffer.
 
 This helper works on the real and imaginary parent arrays so it covers both
 local PencilArray views and ordinary arrays.
 """
-function _sync_solver_history!(previous, current)
+function __sync_solver_history!(previous, current)
     copyto!(parent(previous.data_real), parent(current.data_real))
     copyto!(parent(previous.data_imag), parent(current.data_imag))
     return previous
 end
 
 """
-    _sync_solver_nonlinear_histories!(state, magnetic_enabled)
+    __sync_solver_nonlinear_histories!(state, magnetic_enabled)
 
 Copy all active nonlinear terms into their previous-step buffers.
 
 Temperature and velocity are always present; magnetic and composition histories
 are updated only when those fields are enabled in the solver state.
 """
-function _sync_solver_nonlinear_histories!(
+function __sync_solver_nonlinear_histories!(
     state::SolverState,
     magnetic_enabled::Bool,
 )
-    _sync_solver_history!(state.fields.temperature.prev_nonlinear, state.fields.temperature.nonlinear)
-    _sync_solver_history!(state.fields.velocity.prev_nlᵀ, state.fields.velocity.nlᵀ)
-    _sync_solver_history!(state.fields.velocity.prev_nlᴾ, state.fields.velocity.nlᴾ)
+    __sync_solver_history!(state.fields.temperature.prev_nonlinear, state.fields.temperature.nonlinear)
+    __sync_solver_history!(state.fields.velocity.prev_nlᵀ, state.fields.velocity.nlᵀ)
+    __sync_solver_history!(state.fields.velocity.prev_nlᴾ, state.fields.velocity.nlᴾ)
 
     if magnetic_enabled && state.fields.magnetic !== nothing
-        _sync_solver_history!(state.fields.magnetic.prev_nlᵀ, state.fields.magnetic.nlᵀ)
-        _sync_solver_history!(state.fields.magnetic.prev_nlᴾ, state.fields.magnetic.nlᴾ)
+        __sync_solver_history!(state.fields.magnetic.prev_nlᵀ, state.fields.magnetic.nlᵀ)
+        __sync_solver_history!(state.fields.magnetic.prev_nlᴾ, state.fields.magnetic.nlᴾ)
     end
 
     if state.fields.composition !== nothing
-        _sync_solver_history!(state.fields.composition.prev_nonlinear, state.fields.composition.nonlinear)
+        __sync_solver_history!(state.fields.composition.prev_nonlinear, state.fields.composition.nonlinear)
     end
 end
 
@@ -78,8 +78,8 @@ function bootstrap_solver_history!(
 )
     # Two-step schemes need a synthetic "previous" nonlinear state on their
     # first step so they can reuse AB2-style formulas without a special branch.
-    if _solver_uses_two_step_history(timestepper) && state.runtime.timestep_state.needs_ab2_bootstrap
-        _sync_solver_nonlinear_histories!(state, magnetic_enabled)
+    if __solver_uses_two_step_history(timestepper) && state.runtime.timestep_state.needs_ab2_bootstrap
+        __sync_solver_nonlinear_histories!(state, magnetic_enabled)
         state.runtime.timestep_state.needs_ab2_bootstrap = false
     end
 
@@ -96,8 +96,8 @@ function roll_solver_histories!(
     timestepper,
     magnetic_enabled::Bool,
 )
-    _solver_uses_two_step_history(timestepper) || return state
-    _sync_solver_nonlinear_histories!(state, magnetic_enabled)
+    __solver_uses_two_step_history(timestepper) || return state
+    __sync_solver_nonlinear_histories!(state, magnetic_enabled)
     return state
 end
 
@@ -117,7 +117,7 @@ function initialize_solver_fields!(state::SolverState{T,<:AbstractArchitecture})
     initialize_composition_field!(state)
 
     reset_solver_clock!(state; time=state.parameters.start_time, step=0)
-    _synchronize_solver_views!(state)
+    __synchronize_solver_views!(state)
     state.is_initialized = true
     return state
 end
@@ -134,7 +134,7 @@ GeoDynamo.initialize_fields!(state::SolverState{T,<:AbstractArchitecture}) where
     initialize_solver_fields!(state)
 
 """
-    _solver_can_thread_implicit_updates(timestepper)
+    __solver_can_thread_implicit_updates(timestepper)
 
 Return whether field implicit updates can run on Julia threads.
 
@@ -144,34 +144,34 @@ multiple Julia threads lets the per-rank ordering diverge and the collectives
 mismatch, which deadlocks. So restrict threaded field updates to single-rank
 runs regardless of scheme; multi-rank runs use the sequential path.
 """
-@inline function _solver_can_thread_implicit_updates(timestepper)
+@inline function __solver_can_thread_implicit_updates(timestepper)
     return mpi_comm_size() == 1
 end
 
 """
-    _prepare_solver_eab2_caches!(state)
+    __prepare_solver_eab2_caches!(state)
 
 Ensure all active EAB2 exponential-action caches match the current parameters.
 """
-function _prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitecture}) where T
+function __prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitecture}) where T
     runtime = state.runtime
     params = state.parameters
 
-    _ensure_etd_cache!(
+    __ensure_etd_cache!(
         state.timestep_caches,
         :etd_temperature,
         params.Pm / params.Pr,
         T,
         runtime.𝒟ᵒᶜ,
     )
-    _ensure_etd_cache!(
+    __ensure_etd_cache!(
         state.timestep_caches,
         :etd_velocity_toroidal,
         params.Ek,
         T,
         runtime.𝒟ᵒᶜ,
     )
-    _ensure_etd_cache!(
+    __ensure_etd_cache!(
         state.timestep_caches,
         :etd_velocity_poloidal,
         params.Ek,
@@ -180,14 +180,14 @@ function _prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitectur
     )
 
     if state.fields.magnetic !== nothing
-        _ensure_etd_cache!(
+        __ensure_etd_cache!(
             state.timestep_caches,
             :etd_magnetic_toroidal,
             1.0,
             T,
             runtime.𝒟ᵒᶜ,
         )
-        _ensure_etd_cache!(
+        __ensure_etd_cache!(
             state.timestep_caches,
             :etd_magnetic_poloidal,
             1.0,
@@ -197,7 +197,7 @@ function _prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitectur
     end
 
     if state.fields.composition !== nothing
-        _ensure_etd_cache!(
+        __ensure_etd_cache!(
             state.timestep_caches,
             :etd_composition,
             params.Pm / params.Sc,
@@ -210,11 +210,11 @@ function _prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitectur
 end
 
 """
-    _apply_solver_implicit_updates_sequential!(state)
+    __apply_solver_implicit_updates_sequential!(state)
 
 Apply every active field's implicit update on the current task.
 """
-function _apply_solver_implicit_updates_sequential!(state::SolverState)
+function __apply_solver_implicit_updates_sequential!(state::SolverState)
     apply_temperature_implicit_update!(state)
     apply_velocity_toroidal_implicit_update!(state)
     apply_velocity_poloidal_implicit_update!(state)
@@ -225,14 +225,14 @@ function _apply_solver_implicit_updates_sequential!(state::SolverState)
 end
 
 """
-    _apply_solver_implicit_updates_threaded!(state)
+    __apply_solver_implicit_updates_threaded!(state)
 
 Apply independent field implicit updates concurrently with Julia tasks.
 
 This is used only for schemes whose update kernels do not require ordered MPI
 collectives across fields.
 """
-function _apply_solver_implicit_updates_threaded!(state::SolverState)
+function __apply_solver_implicit_updates_threaded!(state::SolverState)
     tasks = Task[]
     sizehint!(tasks, 6)
 
@@ -269,18 +269,18 @@ function apply_solver_implicit_step!(state::SolverState)
     bootstrap_solver_history!(state, timestepper, magnetic_enabled)
 
     if timestepper isa EAB2
-        _prepare_solver_eab2_caches!(state)
+        __prepare_solver_eab2_caches!(state)
     end
 
     if timestepper isa ERK2
         integrate_solver_erk2_step!(state)
     else
-        if _solver_can_thread_implicit_updates(timestepper)
-            _apply_solver_implicit_updates_threaded!(state)
+        if __solver_can_thread_implicit_updates(timestepper)
+            __apply_solver_implicit_updates_threaded!(state)
         else
             # EAB2 issues MPI collectives during the update, so multi-rank runs
             # must keep those field solves on one thread to avoid deadlocks.
-            _apply_solver_implicit_updates_sequential!(state)
+            __apply_solver_implicit_updates_sequential!(state)
         end
     end
 
@@ -296,7 +296,7 @@ Advance the runtime clock after a timestep and refresh solver views.
 function finalize_solver_step!(state::SolverState, step::Int)
     state.runtime.timestep_state.time = state.time + state.parameters.timestep
     state.runtime.timestep_state.step = step
-    _synchronize_solver_views!(state)
+    __synchronize_solver_views!(state)
     return state
 end
 

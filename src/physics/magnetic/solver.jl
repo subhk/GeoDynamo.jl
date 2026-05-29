@@ -98,7 +98,7 @@ function apply_magnetic_nonlinear_terms!(
     return magnetic_fields
 end
 
-function _magnetic_toroidal_inner_bc_increment(
+function __magnetic_toroidal_inner_bc_increment(
     magnetic::GeoDynamo.SHTnsMagneticFields{T},
 ) where T
     continuity_code = Int(GeoDynamo.CONTINUITY_MAG)
@@ -139,7 +139,7 @@ function _magnetic_toroidal_inner_bc_increment(
 end
 
 """
-    _magnetic_conducting_history_flux(magnetic, ic_spec, adm) -> (φ0_real, φ0_imag)
+    __magnetic_conducting_history_flux(magnetic, ic_spec, adm) -> (φ0_real, φ0_imag)
 
 Build the conducting-inner-core ICB history flux `φ0` for every local magnetic
 mode `(l,m)` of `ic_spec` (the inner-core scalar `𝒯ⁱᶜ` or `𝒫ⁱᶜ`), using its OLD
@@ -152,7 +152,7 @@ derivative continuity across the ICB. Returns mode-indexed real/imag vectors
 (length `nlm`) that are MPI all-reduced so every rank feeds the same boundary
 values to the matrix rows. `l=0` is skipped (magnetic has no `l=0` mode).
 """
-function _magnetic_conducting_history_flux(
+function __magnetic_conducting_history_flux(
     magnetic::SHTnsMagneticFields{T},
     ic_spec::SHTnsSpecField{T},
     adm::InnerCoreAdmittance{T},
@@ -194,7 +194,7 @@ function _magnetic_conducting_history_flux(
 end
 
 """
-    _magnetic_conducting_reconstruct!(oc_spec, ic_spec, adm)
+    __magnetic_conducting_reconstruct!(oc_spec, ic_spec, adm)
 
 After the outer-core solve, reconstruct the inner-core radial profile for every
 local magnetic mode and write it into `ic_spec` (`𝒯ⁱᶜ` or `𝒫ⁱᶜ`).
@@ -206,7 +206,7 @@ index 1 (the outer-core inner point coincides with the ICB), and
 by construction (`g` is shared); the result is written over inner-core radial
 indices `1..Nic`. `l=0` is skipped.
 """
-function _magnetic_conducting_reconstruct!(
+function __magnetic_conducting_reconstruct!(
     oc_spec::SHTnsSpecField{T},
     ic_spec::SHTnsSpecField{T},
     adm::InnerCoreAdmittance{T},
@@ -257,11 +257,11 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
     # Conducting inner core (CNAB2): the outer-core matrices already carry the
     # Robin inner row (∂/∂r − α_l) S = φ0, so the inner boundary RHS is the
     # inner-core CNAB2 history flux φ0 — NOT the old CONTINUITY_MAG -nl_pol
-    # coupling. We supersede `_magnetic_toroidal_inner_bc_increment` here.
+    # coupling. We supersede `__magnetic_toroidal_inner_bc_increment` here.
     adm_set = state.magnetic_ic_admittance
     if adm_set !== nothing && timestepper isa CNAB2
         adm_tor = adm_set.tor::InnerCoreAdmittance{T}
-        φ0_real, φ0_imag = _magnetic_conducting_history_flux(magnetic, magnetic.𝒯ⁱᶜ, adm_tor)
+        φ0_real, φ0_imag = __magnetic_conducting_history_flux(magnetic, magnetic.𝒯ⁱᶜ, adm_tor)
         matrices = state.implicit_matrices[:magnetic_tor]
         radial_work = get_radial_work!(
             state.timestep_caches,
@@ -287,11 +287,11 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             work=radial_work,
         )
         # Reconstruct the inner-core profile from the new ICB value (g = 𝒯[ICB]).
-        _magnetic_conducting_reconstruct!(magnetic.𝒯, magnetic.𝒯ⁱᶜ, adm_tor)
+        __magnetic_conducting_reconstruct!(magnetic.𝒯, magnetic.𝒯ⁱᶜ, adm_tor)
         return state
     end
 
-    inner_bc = _magnetic_toroidal_inner_bc_increment(magnetic)
+    inner_bc = __magnetic_toroidal_inner_bc_increment(magnetic)
 
     if timestepper isa CNAB2
         matrices = state.implicit_matrices[:magnetic_tor]
@@ -340,8 +340,8 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             1.0,
             runtime.shtns_config,
             dt;
-            m=_timestepper_krylov_dimension(timestepper, state.parameters),
-            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
+            m=__timestepper_krylov_dimension(timestepper, state.parameters),
+            tol=__timestepper_krylov_tolerance(timestepper, state.parameters),
             bc_spec=bc_spec,
             krylov_work=radial_work,
         )
@@ -382,7 +382,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
     adm_set = state.magnetic_ic_admittance
     if adm_set !== nothing && timestepper isa CNAB2
         adm_pol = adm_set.pol::InnerCoreAdmittance{T}
-        φ0_real, φ0_imag = _magnetic_conducting_history_flux(magnetic, magnetic.𝒫ⁱᶜ, adm_pol)
+        φ0_real, φ0_imag = __magnetic_conducting_history_flux(magnetic, magnetic.𝒫ⁱᶜ, adm_pol)
         matrices = state.implicit_matrices[:magnetic_pol]
         radial_work = get_radial_work!(
             state.timestep_caches,
@@ -407,7 +407,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             mag_bc_inner_imag=φ0_imag,
             work=radial_work,
         )
-        _magnetic_conducting_reconstruct!(magnetic.𝒫, magnetic.𝒫ⁱᶜ, adm_pol)
+        __magnetic_conducting_reconstruct!(magnetic.𝒫, magnetic.𝒫ⁱᶜ, adm_pol)
         return state
     end
 
@@ -451,8 +451,8 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             1.0,
             runtime.shtns_config,
             dt;
-            m=_timestepper_krylov_dimension(timestepper, state.parameters),
-            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
+            m=__timestepper_krylov_dimension(timestepper, state.parameters),
+            tol=__timestepper_krylov_tolerance(timestepper, state.parameters),
             bc_spec=bc_spec,
             krylov_work=radial_work,
         )

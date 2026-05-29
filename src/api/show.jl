@@ -1,12 +1,12 @@
 # Oceananigans-style summaries and tree-style show methods.
 
-_arch_name(arch) = arch isa CPU ? "CPU" : "GPU"
+__arch_name(arch) = arch isa CPU ? "CPU" : "GPU"
 
 Base.summary(g::SphericalShellGrid) =
-    "SphericalShellGrid($(_arch_name(g.arch)), lmax=$(g.lmax), mmax=$(g.mmax), nr=$(g.nr))"
+    "SphericalShellGrid($(__arch_name(g.arch)), lmax=$(g.lmax), mmax=$(g.mmax), nr=$(g.nr))"
 
 Base.summary(g::SphericalBallGrid) =
-    "SphericalBallGrid($(_arch_name(g.arch)), lmax=$(g.lmax), mmax=$(g.mmax), nr=$(g.nr))"
+    "SphericalBallGrid($(__arch_name(g.arch)), lmax=$(g.lmax), mmax=$(g.mmax), nr=$(g.nr))"
 
 Base.summary(c::Clock) = "Clock(time=$(c.time), iteration=$(c.iteration))"
 

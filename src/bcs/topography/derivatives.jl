@@ -124,14 +124,14 @@ function compute_boundary_derivative_cache(field,
                                       d2_inner, d2_outer)
 end
 
-function _cache_index(cache::BoundaryDerivativeCache, l::Int, m::Int)
+function __cache_index(cache::BoundaryDerivativeCache, l::Int, m::Int)
     if l > cache.lmax || abs(m) > l || abs(m) > cache.mmax
         return 0
     end
     return lm_to_index(l, abs(m), cache.lmax)
 end
 
-function _apply_m_conjugate(val::Complex{T}, m::Int) where T
+function __apply_m_conjugate(val::Complex{T}, m::Int) where T
     if m >= 0
         return val
     end
@@ -142,33 +142,33 @@ end
 function get_cache_value(cache::BoundaryDerivativeCache{T},
                          l::Int, m::Int,
                          location::BoundaryLocation) where T
-    idx = _cache_index(cache, l, m)
+    idx = __cache_index(cache, l, m)
     if idx <= 0 || idx > cache.nlm
         return zero(Complex{T})
     end
     val = location == INNER_BOUNDARY ? cache.value_inner[idx] : cache.value_outer[idx]
-    return _apply_m_conjugate(val, m)
+    return __apply_m_conjugate(val, m)
 end
 
 function get_cache_d1(cache::BoundaryDerivativeCache{T},
                       l::Int, m::Int,
                       location::BoundaryLocation) where T
-    idx = _cache_index(cache, l, m)
+    idx = __cache_index(cache, l, m)
     if idx <= 0 || idx > cache.nlm
         return zero(Complex{T})
     end
     val = location == INNER_BOUNDARY ? cache.d1_inner[idx] : cache.d1_outer[idx]
-    return _apply_m_conjugate(val, m)
+    return __apply_m_conjugate(val, m)
 end
 
 function get_cache_d2(cache::BoundaryDerivativeCache{T},
                       l::Int, m::Int,
                       location::BoundaryLocation) where T
     cache.d2_inner === nothing && return zero(Complex{T})
-    idx = _cache_index(cache, l, m)
+    idx = __cache_index(cache, l, m)
     if idx <= 0 || idx > cache.nlm
         return zero(Complex{T})
     end
     val = location == INNER_BOUNDARY ? cache.d2_inner[idx] : cache.d2_outer[idx]
-    return _apply_m_conjugate(val, m)
+    return __apply_m_conjugate(val, m)
 end

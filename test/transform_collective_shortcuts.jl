@@ -53,8 +53,8 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
         coeffs = GeoDynamo.extract_coefficients_for_shtnskit(real_data, imag_data, 1, cfg)
         @test coeffs == expected
-        @test cfg._buffers.coeffs_buffer !== nothing
-        @test cfg._buffers.coeffs_buffer_gathered === nothing  # gathered path not taken when local
+        @test cfg.__buffers.coeffs_buffer !== nothing
+        @test cfg.__buffers.coeffs_buffer_gathered === nothing  # gathered path not taken when local
     end
 
     @testset "Paired coefficient extraction skips gathered buffers when local" begin
@@ -90,10 +90,10 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
         @test coeffs1 == expected1
         @test coeffs2 == expected2
-        @test cfg._buffers.coeffs_buffer_pair1 !== nothing
-        @test cfg._buffers.coeffs_buffer_pair2 !== nothing
-        @test cfg._buffers.coeffs_gathered_pair1 === nothing  # gathered path not taken when local
-        @test cfg._buffers.coeffs_gathered_pair2 === nothing  # gathered path not taken when local
+        @test cfg.__buffers.coeffs_buffer_pair1 !== nothing
+        @test cfg.__buffers.coeffs_buffer_pair2 !== nothing
+        @test cfg.__buffers.coeffs_gathered_pair1 === nothing  # gathered path not taken when local
+        @test cfg.__buffers.coeffs_gathered_pair2 === nothing  # gathered path not taken when local
     end
 
     if MPI.Initialized()

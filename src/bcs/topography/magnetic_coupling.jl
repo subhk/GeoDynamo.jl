@@ -5,16 +5,16 @@
 # This file implements topography corrections for magnetic boundary conditions:
 #
 # 1. CMB with insulating mantle:
-#    - Toroidal: T_b(r_o) + εh_o ∂_r T_b(r_o) = 0
-#    - Poloidal: ∂_r P_{b,lm} + (l+1)/r_o P_{b,lm} + topography_couplings = 0
+#    - Toroidal: T_b(r_o) + εh_o ∂__r T_b(r_o) = 0
+#    - Poloidal: ∂__r P_{b,lm} + (l+1)/r_o P_{b,lm} + topography_couplings = 0
 #
 # 2. ICB with insulating inner core:
-#    - Toroidal: T_b(r_i) + εh_i ∂_r T_b(r_i) = 0
-#    - Poloidal: ∂_r P_{b,lm} - l/r_i P_{b,lm} + topography_couplings = 0
+#    - Toroidal: T_b(r_i) + εh_i ∂__r T_b(r_i) = 0
+#    - Poloidal: ∂__r P_{b,lm} - l/r_i P_{b,lm} + topography_couplings = 0
 #
 # The flat-sphere magnetic BC conditions (insulating):
-#    CMB: ∂_r P + (l+1)/r_o P = 0,  T = 0
-#    ICB: ∂_r P - l/r_i P = 0,      T = 0
+#    CMB: ∂__r P + (l+1)/r_o P = 0,  T = 0
+#    ICB: ∂__r P - l/r_i P = 0,      T = 0
 #
 # ================================================================================
 
@@ -138,7 +138,7 @@ function apply_magnetic_correction_at_boundary!(poloidal,
             end
 
             if bc_type == :insulating_outer
-                # CMB insulating: ∂_r P + (l+1)/r_o P = 0, T = 0
+                # CMB insulating: ∂__r P + (l+1)/r_o P = 0, T = 0
                 P_corr, T_corr = compute_cmb_insulating_correction(
                     l, m, p_cache, t_cache, topo_field, gaunt, rb, location, config
                 )
@@ -146,7 +146,7 @@ function apply_magnetic_correction_at_boundary!(poloidal,
                 T_bv[bc_row, lm_idx] -= ε * real(T_corr)
 
             elseif bc_type == :insulating_inner
-                # ICB insulating: ∂_r P - l/r_i P = 0, T = 0
+                # ICB insulating: ∂__r P - l/r_i P = 0, T = 0
                 P_corr, T_corr = compute_icb_insulating_correction(
                     l, m, p_cache, t_cache, topo_field, gaunt, rb, location, config
                 )
@@ -170,14 +170,14 @@ end
 Compute topography correction to CMB insulating boundary condition.
 
 Flat-sphere conditions:
-- ∂_r P_{b,lm} + (l+1)/r_o P_{b,lm} = 0
+- ∂__r P_{b,lm} + (l+1)/r_o P_{b,lm} = 0
 - T_{b,lm} = 0
 
 With topography, the poloidal condition becomes:
-[∂_r P + (l+1)/r_o P]_{lm} + ε Σ h^o_{LM} (α^o ∂_r P + β^o T + γ^o P) = 0
+[∂__r P + (l+1)/r_o P]_{lm} + ε Σ h^o_{LM} (α^o ∂__r P + β^o T + γ^o P) = 0
 
 and toroidal:
-T + εh_o ∂_r T = 0
+T + εh_o ∂__r T = 0
 """
 function compute_cmb_insulating_correction(l::Int, m::Int,
                                            p_cache::BoundaryDerivativeCache{T},
@@ -193,8 +193,8 @@ function compute_cmb_insulating_correction(l::Int, m::Int,
     lmax = min(p_cache.lmax, gaunt.lmax)
     lmax_t = topo.lmax
 
-    # Toroidal shift correction: T + εh ∂_r T = 0
-    # For flat T = 0, the correction is εh ∂_r T
+    # Toroidal shift correction: T + εh ∂__r T = 0
+    # For flat T = 0, the correction is εh ∂__r T
     if config.include_shift_terms
         for L in 0:lmax_t
             for M in -L:L
@@ -214,7 +214,7 @@ function compute_cmb_insulating_correction(l::Int, m::Int,
                         continue
                     end
 
-                    # Get ∂_r T at CMB
+                    # Get ∂__r T at CMB
                     dT_dr = get_cache_d1(t_cache, lp, mp, location)
                     T_correction += h_LM * G * dT_dr
                 end
@@ -253,13 +253,13 @@ function compute_cmb_insulating_correction(l::Int, m::Int,
                 end
 
                 if config.include_slope_terms
-                    # Poloidal slope coupling: (∇_H h)·∇_H(∂_r P)
+                    # Poloidal slope coupling: (∇__H h)·∇__H(∂__r P)
                     # Uses G^{(∇)} with surface gradient scaling 1/r²
                     if abs(G_grad) > 1e-15
                         P_correction -= h_LM * G_grad * dP_dr / ro^2
                     end
 
-                    # Toroidal coupling from tangential matching: (∇_H h)·(r̂ × ∇_H T)
+                    # Toroidal coupling from tangential matching: (∇__H h)·(r̂ × ∇__H T)
                     if abs(G_cross) > 1e-15
                         P_correction -= h_LM * G_cross * T_val / ro^2
                     end
@@ -282,11 +282,11 @@ end
 Compute topography correction to ICB insulating boundary condition.
 
 Flat-sphere conditions:
-- ∂_r P_{b,lm} - l/r_i P_{b,lm} = 0
+- ∂__r P_{b,lm} - l/r_i P_{b,lm} = 0
 - T_{b,lm} = 0
 
 With topography, the poloidal condition becomes:
-[∂_r P - l/r_i P]_{lm} + ε Σ h^i_{LM} (α^i ∂_r P + β^i T + γ^i P) = 0
+[∂__r P - l/r_i P]_{lm} + ε Σ h^i_{LM} (α^i ∂__r P + β^i T + γ^i P) = 0
 """
 function compute_icb_insulating_correction(l::Int, m::Int,
                                            p_cache::BoundaryDerivativeCache{T},
@@ -359,7 +359,7 @@ function compute_icb_insulating_correction(l::Int, m::Int,
                 end
 
                 if config.include_slope_terms
-                    # Poloidal slope coupling: (∇_H h)·∇_H(∂_r P)
+                    # Poloidal slope coupling: (∇__H h)·∇__H(∂__r P)
                     # Uses G^{(∇)} with surface gradient scaling 1/r²
                     if abs(G_grad) > 1e-15
                         P_correction -= h_LM * G_grad * dP_dr / ri^2
@@ -413,11 +413,11 @@ function assemble_magnetic_boundary_operator(l::Int, topo::TopographyField{T},
     # Flat-sphere contribution (diagonal)
     for m in -l:l
         if location == OUTER_BOUNDARY
-            # CMB: ∂_r P + (l+1)/r_o P = 0
+            # CMB: ∂__r P + (l+1)/r_o P = 0
             operator[(l, m, :dP)] = one(Complex{T})
             operator[(l, m, :P)] = Complex{T}((l + 1) / rb)
         else
-            # ICB: ∂_r P - l/r_i P = 0
+            # ICB: ∂__r P - l/r_i P = 0
             operator[(l, m, :dP)] = one(Complex{T})
             operator[(l, m, :P)] = Complex{T}(-l / rb)
         end
@@ -457,14 +457,14 @@ function assemble_magnetic_boundary_operator(l::Int, topo::TopographyField{T},
                     end
 
                     if config.include_slope_terms
-                        # Add poloidal slope term: (∇_H h)·∇_H(∂_r P)
+                        # Add poloidal slope term: (∇__H h)·∇__H(∂__r P)
                         if abs(G_grad) > 1e-15
                             key_dP = (lp, mp, :dP)
                             coeff = get(operator, key_dP, zero(Complex{T}))
                             operator[key_dP] = coeff - ε * h_LM * G_grad / rb^2
                         end
 
-                        # Add toroidal slope term: (∇_H h)·(r̂ × ∇_H T)
+                        # Add toroidal slope term: (∇__H h)·(r̂ × ∇__H T)
                         if abs(G_cross) > 1e-15
                             key_T = (lp, mp, :T)
                             coeff = get(operator, key_T, zero(Complex{T}))
