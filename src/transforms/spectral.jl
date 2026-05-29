@@ -122,6 +122,10 @@ mutable struct SHTnsBuffers
     # SHTnsKit scratch buffers (CPU only, optional)
     spatial_scratch          :: Union{AbstractArray, Nothing}
     fft_scratch              :: Union{AbstractArray, Nothing}
+
+    # MIE vector-transform spheroidal scalar buffers
+    mie_spheroidal_real      :: Union{AbstractArray, Nothing}
+    mie_spheroidal_imag      :: Union{AbstractArray, Nothing}
 end
 
 """
@@ -134,6 +138,7 @@ SHTnsBuffers() = SHTnsBuffers(
     nothing, nothing, nothing, nothing, nothing, nothing, nothing,
     nothing, nothing, nothing, nothing, nothing, nothing, nothing,
     nothing, nothing, nothing, nothing, nothing, nothing, nothing,
+    nothing, nothing,
 )
 
 # ================================================================================
@@ -164,6 +169,8 @@ const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
     :phi_slice_buffer            => :phi_slice_buffer,
     :generic_slice_buffer        => :generic_slice_buffer,
     :vector_component_buffer     => :vector_component_buffer,
+    :mie_spheroidal_real         => :mie_spheroidal_real,
+    :mie_spheroidal_imag         => :mie_spheroidal_imag,
 )
 
 @inline function _shtns_buffer_field(::Val{key}) where {key}
