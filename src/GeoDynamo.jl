@@ -50,63 +50,63 @@ module GeoDynamo
         store_vector_components::SVCS
     end
 
-    function __gpu_backend_not_loaded_error()
+    function _gpu_backend_not_loaded_error()
         return ArgumentError(
             "GPU support is not loaded. Load CUDA alongside GeoDynamo to enable architecture=:gpu.",
         )
     end
 
-    function __gpu_backend_unavailable_error()
+    function _gpu_backend_unavailable_error()
         return ArgumentError(
             "GPU support is loaded, but no functional CUDA device is available for architecture=:gpu.",
         )
     end
 
-    function __default_gpu_scalar_synthesis(cfg, coeffs; real_output::Bool=true)
-        throw(__gpu_backend_not_loaded_error())
+    function _default_gpu_scalar_synthesis(cfg, coeffs; real_output::Bool=true)
+        throw(_gpu_backend_not_loaded_error())
     end
 
-    function __default_gpu_scalar_analysis(cfg, spatial; real_output::Bool=true)
-        throw(__gpu_backend_not_loaded_error())
+    function _default_gpu_scalar_analysis(cfg, spatial; real_output::Bool=true)
+        throw(_gpu_backend_not_loaded_error())
     end
 
-    function __default_gpu_vector_synthesis(cfg, sph_coeffs, tor_coeffs; real_output::Bool=true)
-        throw(__gpu_backend_not_loaded_error())
+    function _default_gpu_vector_synthesis(cfg, sph_coeffs, tor_coeffs; real_output::Bool=true)
+        throw(_gpu_backend_not_loaded_error())
     end
 
-    function __default_gpu_vector_analysis(cfg, vtheta, vphi)
-        throw(__gpu_backend_not_loaded_error())
+    function _default_gpu_vector_analysis(cfg, vtheta, vphi)
+        throw(_gpu_backend_not_loaded_error())
     end
 
-    function __default_gpu_scratch_zeros(::Type{T}, dims...) where {T}
+    function _default_gpu_scratch_zeros(::Type{T}, dims...) where {T}
         return zeros(T, dims...)
     end
 
-    function __default_gpu_fill_scalar_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)
+    function _default_gpu_fill_scalar_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)
         return cpu_fill_scalar_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local, config)
     end
 
-    function __default_gpu_store_scalar_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config)
+    function _default_gpu_store_scalar_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config)
         return cpu_store_scalar_coefficients!(spec_real, spec_imag, coeffs_matrix, r_local, config)
     end
 
-    function __default_gpu_extract_physical_slice(slice_buffer, phys_data, r_local, config; axes_local=nothing)
+    function _default_gpu_extract_physical_slice(slice_buffer, phys_data, r_local, config; axes_local=nothing)
         return cpu_extract_physical_slice!(slice_buffer, phys_data, r_local, config; axes_local=axes_local)
     end
 
-    function __default_gpu_store_physical_slice(phys_data, phys_slice, r_local)
+    function _default_gpu_store_physical_slice(phys_data, phys_slice, r_local)
         return cpu_store_physical_slice!(phys_data, phys_slice, r_local)
     end
 
-    function __default_gpu_fill_vector_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)
+    function _default_gpu_fill_vector_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)
         return cpu_fill_vector_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local, config)
     end
 
-    function __default_gpu_store_vector_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config)
+    function _default_gpu_store_vector_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config)
         return cpu_store_vector_coefficients!(spec_real, spec_imag, coeffs_matrix, r_local, config)
     end
 
-    function __default_gpu_extract_vector_component(component_buffer, v_data, r_local, config; axes_local=nothing)
+    function _default_gpu_extract_vector_component(component_buffer, v_data, r_local, config; axes_local=nothing)
         return cpu_extract_vector_component!(
             component_buffer,
             v_data,
@@ -116,7 +116,7 @@ module GeoDynamo
         )
     end
 
-    function __default_gpu_store_vector_components(v_theta, v_phi, vt_field, vp_field, r_local, config; axes_local=nothing)
+    function _default_gpu_store_vector_components(v_theta, v_phi, vt_field, vp_field, r_local, config; axes_local=nothing)
         return cpu_store_vector_components!(
             v_theta,
             v_phi,
@@ -128,21 +128,21 @@ module GeoDynamo
         )
     end
 
-    const __GPU_BACKEND = Ref{GPUBackendState}(GPUBackendState(
+    const _GPU_BACKEND = Ref{GPUBackendState}(GPUBackendState(
         false, false, :cpu,
-        __default_gpu_scalar_synthesis,
-        __default_gpu_scalar_analysis,
-        __default_gpu_vector_synthesis,
-        __default_gpu_vector_analysis,
-        __default_gpu_scratch_zeros,
-        __default_gpu_fill_scalar_coeff_buffer,
-        __default_gpu_store_scalar_coefficients,
-        __default_gpu_extract_physical_slice,
-        __default_gpu_store_physical_slice,
-        __default_gpu_fill_vector_coeff_buffer,
-        __default_gpu_store_vector_coefficients,
-        __default_gpu_extract_vector_component,
-        __default_gpu_store_vector_components,
+        _default_gpu_scalar_synthesis,
+        _default_gpu_scalar_analysis,
+        _default_gpu_vector_synthesis,
+        _default_gpu_vector_analysis,
+        _default_gpu_scratch_zeros,
+        _default_gpu_fill_scalar_coeff_buffer,
+        _default_gpu_store_scalar_coefficients,
+        _default_gpu_extract_physical_slice,
+        _default_gpu_store_physical_slice,
+        _default_gpu_fill_vector_coeff_buffer,
+        _default_gpu_store_vector_coefficients,
+        _default_gpu_extract_vector_component,
+        _default_gpu_store_vector_components,
     ))
 
     function register_gpu_backend!(;
@@ -152,17 +152,17 @@ module GeoDynamo
         scalar_analysis,
         vector_synthesis,
         vector_analysis,
-        scratch_zeros=__default_gpu_scratch_zeros,
-        fill_scalar_coeff_buffer=__default_gpu_fill_scalar_coeff_buffer,
-        store_scalar_coefficients=__default_gpu_store_scalar_coefficients,
-        extract_physical_slice=__default_gpu_extract_physical_slice,
-        store_physical_slice=__default_gpu_store_physical_slice,
-        fill_vector_coeff_buffer=__default_gpu_fill_vector_coeff_buffer,
-        store_vector_coefficients=__default_gpu_store_vector_coefficients,
-        extract_vector_component=__default_gpu_extract_vector_component,
-        store_vector_components=__default_gpu_store_vector_components,
+        scratch_zeros=_default_gpu_scratch_zeros,
+        fill_scalar_coeff_buffer=_default_gpu_fill_scalar_coeff_buffer,
+        store_scalar_coefficients=_default_gpu_store_scalar_coefficients,
+        extract_physical_slice=_default_gpu_extract_physical_slice,
+        store_physical_slice=_default_gpu_store_physical_slice,
+        fill_vector_coeff_buffer=_default_gpu_fill_vector_coeff_buffer,
+        store_vector_coefficients=_default_gpu_store_vector_coefficients,
+        extract_vector_component=_default_gpu_extract_vector_component,
+        store_vector_components=_default_gpu_store_vector_components,
     )
-        __GPU_BACKEND[] = GPUBackendState(
+        _GPU_BACKEND[] = GPUBackendState(
             true, available, available ? device : :cpu,
             scalar_synthesis, scalar_analysis,
             vector_synthesis, vector_analysis,
@@ -175,10 +175,10 @@ module GeoDynamo
         return nothing
     end
 
-    @inline gpu_backend_state() = __GPU_BACKEND[]
+    @inline gpu_backend_state() = _GPU_BACKEND[]
 
     function restore_gpu_backend!(state::GPUBackendState)
-        __GPU_BACKEND[] = state
+        _GPU_BACKEND[] = state
         return nothing
     end
 
@@ -190,15 +190,15 @@ module GeoDynamo
         scalar_analysis,
         vector_synthesis,
         vector_analysis,
-        scratch_zeros=__default_gpu_scratch_zeros,
-        fill_scalar_coeff_buffer=__default_gpu_fill_scalar_coeff_buffer,
-        store_scalar_coefficients=__default_gpu_store_scalar_coefficients,
-        extract_physical_slice=__default_gpu_extract_physical_slice,
-        store_physical_slice=__default_gpu_store_physical_slice,
-        fill_vector_coeff_buffer=__default_gpu_fill_vector_coeff_buffer,
-        store_vector_coefficients=__default_gpu_store_vector_coefficients,
-        extract_vector_component=__default_gpu_extract_vector_component,
-        store_vector_components=__default_gpu_store_vector_components,
+        scratch_zeros=_default_gpu_scratch_zeros,
+        fill_scalar_coeff_buffer=_default_gpu_fill_scalar_coeff_buffer,
+        store_scalar_coefficients=_default_gpu_store_scalar_coefficients,
+        extract_physical_slice=_default_gpu_extract_physical_slice,
+        store_physical_slice=_default_gpu_store_physical_slice,
+        fill_vector_coeff_buffer=_default_gpu_fill_vector_coeff_buffer,
+        store_vector_coefficients=_default_gpu_store_vector_coefficients,
+        extract_vector_component=_default_gpu_extract_vector_component,
+        store_vector_components=_default_gpu_store_vector_components,
     )
         state = gpu_backend_state()
         try
@@ -225,38 +225,38 @@ module GeoDynamo
         end
     end
 
-    @inline gpu_backend_loaded() = __GPU_BACKEND[].loaded
-    @inline gpu_backend_available() = __GPU_BACKEND[].available
+    @inline gpu_backend_loaded() = _GPU_BACKEND[].loaded
+    @inline gpu_backend_available() = _GPU_BACKEND[].available
     @inline function gpu_backend_device()
-        s = __GPU_BACKEND[]
+        s = _GPU_BACKEND[]
         return s.available ? s.device : :cpu
     end
     @inline gpu_scalar_synthesis(cfg, coeffs; real_output::Bool=true) =
-        __GPU_BACKEND[].scalar_synthesis(cfg, coeffs; real_output=real_output)
+        _GPU_BACKEND[].scalar_synthesis(cfg, coeffs; real_output=real_output)
     @inline gpu_scalar_analysis(cfg, spatial; real_output::Bool=true) =
-        __GPU_BACKEND[].scalar_analysis(cfg, spatial; real_output=real_output)
+        _GPU_BACKEND[].scalar_analysis(cfg, spatial; real_output=real_output)
     @inline gpu_vector_synthesis(cfg, sph_coeffs, tor_coeffs; real_output::Bool=true) =
-        __GPU_BACKEND[].vector_synthesis(cfg, sph_coeffs, tor_coeffs; real_output=real_output)
-    @inline gpu_vector_analysis(cfg, vtheta, vphi) = __GPU_BACKEND[].vector_analysis(cfg, vtheta, vphi)
+        _GPU_BACKEND[].vector_synthesis(cfg, sph_coeffs, tor_coeffs; real_output=real_output)
+    @inline gpu_vector_analysis(cfg, vtheta, vphi) = _GPU_BACKEND[].vector_analysis(cfg, vtheta, vphi)
     @inline function gpu_scratch_zeros(::Type{T}, dims::Vararg{Int,N}) where {T,N}
-        return __GPU_BACKEND[].scratch_zeros(T, dims...)::AbstractArray{T,N}
+        return _GPU_BACKEND[].scratch_zeros(T, dims...)::AbstractArray{T,N}
     end
     @inline gpu_fill_scalar_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config) =
-        __GPU_BACKEND[].fill_scalar_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)
+        _GPU_BACKEND[].fill_scalar_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)
     @inline gpu_store_scalar_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config) =
-        __GPU_BACKEND[].store_scalar_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config)
+        _GPU_BACKEND[].store_scalar_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config)
     @inline gpu_extract_physical_slice(slice_buffer, phys_data, r_local, config; axes_local=nothing) =
-        __GPU_BACKEND[].extract_physical_slice(slice_buffer, phys_data, r_local, config; axes_local=axes_local)
+        _GPU_BACKEND[].extract_physical_slice(slice_buffer, phys_data, r_local, config; axes_local=axes_local)
     @inline gpu_store_physical_slice(phys_data, phys_slice, r_local) =
-        __GPU_BACKEND[].store_physical_slice(phys_data, phys_slice, r_local)
+        _GPU_BACKEND[].store_physical_slice(phys_data, phys_slice, r_local)
     @inline gpu_fill_vector_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config) =
-        __GPU_BACKEND[].fill_vector_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)
+        _GPU_BACKEND[].fill_vector_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)
     @inline gpu_store_vector_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config) =
-        __GPU_BACKEND[].store_vector_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config)
+        _GPU_BACKEND[].store_vector_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config)
     @inline gpu_extract_vector_component(component_buffer, v_data, r_local, config; axes_local=nothing) =
-        __GPU_BACKEND[].extract_vector_component(component_buffer, v_data, r_local, config; axes_local=axes_local)
+        _GPU_BACKEND[].extract_vector_component(component_buffer, v_data, r_local, config; axes_local=axes_local)
     @inline gpu_store_vector_components(v_theta, v_phi, vt_field, vp_field, r_local, config; axes_local=nothing) =
-        __GPU_BACKEND[].store_vector_components(v_theta, v_phi, vt_field, vp_field, r_local, config; axes_local=axes_local)
+        _GPU_BACKEND[].store_vector_components(v_theta, v_phi, vt_field, vp_field, r_local, config; axes_local=axes_local)
 
     # Public solver-facing generics live at module scope so extension methods do
     # not depend on include order to create these names.

@@ -107,7 +107,7 @@ struct ZeroIC end
 # Helper: extract the concrete field object from a GeodynamoModel
 # ────────────────────────────────────────────────────────────────────────────────
 
-function __get_field(model::GeodynamoModel, field::Symbol)
+function _get_field(model::GeodynamoModel, field::Symbol)
     fields = model.state.fields
     if field === :velocity
         return fields.velocity
@@ -166,7 +166,7 @@ function set_initial_condition!(
         Random.seed!(ic.seed)
     end
 
-    f = __get_field(model, field)
+    f = _get_field(model, field)
     domain = ic.domain
 
     if field === :velocity
@@ -199,7 +199,7 @@ function set_initial_condition!(
         field :: Symbol,
         ic    :: AnalyticIC,
     )
-    f = __get_field(model, field)
+    f = _get_field(model, field)
     InitialConditions.set_analytical_initial_conditions!(f, field, ic.pattern;
         amplitude  = ic.amplitude,
         ic.parameters...,
@@ -220,7 +220,7 @@ function set_initial_condition!(
         field :: Symbol,
         ic    :: FileIC,
     )
-    f = __get_field(model, field)
+    f = _get_field(model, field)
     InitialConditions.load_initial_conditions!(f, field, ic.file_path)
     return model
 end

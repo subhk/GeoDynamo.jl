@@ -398,7 +398,7 @@ function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
 end
 
 
-function __default_velocity_parameters(config::C, domain::RadialDomain) where {C<:SHTnsKitConfig}
+function _default_velocity_parameters(config::C, domain::RadialDomain) where {C<:SHTnsKitConfig}
     r_inner = domain.r[1, 4]
     r_outer = domain.r[domain.N, 4]
     radius_ratio = iszero(r_outer) ? 0.0 : Float64(r_inner / r_outer)
@@ -428,7 +428,7 @@ operators.
 function create_shtns_velocity_fields(::Type{T}, config::C,
                                       𝒟ᵒᶜ::RadialDomain,
                                       pencils=nothing, pencil_spec=nothing;
-                                      params::SolverParameters=__default_velocity_parameters(config, 𝒟ᵒᶜ)) where {T,C<:SHTnsKitConfig}
+                                      params::SolverParameters=_default_velocity_parameters(config, 𝒟ᵒᶜ)) where {T,C<:SHTnsKitConfig}
     # Use pencils from config by default (they already encode the correct nr)
     if pencils === nothing
         pencils = config.pencils
@@ -545,8 +545,8 @@ end
 #
 # For a vector field V = ∇×(T r̂) + ∇×∇×(P r̂), the curl satisfies:
 #
-#   (∇×V)__toroidal = [l(l+1)/r² - d²/dr² - (2/r)d/dr] V_poloidal
-#   (∇×V)__poloidal = -l(l+1)/r² V_toroidal
+#   (∇×V)_toroidal = [l(l+1)/r² - d²/dr² - (2/r)d/dr] V_poloidal
+#   (∇×V)_poloidal = -l(l+1)/r² V_toroidal
 #
 # This is the SAME formula used for:
 #   - Vorticity: ζ = ∇×u (this function)

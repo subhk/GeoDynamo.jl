@@ -39,7 +39,7 @@ end
 # Internal constructor helper — avoids duplicating the SolverParameters build
 # ────────────────────────────────────────────────────────────────────────────────
 
-function __build_geodynamo_model(
+function _build_geodynamo_model(
         grid, T::Type, arch_sym::Symbol, geometry::Symbol, radius_ratio::Float64,
         nr_inner::Int, Ek, Pr, Pm, Sc, Ra,
         velocity_bcs, temperature_bcs, composition_bcs,
@@ -133,7 +133,7 @@ function GeodynamoModel(grid::SphericalShellGrid;
         magnetic_inner_bc::Symbol = :insulating,
     )
     arch_sym = grid.arch isa CPU ? :cpu : :gpu
-    return __build_geodynamo_model(grid, T, arch_sym, :shell,
+    return _build_geodynamo_model(grid, T, arch_sym, :shell,
         grid.r_inner / grid.r_outer,
         grid.nr_inner, Float64(Ek), Float64(Pr), Float64(Pm), Float64(Sc), Float64(Ra),
         velocity_bcs, temperature_bcs, composition_bcs,
@@ -177,7 +177,7 @@ function GeodynamoModel(grid::SphericalBallGrid;
         magnetic_inner_bc::Symbol = :insulating,
     )
     arch_sym = grid.arch isa CPU ? :cpu : :gpu
-    return __build_geodynamo_model(grid, T, arch_sym, :ball,
+    return _build_geodynamo_model(grid, T, arch_sym, :ball,
         0.0,
         0, Float64(Ek), Float64(Pr), Float64(Pm), Float64(Sc), Float64(Ra),
         velocity_bcs, temperature_bcs, composition_bcs,

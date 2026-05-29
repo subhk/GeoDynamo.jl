@@ -1,11 +1,11 @@
-function __shell_conductive_temperature(params::SolverParameters, r)
+function _shell_conductive_temperature(params::SolverParameters, r)
     η = params.radius_ratio
     ri = η / (1.0 - η)
     ro = 1.0 / (1.0 - η)
     return ri * ro / (ro - ri) * (1.0 / r - 1.0 / ro)
 end
 
-function __ball_conductive_temperature(::SolverParameters, r)
+function _ball_conductive_temperature(::SolverParameters, r)
     return 1.0 - r^2
 end
 
@@ -22,7 +22,7 @@ function initialize_temperature_field!(state::SolverState{T,<:AbstractArchitectu
     r_range = local_range(temperature.config.pencils.spec, 3)
 
     conductive_profile =
-        state.parameters.geometry === :ball ? __ball_conductive_temperature : __shell_conductive_temperature
+        state.parameters.geometry === :ball ? _ball_conductive_temperature : _shell_conductive_temperature
 
     @inbounds for lm_idx in lm_range
         lm_idx <= temperature.config.nlm || continue
@@ -160,7 +160,7 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
             :temperature,
             runtime.𝒟ᵒᶜ.N,
         )
-        temperature_bc_code = __thermal_bc_code(state.parameters.temperature_bcs)
+        temperature_bc_code = _thermal_bc_code(state.parameters.temperature_bcs)
         scalar_bc = build_solver_erk2_scalar_bc(T, runtime.𝒟ᵒᶜ, temperature_bc_code)
         bc_spec = with_boundary_mode_values(
             scalar_bc,
@@ -178,8 +178,8 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
             diffusivity,
             runtime.shtns_config,
             dt;
-            m=__timestepper_krylov_dimension(timestepper, state.parameters),
-            tol=__timestepper_krylov_tolerance(timestepper, state.parameters),
+            m=_timestepper_krylov_dimension(timestepper, state.parameters),
+            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
             bc_spec=bc_spec,
             krylov_work=radial_work,
         )

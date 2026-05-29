@@ -19,7 +19,7 @@ const IO_STATIC_SIMULATION_SRC = read(joinpath(IO_STATIC_ROOT, "src", "api", "si
     @test occursin("fields[\"composition\"] = copy(parent(state.fields.composition.composition.data))", IO_STATIC_STATE_SRC)
     @test occursin("\"composition_spectral\"", IO_STATIC_STATE_SRC)
 
-    @test occursin("__legacy_linear_spectral_io_ranges", IO_STATIC_NETCDF_SRC)
+    @test occursin("_legacy_linear_spectral_io_ranges", IO_STATIC_NETCDF_SRC)
     @test occursin("requires shtns_config", IO_STATIC_NETCDF_SRC)
     @test !occursin("lm_range = range_local(pencils.spec, 1)", IO_STATIC_RESTART_SRC)
 

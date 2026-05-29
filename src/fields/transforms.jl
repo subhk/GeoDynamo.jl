@@ -33,11 +33,11 @@
 # ================================================================================
 
 # Type-stable accessors for SHTnsBuffers
-@inline function __get_sht_plan(cache::SHTnsBuffers)
+@inline function _get_sht_plan(cache::SHTnsBuffers)
     return cache.sht_plan::Union{SHTnsKit.SHTPlan, Nothing}
 end
 
-@inline function __get_synth_out(cache::SHTnsBuffers, config)
+@inline function _get_synth_out(cache::SHTnsBuffers, config)
     cache.sht_plan === nothing && return nothing
     if cache.synth_out === nothing
         cache.synth_out = zeros(Float64, config.nlat, config.nlon)
@@ -45,7 +45,7 @@ end
     return cache.synth_out::Matrix{Float64}
 end
 
-@inline function __get_anal_out(cache::SHTnsBuffers, config)
+@inline function _get_anal_out(cache::SHTnsBuffers, config)
     cache.sht_plan === nothing && return nothing
     if cache.anal_out === nothing
         cache.anal_out = zeros(ComplexF64, config.lmax + 1, config.mmax + 1)
@@ -53,7 +53,7 @@ end
     return cache.anal_out::Matrix{ComplexF64}
 end
 
-@inline function __get_vt_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
+@inline function _get_vt_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
     cache.sht_plan === nothing && return nothing
     if cache.vt_out === nothing
         cache.vt_out = zeros(Float64, config.nlat, config.nlon)
@@ -61,7 +61,7 @@ end
     return cache.vt_out::Matrix{Float64}
 end
 
-@inline function __get_vp_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
+@inline function _get_vp_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
     cache.sht_plan === nothing && return nothing
     if cache.vp_out === nothing
         cache.vp_out = zeros(Float64, config.nlat, config.nlon)
@@ -69,7 +69,7 @@ end
     return cache.vp_out::Matrix{Float64}
 end
 
-@inline function __get_slm_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
+@inline function _get_slm_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
     cache.sht_plan === nothing && return nothing
     if cache.slm_out === nothing
         cache.slm_out = zeros(ComplexF64, config.lmax + 1, config.mmax + 1)
@@ -77,7 +77,7 @@ end
     return cache.slm_out::Matrix{ComplexF64}
 end
 
-@inline function __get_tlm_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
+@inline function _get_tlm_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
     cache.sht_plan === nothing && return nothing
     if cache.tlm_out === nothing
         cache.tlm_out = zeros(ComplexF64, config.lmax + 1, config.mmax + 1)
@@ -143,8 +143,8 @@ function perform_synthesis_phi_local!(spec::SHTnsSpecField{T},
     phys_data = parent(phys.data)
 
     # Get pre-allocated plan and output buffer (allocation-free path)
-    plan = __get_sht_plan(config.__buffers)
-    synth_out = __get_synth_out(config.__buffers, config)
+    plan = _get_sht_plan(config._buffers)
+    synth_out = _get_synth_out(config._buffers, config)
 
     # Get global index ranges for this rank's portion of the physical grid
     axes_local = phys.pencil.axes_local
@@ -217,8 +217,8 @@ function perform_synthesis_to_phi_pencil!(spec::SHTnsSpecField{T},
     phys_phi_data = parent(phys_phi)
 
     # Get pre-allocated plan and output buffer (allocation-free path)
-    plan = __get_sht_plan(config.__buffers)
-    synth_out = __get_synth_out(config.__buffers, config)
+    plan = _get_sht_plan(config._buffers)
+    synth_out = _get_synth_out(config._buffers, config)
 
     # Get global index ranges for this rank's portion of the phi-pencil grid
     axes_local = PencilArrays.pencil(phys_phi).axes_local
@@ -269,8 +269,8 @@ function perform_synthesis_direct!(spec::SHTnsSpecField{T},
     @assert size(phys_data, 3) == size(spec_real_data, 3) "Radial dimension mismatch: physical=$(size(phys_data,3)) vs spectral=$(size(spec_real_data,3)). SH transforms require radial to be local."
 
     # Get pre-allocated plan and output buffer (allocation-free path)
-    plan = __get_sht_plan(config.__buffers)
-    synth_out = __get_synth_out(config.__buffers, config)
+    plan = _get_sht_plan(config._buffers)
+    synth_out = _get_synth_out(config._buffers, config)
 
     # Get global index ranges for this rank's local portion of the physical grid.
     # When angular dimensions are MPI-distributed, each rank owns a subset of
@@ -352,8 +352,8 @@ function perform_analysis_phi_local!(phys::SHTnsPhysField{T},
     spec_imag_data = parent(spec.data_imag)
 
     # Get pre-allocated plan and output buffer
-    plan = __get_sht_plan(config.__buffers)
-    anal_out = __get_anal_out(config.__buffers, config)
+    plan = _get_sht_plan(config._buffers)
+    anal_out = _get_anal_out(config._buffers, config)
 
     # Get global index ranges for correct placement in Allreduce buffer
     phys_axes_local = phys.pencil.axes_local
@@ -410,8 +410,8 @@ function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T,3},
     spec_imag_data = parent(spec.data_imag)
 
     # Get pre-allocated plan and output buffer
-    plan = __get_sht_plan(config.__buffers)
-    anal_out = __get_anal_out(config.__buffers, config)
+    plan = _get_sht_plan(config._buffers)
+    anal_out = _get_anal_out(config._buffers, config)
 
     # Get global index ranges for correct placement in Allreduce buffer
     phi_axes_local = PencilArrays.pencil(phys_phi).axes_local
@@ -450,8 +450,8 @@ function perform_analysis_direct!(phys::SHTnsPhysField{T},
     @assert size(phys_data, 3) == size(spec_real_data, 3) "Radial dimension mismatch in analysis. SH transforms require radial to be local."
 
     # Get pre-allocated plan and output buffer
-    plan = __get_sht_plan(config.__buffers)
-    anal_out = __get_anal_out(config.__buffers, config)
+    plan = _get_sht_plan(config._buffers)
+    anal_out = _get_anal_out(config._buffers, config)
 
     # Get global index ranges for correct placement in Allreduce buffer
     phys_axes_local = phys.pencil.axes_local
@@ -525,10 +525,10 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
     r_range = get_local_range(pol_spec.pencil, 3)
 
     # Get pre-allocated plan and output buffers (allocation-free path)
-    plan = __get_sht_plan(config.__buffers)
-    vt_out = __get_vt_out(config.__buffers, config, T)
-    vp_out = __get_vp_out(config.__buffers, config, T)
-    synth_out = __get_synth_out(config.__buffers, config)
+    plan = _get_sht_plan(config._buffers)
+    vt_out = _get_vt_out(config._buffers, config, T)
+    vp_out = _get_vp_out(config._buffers, config, T)
+    synth_out = _get_synth_out(config._buffers, config)
 
     # SAFETY: The radial loop below contains MPI collectives (Allreduce).
     # All processes MUST iterate the same number of times to avoid deadlock.
@@ -724,9 +724,9 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
     r_range = get_local_range(pol_spec.pencil, 3)
 
     # Get pre-allocated plan and output buffers (allocation-free path)
-    plan = __get_sht_plan(config.__buffers)
-    slm_out = __get_slm_out(config.__buffers, config, T)
-    tlm_out = __get_tlm_out(config.__buffers, config, T)
+    plan = _get_sht_plan(config._buffers)
+    slm_out = _get_slm_out(config._buffers, config, T)
+    tlm_out = _get_tlm_out(config._buffers, config, T)
 
     # As in synthesis, the decomposition is done radius-by-radius so each call
     # can gather a dense tangential slice, recover toroidal/poloidal spectra,
@@ -886,7 +886,7 @@ end
 end
 
 @inline function local_spectral_lm_map(config)
-    buffers = config.__buffers
+    buffers = config._buffers
     map = buffers.local_spectral_lm_map
     if map === nothing
         map = build_local_spectral_lm_map(config)
@@ -907,7 +907,7 @@ end
 end
 
 @inline function local_spectral_slot_lookup(config)
-    buffers = config.__buffers
+    buffers = config._buffers
     lookup = buffers.local_spectral_slot_lookup
     if lookup === nothing
         lookup = build_local_spectral_slot_lookup(config)
@@ -930,7 +930,7 @@ end
 end
 
 @inline function local_spectral_mode_indices(config)
-    buffers = config.__buffers
+    buffers = config._buffers
     modes = buffers.local_spectral_mode_indices
     if modes === nothing
         modes = build_local_spectral_mode_indices(config)
@@ -2560,8 +2560,8 @@ end
 """
     compute_horizontal_gradient_magnitude(config::SHTnsKitConfig, alm::Matrix{ComplexF64})
 
-Compute the magnitude of the horizontal gradient |∇__h f|² in spectral space.
-|∇__h f|² = l(l+1) |f_lm|²  (summed over all modes)
+Compute the magnitude of the horizontal gradient |∇_h f|² in spectral space.
+|∇_h f|² = l(l+1) |f_lm|²  (summed over all modes)
 
 This is useful for computing gradient energy or penalty terms.
 

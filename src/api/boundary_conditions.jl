@@ -47,10 +47,10 @@ Base.:(==)(a::BoundaryConditions, b::BoundaryConditions) =
 #   3 = StressFree/NoSlip
 #   4 = StressFree/StressFree
 # ---------------------------------------------------------------------------
-__velocity_bc_code(::BoundaryConditions{NoSlip,     NoSlip})     = 1
-__velocity_bc_code(::BoundaryConditions{NoSlip,     StressFree}) = 2
-__velocity_bc_code(::BoundaryConditions{StressFree, NoSlip})     = 3
-__velocity_bc_code(::BoundaryConditions{StressFree, StressFree}) = 4
+_velocity_bc_code(::BoundaryConditions{NoSlip,     NoSlip})     = 1
+_velocity_bc_code(::BoundaryConditions{NoSlip,     StressFree}) = 2
+_velocity_bc_code(::BoundaryConditions{StressFree, NoSlip})     = 3
+_velocity_bc_code(::BoundaryConditions{StressFree, StressFree}) = 4
 
 # ---------------------------------------------------------------------------
 # Thermal / composition codes — matches src/bcs/thermal_bc.jl:
@@ -59,9 +59,9 @@ __velocity_bc_code(::BoundaryConditions{StressFree, StressFree}) = 4
 #   3 = ND (Neumann/Dirichlet   = FixedFlux/FixedTemperature)
 #   4 = NN (Neumann/Neumann     = FixedFlux/FixedFlux)
 # ---------------------------------------------------------------------------
-__thermal_bc_code(::BoundaryConditions{<:FixedTemperature, <:FixedTemperature}) = 1
-__thermal_bc_code(::BoundaryConditions{<:FixedTemperature, <:FixedFlux})        = 2
-__thermal_bc_code(::BoundaryConditions{<:FixedFlux,        <:FixedTemperature}) = 3
-__thermal_bc_code(::BoundaryConditions{<:FixedFlux,        <:FixedFlux})        = 4
+_thermal_bc_code(::BoundaryConditions{<:FixedTemperature, <:FixedTemperature}) = 1
+_thermal_bc_code(::BoundaryConditions{<:FixedTemperature, <:FixedFlux})        = 2
+_thermal_bc_code(::BoundaryConditions{<:FixedFlux,        <:FixedTemperature}) = 3
+_thermal_bc_code(::BoundaryConditions{<:FixedFlux,        <:FixedFlux})        = 4
 
-__composition_bc_code(bc) = __thermal_bc_code(bc)
+_composition_bc_code(bc) = _thermal_bc_code(bc)

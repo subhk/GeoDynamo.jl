@@ -526,7 +526,7 @@ end
 end
 
 @inline function transform_arch(config)
-    device = config.__buffers.transform_device
+    device = config._buffers.transform_device
     device isa AbstractArchitecture && return device
     return SHTnsKit.is_gpu_config(config.sht_config) ? GPU(device) : CPU()
 end
@@ -931,10 +931,10 @@ function vector_spectral_to_physical!(
     v_phi = parent(vector_field.φ_component.data)
 
     r_range = local_range(poloidal.pencil, 3)
-    plan = get_sht_plan(config.__buffers)
-    vt_out = get_vt_out(config.__buffers, T)
-    vp_out = get_vp_out(config.__buffers, T)
-    synth_out = get_synth_out(config.__buffers)
+    plan = get_sht_plan(config._buffers)
+    vt_out = get_vt_out(config._buffers, T)
+    vp_out = get_vp_out(config._buffers, T)
+    synth_out = get_synth_out(config._buffers)
 
     @assert size(v_r, 3) == size(tor_real, 3) "Radial dimension mismatch: physical=$(size(v_r,3)) vs spectral=$(size(tor_real,3)). Vector SH transforms require radial to be local."
 
@@ -1039,9 +1039,9 @@ function vector_physical_to_spectral!(
     pol_real = parent(poloidal.data_real)
     pol_imag = parent(poloidal.data_imag)
 
-    plan = get_sht_plan(config.__buffers)
-    slm_out = get_slm_out(config.__buffers, T)
-    tlm_out = get_tlm_out(config.__buffers, T)
+    plan = get_sht_plan(config._buffers)
+    slm_out = get_slm_out(config._buffers, T)
+    tlm_out = get_tlm_out(config._buffers, T)
     phys_axes_local = vector_field.r_component.pencil.axes_local
 
     for r_local in axes(v_theta, 3)
@@ -1495,14 +1495,14 @@ function spectral_curl_torpol!(
     domain::RadialDomainType,
     config::SHTnsConfigType,
     ::Type{T};
-    __work::Union{Nothing,NTuple{6,Vector{T}}}=nothing,
+    _work::Union{Nothing,NTuple{6,Vector{T}}}=nothing,
 ) where T
     lm_range = local_spectral_mode_indices(config)
     r_range = local_range(config.pencils.spec, 3)
     nr = domain.N
 
-    if __work !== nothing
-        Pᴾ_profile_real, Pᴾ_profile_imag, dᴾ_dr_real, dᴾ_dr_imag, d²ᴾ_dr²_real, d²ᴾ_dr²_imag = __work
+    if _work !== nothing
+        Pᴾ_profile_real, Pᴾ_profile_imag, dᴾ_dr_real, dᴾ_dr_imag, d²ᴾ_dr²_real, d²ᴾ_dr²_imag = _work
     else
         Pᴾ_profile_real = zeros(T, nr)
         Pᴾ_profile_imag = zeros(T, nr)
@@ -1576,7 +1576,7 @@ function solver_compute_current_density_spectral!(magnetic_fields, outer_domain)
         outer_domain,
         magnetic_fields.𝒯.config,
         T;
-        __work=magnetic_fields.curl_work,
+        _work=magnetic_fields.curl_work,
     )
     return magnetic_fields
 end
@@ -1690,7 +1690,7 @@ function solver_compute_curl_of_induction!(magnetic_fields)
         magnetic_fields.outer_domain,
         magnetic_fields.𝒯.config,
         T;
-        __work=magnetic_fields.curl_work,
+        _work=magnetic_fields.curl_work,
     )
     return magnetic_fields
 end

@@ -59,11 +59,11 @@
 #         This is done in compute_velocity_cross_magnetic!()
 #
 # Step 2: Transform u×B to SPECTRAL space (SHTns vector analysis)
-#         This gives (u×B)__toroidal and (u×B)__poloidal coefficients
+#         This gives (u×B)_toroidal and (u×B)_poloidal coefficients
 #
 # Step 3: Compute ∇×(u×B) in SPECTRAL space using curl operator:
-#         [∇×(u×B)]__tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] (u×B)__pol
-#         [∇×(u×B)]__pol = -l(l+1)/r² (u×B)__tor
+#         [∇×(u×B)]_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] (u×B)_pol
+#         [∇×(u×B)]_pol = -l(l+1)/r² (u×B)_tor
 #
 # The diffusion term ∇²B is handled IMPLICITLY by the time-stepper.
 #
@@ -89,7 +89,7 @@
 #
 # 1. INSULATING (σ = 0 outside):
 #    - Physical: No current can cross boundary (J_n = 0)
-#    - Mathematical: (∇×B)__r = 0 at boundary
+#    - Mathematical: (∇×B)_r = 0 at boundary
 #    - Implementation: T = 0 and l-dependent Robin rows on P
 #
 # 2. PERFECT CONDUCTOR (σ → ∞ outside):
@@ -323,28 +323,28 @@ end
 # Current density computation in spectral space
 # ========================================================
 """
-    __spectral_curl_torpol!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
+    _spectral_curl_torpol!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
                            src_tor_r, src_tor_i, src_pol_r, src_pol_i,
                            l_factors, d1_matrix, d²_matrix, domain, config, T)
 
 Shared spectral curl for toroidal-poloidal fields:
-    (∇×V)__tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] V_pol
-    (∇×V)__pol = -l(l+1)/r² V_tor
+    (∇×V)_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] V_pol
+    (∇×V)_pol = -l(l+1)/r² V_tor
 
 Used by both current density (j = ∇×B) and induction curl (∇×(u×B)).
 """
-function __spectral_curl_torpol!(
+function _spectral_curl_torpol!(
     dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
     src_tor_r, src_tor_i, src_pol_r, src_pol_i,
     l_factors, d1_matrix, d²_matrix, domain::RadialDomain, config::C, ::Type{T};
-    __work::Union{Nothing, NTuple{6, Vector{T}}}=nothing
+    _work::Union{Nothing, NTuple{6, Vector{T}}}=nothing
 ) where {T,C<:SHTnsKitConfig}
     lm_range = local_spectral_mode_indices(config)
     r_range  = range_local(config.pencils.spec, 3)
     nr = domain.N
 
-    if __work !== nothing
-        Pᴾ_profile_real, Pᴾ_profile_imag, dᴾ_dr_real, dᴾ_dr_imag, d²ᴾ_dr²_real, d²ᴾ_dr²_imag = __work
+    if _work !== nothing
+        Pᴾ_profile_real, Pᴾ_profile_imag, dᴾ_dr_real, dᴾ_dr_imag, d²ᴾ_dr²_real, d²ᴾ_dr²_imag = _work
     else
         Pᴾ_profile_real = zeros(T, nr)
         Pᴾ_profile_imag = zeros(T, nr)
@@ -414,13 +414,13 @@ end
 function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T},
                                           𝒟ᵒᶜ::RadialDomain) where T
     # j = ∇ × B: source is B (𝒯,𝒫), destination is work arrays
-    __spectral_curl_torpol!(
+    _spectral_curl_torpol!(
         parent(ℬ.work_tor.data_real), parent(ℬ.work_tor.data_imag),
         parent(ℬ.work_pol.data_real), parent(ℬ.work_pol.data_imag),
         parent(ℬ.𝒯.data_real), parent(ℬ.𝒯.data_imag),
         parent(ℬ.𝒫.data_real), parent(ℬ.𝒫.data_imag),
         ℬ.l_factors, ℬ.∂r, ℬ.∂²r, 𝒟ᵒᶜ, ℬ.𝒯.config, T;
-        __work=ℬ.curl_work,
+        _work=ℬ.curl_work,
     )
 end
 
@@ -446,7 +446,7 @@ function compute_induction_term!(ℬ::SHTnsMagneticFields{T}, 𝒰; geometry::Sy
     # Step 1: Compute u×B in PHYSICAL space
     # -------------------------------------
     # Cross product is simple point-wise operation in physical space:
-    #   (u×B)__r = uθ Bφ - uφ Bθ
+    #   (u×B)_r = uθ Bφ - uφ Bθ
     #   (u×B)_θ = uφ Bᵣ - uᵣ Bφ
     #   (u×B)_φ = uᵣ Bθ - uθ Bᵣ
     compute_velocity_cross_magnetic!(ℬ, 𝒰)
@@ -505,13 +505,13 @@ end
 
 function compute_curl_of_induction!(ℬ::SHTnsMagneticFields{T}) where T
     # ∇ × (u × B): source is work arrays, destination is NL arrays
-    __spectral_curl_torpol!(
+    _spectral_curl_torpol!(
         parent(ℬ.nlᵀ.data_real), parent(ℬ.nlᵀ.data_imag),
         parent(ℬ.nlᴾ.data_real), parent(ℬ.nlᴾ.data_imag),
         parent(ℬ.work_tor.data_real), parent(ℬ.work_tor.data_imag),
         parent(ℬ.work_pol.data_real), parent(ℬ.work_pol.data_imag),
         ℬ.l_factors, ℬ.∂r, ℬ.∂²r, ℬ.outer_domain, ℬ.𝒯.config, T;
-        __work=ℬ.curl_work,
+        _work=ℬ.curl_work,
     )
 end
 

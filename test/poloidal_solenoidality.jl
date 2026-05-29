@@ -14,7 +14,7 @@ const G = GeoDynamo
 # derivative S = (1/r) d(rP)/dr and the radial component is v_r = l(l+1)/r² · P.
 # The code's choices satisfy ∇·B = 0 only when the radial profile is constant;
 # in general the synthesized poloidal field is NOT divergence-free:
-#   ∇·V|__lm = (1/r²) d(r² Q)/dr − l(l+1)/r · S ,  Q = l(l+1)/r·pol , S = pol
+#   ∇·V|_lm = (1/r²) d(r² Q)/dr − l(l+1)/r · S ,  Q = l(l+1)/r·pol , S = pol
 #           = l(l+1)[ pol/r² + pol'/r − pol/r ]  ≠ 0 .
 #
 # This test synthesizes a single poloidal mode and measures ∇·B from the actual
@@ -30,7 +30,7 @@ const G = GeoDynamo
 # validated at the evolution level (Christensen Case 0) before merging — not at
 # the transform level alone. See memory proj_geodynamo_poloidal_synthesis_nonsolenoidal.
 
-function __setmode!(spec, l, m, domain, fn)
+function _setmode!(spec, l, m, domain, fn)
     rd = parent(spec.data_real)
     rr = G.range_local(spec.pencil, 3)
     idx = G.get_mode_index(spec.config, l, m); idx == 0 && return
@@ -55,7 +55,7 @@ end
             params=G.SolverParameters(geometry=:shell, nr=nr, lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon))
     fill!(parent(vel.𝒯.data_real), 0.0); fill!(parent(vel.𝒯.data_imag), 0.0)
     fill!(parent(vel.𝒫.data_real), 0.0); fill!(parent(vel.𝒫.data_imag), 0.0)
-    __setmode!(vel.𝒫, 1, 0, dom, r -> r * (dom.r[nr,4] - r))   # P(r)=r(r_o−r), nonconstant
+    _setmode!(vel.𝒫, 1, 0, dom, r -> r * (dom.r[nr,4] - r))   # P(r)=r(r_o−r), nonconstant
 
     vec = G.create_shtns_vector_field(Float64, cfg, dom, (cfg.pencils.phi, cfg.pencils.phi, cfg.pencils.phi))
     G.shtnskit_vector_synthesis!(vel.𝒯, vel.𝒫, vec; domain=dom)

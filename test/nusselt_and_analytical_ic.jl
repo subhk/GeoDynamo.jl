@@ -9,7 +9,7 @@ const G = GeoDynamo
 #     the orthonormal √(4π) normalization for its (0,0) physical mean, like the
 #     solver's default conductive IC.
 
-function __physical_from_mean_coeff(cfg, dom, coeff::Float64)
+function _physical_from_mean_coeff(cfg, dom, coeff::Float64)
     spec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     phys = G.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.phi)
     fill!(parent(spec.data_real), 0.0)
@@ -58,7 +58,7 @@ end
         sr = parent(temp.spectral.data_real)
         # local_r = 1 ⇒ r_frac = 0 ⇒ amplitude*(1 - 0) = 1.0 physical.
         coeff_inner = G.local_spectral_value(sr, slot, 1)
-        @test isapprox(__physical_from_mean_coeff(cfg, dom, coeff_inner), 1.0; atol=1e-9)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, coeff_inner), 1.0; atol=1e-9)
     end
 
     @testset "Random/hot_blob (0,0) background means reconstruct physically" begin
@@ -69,7 +69,7 @@ end
         tr = G.create_shtns_temperature_field(Float64, cfg, dom)
         G.generate_random_initial_conditions!(tr, :temperature, amplitude=0.2, modes_range=1:3, seed=7)
         cr = G.local_spectral_value(parent(tr.spectral.data_real), slot, 1)
-        @test isapprox(__physical_from_mean_coeff(cfg, dom, cr), 1.0; atol=5e-2)  # ±seed noise
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, cr), 1.0; atol=5e-2)  # ±seed noise
 
         # hot_blob l=0 at r_frac=0: value = 0.5·(1-r_frac) + amplitude·Gaussian bump.
         # The bump is NOT compact, so r_frac=0 carries base 0.5 plus the Gaussian
@@ -80,6 +80,6 @@ end
         G.set_analytical_initial_conditions!(th, :temperature, :hot_blob, amplitude=amp, r_center=r_center, blob_width=blob_width)
         ch = G.local_spectral_value(parent(th.spectral.data_real), slot, 1)
         expected = 0.5 * (1.0 - 0.0) + amp * exp(-0.5 * ((0.0 - r_center) / blob_width)^2)
-        @test isapprox(__physical_from_mean_coeff(cfg, dom, ch), expected; atol=1e-9)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, ch), expected; atol=1e-9)
     end
 end

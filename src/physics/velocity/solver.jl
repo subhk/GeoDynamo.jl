@@ -55,7 +55,7 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
     timestepper = state.parameters.timestepper
     dt = state.parameters.timestep
     E = state.parameters.Ek
-    velocity_bc = __velocity_bc_code(state.parameters.velocity_bcs)
+    velocity_bc = _velocity_bc_code(state.parameters.velocity_bcs)
 
     if timestepper isa CNAB2
         matrices = state.implicit_matrices[:velocity_tor]
@@ -106,8 +106,8 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             E,
             runtime.shtns_config,
             dt;
-            m=__timestepper_krylov_dimension(timestepper, state.parameters),
-            tol=__timestepper_krylov_tolerance(timestepper, state.parameters),
+            m=_timestepper_krylov_dimension(timestepper, state.parameters),
+            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
             mass_coeff=E,
             bc_spec=bc_spec,
             krylov_work=radial_work,
@@ -139,7 +139,7 @@ function apply_velocity_poloidal_no_penetration!(
 ) where T
     params = state.parameters
     runtime = state.runtime
-    theta = __timestepper_implicit_theta(params.timestepper, params)
+    theta = _timestepper_implicit_theta(params.timestepper, params)
     effective_diffusivity = one(params.Ek)
     influence = get_solver_erk2_influence_matrices!(
         state.timestep_caches,
@@ -166,7 +166,7 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
     timestepper = state.parameters.timestepper
     dt = state.parameters.timestep
     E = state.parameters.Ek
-    velocity_bc = __velocity_bc_code(state.parameters.velocity_bcs)
+    velocity_bc = _velocity_bc_code(state.parameters.velocity_bcs)
 
     if timestepper isa CNAB2
         matrices = state.implicit_matrices[:velocity_pol]
@@ -211,8 +211,8 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             E,
             runtime.shtns_config,
             dt;
-            m=__timestepper_krylov_dimension(timestepper, state.parameters),
-            tol=__timestepper_krylov_tolerance(timestepper, state.parameters),
+            m=_timestepper_krylov_dimension(timestepper, state.parameters),
+            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
             mass_coeff=E,
             bc_spec=bc_spec,
             krylov_work=radial_work,

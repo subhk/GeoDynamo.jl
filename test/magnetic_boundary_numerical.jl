@@ -6,7 +6,7 @@ const FINALIZE_MPI_MAGBC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
 
 # Materialize row `i` of a BandedMatrix as a dense length-N vector so the
 # embedded boundary stencil can be dotted against analytic radial profiles.
-function __magbc_banded_row(bm, i::Int)
+function _magbc_banded_row(bm, i::Int)
     N = bm.size
     bw = bm.bandwidth
     row = zeros(eltype(bm.data), N)
@@ -23,8 +23,8 @@ end
 #
 # Insulating magnetic BCs require, per spherical-harmonic degree l:
 #   toroidal  : BT = 0 at both boundaries                       (identity rows)
-#   poloidal  : (∂__r - l/r)    BP = 0 at the inner boundary     → matches r^l
-#               (∂__r + (l+1)/r) BP = 0 at the outer boundary    → matches r^{-(l+1)}
+#   poloidal  : (∂_r - l/r)    BP = 0 at the inner boundary     → matches r^l
+#               (∂_r + (l+1)/r) BP = 0 at the outer boundary    → matches r^{-(l+1)}
 #
 # A potential (current-free) field has poloidal scalar ∝ r^l in the regular
 # interior and ∝ r^{-(l+1)} in the decaying exterior. The embedded boundary row
@@ -61,8 +61,8 @@ end
         e_outer = zeros(nr); e_outer[nr] = 1.0
         for (idx, l) in enumerate(tor.l_values)
             A = tor.system_matrices[idx]
-            @test __magbc_banded_row(A, 1) ≈ e_inner atol = 1e-14
-            @test __magbc_banded_row(A, nr) ≈ e_outer atol = 1e-14
+            @test _magbc_banded_row(A, 1) ≈ e_inner atol = 1e-14
+            @test _magbc_banded_row(A, nr) ≈ e_outer atol = 1e-14
         end
     end
 
@@ -70,8 +70,8 @@ end
         for (idx, l) in enumerate(pol.l_values)
             l == 0 && continue  # no magnetic monopole; skip the degenerate degree
             A = pol.system_matrices[idx]
-            row_in = __magbc_banded_row(A, 1)
-            row_out = __magbc_banded_row(A, nr)
+            row_in = _magbc_banded_row(A, 1)
+            row_out = _magbc_banded_row(A, nr)
 
             f_in = r .^ l              # regular interior potential   ∝ r^l
             f_out = r .^ (-(l + 1))    # decaying exterior potential  ∝ r^{-(l+1)}

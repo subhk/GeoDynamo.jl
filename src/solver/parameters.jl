@@ -1,12 +1,12 @@
-@inline __solver_current_params() = get_parameters()
-@inline solver_default_geometry() = __solver_current_params().geometry
+@inline _solver_current_params() = get_parameters()
+@inline solver_default_geometry() = _solver_current_params().geometry
 
 """
     create_solver_parameters([params])
 
 Return a `SolverParameters` object for solver initialization.
 """
-create_solver_parameters() = __solver_current_params()
+create_solver_parameters() = _solver_current_params()
 create_solver_parameters(params::SolverParameters) = params
 
 """
@@ -31,6 +31,6 @@ create_solver_parameter_template(filename::String="solver_parameters.jl") =
     create_parameter_template(filename)
 
 load_solver_parameters_file(config_file::String="") =
-    isempty(config_file) ? __solver_current_params() : load_parameters(config_file)
+    isempty(config_file) ? _solver_current_params() : load_parameters(config_file)
 
 load_solver_parameters(config_file::String="") = load_solver_parameters_file(config_file)

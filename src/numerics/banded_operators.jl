@@ -16,7 +16,7 @@ struct BandedLU{T}
     size::Int
 end
 
-@inline function __band_row(i::Int, j::Int, bw::Int)
+@inline function _band_row(i::Int, j::Int, bw::Int)
     return bw + 1 + i - j
 end
 
@@ -27,7 +27,7 @@ function factorize_banded(A::BandedMatrix{T}) where T
 
     @inbounds for k in 1:N-1
         # Pivot (no pivoting for banded SPD-like operators)
-        piv_row = __band_row(k, k, bw)
+        piv_row = _band_row(k, k, bw)
         if !(1 <= piv_row <= 2*bw+1)
             continue
         end
@@ -47,16 +47,16 @@ function factorize_banded(A::BandedMatrix{T}) where T
         # Eliminate entries below pivot within bandwidth
         i_max = min(N, k + bw)
         for i in k+1:i_max
-            row = __band_row(i, k, bw)
+            row = _band_row(i, k, bw)
             if 1 <= row <= 2*bw+1
                 L = lu[row, k] / piv
                 lu[row, k] = L  # store L below diagonal
                 # Update row i for columns within band
                 j_max = min(N, k + bw)
                 for j in k+1:j_max
-                    col = __band_row(i, j, bw)
+                    col = _band_row(i, j, bw)
                     if 1 <= col <= 2*bw+1
-                        urow = __band_row(k, j, bw)
+                        urow = _band_row(k, j, bw)
                         if 1 <= urow <= 2*bw+1
                             lu[col, j] -= L * lu[urow, j]
                         end
@@ -90,7 +90,7 @@ function solve_banded!(x::Vector{T}, lu::BandedLU{T}, b::Vector{T}) where T
         s = zero(T)
         j_min = max(1, i - bw)
         for j in j_min:i-1
-            row = __band_row(i, j, bw)
+            row = _band_row(i, j, bw)
             if 1 <= row <= 2*bw+1
                 s += lu.lu[row, j] * x[j]
             end
@@ -103,12 +103,12 @@ function solve_banded!(x::Vector{T}, lu::BandedLU{T}, b::Vector{T}) where T
         s = zero(T)
         j_max = min(N, i + bw)
         for j in i+1:j_max
-            row = __band_row(i, j, bw)
+            row = _band_row(i, j, bw)
             if 1 <= row <= 2*bw+1
                 s += lu.lu[row, j] * x[j]
             end
         end
-        diag_row = __band_row(i, i, bw)
+        diag_row = _band_row(i, i, bw)
         diag_val = lu.lu[diag_row, i]
 
         # Check for zero diagonal during back substitution
@@ -217,7 +217,7 @@ function create_radial_laplacian(domain::RadialDomain)
 end
 
 """
-    __populate_radial_operators!(domain) -> domain
+    _populate_radial_operators!(domain) -> domain
 
 Fill `domain.dr_matrices` and `domain.radial_laplacian` with the finite-difference
 operators for this grid, in place.
@@ -233,7 +233,7 @@ the highest-order derivative; their operators are left zero (as before). Physica
 runs use `N` far larger than the stencil order, so this only affects toy domains
 that never build radial operators anyway.
 """
-function __populate_radial_operators!(domain::RadialDomain)
+function _populate_radial_operators!(domain::RadialDomain)
     norders = length(domain.dr_matrices)
     domain.N >= norders + 1 || return domain
     for order in 1:norders

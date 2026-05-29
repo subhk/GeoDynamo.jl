@@ -1,7 +1,7 @@
 # Use get_comm() from parallel/mpi.jl for lazy MPI initialization
-const __output_comm = Ref{MPI.Comm}()
-const __output_comm_initialized = Ref(false)
-const __OUTPUT_COMM_LOCK = ReentrantLock()
+const _output_comm = Ref{MPI.Comm}()
+const _output_comm_initialized = Ref(false)
+const _OUTPUT_COMM_LOCK = ReentrantLock()
 
 """
     output_comm()
@@ -13,16 +13,16 @@ code does not force MPI initialization. The result is cached behind a lock
 because output calls may be reached from different setup paths.
 """
 function output_comm()
-    if __output_comm_initialized[]
-        return __output_comm[]
+    if _output_comm_initialized[]
+        return _output_comm[]
     end
-    lock(__OUTPUT_COMM_LOCK) do
-        if !__output_comm_initialized[]
-            __output_comm[] = get_comm()
-            __output_comm_initialized[] = true
+    lock(_OUTPUT_COMM_LOCK) do
+        if !_output_comm_initialized[]
+            _output_comm[] = get_comm()
+            _output_comm_initialized[] = true
         end
     end
-    return __output_comm[]
+    return _output_comm[]
 end
 
 # ================================================================================

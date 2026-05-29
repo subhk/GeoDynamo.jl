@@ -13,21 +13,21 @@ using Test
     @testset "scalar cache cleanup helpers empty global caches" begin
         cfg = GeoDynamo.create_shtnskit_config(lmax=2, mmax=2, nlat=8, nlon=16, nr=4)
         GeoDynamo.get_mode_index(cfg, 0, 0)
-        @test !isempty(GeoDynamo.__MODE_INDEX_CACHE)
+        @test !isempty(GeoDynamo._MODE_INDEX_CACHE)
 
         domain = GeoDynamo.create_shell_radial_domain(4)
-        GeoDynamo.__TAU_CACHE[domain] = GeoDynamo.__TauCache(
+        GeoDynamo._TAU_CACHE[domain] = GeoDynamo._TauCache(
             4, zeros(4), zeros(4), 0.0, 0.0, 0.0, 0.0
         )
-        GeoDynamo.__INFLUENCE_CACHE[domain] = GeoDynamo.__InfluenceCache(
+        GeoDynamo._INFLUENCE_CACHE[domain] = GeoDynamo._InfluenceCache(
             4, zeros(4), zeros(4), zeros(2, 2)
         )
 
         GeoDynamo.clear_scalar_field_caches!()
 
-        @test isempty(GeoDynamo.__MODE_INDEX_CACHE)
-        @test isempty(GeoDynamo.__TAU_CACHE)
-        @test isempty(GeoDynamo.__INFLUENCE_CACHE)
+        @test isempty(GeoDynamo._MODE_INDEX_CACHE)
+        @test isempty(GeoDynamo._TAU_CACHE)
+        @test isempty(GeoDynamo._INFLUENCE_CACHE)
     end
 
     @testset "solver mode-index cache deduplicates equivalent configs" begin
@@ -48,9 +48,9 @@ using Test
         @test length(GeoDynamo.SOLVER_MODE_INDEX_CACHE) <= 1
     end
 
-    @testset "SHTnsBuffers replaces __buffer_cache" begin
-        @test !hasfield(GeoDynamo.SHTnsKitConfig, :__buffer_cache)
-        @test hasfield(GeoDynamo.SHTnsKitConfig, :__buffers)
+    @testset "SHTnsBuffers replaces _buffer_cache" begin
+        @test !hasfield(GeoDynamo.SHTnsKitConfig, :_buffer_cache)
+        @test hasfield(GeoDynamo.SHTnsKitConfig, :_buffers)
         @test GeoDynamo.SHTnsBuffers isa DataType
         b = GeoDynamo.SHTnsBuffers()
         @test b.sht_plan === nothing
@@ -148,7 +148,7 @@ using Test
         tc.etd_magnetic_poloidal = nothing
         tc.etd_composition = nothing
 
-        GeoDynamo.__prepare_solver_eab2_caches!(state)
+        GeoDynamo._prepare_solver_eab2_caches!(state)
 
         @test tc.etd_temperature !== nothing
         @test tc.etd_velocity_toroidal !== nothing

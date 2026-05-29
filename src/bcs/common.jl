@@ -187,8 +187,8 @@ function get_boundary_statistics(boundary_data::BoundaryData)
     stats = Dict{String, Any}(
         "min" => minimum(values),
         "max" => maximum(values),
-        "mean" => __Statistics.mean(values),
-        "std" => __Statistics.std(values),
+        "mean" => _Statistics.mean(values),
+        "std" => _Statistics.std(values),
         "shape" => size(values),
         "units" => boundary_data.units,
         "description" => boundary_data.description,
@@ -216,7 +216,7 @@ function print_boundary_data_info(boundary_data::BoundaryData, prefix::String=""
     
     values = boundary_data.values
     println("$(prefix)Range: [$(round(minimum(values), digits=3)), $(round(maximum(values), digits=3))]")
-    println("$(prefix)Mean: $(round(__Statistics.mean(values), digits=3))")
+    println("$(prefix)Mean: $(round(_Statistics.mean(values), digits=3))")
     
     # Extract filename from path
     filename = basename(boundary_data.file_path)

@@ -5,21 +5,21 @@
 # This file implements topography corrections for thermal boundary conditions:
 #
 # 1. Dirichlet (fixed temperature):
-#    Θ(r_b) + εh_b ∂__r Θ(r_b) = T_b(θ,φ,t) - T_cond(r_b) - εh_b ∂__r T_cond(r_b)
+#    Θ(r_b) + εh_b ∂_r Θ(r_b) = T_b(θ,φ,t) - T_cond(r_b) - εh_b ∂_r T_cond(r_b)
 #
-# 2. Neumann (fixed flux -k ∂__n T = q_b):
-#    -k[∂__r Θ - ε∇__H h·∇__H Θ + εh ∂__rr Θ] = q_b + k[∂__r T_cond + εh ∂__rr T_cond]
+# 2. Neumann (fixed flux -k ∂_n T = q_b):
+#    -k[∂_r Θ - ε∇_H h·∇_H Θ + εh ∂_rr Θ] = q_b + k[∂_r T_cond + εh ∂_rr T_cond]
 #
 # In spectral form (from PDF equations 38-39):
 #
 # Dirichlet:
-#   Θ_{lm} + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂__r Θ_{l'm'}
-#       = [T_b - T_cond(r_b)]_{lm} - ε Σ h^b_{LM} G_{lm,00,LM} ∂__r T_cond
+#   Θ_{lm} + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂_r Θ_{l'm'}
+#       = [T_b - T_cond(r_b)]_{lm} - ε Σ h^b_{LM} G_{lm,00,LM} ∂_r T_cond
 #
 # Neumann:
-#   ∂__r Θ_{lm} - ε Σ h^b_{LM} G^{(∇)}_{lm,l'm',LM} Θ_{l'm'}
-#              + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂__rr Θ_{l'm'}
-#       = -q_{b,lm}/k - ∂__r T_cond δ_{l0}δ_{m0} - ε Σ h^b_{LM} G_{lm,00,LM} ∂__rr T_cond
+#   ∂_r Θ_{lm} - ε Σ h^b_{LM} G^{(∇)}_{lm,l'm',LM} Θ_{l'm'}
+#              + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂_rr Θ_{l'm'}
+#       = -q_{b,lm}/k - ∂_r T_cond δ_{l0}δ_{m0} - ε Σ h^b_{LM} G_{lm,00,LM} ∂_rr T_cond
 #
 # ================================================================================
 
@@ -58,7 +58,7 @@ function apply_thermal_topography_correction!(temperature_field, topography::Top
     # Get the spectral field (temperature is stored as perturbation Θ = T - T_cond)
     if hasfield(typeof(temperature_field), :spectral)
         spectral = temperature_field.spectral
-    elseif __is_spectral_field_like(temperature_field)
+    elseif _is_spectral_field_like(temperature_field)
         spectral = temperature_field
     else
         @warn "Cannot identify spectral component in temperature field"
@@ -204,12 +204,12 @@ end
 Compute topography correction to Dirichlet thermal BC for mode (l, m).
 
 From PDF equation 38:
-Θ_{lm} + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂__r Θ_{l'm'}
-    = [T_b - T_cond(r_b)]_{lm} - ε Σ h^b_{LM} G_{lm,00,LM} ∂__r T_cond
+Θ_{lm} + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂_r Θ_{l'm'}
+    = [T_b - T_cond(r_b)]_{lm} - ε Σ h^b_{LM} G_{lm,00,LM} ∂_r T_cond
 
 The correction to the RHS involves:
-1. Shift term: h · ∂__r Θ (couples modes)
-2. Conductive correction: h · ∂__r T_cond (modifies boundary value)
+1. Shift term: h · ∂_r Θ (couples modes)
+2. Conductive correction: h · ∂_r T_cond (modifies boundary value)
 """
 function compute_dirichlet_thermal_correction(l::Int, m::Int,
                                               spectral,
@@ -243,7 +243,7 @@ function compute_dirichlet_thermal_correction(l::Int, m::Int,
                 continue
             end
 
-            # Mode coupling: h · ∂__r Θ
+            # Mode coupling: h · ∂_r Θ
             for lp in 0:lmax
                 for mp in -lp:lp
                     if mp + M != m
@@ -255,7 +255,7 @@ function compute_dirichlet_thermal_correction(l::Int, m::Int,
                         continue
                     end
 
-                    # Get ∂__r Θ at boundary
+                    # Get ∂_r Θ at boundary
                     cache === nothing && continue
                     dTheta_dr = get_cache_d1(cache, lp, mp, location)
                     correction += h_LM * G * dTheta_dr
@@ -284,14 +284,14 @@ end
 Compute topography correction to Neumann thermal BC for mode (l, m).
 
 From PDF equation 39:
-∂__r Θ_{lm} - ε Σ h^b_{LM} G^{(∇)}_{lm,l'm',LM} Θ_{l'm'}
-           + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂__rr Θ_{l'm'}
-    = -q_{b,lm}/k - ∂__r T_cond δ_{l0}δ_{m0} - ε Σ h^b_{LM} G_{lm,00,LM} ∂__rr T_cond
+∂_r Θ_{lm} - ε Σ h^b_{LM} G^{(∇)}_{lm,l'm',LM} Θ_{l'm'}
+           + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂_rr Θ_{l'm'}
+    = -q_{b,lm}/k - ∂_r T_cond δ_{l0}δ_{m0} - ε Σ h^b_{LM} G_{lm,00,LM} ∂_rr T_cond
 
 The correction involves:
-1. Slope term: -∇__H h · ∇__H Θ (gradient coupling)
-2. Shift term: h · ∂__rr Θ (second derivative coupling)
-3. Conductive correction: h · ∂__rr T_cond
+1. Slope term: -∇_H h · ∇_H Θ (gradient coupling)
+2. Shift term: h · ∂_rr Θ (second derivative coupling)
+3. Conductive correction: h · ∂_rr T_cond
 """
 function compute_neumann_thermal_correction(l::Int, m::Int,
                                             spectral,
@@ -337,7 +337,7 @@ function compute_neumann_thermal_correction(l::Int, m::Int,
                         correction -= h_LM * G_grad * Theta_val / rb^2
                     end
 
-                    # Shift term: G · ∂__rr Θ (requires second-derivative cache)
+                    # Shift term: G · ∂_rr Θ (requires second-derivative cache)
                     if config.include_shift_terms && abs(G) > 1e-15
                         if cache === nothing || cache.d2_inner === nothing
                             if !warned_missing_d2
@@ -428,7 +428,7 @@ function assemble_thermal_boundary_operator(l::Int, topo::TopographyField{T},
             # Θ = T_b at boundary
             operator[(l, m, :Θ)] = one(Complex{T})
         else
-            # ∂__r Θ = -q_b/k at boundary
+            # ∂_r Θ = -q_b/k at boundary
             operator[(l, m, :dΘ)] = one(Complex{T})
         end
     end
@@ -452,7 +452,7 @@ function assemble_thermal_boundary_operator(l::Int, topo::TopographyField{T},
                     G_grad = get_gradient_gaunt(gaunt, l, m, lp, mp, L, M)
 
                     if bc_type == :dirichlet
-                        # Add shift term: G · ∂__r Θ
+                        # Add shift term: G · ∂_r Θ
                         if config.include_shift_terms && abs(G) > 1e-15
                             key = (lp, mp, :dΘ)
                             coeff = get(operator, key, zero(Complex{T}))
@@ -465,7 +465,7 @@ function assemble_thermal_boundary_operator(l::Int, topo::TopographyField{T},
                             coeff = get(operator, key, zero(Complex{T}))
                             operator[key] = coeff - ε * h_LM * G_grad / rb^2
                         end
-                        # Add shift term: G · ∂__rr Θ
+                        # Add shift term: G · ∂_rr Θ
                         if config.include_shift_terms && abs(G) > 1e-15
                             key = (lp, mp, :d2Θ)
                             coeff = get(operator, key, zero(Complex{T}))
@@ -493,7 +493,7 @@ end
 Compute the heat flux at a topographic boundary.
 
 The normal heat flux on the true surface (to first order) is:
-q_n = -k [∂__r T - ε ∇__H h · ∇__H T + εh ∂__rr T]
+q_n = -k [∂_r T - ε ∇_H h · ∇_H T + εh ∂_rr T]
 
 Returns heat flux on the (θ, φ) grid.
 """

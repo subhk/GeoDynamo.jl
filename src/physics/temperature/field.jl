@@ -385,12 +385,12 @@ function compute_nusselt_number(temp_𝔽::SHTnsTemperatureField{T},
         return T(NaN)
     end
 
-    # Nu = ⟨∂T/∂r⟩__outer / ⟨∂T/∂r⟩__conductive_outer — a ratio of solid-angle means.
+    # Nu = ⟨∂T/∂r⟩_outer / ⟨∂T/∂r⟩_conductive_outer — a ratio of solid-angle means.
     # compute_surface_flux returns the quadrature sum ∮(·)dΩ; dividing by the same
     # quadrature on a unit field (surface_solid_angle) gives the physical mean, so
     # both the Gauss-weight normalization and the r² area factor cancel in the
     # ratio. Conductive reference: T_cond(r)=ri·ro/(ro−ri)·(1/r−1/ro) for the ΔT=1
-    # spherical-shell solution, so dT/dr|__ro = −ri/((ro−ri)·ro).
+    # spherical-shell solution, so dT/dr|_ro = −ri/((ro−ri)·ro).
     flux_outer = compute_surface_flux(∇r, domain.N, config)
     norm_outer = surface_solid_angle(domain.N, config)
     if norm_outer <= eps(T)

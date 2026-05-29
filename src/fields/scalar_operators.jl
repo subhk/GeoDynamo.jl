@@ -107,10 +107,10 @@ abstract type AbstractScalarField{T} end
 
 # Cached (l,m) → linear index lookup tables, keyed by config identity.
 # Avoids O(nlm) linear scan on every call — lookups become O(1).
-const __MODE_INDEX_CACHE = IdDict{SHTnsKitConfig, Dict{Tuple{Int,Int}, Int}}()
-const __MODE_INDEX_CACHE_LOCK = ReentrantLock()
+const _MODE_INDEX_CACHE = IdDict{SHTnsKitConfig, Dict{Tuple{Int,Int}, Int}}()
+const _MODE_INDEX_CACHE_LOCK = ReentrantLock()
 
-function __build_mode_index_table(config::SHTnsKitConfig)
+function _build_mode_index_table(config::SHTnsKitConfig)
     table = Dict{Tuple{Int,Int}, Int}()
     sizehint!(table, config.nlm)
     @inbounds for idx in 1:config.nlm
@@ -120,13 +120,13 @@ function __build_mode_index_table(config::SHTnsKitConfig)
 end
 
 function get_mode_index(config::SHTnsKitConfig, l::Int, m::Int)
-    table = get(__MODE_INDEX_CACHE, config, nothing)
+    table = get(_MODE_INDEX_CACHE, config, nothing)
     if table === nothing
-        lock(__MODE_INDEX_CACHE_LOCK) do
-            table = get(__MODE_INDEX_CACHE, config, nothing)
+        lock(_MODE_INDEX_CACHE_LOCK) do
+            table = get(_MODE_INDEX_CACHE, config, nothing)
             if table === nothing
-                table = __build_mode_index_table(config)
-                __MODE_INDEX_CACHE[config] = table
+                table = _build_mode_index_table(config)
+                _MODE_INDEX_CACHE[config] = table
             end
         end
     end
@@ -744,7 +744,7 @@ end
 # ================================================================================
 
 # Tau method cache structure for efficient boundary condition enforcement
-mutable struct __TauCache
+mutable struct _TauCache
     nr::Int
     tau1::Vector{Float64}
     tau2::Vector{Float64}
@@ -755,10 +755,10 @@ mutable struct __TauCache
 end
 
 # Global tau cache dictionary
-const __TAU_CACHE = IdDict{RadialDomain, __TauCache}()
+const _TAU_CACHE = IdDict{RadialDomain, _TauCache}()
 
 # Influence matrix cache structure
-mutable struct __InfluenceCache
+mutable struct _InfluenceCache
     nr::Int
     G_inner::Vector{Float64}
     G_outer::Vector{Float64}
@@ -766,7 +766,7 @@ mutable struct __InfluenceCache
 end
 
 # Global influence cache dictionary
-const __INFLUENCE_CACHE = IdDict{RadialDomain, __InfluenceCache}()
+const _INFLUENCE_CACHE = IdDict{RadialDomain, _InfluenceCache}()
 
 """
     clear_mode_index_cache!()
@@ -775,8 +775,8 @@ Clear cached `(l, m) -> linear index` lookup tables.
 Useful in long-lived sessions that create many temporary transform configurations.
 """
 function clear_mode_index_cache!()
-    lock(__MODE_INDEX_CACHE_LOCK) do
-        empty!(__MODE_INDEX_CACHE)
+    lock(_MODE_INDEX_CACHE_LOCK) do
+        empty!(_MODE_INDEX_CACHE)
     end
     return nothing
 end
@@ -788,8 +788,8 @@ Clear process-global scalar field caches that retain transform and boundary help
 """
 function clear_scalar_field_caches!()
     clear_mode_index_cache!()
-    empty!(__TAU_CACHE)
-    empty!(__INFLUENCE_CACHE)
+    empty!(_TAU_CACHE)
+    empty!(_INFLUENCE_CACHE)
     return nothing
 end
 
@@ -854,13 +854,13 @@ end
 # ================================================================================
 
 """
-    __get_tau_cache(domain::RadialDomain)
+    _get_tau_cache(domain::RadialDomain)
 
 Get or create cached tau polynomials and derivatives for given domain.
 """
-function __get_tau_cache(domain::RadialDomain)
+function _get_tau_cache(domain::RadialDomain)
     nr = domain.N
-    cache = get(__TAU_CACHE, domain, nothing)
+    cache = get(_TAU_CACHE, domain, nothing)
     if cache === nothing || cache.nr != nr || length(cache.tau1) != nr
         # Recompute cache for current domain
         tau1 = compute_chebyshev_polynomial(nr-1, domain)
@@ -869,8 +869,8 @@ function __get_tau_cache(domain::RadialDomain)
         dt1o = evaluate_chebyshev_derivative(nr-1, domain.r[nr, 4], domain)
         dt2i = evaluate_chebyshev_derivative(nr,   domain.r[1, 4], domain)
         dt2o = evaluate_chebyshev_derivative(nr,   domain.r[nr, 4], domain)
-        cache = __TauCache(nr, tau1, tau2, dt1i, dt1o, dt2i, dt2o)
-        __TAU_CACHE[domain] = cache
+        cache = _TauCache(nr, tau1, tau2, dt1i, dt1o, dt2i, dt2o)
+        _TAU_CACHE[domain] = cache
     end
     return cache
 end
@@ -888,7 +888,7 @@ end
 ScalarFluxBCWork{T}(nr::Int) where T =
     ScalarFluxBCWork{T}(zeros(T, nr), zeros(T, nr), zeros(T, nr))
 
-@inline function __scalar_flux_work(::Type{T}, nr::Int, work) where T
+@inline function _scalar_flux_work(::Type{T}, nr::Int, work) where T
     if work isa ScalarFluxBCWork{T} && length(work.profile_real) == nr
         return work
     end
@@ -905,7 +905,7 @@ function compute_tau_coefficients_both(flux_error_inner::T, flux_error_outer::T,
                                       domain::RadialDomain) where T
     nr = domain.N
     # Use cached tau polynomials/derivatives for this nr
-    tau_cache = __get_tau_cache(domain)
+    tau_cache = _get_tau_cache(domain)
     tau1 = tau_cache.tau1
     tau2 = tau_cache.tau2
     dtau1_inner = tau_cache.dtau1_inner
@@ -937,7 +937,7 @@ Uses a single tau function that doesn't affect outer boundary.
 """
 function compute_tau_coefficients_inner(flux_error::T, domain::RadialDomain) where T
     # Use cached tau data — build tau with zero derivative at outer boundary
-    tc = __get_tau_cache(domain)
+    tc = _get_tau_cache(domain)
     # tau = T_{nr-1} - α*T_{nr} where α = dtau1_outer/dtau2_outer
     α = abs(tc.dtau2_outer) > 1e-12 ? tc.dtau1_outer / tc.dtau2_outer : 0.0
     tau = tc.tau1 .- α .* tc.tau2
@@ -955,7 +955,7 @@ Uses a single tau function that doesn't affect inner boundary.
 """
 function compute_tau_coefficients_outer(flux_error::T, domain::RadialDomain) where T
     # Use cached tau data — build tau with zero derivative at inner boundary
-    tc = __get_tau_cache(domain)
+    tc = _get_tau_cache(domain)
     # tau = T_{nr-1} - β*T_{nr} where β = dtau1_inner/dtau2_inner
     β = abs(tc.dtau2_inner) > 1e-12 ? tc.dtau1_inner / tc.dtau2_inner : 0.0
     tau = tc.tau1 .- β .* tc.tau2
@@ -966,7 +966,7 @@ function compute_tau_coefficients_outer(flux_error::T, domain::RadialDomain) whe
 end
 
 function apply_tau_correction_inner!(profile::Vector{T}, flux_error::T, domain::RadialDomain) where T
-    tc = __get_tau_cache(domain)
+    tc = _get_tau_cache(domain)
     α = abs(tc.dtau2_outer) > 1e-12 ? tc.dtau1_outer / tc.dtau2_outer : zero(T)
     dtau_inner = tc.dtau1_inner - α * tc.dtau2_inner
     c = abs(dtau_inner) > 1e-12 ? flux_error / dtau_inner : zero(T)
@@ -977,7 +977,7 @@ function apply_tau_correction_inner!(profile::Vector{T}, flux_error::T, domain::
 end
 
 function apply_tau_correction_outer!(profile::Vector{T}, flux_error::T, domain::RadialDomain) where T
-    tc = __get_tau_cache(domain)
+    tc = _get_tau_cache(domain)
     β = abs(tc.dtau2_inner) > 1e-12 ? tc.dtau1_inner / tc.dtau2_inner : zero(T)
     dtau_outer = tc.dtau1_outer - β * tc.dtau2_outer
     c = abs(dtau_outer) > 1e-12 ? flux_error / dtau_outer : zero(T)
@@ -1138,7 +1138,7 @@ function compute_flux_at_boundary(
     T = eltype(spec_real)
     nr = domain.N
     r_range = range_local(𝔽.config.pencils.spec, 3)
-    flux_work = __scalar_flux_work(T, nr, work)
+    flux_work = _scalar_flux_work(T, nr, work)
     profile_real = flux_work.profile_real
     profile_imag = flux_work.profile_imag
     fill!(profile_real, zero(T))
@@ -1168,7 +1168,7 @@ function apply_flux_bc_tau!(spec_real, spec_imag, lm_idx,
                            work=nothing)
     T = eltype(spec_real)
     nr = domain.N
-    flux_work = __scalar_flux_work(T, nr, work)
+    flux_work = _scalar_flux_work(T, nr, work)
 
     # Extract radial profile for this mode (only if this process owns the mode)
     profile_real = flux_work.profile_real
@@ -1303,18 +1303,18 @@ function build_influence_matrix(G_inner::Vector{T}, G_outer::Vector{T},
 end
 
 """
-    __get_influence_cache(domain::RadialDomain, ∂r)
+    _get_influence_cache(domain::RadialDomain, ∂r)
 
 Get or create cached influence functions and matrix for given domain.
 Note: `∂r` should be a `BandedMatrix` from `numerics/banded_operators.jl`.
 """
-function __get_influence_cache(domain::RadialDomain, ∂r)
-    cache = get(__INFLUENCE_CACHE, domain, nothing)
+function _get_influence_cache(domain::RadialDomain, ∂r)
+    cache = get(_INFLUENCE_CACHE, domain, nothing)
     if cache === nothing || cache.nr != domain.N
         Gi, Go = compute_influence_functions_flux(domain)
         M = build_influence_matrix(Gi, Go, ∂r, domain)
-        cache = __InfluenceCache(domain.N, Gi, Go, M)
-        __INFLUENCE_CACHE[domain] = cache
+        cache = _InfluenceCache(domain.N, Gi, Go, M)
+        _INFLUENCE_CACHE[domain] = cache
     end
     return cache
 end
@@ -1336,11 +1336,11 @@ function apply_flux_bc_influence_matrix!(spec_real, spec_imag, lm_idx,
                                        𝔽::AbstractScalarField, domain, r_range, owns_mode::Bool;
                                        work=nothing)
     T = eltype(spec_real)
-    infl = __get_influence_cache(domain, 𝔽.∂r)
+    infl = _get_influence_cache(domain, 𝔽.∂r)
 
     # Extract and gather radial profile (only if this process owns the mode)
     nr = domain.N
-    flux_work = __scalar_flux_work(T, nr, work)
+    flux_work = _scalar_flux_work(T, nr, work)
     profile_real = flux_work.profile_real
     profile_imag = flux_work.profile_imag
     fill!(profile_real, zero(T))

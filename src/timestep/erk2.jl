@@ -959,7 +959,7 @@ GeoDynamo.create_erk2_cache_temperature(
     domain,
     diffusivity,
     dt,
-    __thermal_bc_code(temperature_bcs);
+    _thermal_bc_code(temperature_bcs);
     use_krylov,
     m,
     tol,
@@ -986,7 +986,7 @@ GeoDynamo.create_erk2_cache_composition(
     domain,
     diffusivity,
     dt,
-    __composition_bc_code(composition_bcs);
+    _composition_bc_code(composition_bcs);
     use_krylov,
     m,
     tol,
@@ -1078,14 +1078,14 @@ GeoDynamo.report_phi2_conditioning(step::Int; interval::Int=100) =
     report_solver_phi2_conditioning(step; interval=interval)
 
 """
-    __get_or_build_erk2_cache(existing, label, diffusivity, T, config, domain, dt; ...)
+    _get_or_build_erk2_cache(existing, label, diffusivity, T, config, domain, dt; ...)
 
 Build or reuse an ERK2 stage cache for velocity-like fields.
 
 Callers own the storage location; this helper only decides whether the existing
 cache still matches the current grid, timestep, diffusivity, and method flags.
 """
-function __get_or_build_erk2_cache(
+function _get_or_build_erk2_cache(
     existing::Union{ERK2StageCache{T}, Nothing},
     label::AbstractString,
     diffusivity::Float64,
@@ -1129,11 +1129,11 @@ function __get_or_build_erk2_cache(
 end
 
 """
-    __get_or_build_erk2_scalar_cache(existing, label, diffusivity, T, config, domain, dt, boundary_condition; ...)
+    _get_or_build_erk2_scalar_cache(existing, label, diffusivity, T, config, domain, dt, boundary_condition; ...)
 
 Build or reuse an ERK2 stage cache for scalar fields.
 """
-function __get_or_build_erk2_scalar_cache(
+function _get_or_build_erk2_scalar_cache(
     existing::Union{ERK2StageCache{T}, Nothing},
     label::AbstractString,
     diffusivity::Float64,
@@ -1178,14 +1178,14 @@ function __get_or_build_erk2_scalar_cache(
 end
 
 """
-    __get_or_build_erk2_influence_entry(existing, T, config, domain, diffusivity, dt, velocity_bc_code; theta)
+    _get_or_build_erk2_influence_entry(existing, T, config, domain, diffusivity, dt, velocity_bc_code; theta)
 
 Build or reuse the velocity-poloidal influence correction cache.
 
 The cache key includes a hash of the radial grid so boundary-correction
 operators are refreshed when the domain geometry changes.
 """
-function __get_or_build_erk2_influence_entry(
+function _get_or_build_erk2_influence_entry(
     existing::Union{ERK2InfluenceCacheEntry{T}, Nothing},
     ::Type{T},
     config::SHTnsConfigType,
@@ -1503,7 +1503,7 @@ function get_solver_erk2_temperature_cache!(
     m::Int=20,
     tol::Float64=1e-8,
 ) where T
-    caches.erk2_temperature = __get_or_build_erk2_scalar_cache(
+    caches.erk2_temperature = _get_or_build_erk2_scalar_cache(
         caches.erk2_temperature,
         "temperature",
         diffusivity,
@@ -1537,7 +1537,7 @@ function get_solver_erk2_composition_cache!(
     m::Int=20,
     tol::Float64=1e-8,
 ) where T
-    caches.erk2_composition = __get_or_build_erk2_scalar_cache(
+    caches.erk2_composition = _get_or_build_erk2_scalar_cache(
         caches.erk2_composition,
         "composition",
         diffusivity,
@@ -1574,7 +1574,7 @@ function get_solver_erk2_cache!(
     tol::Float64=1e-8,
     bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing}=nothing,
 ) where T
-    caches.erk2_velocity_toroidal = __get_or_build_erk2_cache(
+    caches.erk2_velocity_toroidal = _get_or_build_erk2_cache(
         caches.erk2_velocity_toroidal,
         "velocity_toroidal",
         diffusivity,
@@ -1608,7 +1608,7 @@ function get_solver_erk2_cache!(
     tol::Float64=1e-8,
     bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing}=nothing,
 ) where T
-    caches.erk2_velocity_poloidal = __get_or_build_erk2_cache(
+    caches.erk2_velocity_poloidal = _get_or_build_erk2_cache(
         caches.erk2_velocity_poloidal,
         "velocity_poloidal",
         diffusivity,
@@ -1772,7 +1772,7 @@ function get_solver_erk2_influence_matrices!(
     key === :velocity_poloidal || throw(ArgumentError(
         "get_solver_erk2_influence_matrices!: only :velocity_poloidal key supported for TimestepCaches; got $key"
     ))
-    cache.erk2_influence_velocity_poloidal = __get_or_build_erk2_influence_entry(
+    cache.erk2_influence_velocity_poloidal = _get_or_build_erk2_influence_entry(
         cache.erk2_influence_velocity_poloidal,
         T,
         config,
@@ -1878,7 +1878,7 @@ GeoDynamo.create_velocity_poloidal_influence_matrices(
     domain,
     diffusivity,
     dt,
-    __velocity_bc_code(velocity_bcs);
+    _velocity_bc_code(velocity_bcs);
     theta,
 )
 
@@ -1965,7 +1965,7 @@ function erk2_field_buffers_match(
     size(buffers.n_current_imag) == size(parent(nl.data_imag)) || return false
     isempty(cache.E_full) && return false
     buffers.nr == size(cache.E_full[1], 1) || return false
-    length(buffers.__ws) >= 8 || return false
+    length(buffers._ws) >= 8 || return false
     @inbounds for i in eachindex(cache.l_values)
         get(buffers.cache_lookup, cache.l_values[i], 0) == i || return false
     end
@@ -2017,8 +2017,8 @@ function prepare_solver_erk2_field!(
     r_range = local_range(u.pencil, 3)
 
     nr = buffers.nr
-    ur, ui, nr_vec, ni_vec = buffers.__ws[1], buffers.__ws[2], buffers.__ws[3], buffers.__ws[4]
-    linear_tmp, k1_tmp, stage_tmp, stage_phi_tmp = buffers.__ws[5], buffers.__ws[6], buffers.__ws[7], buffers.__ws[8]
+    ur, ui, nr_vec, ni_vec = buffers._ws[1], buffers._ws[2], buffers._ws[3], buffers._ws[4]
+    linear_tmp, k1_tmp, stage_tmp, stage_phi_tmp = buffers._ws[5], buffers._ws[6], buffers._ws[7], buffers._ws[8]
     half_dt = T(dt) / T(2)
 
     nlm_total = u.nlm
@@ -2211,8 +2211,8 @@ function finalize_solver_erk2_field!(
     r_range = local_range(u.pencil, 3)
 
     nr = buffers.nr
-    tmp_linear, tmp_k1, tmp_Nn, tmp_stage = buffers.__ws[1], buffers.__ws[2], buffers.__ws[3], buffers.__ws[4]
-    delta, correction, result, result_real_profile = buffers.__ws[5], buffers.__ws[6], buffers.__ws[7], buffers.__ws[8]
+    tmp_linear, tmp_k1, tmp_Nn, tmp_stage = buffers._ws[1], buffers._ws[2], buffers._ws[3], buffers._ws[4]
+    delta, correction, result, result_real_profile = buffers._ws[5], buffers._ws[6], buffers._ws[7], buffers._ws[8]
 
     nlm_total = u.nlm
 
@@ -2518,7 +2518,7 @@ end
 # rebuilding them (each build runs N dense Vandermonde solves) every timestep.
 # Per-step endpoint values are attached separately via
 # `with_boundary_mode_values`, so the cached base spec is never mutated.
-function __get_or_build_erk2_boundary_spec!(
+function _get_or_build_erk2_boundary_spec!(
     caches::TimestepCaches{T},
     role::Symbol,
     bc_code::Int,
@@ -2547,14 +2547,14 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     runtime = state.runtime
     domain = state.backend.outer_core_domain
     nr = domain.N
-    velocity_bc_code = __velocity_bc_code(params.velocity_bcs)
-    temperature_bc_code = __thermal_bc_code(params.temperature_bcs)
-    composition_bc_code = __composition_bc_code(params.composition_bcs)
-    theta = __timestepper_implicit_theta(params.timestepper, params)
+    velocity_bc_code = _velocity_bc_code(params.velocity_bcs)
+    temperature_bc_code = _thermal_bc_code(params.temperature_bcs)
+    composition_bc_code = _composition_bc_code(params.composition_bcs)
+    theta = _timestepper_implicit_theta(params.timestepper, params)
 
     # Build the boundary embedding for each active field up front so the stage
     # march can stay uniform across temperature, velocity, magnetic, and composition.
-    temp_bc = __get_or_build_erk2_boundary_spec!(
+    temp_bc = _get_or_build_erk2_boundary_spec!(
         state.timestep_caches, :temperature, temperature_bc_code,
         () -> build_solver_erk2_scalar_bc(T, domain, temperature_bc_code),
     )
@@ -2566,7 +2566,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         temp_bc_values.inner_imag,
         temp_bc_values.outer_imag,
     )
-    vel_tor_bc = __get_or_build_erk2_boundary_spec!(
+    vel_tor_bc = _get_or_build_erk2_boundary_spec!(
         state.timestep_caches, :velocity_tor, velocity_bc_code,
         () -> build_solver_erk2_velocity_tor_bc(
             T,
@@ -2576,7 +2576,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             rot_omega=0.0,
         ),
     )
-    vel_pol_bc = __get_or_build_erk2_boundary_spec!(
+    vel_pol_bc = _get_or_build_erk2_boundary_spec!(
         state.timestep_caches, :velocity_pol, velocity_bc_code,
         () -> build_solver_erk2_velocity_pol_bc(T, domain, velocity_bc_code),
     )
@@ -2685,11 +2685,11 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     mag_tor_bc = nothing
     mag_pol_bc = nothing
     if params.include_magnetic_field && state.fields.magnetic !== nothing
-        mag_tor_bc = __get_or_build_erk2_boundary_spec!(
+        mag_tor_bc = _get_or_build_erk2_boundary_spec!(
             state.timestep_caches, :magnetic_tor, 0,
             () -> build_solver_erk2_magnetic_tor_bc(T, nr),
         )
-        mag_pol_bc = __get_or_build_erk2_boundary_spec!(
+        mag_pol_bc = _get_or_build_erk2_boundary_spec!(
             state.timestep_caches, :magnetic_pol, 0,
             () -> build_solver_erk2_magnetic_pol_bc(T, domain),
         )
@@ -2751,7 +2751,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     comp_cache = nothing
     comp_bc = nothing
     if state.fields.composition !== nothing
-        comp_bc = __get_or_build_erk2_boundary_spec!(
+        comp_bc = _get_or_build_erk2_boundary_spec!(
             state.timestep_caches, :composition, composition_bc_code,
             () -> build_solver_erk2_scalar_bc(T, domain, composition_bc_code),
         )

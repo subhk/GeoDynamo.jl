@@ -57,7 +57,7 @@ CheckpointWriter(path::String; schedule) = CheckpointWriter{typeof(schedule)}(pa
 # ================================================================================
 
 """
-    __run_output_writer!(ow::FieldWriter, sim, ctx)
+    _run_output_writer!(ow::FieldWriter, sim, ctx)
 
 Fires a field snapshot write if the writer's schedule fires for `ctx`.
 
@@ -66,7 +66,7 @@ NOTE: The underlying `write_fields!` in `io/writer.jl` requires a
 ranks.  When MPI is not initialized (e.g. unit tests) this falls back to
 logging an info message without performing I/O.
 """
-function __run_output_writer!(ow::FieldWriter, sim, ctx::__ScheduleContext)
+function _run_output_writer!(ow::FieldWriter, sim, ctx::_ScheduleContext)
     should_fire(ow.schedule, ctx) || return nothing
 
     if !MPI.Initialized()
@@ -108,7 +108,7 @@ function __run_output_writer!(ow::FieldWriter, sim, ctx::__ScheduleContext)
 end
 
 """
-    __run_output_writer!(ow::CheckpointWriter, sim, ctx)
+    _run_output_writer!(ow::CheckpointWriter, sim, ctx)
 
 Fires a checkpoint write if the writer's schedule fires for `ctx`.
 
@@ -116,7 +116,7 @@ NOTE: The underlying `write_restart!` in `io/writer.jl` requires a
 `Dict{String,Any}` of fields (from `extract_all_fields`), a `TimeTracker`, and
 an `OutputConfig`.  When MPI is not initialized this falls back to logging.
 """
-function __run_output_writer!(ow::CheckpointWriter, sim, ctx::__ScheduleContext)
+function _run_output_writer!(ow::CheckpointWriter, sim, ctx::_ScheduleContext)
     should_fire(ow.schedule, ctx) || return nothing
 
     if !MPI.Initialized()
@@ -160,20 +160,20 @@ function __run_output_writer!(ow::CheckpointWriter, sim, ctx::__ScheduleContext)
 end
 
 # ================================================================================
-# __run_output_writers!
+# _run_output_writers!
 # ================================================================================
 
 """
-    __run_output_writers!(sim)
+    _run_output_writers!(sim)
 
-Iterates over `sim.output_writers`, builds a `__ScheduleContext` from the
+Iterates over `sim.output_writers`, builds a `_ScheduleContext` from the
 current simulation state, and fires each writer whose schedule returns `true`.
 """
-function __run_output_writers!(sim)
-    wtime = sim.__wall_start > 0.0 ? time() - sim.__wall_start : 0.0
-    ctx = __ScheduleContext(sim.model.clock.time, sim.model.clock.iteration, wtime)
+function _run_output_writers!(sim)
+    wtime = sim._wall_start > 0.0 ? time() - sim._wall_start : 0.0
+    ctx = _ScheduleContext(sim.model.clock.time, sim.model.clock.iteration, wtime)
     for ow in values(sim.output_writers)
-        __run_output_writer!(ow, sim, ctx)
+        _run_output_writer!(ow, sim, ctx)
     end
     return nothing
 end

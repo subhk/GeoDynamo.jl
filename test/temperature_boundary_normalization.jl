@@ -19,7 +19,7 @@ const G = GeoDynamo
 # Physical value of a field whose only nonzero coefficient is the (0,0) mode set
 # to `coeff` (uniform in radius). The synthesized field is spherically symmetric,
 # so every grid point holds the same value.
-function __physical_from_mean_coeff(cfg, dom, coeff::Float64)
+function _physical_from_mean_coeff(cfg, dom, coeff::Float64)
     spec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     phys = G.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.phi)
     fill!(parent(spec.data_real), 0.0)
@@ -53,8 +53,8 @@ end
         G.apply_scalar_boundary_parameters!(temp,
             G.BoundaryConditions(inner=G.FixedTemperature(1.0),
                                  outer=G.FixedTemperature(0.0)))
-        phys_inner = __physical_from_mean_coeff(cfg, dom, temp.boundary_values[1, m00])
-        phys_outer = __physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00])
+        phys_inner = _physical_from_mean_coeff(cfg, dom, temp.boundary_values[1, m00])
+        phys_outer = _physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00])
         @test isapprox(phys_inner, 1.0; atol=1e-10)
         @test isapprox(phys_outer, 0.0; atol=1e-10)
     end
@@ -63,8 +63,8 @@ end
         G.apply_scalar_boundary_parameters!(temp,
             G.BoundaryConditions(inner=G.FixedTemperature(2.5),
                                  outer=G.FixedTemperature(0.5)))
-        phys_inner = __physical_from_mean_coeff(cfg, dom, temp.boundary_values[1, m00])
-        phys_outer = __physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00])
+        phys_inner = _physical_from_mean_coeff(cfg, dom, temp.boundary_values[1, m00])
+        phys_outer = _physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00])
         @test isapprox(phys_inner - phys_outer, 2.0; atol=1e-10)
     end
 
@@ -76,7 +76,7 @@ end
         G.apply_scalar_boundary_parameters!(temp,
             G.BoundaryConditions(inner=G.FixedFlux(-1.0),
                                  outer=G.FixedFlux(0.5)))
-        @test isapprox(__physical_from_mean_coeff(cfg, dom, temp.boundary_values[1, m00]), -1.0; atol=1e-10)
-        @test isapprox(__physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00]), 0.5; atol=1e-10)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, temp.boundary_values[1, m00]), -1.0; atol=1e-10)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00]), 0.5; atol=1e-10)
     end
 end

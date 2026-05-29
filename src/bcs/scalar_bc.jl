@@ -7,17 +7,17 @@
 # files keep field-specific names and documentation; this file holds the common
 # implementation so the two paths cannot drift.
 
-@inline __scalar_inner_is_dirichlet(scalar_bc_code::Int) =
+@inline _scalar_inner_is_dirichlet(scalar_bc_code::Int) =
     scalar_bc_code == 1 || scalar_bc_code == 2
 
-@inline __scalar_outer_is_dirichlet(scalar_bc_code::Int) =
+@inline _scalar_outer_is_dirichlet(scalar_bc_code::Int) =
     scalar_bc_code == 1 || scalar_bc_code == 3
 
-@inline function __scalar_mode_bc_value(values::Union{AbstractVector{T}, Nothing}, lm_idx::Int) where T
+@inline function _scalar_mode_bc_value(values::Union{AbstractVector{T}, Nothing}, lm_idx::Int) where T
     return values !== nothing && lm_idx <= length(values) ? values[lm_idx] : zero(T)
 end
 
-function __zero_scalar_boundary_rows!(system_data::AbstractMatrix{T}, bw::Int, N::Int) where T
+function _zero_scalar_boundary_rows!(system_data::AbstractMatrix{T}, bw::Int, N::Int) where T
     @inbounds for j in 1:(1 + bw)
         system_data[bw + 1 + 1 - j, j] = zero(T)
     end
@@ -27,7 +27,7 @@ function __zero_scalar_boundary_rows!(system_data::AbstractMatrix{T}, bw::Int, N
     return system_data
 end
 
-function __apply_scalar_boundary_rows!(
+function _apply_scalar_boundary_rows!(
     system_data::AbstractMatrix{T},
     d1_data::AbstractMatrix{T},
     scalar_bc_code::Int,
@@ -35,7 +35,7 @@ function __apply_scalar_boundary_rows!(
     bw::Int,
     N::Int,
 ) where T
-    if __scalar_inner_is_dirichlet(scalar_bc_code)
+    if _scalar_inner_is_dirichlet(scalar_bc_code)
         system_data[bw + 1, 1] = one(T)
     else
         @inbounds for j in 1:(1 + bw)
@@ -43,7 +43,7 @@ function __apply_scalar_boundary_rows!(
         end
     end
 
-    if __scalar_outer_is_dirichlet(scalar_bc_code)
+    if _scalar_outer_is_dirichlet(scalar_bc_code)
         system_data[bw + 1, N] = one(T)
     else
         @inbounds for j in (N - bw):N
@@ -110,8 +110,8 @@ function create_scalar_matrices(
         system_data .*= minus_theta
         system_data[bw + 1, :] .+= inv_dt
 
-        __zero_scalar_boundary_rows!(system_data, bw, N)
-        __apply_scalar_boundary_rows!(system_data, d1_matrix.data, scalar_bc_code, l, bw, N)
+        _zero_scalar_boundary_rows!(system_data, bw, N)
+        _apply_scalar_boundary_rows!(system_data, d1_matrix.data, scalar_bc_code, l, bw, N)
 
         system_matrix = BandedMatrix{T}(system_data, bw, N)
         system_matrices[idx] = system_matrix
@@ -190,10 +190,10 @@ function solve_scalar_implicit_step!(
             tmp_i[ir] = local_spectral_value(rhs_imag, slot, ir)
         end
 
-        tmp_r[1] = __scalar_mode_bc_value(bc_inner, lm_idx)
-        tmp_i[1] = __scalar_mode_bc_value(bc_inner_imag, lm_idx)
-        tmp_r[nr] = __scalar_mode_bc_value(bc_outer, lm_idx)
-        tmp_i[nr] = __scalar_mode_bc_value(bc_outer_imag, lm_idx)
+        tmp_r[1] = _scalar_mode_bc_value(bc_inner, lm_idx)
+        tmp_i[1] = _scalar_mode_bc_value(bc_inner_imag, lm_idx)
+        tmp_r[nr] = _scalar_mode_bc_value(bc_outer, lm_idx)
+        tmp_i[nr] = _scalar_mode_bc_value(bc_outer_imag, lm_idx)
 
         solve_banded!(tmp_r, matrices.factorizations[idx], tmp_r)
         solve_banded!(tmp_i, matrices.factorizations[idx], tmp_i)

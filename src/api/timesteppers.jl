@@ -62,32 +62,32 @@ struct ThetaMethod <: AbstractTimestepper
 end
 ThetaMethod(; theta::Real=0.5) = ThetaMethod(Float64(theta))
 
-__timestepper_scheme(::CNAB2) = :cnab2
-__timestepper_scheme(::EAB2) = :eab2
-__timestepper_scheme(::ERK2) = :erk2
-__timestepper_scheme(::ETD) = :etd
-__timestepper_scheme(::ThetaMethod) = :theta
-__timestepper_scheme(scheme::Symbol) = scheme
+_timestepper_scheme(::CNAB2) = :cnab2
+_timestepper_scheme(::EAB2) = :eab2
+_timestepper_scheme(::ERK2) = :erk2
+_timestepper_scheme(::ETD) = :etd
+_timestepper_scheme(::ThetaMethod) = :theta
+_timestepper_scheme(scheme::Symbol) = scheme
 
 # Timestepper-derived settings come from the timestepper struct itself; the
 # generic fallbacks use the standard defaults (these match the EAB2/ETD struct
 # defaults and the CNAB2 theta default) for schemes that do not carry the
 # corresponding field. SolverParameters no longer stores these scalars.
-__timestepper_implicit_theta(timestepper, params) = 0.5
-__timestepper_implicit_theta(timestepper::CNAB2, params) = timestepper.implicit_theta
-__timestepper_implicit_theta(timestepper::ThetaMethod, params) = timestepper.theta
+_timestepper_implicit_theta(timestepper, params) = 0.5
+_timestepper_implicit_theta(timestepper::CNAB2, params) = timestepper.implicit_theta
+_timestepper_implicit_theta(timestepper::ThetaMethod, params) = timestepper.theta
 
-__timestepper_krylov_dimension(timestepper, params) = 20
-__timestepper_krylov_dimension(timestepper::EAB2, params) = timestepper.krylov_dimension
-__timestepper_krylov_dimension(timestepper::ETD, params) = timestepper.krylov_dimension
+_timestepper_krylov_dimension(timestepper, params) = 20
+_timestepper_krylov_dimension(timestepper::EAB2, params) = timestepper.krylov_dimension
+_timestepper_krylov_dimension(timestepper::ETD, params) = timestepper.krylov_dimension
 
-__timestepper_krylov_tolerance(timestepper, params) = 1e-8
-__timestepper_krylov_tolerance(timestepper::EAB2, params) = timestepper.tolerance
-__timestepper_krylov_tolerance(timestepper::ETD, params) = timestepper.tolerance
+_timestepper_krylov_tolerance(timestepper, params) = 1e-8
+_timestepper_krylov_tolerance(timestepper::EAB2, params) = timestepper.tolerance
+_timestepper_krylov_tolerance(timestepper::ETD, params) = timestepper.tolerance
 
 # Construct a timestepper struct from a scheme symbol and optional overrides.
 # Missing overrides fall back to each struct's own defaults.
-function __timestepper_from_scheme(
+function _timestepper_from_scheme(
         scheme::Symbol,
         implicit_theta::Union{Real,Nothing},
         etd_krylov_dimension::Union{Int,Nothing},
@@ -110,7 +110,7 @@ function __timestepper_from_scheme(
     end
 end
 
-function __resolve_timestepper(
+function _resolve_timestepper(
         timestepper,
         timestep_scheme::Union{Symbol,Nothing},
         implicit_theta::Union{Real,Nothing},
@@ -125,13 +125,13 @@ function __resolve_timestepper(
     effective = if !isnothing(timestepper)
         timestepper
     elseif !isnothing(timestep_scheme)
-        __timestepper_from_scheme(timestep_scheme, implicit_theta,
+        _timestepper_from_scheme(timestep_scheme, implicit_theta,
                                  etd_krylov_dimension, krylov_tolerance)
     else
         params.timestepper
     end
 
-    scheme = __timestepper_scheme(effective)
+    scheme = _timestepper_scheme(effective)
     if !isnothing(timestep_scheme) && timestep_scheme !== scheme
         throw(ArgumentError(
             "timestepper=$(typeof(effective)) maps to timestep_scheme=$scheme, " *
@@ -144,15 +144,15 @@ function __resolve_timestepper(
         timestep_scheme = scheme,
         implicit_theta = Float64(something(
             implicit_theta,
-            __timestepper_implicit_theta(effective, params),
+            _timestepper_implicit_theta(effective, params),
         )),
         etd_krylov_dimension = something(
             etd_krylov_dimension,
-            __timestepper_krylov_dimension(effective, params),
+            _timestepper_krylov_dimension(effective, params),
         ),
         krylov_tolerance = Float64(something(
             krylov_tolerance,
-            __timestepper_krylov_tolerance(effective, params),
+            _timestepper_krylov_tolerance(effective, params),
         )),
     )
 end

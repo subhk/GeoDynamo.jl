@@ -75,7 +75,7 @@ function create_ball_radial_domain(nr::Int; radial_bandwidth::Int=4)
     integration_weights = zeros(Float64, N)
 
     domain = GeoDynamo.RadialDomain(N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)
-    GeoDynamo.__populate_radial_operators!(domain)
+    GeoDynamo._populate_radial_operators!(domain)
     return domain
 end
 

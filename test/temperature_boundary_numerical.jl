@@ -21,7 +21,7 @@ using MPI
 # the solver pins the inner row to Dirichlet for l=0 only. The mean-mode block
 # below checks that pin is in place and that the outer flux is still honored.
 
-function __tempbc_banded_row(bm, i::Int)
+function _tempbc_banded_row(bm, i::Int)
     N = bm.size
     bw = bm.bandwidth
     row = zeros(eltype(bm.data), N)
@@ -105,8 +105,8 @@ end
         mats = mat(4)
         e1 = zeros(N); e1[1] = 1.0
         # Structural: l=0 inner row is the identity (pinned); l≥1 inner stays Neumann.
-        @test __tempbc_banded_row(mats.system_matrices[mats.lookup[0]], 1) ≈ e1 atol=1e-14
-        @test !(__tempbc_banded_row(mats.system_matrices[mats.lookup[2]], 1) ≈ e1)
+        @test _tempbc_banded_row(mats.system_matrices[mats.lookup[0]], 1) ≈ e1 atol=1e-14
+        @test !(_tempbc_banded_row(mats.system_matrices[mats.lookup[2]], 1) ≈ e1)
         # Behavioral: the solve is well-posed (no singular pivot) and honors the
         # pinned inner value plus the prescribed outer flux.
         T = solve_mode(mats, 0, rhs_with(0.8, -0.2))
@@ -118,9 +118,9 @@ end
     @testset "thermal BC code mapping matches BoundaryConditions types" begin
         D = GeoDynamo.FixedTemperature(0.0)
         F = GeoDynamo.FixedFlux(0.0)
-        @test GeoDynamo.__thermal_bc_code(GeoDynamo.BoundaryConditions(inner=D, outer=D)) == 1
-        @test GeoDynamo.__thermal_bc_code(GeoDynamo.BoundaryConditions(inner=D, outer=F)) == 2
-        @test GeoDynamo.__thermal_bc_code(GeoDynamo.BoundaryConditions(inner=F, outer=D)) == 3
-        @test GeoDynamo.__thermal_bc_code(GeoDynamo.BoundaryConditions(inner=F, outer=F)) == 4
+        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner=D, outer=D)) == 1
+        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner=D, outer=F)) == 2
+        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner=F, outer=D)) == 3
+        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner=F, outer=F)) == 4
     end
 end

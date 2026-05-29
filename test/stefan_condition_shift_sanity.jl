@@ -8,7 +8,7 @@ struct ShiftDummyConfig
     lmax::Int
     mmax::Int
     nlm::Int
-    __buffers::GeoDynamo.SHTnsBuffers
+    _buffers::GeoDynamo.SHTnsBuffers
 end
 
 # Build a dummy config whose spectral-slot lookup is pre-populated for the

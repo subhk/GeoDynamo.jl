@@ -150,14 +150,14 @@ function solver_get_eab2_alu_cache!(
 end
 
 """
-    __ensure_etd_cache!(caches, field, ν, T, domain)
+    _ensure_etd_cache!(caches, field, ν, T, domain)
 
 Ensure a typed EAB2/ETD cache entry exists for one solver field.
 
 The cache is rebuilt when diffusivity or radial resolution changes; otherwise
 the existing per-degree operator/factorization map is reused.
 """
-function __ensure_etd_cache!(
+function _ensure_etd_cache!(
     caches::TimestepCaches{T},
     field::Symbol,
     ν::Float64,
@@ -297,14 +297,14 @@ function solver_eab2_update_krylov_cached!(
 end
 
 """
-    __solver_solve_scalar_implicit_step!(solution, rhs, matrices; bc_inner=nothing, bc_outer=nothing, ...)
+    _solver_solve_scalar_implicit_step!(solution, rhs, matrices; bc_inner=nothing, bc_outer=nothing, ...)
 
 Solve one scalar-field implicit radial system for each local spectral mode.
 
 Boundary vectors are mode-indexed global arrays. Missing boundary vectors
 default to homogeneous values for both real and imaginary parts.
 """
-function __solver_solve_scalar_implicit_step!(
+function _solver_solve_scalar_implicit_step!(
     solution::SpectralFieldType{T},
     rhs::SpectralFieldType{T},
     matrices::ImplicitMatrixSet{T};
@@ -376,7 +376,7 @@ function solver_solve_temperature_implicit_step!(
     bc_outer_imag::Union{AbstractVector{T}, Nothing}=nothing,
     work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
-    return __solver_solve_scalar_implicit_step!(
+    return _solver_solve_scalar_implicit_step!(
         solution,
         rhs,
         matrices;
@@ -403,7 +403,7 @@ function solver_solve_composition_implicit_step!(
     bc_outer_imag::Union{AbstractVector{T}, Nothing}=nothing,
     work::Union{SolverRadialWork{T}, Nothing}=nothing,
 ) where T
-    return __solver_solve_scalar_implicit_step!(
+    return _solver_solve_scalar_implicit_step!(
         solution,
         rhs,
         matrices;

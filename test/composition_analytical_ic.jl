@@ -7,7 +7,7 @@ const G = GeoDynamo
 # as value·√(4π) (orthonormal SH), like the temperature presets and the solver's
 # background composition IC.
 
-function __physical_from_mean_coeff(cfg, dom, coeff::Float64)
+function _physical_from_mean_coeff(cfg, dom, coeff::Float64)
     spec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     phys = G.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.phi)
     fill!(parent(spec.data_real), 0.0)
@@ -41,7 +41,7 @@ end
         G.set_analytical_initial_conditions!(comp, :composition, :stratified,
                                              bottom_composition=0.3, top_composition=0.1)
         c_inner = G.local_spectral_value(parent(comp.spectral.data_real), slot, 1)  # r_frac=0 ⇒ 0.3
-        @test isapprox(__physical_from_mean_coeff(cfg, dom, c_inner), 0.3; atol=1e-9)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, c_inner), 0.3; atol=1e-9)
     end
 
     @testset ":blob (0,0) reconstructs to the Gaussian-bump physical value" begin
@@ -56,6 +56,6 @@ end
         # reconstructs to this value — confirming the √(4π) normalization is applied.
         expected = bg + (blob_composition - bg) * exp(-0.5 * ((0.0 - r_center) / blob_width)^2)
         c_bg = G.local_spectral_value(parent(comp.spectral.data_real), slot, 1)
-        @test isapprox(__physical_from_mean_coeff(cfg, dom, c_bg), expected; atol=1e-9)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, c_bg), expected; atol=1e-9)
     end
 end

@@ -31,17 +31,17 @@ const FINALIZE_MPI_PROG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "tr
         @test_throws ArgumentError GeoDynamo.bcs.Ylm(2, -3)
     end
 
-    @testset "__parse_boundary_spec" begin
-        vals, bc_type = GeoDynamo.bcs.__parse_boundary_spec((:uniform, 1.0), cfg)
+    @testset "_parse_boundary_spec" begin
+        vals, bc_type = GeoDynamo.bcs._parse_boundary_spec((:uniform, 1.0), cfg)
         @test size(vals) == (cfg.nlat, cfg.nlon)
         @test all(vals .== 1.0)
         @test bc_type == GeoDynamo.bcs.DIRICHLET
 
-        vals_n, bc_type_n = GeoDynamo.bcs.__parse_boundary_spec((:neumann, -2.5), cfg)
+        vals_n, bc_type_n = GeoDynamo.bcs._parse_boundary_spec((:neumann, -2.5), cfg)
         @test all(vals_n .== -2.5)
         @test bc_type_n == GeoDynamo.bcs.NEUMANN
 
-        @test_throws ArgumentError GeoDynamo.bcs.__parse_boundary_spec((:invalid, 1.0), cfg)
+        @test_throws ArgumentError GeoDynamo.bcs._parse_boundary_spec((:invalid, 1.0), cfg)
     end
 
     @testset "create_programmatic_temperature_boundaries" begin

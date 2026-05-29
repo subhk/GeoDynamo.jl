@@ -89,7 +89,7 @@ Current GPU-cache behavior:
 - GPU SHTns configs record their transform device but intentionally skip those CPU-only caches
 - the solver GPU path therefore goes through the non-plan transform wrappers for GPU configs
 - each `SolverRuntime` now owns a `TransformWorkspace` for solver-local scratch buffers such as gathered coefficient matrices and slice/component staging arrays
-- `shtns_config.__buffers` (`SHTnsBuffers`) still owns backend artifacts like SHTnsKit plans and output buffers, but solver scratch keys are kept in the runtime workspace cache once that workspace is installed
+- `shtns_config._buffers` (`SHTnsBuffers`) still owns backend artifacts like SHTnsKit plans and output buffers, but solver scratch keys are kept in the runtime workspace cache once that workspace is installed
 - `with_gpu_backend(...)` now provides a scoped backend override for tests and alternate backend integrations, including a `scratch_zeros` hook for transform-workspace allocations, so fake or experimental GPU backends do not need to mutate package internals by hand
 - scalar scratch coefficient gather/scatter now routes through backend hooks on GPU-marked runtimes
 - vector scratch coefficient gather/store and vector component extract/store now also route through backend hooks on GPU-marked runtimes

@@ -5,7 +5,7 @@
 # Provides a composable, schedule-driven callback system for use during
 # simulation time-stepping.  Each callback type carries its own schedule
 # (an `AbstractSchedule` from schedules.jl) and is fired only when
-# `should_fire` returns true for the current `__ScheduleContext`.
+# `should_fire` returns true for the current `_ScheduleContext`.
 #
 # Public types
 # ------------
@@ -17,9 +17,9 @@
 #
 # Internal helpers
 # ----------------
-#   __callback_schedule(cb)      — uniform schedule accessor
-#   __fire_callback!(cb, sim)    — dispatch per callback type
-#   __run_callbacks!(sim)        — iterate sim.callbacks and fire as needed
+#   _callback_schedule(cb)      — uniform schedule accessor
+#   _fire_callback!(cb, sim)    — dispatch per callback type
+#   _run_callbacks!(sim)        — iterate sim.callbacks and fire as needed
 #
 # ================================================================================
 
@@ -92,52 +92,52 @@ HealthCheck(; schedule, abort=true) = HealthCheck(schedule, abort)
 # ================================================================================
 
 """
-    __callback_schedule(cb)
+    _callback_schedule(cb)
 
 Returns the `AbstractSchedule` associated with any callback object.
 """
-__callback_schedule(cb::Callback)           = cb.schedule
-__callback_schedule(cb::EnergyDiagnostics)  = cb.schedule
-__callback_schedule(cb::SolenoidalMonitor)  = cb.schedule
-__callback_schedule(cb::SimulationProgress) = cb.schedule
-__callback_schedule(cb::HealthCheck)        = cb.schedule
-function __callback_schedule(cb)
+_callback_schedule(cb::Callback)           = cb.schedule
+_callback_schedule(cb::EnergyDiagnostics)  = cb.schedule
+_callback_schedule(cb::SolenoidalMonitor)  = cb.schedule
+_callback_schedule(cb::SimulationProgress) = cb.schedule
+_callback_schedule(cb::HealthCheck)        = cb.schedule
+function _callback_schedule(cb)
     error("Unknown callback type $(typeof(cb)). " *
           "Expected one of: Callback, EnergyDiagnostics, SolenoidalMonitor, " *
           "SimulationProgress, HealthCheck.")
 end
 
 # ================================================================================
-# __fire_callback! implementations
+# _fire_callback! implementations
 # ================================================================================
 
 """
-    __fire_callback!(cb::Callback, sim)
+    _fire_callback!(cb::Callback, sim)
 
 Calls `cb.func(sim)`.
 """
-function __fire_callback!(cb::Callback, sim)
+function _fire_callback!(cb::Callback, sim)
     cb.func(sim)
     return nothing
 end
 
 """
-    __fire_callback!(cb::SimulationProgress, sim)
+    _fire_callback!(cb::SimulationProgress, sim)
 
 Logs the current simulation time and step number.
 """
-function __fire_callback!(cb::SimulationProgress, sim)
+function _fire_callback!(cb::SimulationProgress, sim)
     @info "Simulation progress" step=sim.model.clock.iteration time=sim.model.clock.time dt=sim.dt
     return nothing
 end
 
 """
-    __fire_callback!(cb::EnergyDiagnostics, sim)
+    _fire_callback!(cb::EnergyDiagnostics, sim)
 
 Calls `compute_kinetic_energy` if the model exposes `velocity_fields` and
 `domain`; otherwise emits a placeholder info message.
 """
-function __fire_callback!(cb::EnergyDiagnostics, sim)
+function _fire_callback!(cb::EnergyDiagnostics, sim)
     model = sim.model
     if hasproperty(model, :velocity_fields) && hasproperty(model, :domain)
         ke = compute_kinetic_energy(model.velocity_fields, model.domain)
@@ -149,44 +149,44 @@ function __fire_callback!(cb::EnergyDiagnostics, sim)
 end
 
 """
-    __fire_callback!(cb::SolenoidalMonitor, sim)
+    _fire_callback!(cb::SolenoidalMonitor, sim)
 
 Placeholder — divergence-checking requires spectral field access that is
 not yet wired through the public API.  Logs a note and returns.
 """
-function __fire_callback!(cb::SolenoidalMonitor, sim)
+function _fire_callback!(cb::SolenoidalMonitor, sim)
     @info "SolenoidalMonitor (placeholder)" step=sim.model.clock.iteration time=sim.model.clock.time threshold=cb.threshold
     return nothing
 end
 
 """
-    __fire_callback!(cb::HealthCheck, sim)
+    _fire_callback!(cb::HealthCheck, sim)
 
 Placeholder — NaN/Inf detection requires per-field iteration that is not
 yet wired through the public API.  Logs a note and returns.
 """
-function __fire_callback!(cb::HealthCheck, sim)
+function _fire_callback!(cb::HealthCheck, sim)
     @info "HealthCheck (placeholder)" step=sim.model.clock.iteration time=sim.model.clock.time abort=cb.abort
     return nothing
 end
 
 # ================================================================================
-# __run_callbacks!
+# _run_callbacks!
 # ================================================================================
 
 """
-    __run_callbacks!(sim)
+    _run_callbacks!(sim)
 
-Iterates over `sim.callbacks`, builds a `__ScheduleContext` from the current
+Iterates over `sim.callbacks`, builds a `_ScheduleContext` from the current
 simulation state, and fires each callback whose schedule returns `true` from
 `should_fire`.
 """
-function __run_callbacks!(sim)
-    wtime = sim.__wall_start > 0.0 ? time() - sim.__wall_start : 0.0
-    ctx = __ScheduleContext(sim.model.clock.time, sim.model.clock.iteration, wtime)
+function _run_callbacks!(sim)
+    wtime = sim._wall_start > 0.0 ? time() - sim._wall_start : 0.0
+    ctx = _ScheduleContext(sim.model.clock.time, sim.model.clock.iteration, wtime)
     for cb in values(sim.callbacks)
-        if should_fire(__callback_schedule(cb), ctx)
-            __fire_callback!(cb, sim)
+        if should_fire(_callback_schedule(cb), ctx)
+            _fire_callback!(cb, sim)
         end
     end
     return nothing

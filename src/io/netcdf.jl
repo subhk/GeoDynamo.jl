@@ -49,9 +49,9 @@ function generate_filename(config::OutputConfig, time::Float64, step::Int,
     geom = string(geometry)
 
     filename = if file_type == "output"
-        "$(config.filename_prefix)_$(geom)__hist_$(output_number).nc"
+        "$(config.filename_prefix)_$(geom)_hist_$(output_number).nc"
     elseif file_type == "restart"
-        "$(config.filename_prefix)_$(geom)__restart_$(output_number).nc"
+        "$(config.filename_prefix)_$(geom)_restart_$(output_number).nc"
     else
         "$(config.filename_prefix)_$(geom)_$(file_type)_$(output_number).nc"
     end
@@ -219,11 +219,11 @@ function setup_variables!(ds, field_info::FieldInfo, config::OutputConfig,
                           "magnetic_toroidal", "magnetic_poloidal",
                           "temperature_spectral", "composition_spectral"]
             if component in available_fields
-                defVar(ds, "$(component)__real", T, ("spectral_mode", "r"); attrib=Dict(
-                    "long_name" => "$(component)__real_coefficients",
+                defVar(ds, "$(component)_real", T, ("spectral_mode", "r"); attrib=Dict(
+                    "long_name" => "$(component)_real_coefficients",
                     "representation" => "spectral_space"))
-                defVar(ds, "$(component)__imag", T, ("spectral_mode", "r"); attrib=Dict(
-                    "long_name" => "$(component)__imaginary_coefficients",
+                defVar(ds, "$(component)_imag", T, ("spectral_mode", "r"); attrib=Dict(
+                    "long_name" => "$(component)_imaginary_coefficients",
                     "representation" => "spectral_space"))
             end
         end
@@ -284,7 +284,7 @@ function write_coordinate_data!(ds, field_info::FieldInfo, config::OutputConfig)
     end
 end
 
-function __legacy_linear_spectral_io_ranges(pencils)
+function _legacy_linear_spectral_io_ranges(pencils)
     spec_shape = size_global(pencils.spec)
     if length(spec_shape) >= 2 && spec_shape[2] != 1
         throw(ArgumentError(
@@ -299,7 +299,7 @@ end
         config = field_info.config::SHTnsKitConfig
         return local_spectral_mode_indices(config), range_local(config.pencils.spec, 3)
     elseif field_info.has_pencils
-        return __legacy_linear_spectral_io_ranges(field_info.pencils)
+        return _legacy_linear_spectral_io_ranges(field_info.pencils)
     else
         return 1:field_info.nlm, 1:field_info.nr
     end
@@ -308,7 +308,7 @@ end
 @inline local_spectral_io_ranges(config::SHTnsKitConfig) =
     local_spectral_mode_indices(config), range_local(config.pencils.spec, 3)
 
-function __mode_row_lookup(mode_indices, nlm::Int)
+function _mode_row_lookup(mode_indices, nlm::Int)
     rows = zeros(Int, nlm)
     for (row, lm_idx) in pairs(mode_indices)
         rows[lm_idx] = row
@@ -366,7 +366,7 @@ function pack_local_spectral_coefficients(real_data::AbstractArray,
         packed_real = zeros(eltype(real_data), length(mode_indices), length(r_range))
         packed_imag = zeros(eltype(imag_data), length(mode_indices), length(r_range))
         (isempty(mode_indices) || isempty(r_range)) && return packed_real, packed_imag
-        mode_rows = __mode_row_lookup(mode_indices, config.nlm)
+        mode_rows = _mode_row_lookup(mode_indices, config.nlm)
         r_first = first(r_range)
 
         for slot in CartesianIndices(lm_map)
@@ -408,7 +408,7 @@ function unpack_local_spectral_coefficients(real_data::AbstractMatrix,
     lm_map = local_spectral_lm_map(config)
     mode_indices = local_spectral_mode_indices(config)
     isempty(mode_indices) && return unpacked_real, unpacked_imag
-    mode_rows = __mode_row_lookup(mode_indices, config.nlm)
+    mode_rows = _mode_row_lookup(mode_indices, config.nlm)
 
     for slot in CartesianIndices(lm_map)
         global_lm = lm_map[slot]
@@ -468,8 +468,8 @@ function write_field_data!(ds, fields::Dict{String,Any}, config::OutputConfig,
         if haskey(fields, component)
             field_data = fields[component]
             if haskey(field_data, "real") && haskey(field_data, "imag")
-                real_name = "$(component)__real"
-                imag_name = "$(component)__imag"
+                real_name = "$(component)_real"
+                imag_name = "$(component)_imag"
 
                 if haskey(ds, real_name) && haskey(ds, imag_name)
                     real_data = field_data["real"]
@@ -554,7 +554,7 @@ function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
 
     geom = string(geometry)
     grid_filename = joinpath(config.output_dir,
-                            "$(config.filename_prefix)_$(geom)__grid.nc")
+                            "$(config.filename_prefix)_$(geom)_grid.nc")
 
     if config.overwrite_files && isfile(grid_filename)
         rm(grid_filename)

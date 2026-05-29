@@ -82,7 +82,7 @@ Base.@kwdef struct SolverParameters
     restart_time::Float64 = 0.0
 end
 
-function __parameter_rank0()
+function _parameter_rank0()
     return !isdefined(@__MODULE__, :get_rank) || get_rank() == 0
 end
 
@@ -134,7 +134,7 @@ function Base.show(io::IO, ::MIME"text/plain", params::SolverParameters)
     end
 end
 
-function __parameter_errors_warnings(params::SolverParameters)
+function _parameter_errors_warnings(params::SolverParameters)
     errors = String[]
     warnings = String[]
 
@@ -234,10 +234,10 @@ end
 Validate a `SolverParameters` object.
 """
 function validate_parameters(params::SolverParameters; strict::Bool=false)
-    errors, warnings = __parameter_errors_warnings(params)
+    errors, warnings = _parameter_errors_warnings(params)
     is_valid = isempty(errors)
 
-    if __parameter_rank0()
+    if _parameter_rank0()
         if !isempty(errors)
             println("\nPARAMETER VALIDATION ERRORS:")
             for (i, err) in enumerate(errors)
@@ -291,7 +291,7 @@ function find_package_root()
     return dirname(@__DIR__)
 end
 
-function __default_parameter_file()
+function _default_parameter_file()
     return joinpath(find_package_root(), "config", "default_params.jl")
 end
 
@@ -325,8 +325,8 @@ function safe_parse_value(value_str::AbstractString, param_dict::Dict{Symbol, An
     return safe_eval_expr(expr, param_dict)
 end
 
-const __SAFE_OPS = Set{Symbol}([:+, :-, :*, :/, :÷, :^, :div, :mod, :min, :max, :sqrt, :abs])
-const __SAFE_PARAMETER_CONSTRUCTORS = Dict{Symbol, Any}(
+const _SAFE_OPS = Set{Symbol}([:+, :-, :*, :/, :÷, :^, :div, :mod, :min, :max, :sqrt, :abs])
+const _SAFE_PARAMETER_CONSTRUCTORS = Dict{Symbol, Any}(
     :CNAB2 => CNAB2,
     :EAB2 => EAB2,
     :ERK2 => ERK2,
@@ -359,7 +359,7 @@ function safe_eval_expr(expr, param_dict::Dict{Symbol, Any})
 
     if expr.head === :call
         op = expr.args[1]
-        if op isa Symbol && haskey(__SAFE_PARAMETER_CONSTRUCTORS, op)
+        if op isa Symbol && haskey(_SAFE_PARAMETER_CONSTRUCTORS, op)
             args = Any[]
             kwargs = Pair{Symbol, Any}[]
             for arg in expr.args[2:end]
@@ -369,10 +369,10 @@ function safe_eval_expr(expr, param_dict::Dict{Symbol, Any})
                     push!(args, safe_eval_expr(arg, param_dict))
                 end
             end
-            return __SAFE_PARAMETER_CONSTRUCTORS[op](args...; kwargs...)
+            return _SAFE_PARAMETER_CONSTRUCTORS[op](args...; kwargs...)
         end
 
-        if !(op isa Symbol) || op ∉ __SAFE_OPS
+        if !(op isa Symbol) || op ∉ _SAFE_OPS
             throw(ArgumentError("Disallowed operation in parameter file: $op"))
         end
         args = [safe_eval_expr(a, param_dict) for a in expr.args[2:end]]
@@ -384,9 +384,9 @@ function safe_eval_expr(expr, param_dict::Dict{Symbol, Any})
     end
 end
 
-const __LEGACY_PARAM_ALIASES = Dict{Symbol,Symbol}(:max_steps => :stop_iteration)
+const _LEGACY_PARAM_ALIASES = Dict{Symbol,Symbol}(:max_steps => :stop_iteration)
 
-function __parameter_assignments_from_file(config_file::String)
+function _parameter_assignments_from_file(config_file::String)
     param_dict = Dict{Symbol, Any}()
     content = read(config_file, String)
 
@@ -401,8 +401,8 @@ function __parameter_assignments_from_file(config_file::String)
         param_name = Symbol(match_result.captures[1])
         param_value_str = strip(match_result.captures[2])
 
-        if haskey(__LEGACY_PARAM_ALIASES, param_name)
-            new_name = __LEGACY_PARAM_ALIASES[param_name]
+        if haskey(_LEGACY_PARAM_ALIASES, param_name)
+            new_name = _LEGACY_PARAM_ALIASES[param_name]
             @warn "Parameter `$param_name` is deprecated; use `$new_name`."
             param_name = new_name
         end
@@ -435,7 +435,7 @@ function load_parameters_from_file(config_file::String)
     end
 
     try
-        kwargs = __parameter_assignments_from_file(config_file)
+        kwargs = _parameter_assignments_from_file(config_file)
         return SolverParameters(; kwargs...)
     catch e
         @error "Error reading parameter file $config_file: $e"
@@ -450,17 +450,17 @@ Load solver parameters from a file. With no file, loads
 `config/default_params.jl` when present, otherwise uses `SolverParameters()`.
 """
 function load_parameters(config_file::String = "")
-    path = isempty(config_file) ? __default_parameter_file() : config_file
+    path = isempty(config_file) ? _default_parameter_file() : config_file
     params = load_parameters_from_file(path)
     validate_parameters(params; strict=false)
     return params
 end
 
-@inline __parameter_literal(value::Symbol) = ":" * String(value)
-@inline __parameter_literal(value::AbstractString) = repr(value)
-@inline __parameter_literal(value::AbstractTimestepper) = string(value)
-@inline __parameter_literal(value::BoundaryConditions) = string(value)
-@inline __parameter_literal(value) = repr(value)
+@inline _parameter_literal(value::Symbol) = ":" * String(value)
+@inline _parameter_literal(value::AbstractString) = repr(value)
+@inline _parameter_literal(value::AbstractTimestepper) = string(value)
+@inline _parameter_literal(value::BoundaryConditions) = string(value)
+@inline _parameter_literal(value) = repr(value)
 
 """
     save_parameters(params, filename)
@@ -473,7 +473,7 @@ function save_parameters(params::SolverParameters, filename::String)
         println(io, "# Generated on $(now())")
         println(io)
         for name in fieldnames(SolverParameters)
-            println(io, name, " = ", __parameter_literal(getfield(params, name)))
+            println(io, name, " = ", _parameter_literal(getfield(params, name)))
         end
     end
     @info "Parameters saved to $filename"
@@ -508,7 +508,7 @@ end
 function set_parameters!(params::SolverParameters; validate::Bool=true, strict::Bool=false)
     if validate
         is_valid, _, _ = validate_parameters(params; strict=strict)
-        if !is_valid && __parameter_rank0()
+        if !is_valid && _parameter_rank0()
             @warn "Setting parameters despite validation errors. Set strict=true to enforce validation."
         end
     end

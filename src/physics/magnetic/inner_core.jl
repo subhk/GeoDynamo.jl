@@ -115,7 +115,7 @@ function create_inner_core_admittance(::Type{T}, l_values, ic_domain,
 end
 
 """
-    __ic_build_bic(a::InnerCoreAdmittance, l, S_old) -> Vector
+    _ic_build_bic(a::InnerCoreAdmittance, l, S_old) -> Vector
 
 Assemble the CNAB2 history RHS for the inner-core diffusion solve at degree `l`:
 
@@ -125,7 +125,7 @@ using the SAME `η∇²_l` (`a.lin`), `dt`, and `θ` that built `M_ic`. Boundary
 (`b[1]`, `b[Nic]`) are left as produced by the full-band Laplacian and are meant
 to be overridden by the caller (regularity at `r=0`, prescribed ICB value).
 """
-function __ic_build_bic(a::InnerCoreAdmittance{T}, l::Int, S_old::AbstractVector{T}) where T
+function _ic_build_bic(a::InnerCoreAdmittance{T}, l::Int, S_old::AbstractVector{T}) where T
     idx = a.lookup[l]; L = a.lin[idx]; Nic = a.Nic
     Lx = zeros(T, Nic); apply_∂r!(Lx, L, S_old)   # Lx = η∇²_l S_old
     b = (one(T)/a.dt) .* S_old .+ (one(T) - a.theta) .* Lx
@@ -142,7 +142,7 @@ the outer-core inner Robin row `(∂/∂r − α_l) S = φ0`. For a zero history
 `φ0 = 0`.
 """
 function inner_core_history_flux(a::InnerCoreAdmittance{T}, l::Int, S_old::AbstractVector{T}) where T
-    b = __ic_build_bic(a, l, S_old)
+    b = _ic_build_bic(a, l, S_old)
     b[1] = zero(T); b[a.Nic] = zero(T)
     y = similar(b); solve_banded!(y, a.factor[a.lookup[l]], b)
     return dot(a.d1_top, y)
@@ -157,7 +157,7 @@ solve: solve `M_ic S = b_ic` with regularity `S(0)=0` and ICB Dirichlet value
 ICB; `S_old` is the previous inner-core profile (its history enters `b_ic`).
 """
 function reconstruct_inner_core(a::InnerCoreAdmittance{T}, l::Int, g::T, S_old::AbstractVector{T}) where T
-    b = __ic_build_bic(a, l, S_old)
+    b = _ic_build_bic(a, l, S_old)
     b[1] = zero(T); b[a.Nic] = g
     S = similar(b); solve_banded!(S, a.factor[a.lookup[l]], b)
     return S

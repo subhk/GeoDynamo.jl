@@ -5,7 +5,7 @@ using MPI
 #
 # Composition reuses the SAME shared scalar operator/BC embedding as temperature
 # (src/bcs/scalar_bc.jl): `create_composition_matrices` forwards to
-# `create_scalar_matrices`, and `__composition_bc_code == __thermal_bc_code`. This
+# `create_scalar_matrices`, and `_composition_bc_code == _thermal_bc_code`. This
 # file builds the real production operators, solves a radial profile per
 # spherical-harmonic degree, and asserts the solved field satisfies each
 # condition (codes 1–4 = DD / DN / ND / NN):
@@ -24,7 +24,7 @@ using MPI
 # a null-space gauge freedom, so the solver pins the inner row to Dirichlet for
 # l=0 only.
 
-function __compbc_banded_row(bm, i::Int)
+function _compbc_banded_row(bm, i::Int)
     N = bm.size
     bw = bm.bandwidth
     row = zeros(eltype(bm.data), N)
@@ -109,8 +109,8 @@ end
         mats = mat(4)
         e1 = zeros(N); e1[1] = 1.0
         # Structural: l=0 inner row is the identity (pinned); l≥1 inner stays Neumann.
-        @test __compbc_banded_row(mats.system_matrices[mats.lookup[0]], 1) ≈ e1 atol=1e-14
-        @test !(__compbc_banded_row(mats.system_matrices[mats.lookup[2]], 1) ≈ e1)
+        @test _compbc_banded_row(mats.system_matrices[mats.lookup[0]], 1) ≈ e1 atol=1e-14
+        @test !(_compbc_banded_row(mats.system_matrices[mats.lookup[2]], 1) ≈ e1)
         # Behavioral: the solve is well-posed (no singular pivot) and honors the
         # pinned inner value plus the prescribed outer flux.
         C = solve_mode(mats, 0, rhs_with(0.8, -0.2))
@@ -122,9 +122,9 @@ end
     @testset "composition BC code mapping matches BoundaryConditions types" begin
         D = GeoDynamo.FixedTemperature(0.0)
         F = GeoDynamo.FixedFlux(0.0)
-        @test GeoDynamo.__composition_bc_code(GeoDynamo.BoundaryConditions(inner=D, outer=D)) == 1
-        @test GeoDynamo.__composition_bc_code(GeoDynamo.BoundaryConditions(inner=D, outer=F)) == 2
-        @test GeoDynamo.__composition_bc_code(GeoDynamo.BoundaryConditions(inner=F, outer=D)) == 3
-        @test GeoDynamo.__composition_bc_code(GeoDynamo.BoundaryConditions(inner=F, outer=F)) == 4
+        @test GeoDynamo._composition_bc_code(GeoDynamo.BoundaryConditions(inner=D, outer=D)) == 1
+        @test GeoDynamo._composition_bc_code(GeoDynamo.BoundaryConditions(inner=D, outer=F)) == 2
+        @test GeoDynamo._composition_bc_code(GeoDynamo.BoundaryConditions(inner=F, outer=D)) == 3
+        @test GeoDynamo._composition_bc_code(GeoDynamo.BoundaryConditions(inner=F, outer=F)) == 4
     end
 end

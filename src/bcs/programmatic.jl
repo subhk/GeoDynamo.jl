@@ -350,7 +350,7 @@ struct ProgrammaticBoundarySet{T<:AbstractFloat}
 end
 
 """
-    __parse_boundary_spec(spec::Tuple, cfg) -> (values::Matrix, bc_type::BoundaryType)
+    _parse_boundary_spec(spec::Tuple, cfg) -> (values::Matrix, bc_type::BoundaryType)
 
 Parse a boundary specification tuple into physical-space values and BC type.
 
@@ -358,7 +358,7 @@ Supported spec formats:
 - `(:uniform, value)` or `(:dirichlet, value)`: Dirichlet BC with uniform value
 - `(:neumann, value)`: Neumann BC with uniform flux value
 """
-function __parse_boundary_spec(spec::Tuple, cfg)
+function _parse_boundary_spec(spec::Tuple, cfg)
     pattern_type = spec[1]::Symbol
     value = Float64(spec[2])
 
@@ -396,8 +396,8 @@ bset = create_programmatic_temperature_boundaries((:dirichlet, 1.0), (:neumann, 
 ```
 """
 function create_programmatic_temperature_boundaries(inner_spec::Tuple, outer_spec::Tuple, cfg)
-    inner_values, inner_bc_type = __parse_boundary_spec(inner_spec, cfg)
-    outer_values, outer_bc_type = __parse_boundary_spec(outer_spec, cfg)
+    inner_values, inner_bc_type = _parse_boundary_spec(inner_spec, cfg)
+    outer_values, outer_bc_type = _parse_boundary_spec(outer_spec, cfg)
 
     inner_data = create_boundary_data(
         inner_values, "temperature";
@@ -426,8 +426,8 @@ Create a `ProgrammaticBoundarySet` for composition from programmatic specificati
 Same interface as `create_programmatic_temperature_boundaries`.
 """
 function create_programmatic_composition_boundaries(inner_spec::Tuple, outer_spec::Tuple, cfg)
-    inner_values, inner_bc_type = __parse_boundary_spec(inner_spec, cfg)
-    outer_values, outer_bc_type = __parse_boundary_spec(outer_spec, cfg)
+    inner_values, inner_bc_type = _parse_boundary_spec(inner_spec, cfg)
+    outer_values, outer_bc_type = _parse_boundary_spec(outer_spec, cfg)
 
     inner_data = create_boundary_data(
         inner_values, "composition";
@@ -482,7 +482,7 @@ When `swap_boundaries=true`, file is outer and programmatic is inner.
 """
 function create_hybrid_temperature_boundaries(file_spec::String, prog_spec::Tuple, cfg; swap_boundaries::Bool=false)
     file_data = read_netcdf_boundary_data(file_spec)
-    prog_values, prog_bc_type = __parse_boundary_spec(prog_spec, cfg)
+    prog_values, prog_bc_type = _parse_boundary_spec(prog_spec, cfg)
     prog_data = create_boundary_data(
         prog_values, "temperature";
         theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,
@@ -506,7 +506,7 @@ Create composition boundaries with one from file and one programmatic.
 """
 function create_hybrid_composition_boundaries(file_spec::String, prog_spec::Tuple, cfg; swap_boundaries::Bool=false)
     file_data = read_netcdf_boundary_data(file_spec)
-    prog_values, prog_bc_type = __parse_boundary_spec(prog_spec, cfg)
+    prog_values, prog_bc_type = _parse_boundary_spec(prog_spec, cfg)
     prog_data = create_boundary_data(
         prog_values, "composition";
         theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,

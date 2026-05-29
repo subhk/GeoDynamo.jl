@@ -5,21 +5,21 @@
 # This file implements topography corrections for velocity boundary conditions:
 #
 # 1. Impermeability (u·n̂ = 0):
-#    uᵣ - ε(∇__H h)·uₜ + εh ∂__r uᵣ = 0
+#    uᵣ - ε(∇_H h)·uₜ + εh ∂_r uᵣ = 0
 #
 # 2. No-slip (uₜ = 0):
-#    uₜ + εh ∂__r uₜ = U_b,t (typically 0 at CMB, Ω_ic × r at ICB)
+#    uₜ + εh ∂_r uₜ = U_b,t (typically 0 at CMB, Ω_ic × r at ICB)
 #
-# 3. Stress-free (∂__r(uₜ/r) = 0):
-#    ∂__r(uₜ/r) = (ε/r_b)(∇__H h) ∂__r uᵣ
+# 3. Stress-free (∂_r(uₜ/r) = 0):
+#    ∂_r(uₜ/r) = (ε/r_b)(∇_H h) ∂_r uᵣ
 #
 # In spectral (l,m) space, the impermeability condition becomes:
-#    l(l+1)/r_b² P_{u,lm} + ε Σ h_{LM} [α ∂__r P + β T_u + γ P] = 0
+#    l(l+1)/r_b² P_{u,lm} + ε Σ h_{LM} [α ∂_r P + β T_u + γ P] = 0
 #
 # ================================================================================
 
 # Local helper for banded matrix multiplication (avoids import cycle)
-function __apply_banded_matrix!(output::Vector{T}, matrix, input::Vector{T}) where T
+function _apply_banded_matrix!(output::Vector{T}, matrix, input::Vector{T}) where T
     N = size(matrix.data, 2)
     bandwidth = (size(matrix.data, 1) - 1) ÷ 2
 
@@ -203,12 +203,12 @@ Compute the topography correction to the impermeability condition for mode (l, m
 The flat-sphere condition is: uᵣ = l(l+1)/r² P_{lm} = 0
 
 With topography:
-uᵣ - ε(∇__H h)·uₜ + εh ∂__r uᵣ = 0
+uᵣ - ε(∇_H h)·uₜ + εh ∂_r uᵣ = 0
 
 In spectral space (schematic):
 l(l+1)/r² P_{lm} + ε Σ_{LM,l'm'} h_{LM} [
-    G · ∂__r(l'(l'+1)/r² P_{l'm'})           # shift term
-    - G^{(∇)} · ∂__r P_{l'm'}                   # slope term (poloidal)
+    G · ∂_r(l'(l'+1)/r² P_{l'm'})           # shift term
+    - G^{(∇)} · ∂_r P_{l'm'}                   # slope term (poloidal)
     - G^{(×)} · T_{l'm'}                       # slope term (toroidal)
 ] = 0
 """
@@ -255,16 +255,16 @@ function compute_impermeability_correction(l::Int, m::Int,
 
                     ll_factor = T(lp * (lp + 1))
 
-                    # Shift term: h · ∂__r uᵣ
+                    # Shift term: h · ∂_r uᵣ
                     if config.include_shift_terms && abs(G) > 1e-15
-                        # ∂__r(l'(l'+1)/r² P) evaluated at r = rb
+                        # ∂_r(l'(l'+1)/r² P) evaluated at r = rb
                         shift_contrib = G * ll_factor * (dP_dr / rb^2 - 2 * P_lpm / rb^3)
                         correction += h_LM * shift_contrib
                     end
 
-                    # Slope terms: -∇__H h · uₜ
+                    # Slope terms: -∇_H h · uₜ
                     if config.include_slope_terms
-                        # Poloidal contribution: -G^{(∇)} · ∂__r P
+                        # Poloidal contribution: -G^{(∇)} · ∂_r P
                         if abs(G_grad) > 1e-15
                             slope_P = -G_grad * (dP_dr / rb^2)
                             correction += h_LM * slope_P
@@ -297,7 +297,7 @@ Compute topography correction to no-slip condition for mode (l, m).
 The flat-sphere condition is: uₜ = 0
 
 With topography:
-uₜ + εh ∂__r uₜ = U_{b,t}
+uₜ + εh ∂_r uₜ = U_{b,t}
 
 Returns (poloidal_correction, toroidal_correction).
 """
@@ -319,8 +319,8 @@ function compute_noslip_correction(l::Int, m::Int,
     lmax = min(p_cache.lmax, gaunt.lmax)
     lmax_t = topo.lmax
 
-    # For no-slip: uₜ + εh ∂__r uₜ = 0
-    # We only correct the toroidal Dirichlet condition via T + εh ∂__r T = 0.
+    # For no-slip: uₜ + εh ∂_r uₜ = 0
+    # We only correct the toroidal Dirichlet condition via T + εh ∂_r T = 0.
 
     for L in 0:lmax_t
         for M in -L:L
@@ -340,7 +340,7 @@ function compute_noslip_correction(l::Int, m::Int,
                         continue
                     end
 
-                    # Toroidal shift: T + ε h ∂__r T = 0
+                    # Toroidal shift: T + ε h ∂_r T = 0
                     dT_dr = get_cache_d1(t_cache, lp, mp, location)
                     T_corr += h_LM * G * dT_dr
                 end
@@ -361,10 +361,10 @@ end
 
 Compute topography correction to stress-free condition for mode (l, m).
 
-The flat-sphere condition is: ∂__r(uₜ/r) = 0
+The flat-sphere condition is: ∂_r(uₜ/r) = 0
 
 With topography:
-∂__r(uₜ/r) = (ε/r_b)(∇__H h) ∂__r uᵣ
+∂_r(uₜ/r) = (ε/r_b)(∇_H h) ∂_r uᵣ
 
 The RHS involves the slope of topography coupling with radial velocity gradient.
 """
@@ -403,16 +403,16 @@ function compute_stressfree_correction(l::Int, m::Int,
                         continue
                     end
 
-                    # Get ∂__r uᵣ at boundary
-                    # uᵣ = l'(l'+1)/r² P, so ∂__r uᵣ involves ∂__r P and P
+                    # Get ∂_r uᵣ at boundary
+                    # uᵣ = l'(l'+1)/r² P, so ∂_r uᵣ involves ∂_r P and P
                     dP_dr = get_cache_d1(p_cache, lp, mp, location)
                     P_val = get_cache_value(p_cache, lp, mp, location)
 
                     ll_factor = T(lp * (lp + 1))
-                    # ∂__r uᵣ = ∂__r[l'(l'+1)/r² P] = l'(l'+1)[∂__r P/r² - 2P/r³]
+                    # ∂_r uᵣ = ∂_r[l'(l'+1)/r² P] = l'(l'+1)[∂_r P/r² - 2P/r³]
                     duᵣ_dr = ll_factor * (dP_dr / rb^2 - 2 * P_val / rb^3)
 
-                    # Stress-free correction: (1/r_b) ∇__H h · (∂__r uᵣ)
+                    # Stress-free correction: (1/r_b) ∇_H h · (∂_r uᵣ)
                     correction += h_LM * G_grad * duᵣ_dr / (rb^2)
                 end
             end
@@ -510,8 +510,8 @@ function get_spectral_radial_derivative(field, l::Int, m::Int, r,
 
     dprofile_real = zeros(T, nr)
     dprofile_imag = zeros(T, nr)
-    __apply_banded_matrix!(dprofile_real, ∂r, profile_real)
-    __apply_banded_matrix!(dprofile_imag, ∂r, profile_imag)
+    _apply_banded_matrix!(dprofile_real, ∂r, profile_real)
+    _apply_banded_matrix!(dprofile_imag, ∂r, profile_imag)
 
     idx_r = location == INNER_BOUNDARY ? 1 : nr
     val = complex(dprofile_real[idx_r], dprofile_imag[idx_r])

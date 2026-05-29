@@ -127,7 +127,7 @@ end
 Base.get(cache::BoundaryInterpolationCache, key::AbstractString, default) =
     haskey(cache, key) ? cache[key] : default
 
-function __boundary_cache_pairs(cache::BoundaryInterpolationCache)
+function _boundary_cache_pairs(cache::BoundaryInterpolationCache)
     pairs = Pair{String, Any}[]
     cache.bc_real === nothing || push!(pairs, "bc_real" => cache.bc_real)
     cache.bc_imag === nothing || push!(pairs, "bc_imag" => cache.bc_imag)
@@ -139,10 +139,10 @@ function __boundary_cache_pairs(cache::BoundaryInterpolationCache)
     return pairs
 end
 
-Base.length(cache::BoundaryInterpolationCache) = length(__boundary_cache_pairs(cache))
+Base.length(cache::BoundaryInterpolationCache) = length(_boundary_cache_pairs(cache))
 Base.isempty(cache::BoundaryInterpolationCache) = length(cache) == 0
-Base.iterate(cache::BoundaryInterpolationCache) = iterate(__boundary_cache_pairs(cache))
-Base.iterate(cache::BoundaryInterpolationCache, state) = iterate(__boundary_cache_pairs(cache), state)
+Base.iterate(cache::BoundaryInterpolationCache) = iterate(_boundary_cache_pairs(cache))
+Base.iterate(cache::BoundaryInterpolationCache, state) = iterate(_boundary_cache_pairs(cache), state)
 
 """
     load_spectral_bc_from_file(filename::String, config; format::Symbol=:physical, T::Type=Float64)
@@ -176,9 +176,9 @@ function load_spectral_bc_from_file(filename::String, config;
     nlm = config.nlm
 
     if format === :physical
-        return __load_physical_format(filename, config, T)
+        return _load_physical_format(filename, config, T)
     elseif format === :spectral
-        return __load_spectral_format(filename, nlm, T)
+        return _load_spectral_format(filename, nlm, T)
     else
         throw(ArgumentError("Unknown BC format: $format. Use :physical or :spectral."))
     end
@@ -187,7 +187,7 @@ end
 """
 Load physical-space boundary data from NetCDF, transform to spectral via SHTnsKit.
 """
-function __load_physical_format(filename::String, config, ::Type{T}) where T<:AbstractFloat
+function _load_physical_format(filename::String, config, ::Type{T}) where T<:AbstractFloat
     nlm = config.nlm
     bc_real = zeros(T, 2, nlm)
     bc_imag = zeros(T, 2, nlm)
@@ -261,7 +261,7 @@ end
 """
 Load pre-computed spectral boundary coefficients from NetCDF (Fortran-compatible format).
 """
-function __load_spectral_format(filename::String, nlm::Int, ::Type{T}) where T<:AbstractFloat
+function _load_spectral_format(filename::String, nlm::Int, ::Type{T}) where T<:AbstractFloat
     bc_real = zeros(T, 2, nlm)
     bc_imag = zeros(T, 2, nlm)
 
@@ -303,11 +303,11 @@ After calling this, `get_bc_vectors_from_field(field)` will return the stored ve
 """
 function store_bc_in_field!(field, bc_coeffs::SpectralBoundaryCoefficients{T}) where T
     cache = field.boundary_interpolation_cache
-    __store_bc_in_cache!(cache, bc_coeffs)
+    _store_bc_in_cache!(cache, bc_coeffs)
     return field
 end
 
-function __store_bc_in_cache!(
+function _store_bc_in_cache!(
     cache::BoundaryInterpolationCache{T},
     bc_coeffs::SpectralBoundaryCoefficients{S},
 ) where {T,S}
@@ -320,7 +320,7 @@ function __store_bc_in_cache!(
     return cache
 end
 
-function __store_bc_in_cache!(cache::AbstractDict, bc_coeffs::SpectralBoundaryCoefficients)
+function _store_bc_in_cache!(cache::AbstractDict, bc_coeffs::SpectralBoundaryCoefficients)
     cache["bc_real"] = bc_coeffs.bc_real
     cache["bc_imag"] = bc_coeffs.bc_imag
     cache["bc_loaded"] = true
@@ -341,10 +341,10 @@ is either a `Vector{T}` of length nlm or `nothing` if no file BCs are loaded.
 """
 function get_bc_vectors_from_field(field)
     cache = field.boundary_interpolation_cache
-    return __get_bc_vectors_from_cache(cache)
+    return _get_bc_vectors_from_cache(cache)
 end
 
-function __get_bc_vectors_from_cache(cache::BoundaryInterpolationCache)
+function _get_bc_vectors_from_cache(cache::BoundaryInterpolationCache)
     bc_real = cache.bc_real
     bc_imag = cache.bc_imag
     if !cache.bc_loaded || bc_real === nothing || bc_imag === nothing
@@ -356,7 +356,7 @@ function __get_bc_vectors_from_cache(cache::BoundaryInterpolationCache)
             inner_imag=view(bc_imag, 1, :), outer_imag=view(bc_imag, 2, :))
 end
 
-function __get_bc_vectors_from_cache(cache)
+function _get_bc_vectors_from_cache(cache)
     if !get(cache, "bc_loaded", false)
         return (inner_real=nothing, outer_real=nothing,
                 inner_imag=nothing, outer_imag=nothing)

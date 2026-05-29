@@ -39,10 +39,10 @@ import ..bcs: shtns_spectral_to_physical
 # `local_spectral_storage_slot` and `get_mode_index` are defined at the GeoDynamo
 # top level (two modules up: topography -> bcs -> GeoDynamo). Forward to them
 # lazily so this submodule does not depend on package include order.
-const __GEODYNAMO_TOP = parentmodule(parentmodule(@__MODULE__))
-@inline local_spectral_storage_slot(args...) = __GEODYNAMO_TOP.local_spectral_storage_slot(args...)
-@inline get_mode_index(args...) = __GEODYNAMO_TOP.get_mode_index(args...)
-@inline gather_local_radial_profile!(args...) = __GEODYNAMO_TOP.gather_local_radial_profile!(args...)
+const _GEODYNAMO_TOP = parentmodule(parentmodule(@__MODULE__))
+@inline local_spectral_storage_slot(args...) = _GEODYNAMO_TOP.local_spectral_storage_slot(args...)
+@inline get_mode_index(args...) = _GEODYNAMO_TOP.get_mode_index(args...)
+@inline gather_local_radial_profile!(args...) = _GEODYNAMO_TOP.gather_local_radial_profile!(args...)
 
 # These will be available when the module is loaded in the context of GeoDynamo
 # Define an abstract type for spectral fields - actual implementations will be duck-typed
@@ -53,7 +53,7 @@ abstract type AbstractSpectralField{T} end
 # so topography code must rely on structure rather than a direct subtype relation.
 const SHTnsSpecField = AbstractSpectralField
 
-@inline function __is_spectral_field_like(field)
+@inline function _is_spectral_field_like(field)
     return hasfield(typeof(field), :data_real) &&
            hasfield(typeof(field), :data_imag) &&
            hasfield(typeof(field), :boundary_values) &&

@@ -9,7 +9,7 @@ const G = GeoDynamo
 # outer boundary (and therefore starts ON the FixedTemperature(1)/(0) BC instead
 # of √(4π) away from it).
 
-function __physical_from_mean_coeff(cfg, dom, coeff::Float64)
+function _physical_from_mean_coeff(cfg, dom, coeff::Float64)
     spec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     phys = G.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.phi)
     fill!(parent(spec.data_real), 0.0)
@@ -59,8 +59,8 @@ end
     inner_coeff = G.local_spectral_value(sr, slot, 1)
     outer_coeff = G.local_spectral_value(sr, slot, N)
 
-    phys_inner = __physical_from_mean_coeff(cfg, dom, inner_coeff)
-    phys_outer = __physical_from_mean_coeff(cfg, dom, outer_coeff)
+    phys_inner = _physical_from_mean_coeff(cfg, dom, inner_coeff)
+    phys_outer = _physical_from_mean_coeff(cfg, dom, outer_coeff)
 
     # Standard nondimensional shell conduction: physical T(inner)=1, T(outer)=0.
     @test isapprox(phys_inner, 1.0; atol=1e-9)
@@ -79,5 +79,5 @@ end
     cspec = parent(comp.spectral.data_real)
     cslot = G.local_spectral_storage_slot(comp.config, m00)
     comp_coeff = G.local_spectral_value(cspec, cslot, 1)
-    @test isapprox(__physical_from_mean_coeff(comp.config, dom, comp_coeff), 0.5; atol=1e-9)
+    @test isapprox(_physical_from_mean_coeff(comp.config, dom, comp_coeff), 0.5; atol=1e-9)
 end

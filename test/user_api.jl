@@ -31,15 +31,15 @@ using Test
         ft = GeoDynamo.FixedTemperature(0.0)
         ff = GeoDynamo.FixedFlux(1.0)
 
-        @test GeoDynamo.__velocity_bc_code(GeoDynamo.BoundaryConditions(inner=ns, outer=ns)) == 1
-        @test GeoDynamo.__velocity_bc_code(GeoDynamo.BoundaryConditions(inner=ns, outer=sf)) == 2
-        @test GeoDynamo.__velocity_bc_code(GeoDynamo.BoundaryConditions(inner=sf, outer=ns)) == 3
-        @test GeoDynamo.__velocity_bc_code(GeoDynamo.BoundaryConditions(inner=sf, outer=sf)) == 4
-        @test GeoDynamo.__thermal_bc_code(GeoDynamo.BoundaryConditions(inner=ff, outer=ft)) == 3
+        @test GeoDynamo._velocity_bc_code(GeoDynamo.BoundaryConditions(inner=ns, outer=ns)) == 1
+        @test GeoDynamo._velocity_bc_code(GeoDynamo.BoundaryConditions(inner=ns, outer=sf)) == 2
+        @test GeoDynamo._velocity_bc_code(GeoDynamo.BoundaryConditions(inner=sf, outer=ns)) == 3
+        @test GeoDynamo._velocity_bc_code(GeoDynamo.BoundaryConditions(inner=sf, outer=sf)) == 4
+        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner=ff, outer=ft)) == 3
     end
 
     @testset "Schedule types" begin
-        ctx = GeoDynamo.__ScheduleContext(1.0, 100, 5.0)
+        ctx = GeoDynamo._ScheduleContext(1.0, 100, 5.0)
         @test GeoDynamo.should_fire(GeoDynamo.IterationInterval(100), ctx) == true
         @test GeoDynamo.should_fire(GeoDynamo.IterationInterval(50),  ctx) == true
         @test GeoDynamo.should_fire(GeoDynamo.IterationInterval(99),  ctx) == false
