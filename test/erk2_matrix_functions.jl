@@ -69,7 +69,7 @@ using Logging
         expA = Matrix(Diagonal(exp.(diag(A))))
 
         phi1 = @test_logs min_level=Logging.Warn GeoDynamo.Solver.solver_compute_phi1_function(A, expA)
-        phi2 = @test_logs min_level=Logging.Warn GeoDynamo.Solver.solver_compute_phi2_function(A, expA; l=1)
+        phi2 = @test_logs min_level=Logging.Warn GeoDynamo.Solver.solver_compute_phi2_function(A, expA; l = 1)
 
         @test size(phi1) == size(A)
         @test size(phi2) == size(A)
@@ -82,6 +82,6 @@ using Logging
         expA = Matrix{Float64}(I, 2, 2)
 
         @test_throws ArgumentError GeoDynamo.Solver.solver_compute_phi1_function(A, expA)
-        @test_throws ArgumentError GeoDynamo.Solver.solver_compute_phi2_function(A, expA; l=1)
+        @test_throws ArgumentError GeoDynamo.Solver.solver_compute_phi2_function(A, expA; l = 1)
     end
 end

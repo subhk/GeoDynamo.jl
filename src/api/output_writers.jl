@@ -26,12 +26,12 @@ Schedule-driven writer that snapshots selected fields to `path` whenever
 `schedule` fires.
 """
 struct FieldWriter{S <: AbstractSchedule}
-    path     :: String
-    schedule :: S
-    fields   :: Vector{Symbol}
+    path::String
+    schedule::S
+    fields::Vector{Symbol}
 end
 
-function FieldWriter(path::String; schedule, fields=[:velocity, :temperature, :magnetic])
+function FieldWriter(path::String; schedule, fields = [:velocity, :temperature, :magnetic])
     return FieldWriter{typeof(schedule)}(path, schedule, collect(Symbol, fields))
 end
 
@@ -46,11 +46,13 @@ Schedule-driven writer that writes a restart/checkpoint file to `path` whenever
 `schedule` fires.
 """
 struct CheckpointWriter{S <: AbstractSchedule}
-    path     :: String
-    schedule :: S
+    path::String
+    schedule::S
 end
 
-CheckpointWriter(path::String; schedule) = CheckpointWriter{typeof(schedule)}(path, schedule)
+function CheckpointWriter(path::String; schedule)
+    CheckpointWriter{typeof(schedule)}(path, schedule)
+end
 
 # ================================================================================
 # Internal dispatch
@@ -88,19 +90,19 @@ function _run_output_writer!(ow::FieldWriter, sim, ctx::_ScheduleContext)
         Inf,            # output_interval (always write when called)
         Inf,            # restart_interval (no restart from FieldWriter)
         Inf,            # max_output_time
-        1e-10,          # time_tolerance
+        1e-10          # time_tolerance
     )
     tracker = create_time_tracker(config, state.time - 1.0)  # force output now
 
-    metadata = Dict{String,Any}(
+    metadata = Dict{String, Any}(
         "current_time" => state.time,
-        "current_step" => state.step,
+        "current_step" => state.step
     )
 
     try
         write_fields!(state, tracker, metadata, config,
-                      state.runtime.shtns_config,
-                      state.runtime.shtns_config.pencils)
+            state.runtime.shtns_config,
+            state.runtime.shtns_config.pencils)
     catch e
         @warn "FieldWriter: write_fields! failed" exception=e path=ow.path
     end
@@ -138,21 +140,21 @@ function _run_output_writer!(ow::CheckpointWriter, sim, ctx::_ScheduleContext)
         Inf,
         0.0,    # restart_interval = 0 so should_restart_now fires immediately
         Inf,
-        1e-10,
+        1e-10
     )
     tracker = create_time_tracker(config, state.time - 1.0)
 
-    metadata = Dict{String,Any}(
+    metadata = Dict{String, Any}(
         "current_time" => state.time,
-        "current_step" => state.step,
+        "current_step" => state.step
     )
 
     try
         fields = extract_all_fields(state)
         write_restart!(fields, tracker, metadata, config,
-                       state.runtime.shtns_config.pencils;
-                       shtns_config=state.runtime.shtns_config,
-                       radial_grid=Float64.(state.runtime.𝒟ᵒᶜ.r[1:state.runtime.𝒟ᵒᶜ.N, 4]))
+            state.runtime.shtns_config.pencils;
+            shtns_config = state.runtime.shtns_config,
+            radial_grid = Float64.(state.runtime.𝒟ᵒᶜ.r[1:state.runtime.𝒟ᵒᶜ.N, 4]))
     catch e
         @warn "CheckpointWriter: write_restart! failed" exception=e path=ow.path
     end

@@ -18,12 +18,14 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     comm = GeoDynamo.get_comm()
 
     # Small config
-    lmax = 6; mmax = 6
+    lmax = 6;
+    mmax = 6
     nlat = max(lmax + 2, 12)
     nlon = max(2lmax + 1, 24)
-    nr   = 6
+    nr = 6
 
-    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = Ball.create_ball_radial_domain(nr)
 
     # Create velocity workspace for all potentially active threads
@@ -38,15 +40,15 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
     # Velocity vorticity finiteness at r=0
     vfields = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, dom;
-        params=GeoDynamo.SolverParameters(
-            geometry=:ball,
-            radius_ratio=0.0,
-            nr_inner=0,
-            nr=nr,
-            lmax=lmax,
-            mmax=mmax,
-            nlat=nlat,
-            nlon=nlon,
+        params = GeoDynamo.SolverParameters(
+            geometry = :ball,
+            radius_ratio = 0.0,
+            nr_inner = 0,
+            nr = nr,
+            lmax = lmax,
+            mmax = mmax,
+            nlat = nlat,
+            nlon = nlon
         ))
     # Fill toroidal/poloidal spectra with random values (no regularity enforced here)
     randn!(parent(vfields.𝒯.data_real))
@@ -69,8 +71,10 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
         for lm_idx in lm_range
             slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
             slot === nothing && continue
-            @test isfinite(ω_tor_r[slot[1], slot[2], local_r]) && isfinite(ω_tor_i[slot[1], slot[2], local_r])
-            @test isfinite(ω_pol_r[slot[1], slot[2], local_r]) && isfinite(ω_pol_i[slot[1], slot[2], local_r])
+            @test isfinite(ω_tor_r[slot[1], slot[2], local_r]) &&
+                  isfinite(ω_tor_i[slot[1], slot[2], local_r])
+            @test isfinite(ω_pol_r[slot[1], slot[2], local_r]) &&
+                  isfinite(ω_pol_i[slot[1], slot[2], local_r])
             @test ω_tor_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
             @test ω_tor_i[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
             @test ω_pol_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
@@ -99,8 +103,10 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
         for lm_idx in lm_range
             slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
             slot === nothing && continue
-            @test isfinite(j_tor_r[slot[1], slot[2], local_r]) && isfinite(j_tor_i[slot[1], slot[2], local_r])
-            @test isfinite(j_pol_r[slot[1], slot[2], local_r]) && isfinite(j_pol_i[slot[1], slot[2], local_r])
+            @test isfinite(j_tor_r[slot[1], slot[2], local_r]) &&
+                  isfinite(j_tor_i[slot[1], slot[2], local_r])
+            @test isfinite(j_pol_r[slot[1], slot[2], local_r]) &&
+                  isfinite(j_pol_i[slot[1], slot[2], local_r])
             @test j_tor_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
             @test j_tor_i[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
             @test j_pol_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12

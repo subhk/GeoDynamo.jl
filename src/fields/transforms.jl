@@ -53,7 +53,8 @@ end
     return cache.anal_out::Matrix{ComplexF64}
 end
 
-@inline function _get_vt_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
+@inline function _get_vt_out(cache::SHTnsBuffers, config, ::Type{T}) where {T <:
+                                                                            AbstractFloat}
     cache.sht_plan === nothing && return nothing
     if cache.vt_out === nothing
         cache.vt_out = zeros(Float64, config.nlat, config.nlon)
@@ -61,7 +62,8 @@ end
     return cache.vt_out::Matrix{Float64}
 end
 
-@inline function _get_vp_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
+@inline function _get_vp_out(cache::SHTnsBuffers, config, ::Type{T}) where {T <:
+                                                                            AbstractFloat}
     cache.sht_plan === nothing && return nothing
     if cache.vp_out === nothing
         cache.vp_out = zeros(Float64, config.nlat, config.nlon)
@@ -69,7 +71,8 @@ end
     return cache.vp_out::Matrix{Float64}
 end
 
-@inline function _get_slm_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
+@inline function _get_slm_out(cache::SHTnsBuffers, config, ::Type{T}) where {T <:
+                                                                             AbstractFloat}
     cache.sht_plan === nothing && return nothing
     if cache.slm_out === nothing
         cache.slm_out = zeros(ComplexF64, config.lmax + 1, config.mmax + 1)
@@ -77,7 +80,8 @@ end
     return cache.slm_out::Matrix{ComplexF64}
 end
 
-@inline function _get_tlm_out(cache::SHTnsBuffers, config, ::Type{T}) where {T<:AbstractFloat}
+@inline function _get_tlm_out(cache::SHTnsBuffers, config, ::Type{T}) where {T <:
+                                                                             AbstractFloat}
     cache.sht_plan === nothing && return nothing
     if cache.tlm_out === nothing
         cache.tlm_out = zeros(ComplexF64, config.lmax + 1, config.mmax + 1)
@@ -109,7 +113,7 @@ Uses SHTnsKit's synthesis function which:
 Modifies `phys.data` with the synthesized field values
 """
 function shtnskit_spectral_to_physical!(spec::SHTnsSpecField{T},
-                                       phys::SHTnsPhysField{T}) where T
+        phys::SHTnsPhysField{T}) where {T}
     config = spec.config
 
     # Use direct synthesis method (processes each radial level)
@@ -133,8 +137,8 @@ This is the most efficient synthesis path because:
 3. Store the resulting (nlat, nlon) physical field slice
 """
 function perform_synthesis_phi_local!(spec::SHTnsSpecField{T},
-                                     phys::SHTnsPhysField{T},
-                                     config) where T
+        phys::SHTnsPhysField{T},
+        config) where {T}
     sht_config = config.sht_config
 
     # Extract underlying Julia arrays from PencilArrays
@@ -154,11 +158,11 @@ function perform_synthesis_phi_local!(spec::SHTnsSpecField{T},
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
 
         if plan !== nothing && synth_out !== nothing
-            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
+            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output = true)
             local_synth = @view synth_out[axes_local[1], axes_local[2]]
             store_physical_slice_phi_local!(phys_data, local_synth, r_local, config)
         else
-            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
+            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output = true)
             local_slice = @view phys_slice[axes_local[1], axes_local[2]]
             store_physical_slice_phi_local!(phys_data, local_slice, r_local, config)
         end
@@ -183,8 +187,8 @@ This involves one extra MPI all-to-all communication (the transpose) but
 ensures the FFT can operate on contiguous local data.
 """
 function perform_synthesis_with_transpose!(spec::SHTnsSpecField{T},
-                                         phys::SHTnsPhysField{T},
-                                         config, back_plan) where T
+        phys::SHTnsPhysField{T},
+        config, back_plan) where {T}
     # Reuse cached temporary phi-pencil array (avoids allocation every call)
     # Uses separate key from analysis to avoid aliasing if called concurrently
     phys_phi = get_cached_buffer!(config, :synthesis_phi_tmp) do
@@ -207,8 +211,8 @@ This is the workhorse function called by other synthesis routines.
 It assumes the destination array is already in phi-pencil orientation.
 """
 function perform_synthesis_to_phi_pencil!(spec::SHTnsSpecField{T},
-                                        phys_phi::PencilArray{T,3},
-                                        config) where T
+        phys_phi::PencilArray{T, 3},
+        config) where {T}
     sht_config = config.sht_config
 
     # Get underlying Julia arrays
@@ -228,11 +232,11 @@ function perform_synthesis_to_phi_pencil!(spec::SHTnsSpecField{T},
         coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
 
         if plan !== nothing && synth_out !== nothing
-            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
+            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output = true)
             local_synth = @view synth_out[axes_local[1], axes_local[2]]
             store_physical_slice_phi_local!(phys_phi_data, local_synth, r_local, config)
         else
-            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
+            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output = true)
             local_slice = @view phys_slice[axes_local[1], axes_local[2]]
             store_physical_slice_phi_local!(phys_phi_data, local_slice, r_local, config)
         end
@@ -253,8 +257,8 @@ For phi-pencil physical fields, `perform_synthesis_phi_local!` is more
 efficient as it can use optimized storage.
 """
 function perform_synthesis_direct!(spec::SHTnsSpecField{T},
-                                  phys::SHTnsPhysField{T},
-                                  config) where T
+        phys::SHTnsPhysField{T},
+        config) where {T}
     sht_config = config.sht_config
 
     # Extract underlying arrays from PencilArrays wrapper
@@ -285,12 +289,12 @@ function perform_synthesis_direct!(spec::SHTnsSpecField{T},
 
         if plan !== nothing && synth_out !== nothing
             # Allocation-free path: use pre-allocated plan and output buffer
-            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
+            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output = true)
             local_synth = @view synth_out[axes_local[1], axes_local[2]]
             store_physical_slice_generic!(phys_data, local_synth, r_local, config)
         else
             # Fallback: allocating path
-            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output=true)
+            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output = true)
             local_slice = @view phys_slice[axes_local[1], axes_local[2]]
             store_physical_slice_generic!(phys_data, local_slice, r_local, config)
         end
@@ -323,7 +327,7 @@ Uses SHTnsKit's analysis function which:
 Modifies `spec.data_real` and `spec.data_imag` with the computed coefficients
 """
 function shtnskit_physical_to_spectral!(phys::SHTnsPhysField{T},
-                                       spec::SHTnsSpecField{T}) where T
+        spec::SHTnsSpecField{T}) where {T}
     config = spec.config
 
     # Use direct analysis method (processes each radial level)
@@ -342,8 +346,8 @@ This is the most efficient analysis path because:
 3. No MPI communication needed during the transform itself
 """
 function perform_analysis_phi_local!(phys::SHTnsPhysField{T},
-                                    spec::SHTnsSpecField{T},
-                                    config) where T
+        spec::SHTnsSpecField{T},
+        config) where {T}
     sht_config = config.sht_config
 
     # Get local data
@@ -361,14 +365,16 @@ function perform_analysis_phi_local!(phys::SHTnsPhysField{T},
     # Process each radial level
     for r_local in axes(phys_data, 3)
         phys_slice = extract_physical_slice_phi_local(phys_data, r_local, config;
-                                                      axes_local=phys_axes_local)
+            axes_local = phys_axes_local)
 
         if plan !== nothing && anal_out !== nothing
             SHTnsKit.analysis!(plan, anal_out, phys_slice)
-            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, anal_out, r_local, config)
+            store_coefficients_from_shtnskit!(
+                spec_real_data, spec_imag_data, anal_out, r_local, config)
         else
             coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
-            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
+            store_coefficients_from_shtnskit!(
+                spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
         end
     end
 end
@@ -379,8 +385,8 @@ end
 Perform analysis with transpose to phi-pencil.
 """
 function perform_analysis_with_transpose!(phys::SHTnsPhysField{T},
-                                        spec::SHTnsSpecField{T},
-                                        config, to_phi_plan) where T
+        spec::SHTnsSpecField{T},
+        config, to_phi_plan) where {T}
     # Reuse cached temporary phi-pencil array (avoids allocation every call)
     # Uses separate key from synthesis to avoid aliasing if called concurrently
     phys_phi = get_cached_buffer!(config, :analysis_phi_tmp) do
@@ -399,9 +405,9 @@ end
 
 Perform analysis from phi-pencil data.
 """
-function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T,3},
-                                         spec::SHTnsSpecField{T},
-                                         config) where T
+function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T, 3},
+        spec::SHTnsSpecField{T},
+        config) where {T}
     sht_config = config.sht_config
 
     # Get data arrays
@@ -419,14 +425,16 @@ function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T,3},
     # Process each radial level
     for r_local in axes(phys_phi_data, 3)
         phys_slice = extract_physical_slice_phi_local(phys_phi_data, r_local, config;
-                                                      axes_local=phi_axes_local)
+            axes_local = phi_axes_local)
 
         if plan !== nothing && anal_out !== nothing
             SHTnsKit.analysis!(plan, anal_out, phys_slice)
-            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, anal_out, r_local, config)
+            store_coefficients_from_shtnskit!(
+                spec_real_data, spec_imag_data, anal_out, r_local, config)
         else
             coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
-            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
+            store_coefficients_from_shtnskit!(
+                spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
         end
     end
 end
@@ -437,8 +445,8 @@ end
 Direct analysis without transpose (fallback).
 """
 function perform_analysis_direct!(phys::SHTnsPhysField{T},
-                                 spec::SHTnsSpecField{T},
-                                 config) where T
+        spec::SHTnsSpecField{T},
+        config) where {T}
     sht_config = config.sht_config
 
     # Get local data
@@ -462,14 +470,16 @@ function perform_analysis_direct!(phys::SHTnsPhysField{T},
     # Process each radial level
     for r_local in axes(phys_data, 3)
         phys_slice = extract_physical_slice_generic(phys_data, r_local, config;
-                                                    axes_local=phys_axes_local)
+            axes_local = phys_axes_local)
 
         if plan !== nothing && anal_out !== nothing
             SHTnsKit.analysis!(plan, anal_out, phys_slice)
-            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, anal_out, r_local, config)
+            store_coefficients_from_shtnskit!(
+                spec_real_data, spec_imag_data, anal_out, r_local, config)
         else
             coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
-            store_coefficients_from_shtnskit!(spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
+            store_coefficients_from_shtnskit!(
+                spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
         end
     end
 end
@@ -505,9 +515,9 @@ The radial component v_r MUST be computed separately from the poloidal scalar.
             If not provided, v_r will be set to zero (suitable for tests).
 """
 function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
-                                   pol_spec::SHTnsSpecField{T},
-                                   vec_phys::SHTnsVectorField{T};
-                                   domain::Union{RadialDomain,Nothing}=nothing) where T
+        pol_spec::SHTnsSpecField{T},
+        vec_phys::SHTnsVectorField{T};
+        domain::Union{RadialDomain, Nothing} = nothing) where {T}
     config = tor_spec.config
     sht_config = config.sht_config
 
@@ -568,7 +578,7 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
 
     if domain !== nothing
         d1 = create_derivative_matrix(eltype(pol_real), 1, domain)
-        N  = domain.N
+        N = domain.N
         rprof = zeros(eltype(pol_real), N)
         dprof = zeros(eltype(pol_real), N)
         for lm_idx in local_spectral_mode_indices(config)
@@ -596,18 +606,23 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
     # Process each radial level
     for r_local in axes(tor_real, 3)
         # Tangential synthesis takes the SPHEROIDAL scalar S (not raw P).
-        tor_coeffs, sph_coeffs = extract_coefficients_pair_for_shtnskit(
+        tor_coeffs,
+        sph_coeffs = extract_coefficients_pair_for_shtnskit(
             tor_real, tor_imag, sph_real, sph_imag, r_local, config)
 
         if plan !== nothing && vt_out !== nothing && vp_out !== nothing
-            SHTnsKit.synthesis_sphtor!(plan, vt_out, vp_out, sph_coeffs, tor_coeffs; real_output=true)
-            store_vector_components_generic!(v_theta, v_phi, vt_out, vp_out, r_local, config;
-                                             axes_local=phys_axes_local)
+            SHTnsKit.synthesis_sphtor!(
+                plan, vt_out, vp_out, sph_coeffs, tor_coeffs; real_output = true)
+            store_vector_components_generic!(
+                v_theta, v_phi, vt_out, vp_out, r_local, config;
+                axes_local = phys_axes_local)
         else
-            vt_field, vp_field = SHTnsKit.synthesis_sphtor(sht_config, sph_coeffs, tor_coeffs;
-                                                          real_output=true)
-            store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config;
-                                             axes_local=phys_axes_local)
+            vt_field,
+            vp_field = SHTnsKit.synthesis_sphtor(sht_config, sph_coeffs, tor_coeffs;
+                real_output = true)
+            store_vector_components_generic!(
+                v_theta, v_phi, vt_field, vp_field, r_local, config;
+                axes_local = phys_axes_local)
         end
 
         # Radial component v_r = l(l+1)/r² · P, synthesized from the raw poloidal
@@ -624,7 +639,8 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
                     pol_coeffs = get_cached_buffer!(config, :mie_pol_coeffs_buffer) do
                         zeros(ComplexF64, lmax+1, mmax+1)
                     end::Matrix{ComplexF64}
-                    extract_coefficients_for_shtnskit!(pol_coeffs, pol_real, pol_imag, r_local, config)
+                    extract_coefficients_for_shtnskit!(
+                        pol_coeffs, pol_real, pol_imag, r_local, config)
                     if !coefficient_matrix_is_local(config)
                         gathered = get_cached_buffer!(config, :mie_pol_coeffs_gathered) do
                             zeros(ComplexF64, lmax+1, mmax+1)
@@ -642,18 +658,19 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
                     for l in 0:lmax
                         l_factor = l * (l + 1) * inv_r2      # MIE: l(l+1)/r²
                         for m in 0:min(l, mmax)
-                            pol_rad_coeffs[l+1, m+1] = pol_coeffs[l+1, m+1] * l_factor
+                            pol_rad_coeffs[l + 1, m + 1] = pol_coeffs[l + 1, m + 1] *
+                                                           l_factor
                         end
                     end
 
                     if plan !== nothing && synth_out !== nothing
-                        SHTnsKit.synthesis!(plan, synth_out, pol_rad_coeffs; real_output=true)
+                        SHTnsKit.synthesis!(plan, synth_out, pol_rad_coeffs; real_output = true)
                         store_scalar_component_generic!(v_r, synth_out, r_local, config;
-                                                        axes_local=phys_axes_local)
+                            axes_local = phys_axes_local)
                     else
-                        vr_field = SHTnsKit.synthesis(sht_config, pol_rad_coeffs; real_output=true)
+                        vr_field = SHTnsKit.synthesis(sht_config, pol_rad_coeffs; real_output = true)
                         store_scalar_component_generic!(v_r, vr_field, r_local, config;
-                                                        axes_local=phys_axes_local)
+                            axes_local = phys_axes_local)
                     end
                 else
                     store_zero_component_generic!(v_r, r_local, config)
@@ -703,10 +720,10 @@ Current implementation uses 2-component analysis which is standard practice
 for solenoidal MHD simulations.
 """
 function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
-                                  tor_spec::SHTnsSpecField{T},
-                                  pol_spec::SHTnsSpecField{T};
-                                  domain::Union{RadialDomain,Nothing}=nothing,
-                                  verify_solenoidal::Bool=false) where T
+        tor_spec::SHTnsSpecField{T},
+        pol_spec::SHTnsSpecField{T};
+        domain::Union{RadialDomain, Nothing} = nothing,
+        verify_solenoidal::Bool = false) where {T}
     config = tor_spec.config
     sht_config = config.sht_config
 
@@ -744,9 +761,9 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
         end::Matrix{Float64}
         phys_axes_local = vec_phys.r_component.pencil.axes_local
         vt_field = extract_vector_component_generic!(vt_buffer, v_theta, r_local, config;
-                                                     axes_local=phys_axes_local)
+            axes_local = phys_axes_local)
         vp_field = extract_vector_component_generic!(vp_buffer, v_phi, r_local, config;
-                                                     axes_local=phys_axes_local)
+            axes_local = phys_axes_local)
 
         # The toroidal/poloidal decomposition is recovered from the tangential
         # components, then written back into the distributed spectral storage.
@@ -756,9 +773,12 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
             store_coefficients_from_shtnskit!(pol_real, pol_imag, slm_out, r_local, config)
             store_coefficients_from_shtnskit!(tor_real, tor_imag, tlm_out, r_local, config)
         else
-            pol_coeffs, tor_coeffs = SHTnsKit.analysis_sphtor(sht_config, vt_field, vp_field)
-            store_coefficients_from_shtnskit!(pol_real, pol_imag, pol_coeffs, r_local, config)
-            store_coefficients_from_shtnskit!(tor_real, tor_imag, tor_coeffs, r_local, config)
+            pol_coeffs,
+            tor_coeffs = SHTnsKit.analysis_sphtor(sht_config, vt_field, vp_field)
+            store_coefficients_from_shtnskit!(
+                pol_real, pol_imag, pol_coeffs, r_local, config)
+            store_coefficients_from_shtnskit!(
+                tor_real, tor_imag, tor_coeffs, r_local, config)
         end
     end
 end
@@ -817,7 +837,7 @@ function get_pencil_orientation(pencil::Pencil{3})
     end
 end
 
-@inline function physical_grid_is_local(local_shape::Tuple{Int,Int}, axes_local, nlat::Int, nlon::Int)
+@inline function physical_grid_is_local(local_shape::Tuple{Int, Int}, axes_local, nlat::Int, nlon::Int)
     if axes_local === nothing
         return local_shape[1] == nlat && local_shape[2] == nlon
     end
@@ -825,7 +845,8 @@ end
     return length(θ_range) == nlat && length(φ_range) == nlon
 end
 
-@inline function maybe_allreduce_matrix!(buffer, needs_collective::Bool, comm=get_comm(); reducer=Allreduce!)
+@inline function maybe_allreduce_matrix!(
+        buffer, needs_collective::Bool, comm = get_comm(); reducer = Allreduce!)
     needs_collective || return buffer
     reducer(buffer, MPI.SUM, comm)
     return buffer
@@ -896,7 +917,7 @@ end
 end
 
 @inline function build_local_spectral_slot_lookup(config,
-                                                  lm_map::AbstractMatrix{Int}=local_spectral_lm_map(config))
+        lm_map::AbstractMatrix{Int} = local_spectral_lm_map(config))
     lookup = fill(CartesianIndex(0, 0), config.nlm)
     for slot in CartesianIndices(lm_map)
         lm_idx = lm_map[slot]
@@ -917,7 +938,7 @@ end
 end
 
 @inline function build_local_spectral_mode_indices(config,
-                                                   lm_map::AbstractMatrix{Int}=local_spectral_lm_map(config))
+        lm_map::AbstractMatrix{Int} = local_spectral_lm_map(config))
     modes = Int[]
     sizehint!(modes, count(!iszero, lm_map))
     for slot in CartesianIndices(lm_map)
@@ -945,9 +966,9 @@ end
 end
 
 @inline function gather_local_radial_profile!(profile_real, profile_imag,
-                                              spec_real, spec_imag,
-                                              slot::CartesianIndex{2},
-                                              r_range)
+        spec_real, spec_imag,
+        slot::CartesianIndex{2},
+        r_range)
     for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         if local_r <= size(spec_real, 3) && local_r <= size(spec_imag, 3)
@@ -959,9 +980,9 @@ end
 end
 
 @inline function scatter_local_radial_profile!(spec_real, spec_imag,
-                                               profile_real, profile_imag,
-                                               slot::CartesianIndex{2},
-                                               r_range)
+        profile_real, profile_imag,
+        slot::CartesianIndex{2},
+        r_range)
     for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
         if local_r <= size(spec_real, 3) && local_r <= size(spec_imag, 3)
@@ -972,18 +993,17 @@ end
     return spec_real, spec_imag
 end
 
-@inline local_spectral_value(spec, slot::CartesianIndex{2}, local_r::Integer) =
-    spec[slot[1], slot[2], local_r]
+@inline local_spectral_value(spec, slot::CartesianIndex{2}, local_r::Integer) = spec[slot[1], slot[2], local_r]
 
 @inline function set_local_spectral_value!(spec, slot::CartesianIndex{2},
-                                           local_r::Integer, value)
+        local_r::Integer, value)
     spec[slot[1], slot[2], local_r] = value
     return value
 end
 
 function extract_coefficients_for_shtnskit_mapped!(coeffs_buffer::Matrix{ComplexF64},
-                                                   spec_real, spec_imag, r_local, config,
-                                                   lm_map::AbstractMatrix{Int})
+        spec_real, spec_imag, r_local, config,
+        lm_map::AbstractMatrix{Int})
     lmax, mmax = config.lmax, config.mmax
 
     buffer_lmax = size(coeffs_buffer, 1) - 1
@@ -999,7 +1019,7 @@ function extract_coefficients_for_shtnskit_mapped!(coeffs_buffer::Matrix{Complex
            l >= 0 && m >= 0 && l <= buffer_lmax && m <= buffer_mmax
             real_part = spec_real[slot[1], slot[2], r_local]
             imag_part = spec_imag[slot[1], slot[2], r_local]
-            coeffs_buffer[l+1, m+1] = complex(real_part, imag_part)
+            coeffs_buffer[l + 1, m + 1] = complex(real_part, imag_part)
         end
     end
 
@@ -1007,8 +1027,8 @@ function extract_coefficients_for_shtnskit_mapped!(coeffs_buffer::Matrix{Complex
 end
 
 function store_coefficients_from_shtnskit_mapped!(spec_real, spec_imag, coeffs_matrix,
-                                                  r_local, config,
-                                                  lm_map::AbstractMatrix{Int})
+        r_local, config,
+        lm_map::AbstractMatrix{Int})
     matrix_lmax = size(coeffs_matrix, 1) - 1
     matrix_mmax = size(coeffs_matrix, 2) - 1
 
@@ -1026,7 +1046,7 @@ function store_coefficients_from_shtnskit_mapped!(spec_real, spec_imag, coeffs_m
 
         l, m = index_to_lm_fast(lm_idx, config)
         if l >= 0 && m >= 0 && l <= matrix_lmax && m <= matrix_mmax
-            coeff = coeffs_matrix[l+1, m+1]
+            coeff = coeffs_matrix[l + 1, m + 1]
             spec_real[slot[1], slot[2], r_local] = real(coeff)
             spec_imag[slot[1], slot[2], r_local] = imag(coeff)
 
@@ -1061,14 +1081,14 @@ SHTnsKit format: Matrix indexed by [l+1, m+1]
 Uses `@threads` for parallel filling of the coefficient matrix.
 """
 function extract_coefficients_for_shtnskit!(coeffs_buffer::Matrix{ComplexF64},
-                                           spec_real, spec_imag, r_local, config)
+        spec_real, spec_imag, r_local, config)
     return extract_coefficients_for_shtnskit_mapped!(
         coeffs_buffer,
         spec_real,
         spec_imag,
         r_local,
         config,
-        local_spectral_lm_map(config),
+        local_spectral_lm_map(config)
     )
 end
 
@@ -1133,8 +1153,8 @@ to calling `extract_coefficients_for_shtnskit` twice.
 Tuple (coeffs1, coeffs2) of coefficient matrices.
 """
 function extract_coefficients_pair_for_shtnskit(spec1_real, spec1_imag,
-                                                 spec2_real, spec2_imag,
-                                                 r_local, config)
+        spec2_real, spec2_imag,
+        r_local, config)
     lmax, mmax = config.lmax, config.mmax
 
     # Use separate cached buffers for each extraction
@@ -1146,8 +1166,10 @@ function extract_coefficients_pair_for_shtnskit(spec1_real, spec1_imag,
     end::Matrix{ComplexF64}
 
     # Extract both coefficient sets
-    extract_coefficients_for_shtnskit!(coeffs_buffer1, spec1_real, spec1_imag, r_local, config)
-    extract_coefficients_for_shtnskit!(coeffs_buffer2, spec2_real, spec2_imag, r_local, config)
+    extract_coefficients_for_shtnskit!(
+        coeffs_buffer1, spec1_real, spec1_imag, r_local, config)
+    extract_coefficients_for_shtnskit!(
+        coeffs_buffer2, spec2_real, spec2_imag, r_local, config)
 
     coefficient_matrix_is_local(config) && return coeffs_buffer1, coeffs_buffer2
 
@@ -1180,14 +1202,15 @@ This is the inverse of `extract_coefficients_for_shtnskit!`:
 For real-valued physical fields, the m=0 coefficients must be purely real.
 This function enforces this by zeroing the imaginary part for m=0 modes.
 """
-function store_coefficients_from_shtnskit!(spec_real, spec_imag, coeffs_matrix, r_local, config)
+function store_coefficients_from_shtnskit!(
+        spec_real, spec_imag, coeffs_matrix, r_local, config)
     store_coefficients_from_shtnskit_mapped!(
         spec_real,
         spec_imag,
         coeffs_matrix,
         r_local,
         config,
-        local_spectral_lm_map(config),
+        local_spectral_lm_map(config)
     )
 end
 
@@ -1325,7 +1348,7 @@ function store_physical_slice_generic!(phys_data, phys_slice, r_local, config)
     # This is a generic fallback - may not be optimal for all pencil orientations
     common_i_range = 1:min(size(phys_data, 1), size(phys_slice, 1))
     common_j_range = 1:min(size(phys_data, 2), size(phys_slice, 2))
-    
+
     Threads.@threads for i in common_i_range
         for j in common_j_range
             if r_local <= size(phys_data, 3)
@@ -1346,8 +1369,9 @@ When called inside a per-radial loop, ALL MPI processes must call this
 function the same number of times, otherwise deadlock will occur.
 Ensure even radial distribution or use global loop bounds.
 """
-function extract_physical_slice_phi_local!(slice_buffer::Matrix{T}, phys_data, r_local, config;
-                                          axes_local::Union{Nothing, Tuple}=nothing) where T
+function extract_physical_slice_phi_local!(
+        slice_buffer::Matrix{T}, phys_data, r_local, config;
+        axes_local::Union{Nothing, Tuple} = nothing) where {T}
     nlat, nlon = config.nlat, config.nlon
     needs_collective = !physical_grid_is_local((size(phys_data, 1), size(phys_data, 2)), axes_local, nlat, nlon)
 
@@ -1392,14 +1416,14 @@ end
 
 # Backward compatibility wrapper with thread-safe buffer access
 function extract_physical_slice_phi_local(phys_data, r_local, config;
-                                          axes_local::Union{Nothing, Tuple}=nothing)
+        axes_local::Union{Nothing, Tuple} = nothing)
     nlat, nlon = config.nlat, config.nlon
     # Get or create cached buffer for phi slice (thread-safe)
     slice_buffer = get_cached_buffer!(config, :phi_slice_buffer) do
         zeros(eltype(phys_data), nlat, nlon)
     end::Matrix{Float64}
     return extract_physical_slice_phi_local!(slice_buffer, phys_data, r_local, config;
-                                             axes_local=axes_local)
+        axes_local = axes_local)
 end
 
 """
@@ -1413,8 +1437,9 @@ When called inside a per-radial loop, ALL MPI processes must call this
 function the same number of times, otherwise deadlock will occur.
 Ensure even radial distribution or use global loop bounds.
 """
-function extract_physical_slice_generic!(slice_buffer::Matrix{T}, phys_data, r_local, config;
-                                        axes_local::Union{Nothing, Tuple}=nothing) where T
+function extract_physical_slice_generic!(
+        slice_buffer::Matrix{T}, phys_data, r_local, config;
+        axes_local::Union{Nothing, Tuple} = nothing) where {T}
     nlat, nlon = config.nlat, config.nlon
     needs_collective = !physical_grid_is_local((size(phys_data, 1), size(phys_data, 2)), axes_local, nlat, nlon)
 
@@ -1459,14 +1484,14 @@ end
 
 # Backward compatibility wrapper with thread-safe buffer access
 function extract_physical_slice_generic(phys_data, r_local, config;
-                                        axes_local::Union{Nothing, Tuple}=nothing)
+        axes_local::Union{Nothing, Tuple} = nothing)
     nlat, nlon = config.nlat, config.nlon
     # Get or create cached buffer for generic slice (thread-safe)
     slice_buffer = get_cached_buffer!(config, :generic_slice_buffer) do
         zeros(eltype(phys_data), nlat, nlon)
     end::Matrix{Float64}
     return extract_physical_slice_generic!(slice_buffer, phys_data, r_local, config;
-                                           axes_local=axes_local)
+        axes_local = axes_local)
 end
 
 """
@@ -1480,8 +1505,9 @@ When called inside a per-radial loop, ALL MPI processes must call this
 function the same number of times, otherwise deadlock will occur.
 Ensure even radial distribution or use global loop bounds.
 """
-function extract_vector_component_generic!(component_buffer::Matrix{T}, v_data, r_local, config;
-                                           axes_local::Union{Nothing, Tuple}=nothing) where T
+function extract_vector_component_generic!(
+        component_buffer::Matrix{T}, v_data, r_local, config;
+        axes_local::Union{Nothing, Tuple} = nothing) where {T}
     nlat, nlon = config.nlat, config.nlon
     needs_collective = !physical_grid_is_local((size(v_data, 1), size(v_data, 2)), axes_local, nlat, nlon)
 
@@ -1539,8 +1565,9 @@ end
 
 Store vector components for any pencil orientation.
 """
-function store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config;
-                                          axes_local::Union{Nothing, Tuple}=nothing)
+function store_vector_components_generic!(
+        v_theta, v_phi, vt_field, vp_field, r_local, config;
+        axes_local::Union{Nothing, Tuple} = nothing)
     # Check radial bounds once outside the loop
     if r_local > size(v_theta, 3) || r_local > size(v_phi, 3)
         return
@@ -1579,7 +1606,7 @@ Store a scalar field into a component array for any pencil orientation.
 Used for storing the radial component v_r from synthesized field.
 """
 function store_scalar_component_generic!(v_component, field, r_local, config;
-                                         axes_local::Union{Nothing, Tuple}=nothing)
+        axes_local::Union{Nothing, Tuple} = nothing)
     # Check radial bounds once outside the loop
     if r_local > size(v_component, 3)
         return
@@ -1647,7 +1674,7 @@ Note: The individual transforms themselves are still efficient as SHTnsKit
 performs optimized Legendre transforms and FFTs internally.
 """
 function batch_shtnskit_transforms!(specs::Vector{SHTnsSpecField{T}},
-                                   physs::Vector{SHTnsPhysField{T}}) where T
+        physs::Vector{SHTnsPhysField{T}}) where {T}
     @assert length(specs) == length(physs)
 
     if isempty(specs)
@@ -1672,7 +1699,7 @@ Compatibility wrapper that calls `batch_shtnskit_transforms!` for batched
 spectral→physical transforms using SHTnsKit with PencilArrays/MPI.
 """
 function batch_spectral_to_physical!(specs::Vector{SHTnsSpecField{T}},
-                                     physs::Vector{SHTnsPhysField{T}}) where T
+        physs::Vector{SHTnsPhysField{T}}) where {T}
     return batch_shtnskit_transforms!(specs, physs)
 end
 
@@ -1713,7 +1740,8 @@ end
 
 Synchronize PencilArray data across MPI processes to ensure consistency.
 """
-function synchronize_pencil_data!(field::Union{SHTnsSpecField{T}, SHTnsPhysField{T}}) where T
+function synchronize_pencil_data!(field::Union{
+        SHTnsSpecField{T}, SHTnsPhysField{T}}) where {T}
     # Synchronize the underlying PencilArray data
     if hasmethod(MPI.Barrier, Tuple{typeof(get_comm())})
         MPI.Barrier(get_comm())
@@ -1734,11 +1762,11 @@ function optimize_fft_performance!(config::SHTnsKitConfig)
             test_pencil = config.pencils.phi
             test_array = PencilArray{ComplexF64}(undef, test_pencil)
             fill!(parent(test_array), complex(1.0, 0.0))
-            
+
             # Execute forward and backward transforms
             plan_forward = config.fft_plans[:phi_forward]
             plan_backward = config.fft_plans[:phi_backward]
-            
+
             plan_forward * parent(test_array)
             plan_backward * parent(test_array)
 
@@ -1760,17 +1788,17 @@ Validate that pencil decomposition is optimal for the problem size and MPI confi
 function validate_pencil_decomposition(config::SHTnsKitConfig)
     rank = get_rank()
     nprocs = get_nprocs()
-    
+
     if nprocs > 1 && rank == 0
         nlat, nlon = config.nlat, config.nlon
-        
+
         # Check load balance
         theta_per_proc = nlat ÷ nprocs
         phi_per_proc = nlon ÷ nprocs
-        
+
         theta_imbalance = nlat % nprocs
         phi_imbalance = nlon % nprocs
-        
+
         @info """
         Pencil Decomposition Validation:
           Grid: $nlat × $nlon
@@ -1778,7 +1806,7 @@ function validate_pencil_decomposition(config::SHTnsKitConfig)
           Theta per process: $theta_per_proc (imbalance: $theta_imbalance)
           Phi per process: $phi_per_proc (imbalance: $phi_imbalance)
         """
-        
+
         # Warn about potential issues
         if theta_imbalance > nprocs ÷ 2
             @warn "Significant theta load imbalance detected: $theta_imbalance/$nprocs"
@@ -1786,12 +1814,11 @@ function validate_pencil_decomposition(config::SHTnsKitConfig)
         if phi_imbalance > nprocs ÷ 2
             @warn "Significant phi load imbalance detected: $phi_imbalance/$nprocs"
         end
-        
+
         # Check minimum size per process
         if theta_per_proc < 4 || phi_per_proc < 4
             @warn "Very small sub-domains detected. Consider using fewer processes for better efficiency."
         end
-
     end
     return config
 end
@@ -1804,11 +1831,11 @@ This function pre-warms transform plans and optimizes memory layout.
 """
 function optimize_erk2_transforms!(config::SHTnsKitConfig)
     rank = get_rank()
-    
+
     if rank == 0
         @info "Optimizing ERK2 transforms with PencilFFTs"
     end
-    
+
     # Pre-warm SHTnsKit configuration
     try
         SHTnsKit.prepare_plm_tables!(config.sht_config)
@@ -1818,23 +1845,23 @@ function optimize_erk2_transforms!(config::SHTnsKitConfig)
     catch e
         @warn "Could not pre-compute SHTnsKit tables: $e"
     end
-    
+
     # Optimize PencilFFTs plans
     optimize_fft_performance!(config)
-    
+
     # Validate decomposition efficiency
     validate_pencil_decomposition(config)
-    
+
     # Test transform performance with sample data
     if haskey(config.pencils, :phi) && haskey(config.pencils, :spec)
         try
             # Create sample spectral field
             spec_test = PencilArray{ComplexF64}(undef, config.pencils.spec)
             phys_test = PencilArray{Float64}(undef, config.pencils.phi)
-            
+
             # Fill with test data
             fill!(parent(spec_test), complex(1.0, 0.0))
-            
+
             # Test a few transforms to warm up the system
             start_time = MPI.Wtime()
             for i in 1:3
@@ -1843,12 +1870,12 @@ function optimize_erk2_transforms!(config::SHTnsKitConfig)
                 MPI.Barrier(get_comm())
             end
             end_time = MPI.Wtime()
-            
+
             if rank == 0
                 avg_time = (end_time - start_time) / 3.0
                 @info "Transform warm-up completed: $(round(avg_time*1000, digits=2)) ms per transform"
             end
-            
+
         catch e
             @warn "Transform warm-up failed: $e"
         end
@@ -1857,18 +1884,18 @@ function optimize_erk2_transforms!(config::SHTnsKitConfig)
     return config
 end
 
-
 """
     create_erk2_config(; lmax, mmax, nlat, nlon, optimize_for_erk2=true)
 
 Create an SHTnsKit configuration for ERK2 timestepping.
 """
-function create_erk2_config(; lmax::Int, mmax::Int=lmax,
-                           nlat::Int=max(lmax+2, get_default_nlat()),
-                           nlon::Int=max(2*lmax+1, 4, get_default_nlon()),
-                           nr::Int,
-                           optimize_for_erk2::Bool=true)
-    config = create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr, optimize_decomp=true)
+function create_erk2_config(; lmax::Int, mmax::Int = lmax,
+        nlat::Int = max(lmax+2, get_default_nlat()),
+        nlon::Int = max(2*lmax+1, 4, get_default_nlon()),
+        nr::Int,
+        optimize_for_erk2::Bool = true)
+    config = create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr, optimize_decomp = true)
     if optimize_for_erk2
         optimize_erk2_transforms!(config)
     end
@@ -1893,9 +1920,10 @@ Compute the energy spectrum per spherical harmonic degree l using SHTnsKit v1.1.
 # Returns
 Vector of length lmax+1 with energy at each degree l.
 """
-function compute_scalar_energy_spectrum(config::SHTnsKitConfig, alm::Matrix{ComplexF64}; real_field::Bool=true)
+function compute_scalar_energy_spectrum(
+        config::SHTnsKitConfig, alm::Matrix{ComplexF64}; real_field::Bool = true)
     try
-        return SHTnsKit.energy_scalar_l_spectrum(config.sht_config, alm; real_field=real_field)
+        return SHTnsKit.energy_scalar_l_spectrum(config.sht_config, alm; real_field = real_field)
     catch e
         # Fallback manual computation for older SHTnsKit versions
         lmax = config.lmax
@@ -1904,12 +1932,12 @@ function compute_scalar_energy_spectrum(config::SHTnsKitConfig, alm::Matrix{Comp
             for m in 0:min(l, config.mmax)
                 # Bounds check for safety
                 if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
-                    coeff = alm[l+1, m+1]
+                    coeff = alm[l + 1, m + 1]
                     energy = abs2(coeff)
                     if m > 0 && real_field
                         energy *= 2.0  # Account for negative m modes
                     end
-                    spectrum[l+1] += energy
+                    spectrum[l + 1] += energy
                 end
             end
         end
@@ -1926,13 +1954,14 @@ decomposed into spheroidal (Slm) and toroidal (Tlm) components.
 # Returns
 Vector of length lmax+1 with kinetic energy at each degree l.
 """
-function compute_vector_energy_spectrum(config::SHTnsKitConfig, Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64}; real_field::Bool=true)
+function compute_vector_energy_spectrum(config::SHTnsKitConfig, Slm::Matrix{ComplexF64},
+        Tlm::Matrix{ComplexF64}; real_field::Bool = true)
     try
-        return SHTnsKit.energy_vector_l_spectrum(config.sht_config, Slm, Tlm; real_field=real_field)
+        return SHTnsKit.energy_vector_l_spectrum(config.sht_config, Slm, Tlm; real_field = real_field)
     catch e
         # Fallback: sum individual spectra
-        spec_S = compute_scalar_energy_spectrum(config, Slm; real_field=real_field)
-        spec_T = compute_scalar_energy_spectrum(config, Tlm; real_field=real_field)
+        spec_S = compute_scalar_energy_spectrum(config, Slm; real_field = real_field)
+        spec_T = compute_scalar_energy_spectrum(config, Tlm; real_field = real_field)
         return spec_S .+ spec_T
     end
 end
@@ -1942,12 +1971,12 @@ end
 
 Compute total energy of a scalar field from its spectral coefficients.
 """
-function compute_total_scalar_energy(config::SHTnsKitConfig, alm::Matrix{ComplexF64}; real_field::Bool=true)
+function compute_total_scalar_energy(config::SHTnsKitConfig, alm::Matrix{ComplexF64}; real_field::Bool = true)
     try
-        return SHTnsKit.energy_scalar(config.sht_config, alm; real_field=real_field)
+        return SHTnsKit.energy_scalar(config.sht_config, alm; real_field = real_field)
     catch e
         # Fallback: sum the spectrum
-        return sum(compute_scalar_energy_spectrum(config, alm; real_field=real_field))
+        return sum(compute_scalar_energy_spectrum(config, alm; real_field = real_field))
     end
 end
 
@@ -1956,11 +1985,12 @@ end
 
 Compute total kinetic energy of a vector field from spheroidal/toroidal coefficients.
 """
-function compute_total_vector_energy(config::SHTnsKitConfig, Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64}; real_field::Bool=true)
+function compute_total_vector_energy(config::SHTnsKitConfig, Slm::Matrix{ComplexF64},
+        Tlm::Matrix{ComplexF64}; real_field::Bool = true)
     try
-        return SHTnsKit.energy_vector(config.sht_config, Slm, Tlm; real_field=real_field)
+        return SHTnsKit.energy_vector(config.sht_config, Slm, Tlm; real_field = real_field)
     catch e
-        return sum(compute_vector_energy_spectrum(config, Slm, Tlm; real_field=real_field))
+        return sum(compute_vector_energy_spectrum(config, Slm, Tlm; real_field = real_field))
     end
 end
 
@@ -1970,9 +2000,9 @@ end
 Compute enstrophy (mean square vorticity) from toroidal coefficients.
 Enstrophy is related to the rotational part of the kinetic energy.
 """
-function compute_enstrophy(config::SHTnsKitConfig, Tlm::Matrix{ComplexF64}; real_field::Bool=true)
+function compute_enstrophy(config::SHTnsKitConfig, Tlm::Matrix{ComplexF64}; real_field::Bool = true)
     try
-        return SHTnsKit.enstrophy(config.sht_config, Tlm; real_field=real_field)
+        return SHTnsKit.enstrophy(config.sht_config, Tlm; real_field = real_field)
     catch e
         # Fallback: compute from spectrum with l(l+1) factor
         lmax = config.lmax
@@ -1981,7 +2011,7 @@ function compute_enstrophy(config::SHTnsKitConfig, Tlm::Matrix{ComplexF64}; real
             for m in 0:min(l, config.mmax)
                 # Bounds check for safety
                 if l+1 <= size(Tlm, 1) && m+1 <= size(Tlm, 2)
-                    coeff = Tlm[l+1, m+1]
+                    coeff = Tlm[l + 1, m + 1]
                     energy = abs2(coeff) * l * (l + 1)
                     if m > 0 && real_field
                         energy *= 2.0
@@ -2011,9 +2041,9 @@ Uses SHTnsKit.SH_to_grad_spat for efficient computation.
 - `grad_phi`: Output φ-component of gradient (modified in-place)
 """
 function spectral_gradient!(config::SHTnsKitConfig, Slm::Matrix{ComplexF64},
-                           grad_theta::Matrix{Float64}, grad_phi::Matrix{Float64})
+        grad_theta::Matrix{Float64}, grad_phi::Matrix{Float64})
     try
-        gt, gp = SHTnsKit.SH_to_grad_spat(config.sht_config, Slm; real_output=true)
+        gt, gp = SHTnsKit.SH_to_grad_spat(config.sht_config, Slm; real_output = true)
         copyto!(grad_theta, gt)
         copyto!(grad_phi, gp)
     catch e
@@ -2046,7 +2076,7 @@ function extract_divergence_coefficients(config::SHTnsKitConfig, Slm::Matrix{Com
             for m in 0:min(l, mmax)
                 # Bounds check for safety
                 if l+1 <= size(Slm, 1) && m+1 <= size(Slm, 2)
-                    div_coeffs[l+1, m+1] = Slm[l+1, m+1] * factor
+                    div_coeffs[l + 1, m + 1] = Slm[l + 1, m + 1] * factor
                 end
             end
         end
@@ -2075,7 +2105,7 @@ function extract_vorticity_coefficients(config::SHTnsKitConfig, Tlm::Matrix{Comp
             for m in 0:min(l, mmax)
                 # Bounds check for safety
                 if l+1 <= size(Tlm, 1) && m+1 <= size(Tlm, 2)
-                    vort_coeffs[l+1, m+1] = Tlm[l+1, m+1] * factor
+                    vort_coeffs[l + 1, m + 1] = Tlm[l + 1, m + 1] * factor
                 end
             end
         end
@@ -2105,11 +2135,13 @@ all three components in a single call.
 - `vr`, `vtheta`, `vphi`: Output spatial components (modified in-place)
 """
 function shtnskit_qst_to_spatial!(config::SHTnsKitConfig, Qlm::Matrix{ComplexF64},
-                                  Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64},
-                                  vr::Matrix{Float64}, vtheta::Matrix{Float64}, vphi::Matrix{Float64})
+        Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64},
+        vr::Matrix{Float64}, vtheta::Matrix{Float64}, vphi::Matrix{Float64})
     if SHTNSKIT_USE_QST
         try
-            vr_out, vt_out, vp_out = SHTnsKit.SHqst_to_spat(config.sht_config, Qlm, Slm, Tlm; real_output=true)
+            vr_out, vt_out,
+            vp_out = SHTnsKit.SHqst_to_spat(
+                config.sht_config, Qlm, Slm, Tlm; real_output = true)
             copyto!(vr, vr_out)
             copyto!(vtheta, vt_out)
             copyto!(vphi, vp_out)
@@ -2120,8 +2152,9 @@ function shtnskit_qst_to_spatial!(config::SHTnsKitConfig, Qlm::Matrix{ComplexF64
     end
 
     # Fallback: separate synthesis calls
-    vr .= SHTnsKit.synthesis(config.sht_config, Qlm; real_output=true)
-    vt_tmp, vp_tmp = SHTnsKit.synthesis_sphtor(config.sht_config, Slm, Tlm; real_output=true)
+    vr .= SHTnsKit.synthesis(config.sht_config, Qlm; real_output = true)
+    vt_tmp,
+    vp_tmp = SHTnsKit.synthesis_sphtor(config.sht_config, Slm, Tlm; real_output = true)
     copyto!(vtheta, vt_tmp)
     copyto!(vphi, vp_tmp)
 end
@@ -2138,11 +2171,12 @@ Convert full 3D spatial vector field to QST spectral coefficients using SHTnsKit
 - `Tlm`: Output T (toroidal) spectral coefficients (modified in-place)
 """
 function shtnskit_spatial_to_qst!(config::SHTnsKitConfig, vr::Matrix{Float64},
-                                  vtheta::Matrix{Float64}, vphi::Matrix{Float64},
-                                  Qlm::Matrix{ComplexF64}, Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64})
+        vtheta::Matrix{Float64}, vphi::Matrix{Float64},
+        Qlm::Matrix{ComplexF64}, Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64})
     if SHTNSKIT_USE_QST
         try
-            Q_out, S_out, T_out = SHTnsKit.spat_to_SHqst(config.sht_config, vr, vtheta, vphi)
+            Q_out, S_out,
+            T_out = SHTnsKit.spat_to_SHqst(config.sht_config, vr, vtheta, vphi)
             copyto!(Qlm, Q_out)
             copyto!(Slm, S_out)
             copyto!(Tlm, T_out)
@@ -2253,14 +2287,14 @@ Writes result directly to f_out, avoiding allocation of temporary arrays.
 - `f_out`: Output physical field (nlat × nlon), modified in-place
 """
 function shtnskit_synthesis_inplace!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
-                                      f_out::Matrix{Float64})
+        f_out::Matrix{Float64})
     try
         # Use in-place synthesis if available (v1.1.15+)
         # SHTnsKit API: synthesis!(config, f_out, alm) — output before input
         SHTnsKit.synthesis!(config.sht_config, f_out, alm)
     catch e
         # Fallback to allocating version
-        result = SHTnsKit.synthesis(config.sht_config, alm; real_output=true)
+        result = SHTnsKit.synthesis(config.sht_config, alm; real_output = true)
         copyto!(f_out, result)
     end
     return f_out
@@ -2279,7 +2313,7 @@ Writes result directly to alm_out, avoiding allocation of temporary arrays.
 - `alm_out`: Output spectral coefficients (lmax+1 × mmax+1), modified in-place
 """
 function shtnskit_analysis_inplace!(config::SHTnsKitConfig, f::Matrix{Float64},
-                                     alm_out::Matrix{ComplexF64})
+        alm_out::Matrix{ComplexF64})
     try
         # Use in-place analysis if available (v1.1.15+)
         # SHTnsKit API: analysis!(config, alm_out, f) — output before input
@@ -2314,7 +2348,7 @@ This is a pure phase rotation: alm[l,m] -> alm[l,m] * exp(-i*m*alpha)
 The rotated coefficients (alm_out if provided, otherwise alm)
 """
 function rotate_field_z!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, alpha::Real;
-                         alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+        alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
     output = alm_out === nothing ? alm : alm_out
 
     try
@@ -2330,9 +2364,9 @@ function rotate_field_z!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, alpha:
                    l+1 <= size(output, 1) && m+1 <= size(output, 2)
                     phase = exp(-im * m * alpha)
                     if alm_out === nothing
-                        alm[l+1, m+1] *= phase
+                        alm[l + 1, m + 1] *= phase
                     else
-                        output[l+1, m+1] = alm[l+1, m+1] * phase
+                        output[l + 1, m + 1] = alm[l + 1, m + 1] * phase
                     end
                 end
             end
@@ -2358,7 +2392,7 @@ Uses Wigner d-matrices (small Wigner rotation matrices).
 The rotated coefficients
 """
 function rotate_field_y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, beta::Real;
-                         alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+        alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
     # Use zeros instead of similar to avoid uninitialized data if SHTnsKit function doesn't fill output
     output = alm_out === nothing ? zeros(ComplexF64, size(alm)) : alm_out
 
@@ -2390,7 +2424,7 @@ This is a special case with optimized Wigner d-matrix values.
 The rotated coefficients
 """
 function rotate_field_90y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
-                           alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+        alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
     # Use zeros instead of similar to avoid uninitialized data if SHTnsKit function doesn't fill output
     output = alm_out === nothing ? zeros(ComplexF64, size(alm)) : alm_out
 
@@ -2398,7 +2432,7 @@ function rotate_field_90y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
         SHTnsKit.SH_Yrotate90(config.sht_config, alm, output)
     catch e
         # Fallback to general Y rotation
-        rotate_field_y!(config, alm, π/2; alm_out=output)
+        rotate_field_y!(config, alm, π/2; alm_out = output)
     end
     return output
 end
@@ -2419,7 +2453,7 @@ Equivalent to: Z(-π/2) * Y(π/2) * Z(π/2)
 The rotated coefficients
 """
 function rotate_field_90x!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
-                           alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+        alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
     # Use zeros instead of similar to avoid uninitialized data if SHTnsKit function doesn't fill output
     output = alm_out === nothing ? zeros(ComplexF64, size(alm)) : alm_out
 
@@ -2429,9 +2463,9 @@ function rotate_field_90x!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
         # Fallback: decompose into Z and Y rotations
         # Use zeros instead of similar to avoid uninitialized values at invalid (l,m) positions
         temp = zeros(ComplexF64, size(alm))
-        rotate_field_z!(config, alm, π/2; alm_out=temp)
-        rotate_field_90y!(config, temp; alm_out=output)
-        rotate_field_z!(config, output, -π/2; alm_out=output)
+        rotate_field_z!(config, alm, π/2; alm_out = temp)
+        rotate_field_90y!(config, temp; alm_out = output)
+        rotate_field_z!(config, output, -π/2; alm_out = output)
     end
     return output
 end
@@ -2454,17 +2488,17 @@ The rotation is: R = Rz(gamma) * Ry(beta) * Rz(alpha)
 The rotated coefficients
 """
 function rotate_field_euler!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
-                             alpha::Real, beta::Real, gamma::Real;
-                             alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+        alpha::Real, beta::Real, gamma::Real;
+        alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
     # Use zeros instead of similar to avoid uninitialized data if SHTnsKit function doesn't fill output
     output = alm_out === nothing ? zeros(ComplexF64, size(alm)) : alm_out
     # Use zeros instead of similar to avoid uninitialized values at invalid (l,m) positions
     temp = zeros(ComplexF64, size(alm))
 
     # Apply rotations in sequence: Rz(alpha), then Ry(beta), then Rz(gamma)
-    rotate_field_z!(config, alm, alpha; alm_out=temp)
-    rotate_field_y!(config, temp, beta; alm_out=output)
-    rotate_field_z!(config, output, gamma; alm_out=output)
+    rotate_field_z!(config, alm, alpha; alm_out = temp)
+    rotate_field_y!(config, temp, beta; alm_out = output)
+    rotate_field_z!(config, output, gamma; alm_out = output)
 
     return output
 end
@@ -2492,7 +2526,7 @@ horizontal Laplacian on the unit sphere.
 The Laplacian-transformed coefficients
 """
 function apply_horizontal_laplacian!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
-                                      alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+        alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
     output = alm_out === nothing ? alm : alm_out
     lmax, mmax = config.lmax, config.mmax
 
@@ -2502,7 +2536,7 @@ function apply_horizontal_laplacian!(config::SHTnsKitConfig, alm::Matrix{Complex
             # Check bounds on both input and output
             if l+1 <= size(alm, 1) && m+1 <= size(alm, 2) &&
                l+1 <= size(output, 1) && m+1 <= size(output, 2)
-                output[l+1, m+1] = alm[l+1, m+1] * factor
+                output[l + 1, m + 1] = alm[l + 1, m + 1] * factor
             end
         end
     end
@@ -2526,9 +2560,10 @@ This scales each coefficient by -1/(l(l+1)), which is useful for solving Poisson
 # Returns
 The inverse-Laplacian-transformed coefficients
 """
-function apply_inverse_horizontal_laplacian!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
-                                              alm_out::Union{Matrix{ComplexF64},Nothing}=nothing,
-                                              regularize_l0::Bool=true)
+function apply_inverse_horizontal_laplacian!(
+        config::SHTnsKitConfig, alm::Matrix{ComplexF64};
+        alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing,
+        regularize_l0::Bool = true)
     output = alm_out === nothing ? alm : alm_out
     lmax, mmax = config.lmax, config.mmax
 
@@ -2549,7 +2584,7 @@ function apply_inverse_horizontal_laplacian!(config::SHTnsKitConfig, alm::Matrix
                 # Check bounds on both input and output
                 if l+1 <= size(alm, 1) && m+1 <= size(alm, 2) &&
                    l+1 <= size(output, 1) && m+1 <= size(output, 2)
-                    output[l+1, m+1] = alm[l+1, m+1] * factor
+                    output[l + 1, m + 1] = alm[l + 1, m + 1] * factor
                 end
             end
         end
@@ -2580,7 +2615,7 @@ function compute_horizontal_gradient_magnitude(config::SHTnsKitConfig, alm::Matr
         factor = l * (l + 1)
         for m in 0:min(l, mmax)
             if l+1 <= size(alm, 1) && m+1 <= size(alm, 2)
-                energy = abs2(alm[l+1, m+1])
+                energy = abs2(alm[l + 1, m + 1])
                 if m > 0
                     energy *= 2.0  # Account for negative m modes
                 end
@@ -2617,8 +2652,8 @@ apply_spectral_filter!(config, alm, exp_filter)
 ```
 """
 function apply_spectral_filter!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
-                                filter_func::Function;
-                                alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+        filter_func::Function;
+        alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
     output = alm_out === nothing ? alm : alm_out
     lmax, mmax = config.lmax, config.mmax
 
@@ -2628,7 +2663,7 @@ function apply_spectral_filter!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
             if l+1 <= size(alm, 1) && m+1 <= size(alm, 2) &&
                l+1 <= size(output, 1) && m+1 <= size(output, 2)
                 scale = filter_func(l, m)
-                output[l+1, m+1] = alm[l+1, m+1] * scale
+                output[l + 1, m + 1] = alm[l + 1, m + 1] * scale
             end
         end
     end
@@ -2651,8 +2686,8 @@ filter(l) = exp(-α * (l/lmax)^order) where α is chosen so filter(cutoff*lmax) 
 - `alm_out`: Optional output array
 """
 function apply_exponential_filter!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
-                                    order::Int=16, cutoff::Float64=0.65,
-                                    alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+        order::Int = 16, cutoff::Float64 = 0.65,
+        alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
     lmax = config.lmax
 
     # Validate cutoff to prevent division by zero
@@ -2677,7 +2712,7 @@ function apply_exponential_filter!(config::SHTnsKitConfig, alm::Matrix{ComplexF6
     α = log(2) / cutoff^order
 
     filter_func(l, m) = exp(-α * (l / lmax)^order)
-    return apply_spectral_filter!(config, alm, filter_func; alm_out=alm_out)
+    return apply_spectral_filter!(config, alm, filter_func; alm_out = alm_out)
 end
 
 """
@@ -2696,8 +2731,8 @@ Sets all modes with l > lmax_new or m > mmax_new to zero.
 - `alm_out`: Optional output array
 """
 function truncate_spectral_modes!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
-                                  lmax_new::Int, mmax_new::Int=lmax_new;
-                                  alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
+        lmax_new::Int, mmax_new::Int = lmax_new;
+        alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
     output = alm_out === nothing ? alm : alm_out
     lmax, mmax = config.lmax, config.mmax
 
@@ -2707,9 +2742,9 @@ function truncate_spectral_modes!(config::SHTnsKitConfig, alm::Matrix{ComplexF64
             if l+1 <= size(alm, 1) && m+1 <= size(alm, 2) &&
                l+1 <= size(output, 1) && m+1 <= size(output, 2)
                 if l > lmax_new || m > mmax_new
-                    output[l+1, m+1] = zero(ComplexF64)
+                    output[l + 1, m + 1] = zero(ComplexF64)
                 elseif alm_out !== nothing
-                    output[l+1, m+1] = alm[l+1, m+1]
+                    output[l + 1, m + 1] = alm[l + 1, m + 1]
                 end
             end
         end

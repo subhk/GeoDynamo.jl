@@ -7,7 +7,7 @@ It records the selected architecture, SHTnsKit transform configuration, radial
 domains, and MPI rank/process metadata. `create_solver_backend(...)` is the
 normal constructor used by the public solver initialization path.
 """
-struct SolverBackend{A<:AbstractArchitecture,C<:SHTnsConfigType}
+struct SolverBackend{A <: AbstractArchitecture, C <: SHTnsConfigType}
     parameters::SolverParameters
     architecture::A
     shtns_config::C
@@ -25,7 +25,7 @@ Topography and Stefan-condition state owned by the rewritten solver.
 The solver keeps this separate from the core field runtime so topographic
 coupling can be enabled or updated without rebuilding the spectral fields.
 """
-mutable struct SolverTopographyState{T<:AbstractFloat}
+mutable struct SolverTopographyState{T <: AbstractFloat}
     config::TopographyAPI.TopographyCouplingConfig
     data::Union{TopographyAPI.TopographyData{T}, Nothing}
     stefan::Union{TopographyAPI.StefanState{T}, Nothing}
@@ -59,7 +59,7 @@ Scratch spectral fields used to build scalar gradients for nonlinear terms.
 # still free) leaves them non-concrete, so every `ws.∇φ_spec` access in the
 # gradient hot loop boxes and the per-element writes dispatch dynamically
 # (~8 KB/call). Parametrising on `S` makes the fields concrete and allocation-free.
-struct SolverGradientWorkspace{T, S<:SpectralFieldType{T}}
+struct SolverGradientWorkspace{T, S <: SpectralFieldType{T}}
     ∇θ_spec::S
     ∇φ_spec::S
     ∇r_spec::S
@@ -82,30 +82,32 @@ Typed scratch storage replacing `TransformWorkspace{T}.cache::Dict{Symbol,Any}`.
 Each field corresponds to a key formerly stored in the Dict.
 """
 mutable struct SolverTransformBuffers{T}
-    vector_coeffs_1           :: Union{Matrix{ComplexF64}, Nothing}
-    vector_coeffs_2           :: Union{Matrix{ComplexF64}, Nothing}
-    vector_coeffs_gathered_1  :: Union{Matrix{ComplexF64}, Nothing}
-    vector_coeffs_gathered_2  :: Union{Matrix{ComplexF64}, Nothing}
-    pol_rad_coeffs            :: Union{Matrix{ComplexF64}, Nothing}
-    vector_component_vt       :: Union{Matrix{Float64}, Nothing}
-    vector_component_vp       :: Union{Matrix{Float64}, Nothing}
-    generic_slice             :: Union{Matrix{Float64}, Nothing}
-    generic_slice_gathered    :: Union{Matrix{Float64}, Nothing}
-    coeffs_buffer             :: Union{Matrix{ComplexF64}, Nothing}
-    coeffs_gathered           :: Union{Matrix{ComplexF64}, Nothing}
+    vector_coeffs_1::Union{Matrix{ComplexF64}, Nothing}
+    vector_coeffs_2::Union{Matrix{ComplexF64}, Nothing}
+    vector_coeffs_gathered_1::Union{Matrix{ComplexF64}, Nothing}
+    vector_coeffs_gathered_2::Union{Matrix{ComplexF64}, Nothing}
+    pol_rad_coeffs::Union{Matrix{ComplexF64}, Nothing}
+    vector_component_vt::Union{Matrix{Float64}, Nothing}
+    vector_component_vp::Union{Matrix{Float64}, Nothing}
+    generic_slice::Union{Matrix{Float64}, Nothing}
+    generic_slice_gathered::Union{Matrix{Float64}, Nothing}
+    coeffs_buffer::Union{Matrix{ComplexF64}, Nothing}
+    coeffs_gathered::Union{Matrix{ComplexF64}, Nothing}
     # Batched gather scratch: all radial levels stacked (…, nr_local) so the
     # cross-rank scalar-transform gather uses one collective instead of one per
     # level. coeffs_buffer_batched is (lmax+1, mmax+1, nr) for synthesis;
     # slice_buffer_batched is (nlat, nlon, nr) for analysis.
-    coeffs_buffer_batched     :: Union{Array{ComplexF64,3}, Nothing}
-    slice_buffer_batched      :: Union{Array{Float64,3}, Nothing}
+    coeffs_buffer_batched::Union{Array{ComplexF64, 3}, Nothing}
+    slice_buffer_batched::Union{Array{Float64, 3}, Nothing}
 end
 
-SolverTransformBuffers{T}() where T = SolverTransformBuffers{T}(
-    nothing, nothing, nothing, nothing, nothing,
-    nothing, nothing, nothing, nothing, nothing, nothing,
-    nothing, nothing,
-)
+function SolverTransformBuffers{T}() where {T}
+    SolverTransformBuffers{T}(
+        nothing, nothing, nothing, nothing, nothing,
+        nothing, nothing, nothing, nothing, nothing, nothing,
+        nothing, nothing
+    )
+end
 
 """
     TransformWorkspace{T}
@@ -116,13 +118,14 @@ work.
 GPU-marked runs route these allocations through backend hooks so the same
 solver code can use either CPU or backend-provided scratch storage.
 """
-struct TransformWorkspace{T, A<:AbstractArchitecture} <: AbstractTransformWorkspace
+struct TransformWorkspace{T, A <: AbstractArchitecture} <: AbstractTransformWorkspace
     arch::A
     buffers::SolverTransformBuffers{T}
 end
 
-TransformWorkspace{T}(arch::A) where {T, A<:AbstractArchitecture} =
-    TransformWorkspace{T,A}(arch, SolverTransformBuffers{T}())
+function TransformWorkspace{T}(arch::A) where {T, A <: AbstractArchitecture}
+    TransformWorkspace{T, A}(arch, SolverTransformBuffers{T}())
+end
 
 """
     SolverRuntime{T}
@@ -134,14 +137,14 @@ matrices, caches, and diagnostics.
 """
 struct SolverRuntime{
     T,
-    A<:AbstractArchitecture,
-    C<:SHTnsConfigType,
-    V<:VelocityFieldsType{T},
-    M<:MagneticFieldsType{T},
-    Temp<:TemperatureFieldType{T},
-    Comp<:Union{CompositionFieldType{T}, Nothing},
-    GW<:SolverGradientWorkspace{T},
-    TW<:TransformWorkspace{T,A},
+    A <: AbstractArchitecture,
+    C <: SHTnsConfigType,
+    V <: VelocityFieldsType{T},
+    M <: MagneticFieldsType{T},
+    Temp <: TemperatureFieldType{T},
+    Comp <: Union{CompositionFieldType{T}, Nothing},
+    GW <: SolverGradientWorkspace{T},
+    TW <: TransformWorkspace{T, A}
 }
     velocity::V
     magnetic::M
@@ -167,7 +170,8 @@ function Base.show(io::IO, ::MIME"text/plain", backend::SolverBackend)
     _solver_print_row(io, "spectral modes", cfg.nlm)
     println(io, "├─ domains")
     _solver_print_row(io, "outer core Nᵣ", backend.outer_core_domain.N)
-    _solver_print_row(io, "inner core Nᵣ", isnothing(backend.inner_core_domain) ? "none" : backend.inner_core_domain.N)
+    _solver_print_row(io, "inner core Nᵣ",
+        isnothing(backend.inner_core_domain) ? "none" : backend.inner_core_domain.N)
     println(io, "└─ parallel")
     _solver_print_row(io, "rank", backend.rank)
     _solver_print_row(io, "processes", backend.process_count)
@@ -182,20 +186,23 @@ function Base.show(io::IO, ::MIME"text/plain", topography::SolverTopographyState
     _solver_print_row(io, "magnetic", _solver_yesno(topography.config.magnetic_coupling))
     _solver_print_row(io, "thermal", _solver_yesno(topography.config.thermal_coupling))
     println(io, "└─ boundaries")
-    _solver_print_row(io, "ICB topography", topography.data === nothing || topography.data.icb === nothing ? "none" : "loaded")
-    _solver_print_row(io, "OCB topography", topography.data === nothing || topography.data.cmb === nothing ? "none" : "loaded")
-    _solver_print_row(io, "Stefan state", isnothing(topography.stefan) ? "inactive" : "ready")
+    _solver_print_row(io, "ICB topography",
+        topography.data === nothing || topography.data.icb === nothing ? "none" : "loaded")
+    _solver_print_row(io, "OCB topography",
+        topography.data === nothing || topography.data.cmb === nothing ? "none" : "loaded")
+    _solver_print_row(io, "Stefan state", isnothing(topography.stefan) ? "inactive" :
+                                          "ready")
 end
 
 function create_shtns_config(::CPU, params::SolverParameters)
     return SOLVER_SHTNS_CONFIG_BUILDER(
-        lmax=params.lmax,
-        mmax=params.mmax,
-        nlat=params.nlat,
-        nlon=params.nlon,
-        nr=params.nr,
-        optimize_decomp=true,
-        device=:cpu,
+        lmax = params.lmax,
+        mmax = params.mmax,
+        nlat = params.nlat,
+        nlon = params.nlon,
+        nr = params.nr,
+        optimize_decomp = true,
+        device = :cpu
     )
 end
 
@@ -203,13 +210,13 @@ function create_shtns_config(::GPU, params::SolverParameters)
     # Non-CUDA GPU: SHTnsKit has no native support; use CPU SHTns config.
     # Physical data arrays live on the GPU; transforms run on CPU.
     return SOLVER_SHTNS_CONFIG_BUILDER(
-        lmax=params.lmax,
-        mmax=params.mmax,
-        nlat=params.nlat,
-        nlon=params.nlon,
-        nr=params.nr,
-        optimize_decomp=true,
-        device=:cpu,
+        lmax = params.lmax,
+        mmax = params.mmax,
+        nlat = params.nlat,
+        nlon = params.nlon,
+        nr = params.nr,
+        optimize_decomp = true,
+        device = :cpu
     )
 end
 
@@ -221,7 +228,8 @@ end
 
 function scale_radial_domain(domain::RadialDomainType, radius_scale::Real)
     scale = Float64(radius_scale)
-    scale > 0 || throw(ArgumentError("inner-core radius scale must be positive, got $scale"))
+    scale > 0 ||
+        throw(ArgumentError("inner-core radius scale must be positive, got $scale"))
 
     r = copy(domain.r)
     r[:, 4] .*= scale
@@ -235,10 +243,8 @@ function scale_radial_domain(domain::RadialDomainType, radius_scale::Real)
         end
     end
 
-    dr_matrices = [
-        copy(matrix) ./ (scale ^ order)
-        for (order, matrix) in enumerate(domain.dr_matrices)
-    ]
+    dr_matrices = [copy(matrix) ./ (scale ^ order)
+                   for (order, matrix) in enumerate(domain.dr_matrices)]
     radial_laplacian = copy(domain.radial_laplacian) ./ (scale ^ 2)
     integration_weights = copy(domain.integration_weights) .* scale
 
@@ -248,33 +254,31 @@ function scale_radial_domain(domain::RadialDomainType, radius_scale::Real)
         r,
         dr_matrices,
         radial_laplacian,
-        integration_weights,
+        integration_weights
     )
 end
 
 function create_inner_core_domain(params::SolverParameters)
     unit_ball_domain = SOLVER_BALL_DOMAIN_BUILDER(
         params.nr_inner;
-        radial_bandwidth=params.radial_bandwidth,
+        radial_bandwidth = params.radial_bandwidth
     )
     inner_core_radius = params.radius_ratio / (1.0 - params.radius_ratio)
     return scale_radial_domain(unit_ball_domain, inner_core_radius)
 end
 
 function create_radial_domains(params::SolverParameters)
-    outer_core_domain =
-        params.geometry === :ball ?
-        SOLVER_BALL_DOMAIN_BUILDER(params.nr; radial_bandwidth=params.radial_bandwidth) :
-        SOLVER_SHELL_DOMAIN_BUILDER(
-            params.nr;
-            radius_ratio=params.radius_ratio,
-            radial_bandwidth=params.radial_bandwidth,
-        )
+    outer_core_domain = params.geometry === :ball ?
+                        SOLVER_BALL_DOMAIN_BUILDER(params.nr; radial_bandwidth = params.radial_bandwidth) :
+                        SOLVER_SHELL_DOMAIN_BUILDER(
+        params.nr;
+        radius_ratio = params.radius_ratio,
+        radial_bandwidth = params.radial_bandwidth
+    )
 
-    inner_core_domain =
-        params.geometry === :shell ?
-        create_inner_core_domain(params) :
-        nothing
+    inner_core_domain = params.geometry === :shell ?
+                        create_inner_core_domain(params) :
+                        nothing
 
     return outer_core_domain, inner_core_domain
 end
@@ -299,7 +303,7 @@ function create_solver_backend(arch::AbstractArchitecture, params::SolverParamet
         outer_core_domain,
         inner_core_domain,
         solver_backend_rank(),
-        solver_backend_process_count(),
+        solver_backend_process_count()
     )
 end
 
@@ -308,17 +312,31 @@ function create_solver_backend(params::SolverParameters)
     return create_solver_backend(arch, params)
 end
 
-@inline solver_create_velocity_fields(::Type{T}, cfg, outer, pencils, params) where T =
-    SOLVER_VELOCITY_FIELD_BUILDER(T, cfg, outer, pencils, pencils.spec; params)
+@inline solver_create_velocity_fields(::Type{T},
+    cfg,
+    outer,
+    pencils,
+    params) where {T} = SOLVER_VELOCITY_FIELD_BUILDER(
+    T, cfg, outer, pencils, pencils.spec; params)
 
-@inline solver_create_magnetic_fields(::Type{T}, cfg, outer, inner, pencils) where T =
-    SOLVER_MAGNETIC_FIELD_BUILDER(T, cfg, outer, inner, pencils, pencils.spec)
+@inline solver_create_magnetic_fields(::Type{T},
+    cfg,
+    outer,
+    inner,
+    pencils) where {T} = SOLVER_MAGNETIC_FIELD_BUILDER(
+    T, cfg, outer, inner, pencils, pencils.spec)
 
-@inline solver_create_temperature_field(::Type{T}, cfg, outer, pencils) where T =
-    SOLVER_TEMPERATURE_FIELD_BUILDER(T, cfg, outer, pencils, pencils.spec)
+@inline solver_create_temperature_field(::Type{T},
+    cfg,
+    outer,
+    pencils) where {T} = SOLVER_TEMPERATURE_FIELD_BUILDER(
+    T, cfg, outer, pencils, pencils.spec)
 
-@inline solver_create_composition_field(::Type{T}, cfg, outer, pencils) where T =
-    SOLVER_COMPOSITION_FIELD_BUILDER(T, cfg, outer, pencils, pencils.spec)
+@inline solver_create_composition_field(::Type{T},
+    cfg,
+    outer,
+    pencils) where {T} = SOLVER_COMPOSITION_FIELD_BUILDER(
+    T, cfg, outer, pencils, pencils.spec)
 
 """
     create_solver_fields(T, backend)
@@ -326,7 +344,7 @@ end
 Allocate the spectral/physical field containers required by the solver runtime
 for element type `T`.
 """
-function create_solver_fields(::Type{T}, backend::SolverBackend{<:AbstractArchitecture}) where T
+function create_solver_fields(::Type{T}, backend::SolverBackend{<:AbstractArchitecture}) where {T}
     cfg = backend.shtns_config
     outer = backend.outer_core_domain
     inner = isnothing(backend.inner_core_domain) ? outer : backend.inner_core_domain
@@ -338,29 +356,28 @@ function create_solver_fields(::Type{T}, backend::SolverBackend{<:AbstractArchit
     # the shared constructors and runtime layout stay uniform.
     magnetic = solver_create_magnetic_fields(T, cfg, outer, inner, pencils)
     temperature = solver_create_temperature_field(T, cfg, outer, pencils)
-    composition =
-        backend.parameters.include_composition ?
-        solver_create_composition_field(T, cfg, outer, pencils) :
-        nothing
+    composition = backend.parameters.include_composition ?
+                  solver_create_composition_field(T, cfg, outer, pencils) :
+                  nothing
 
     return velocity, magnetic, temperature, composition
 end
 
 function build_velocity_implicit_matrices(cfg, domain, E, dt, velocity_bc_code)
     return (
-        tor=SOLVER_VELOCITY_TOROIDAL_MATRIX_BUILDER(
-            cfg, domain, E, dt; velocity_bc_code=velocity_bc_code, mass_coeff=E,
+        tor = SOLVER_VELOCITY_TOROIDAL_MATRIX_BUILDER(
+            cfg, domain, E, dt; velocity_bc_code = velocity_bc_code, mass_coeff = E
         ),
-        pol=SOLVER_VELOCITY_POLOIDAL_MATRIX_BUILDER(
-            cfg, domain, E, dt; velocity_bc_code=velocity_bc_code, mass_coeff=E,
-        ),
+        pol = SOLVER_VELOCITY_POLOIDAL_MATRIX_BUILDER(
+            cfg, domain, E, dt; velocity_bc_code = velocity_bc_code, mass_coeff = E
+        )
     )
 end
 
 function build_magnetic_implicit_matrices(cfg, domain, dt)
     return (
-        tor=SOLVER_MAGNETIC_TOROIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt),
-        pol=SOLVER_MAGNETIC_POLOIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt),
+        tor = SOLVER_MAGNETIC_TOROIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt),
+        pol = SOLVER_MAGNETIC_POLOIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt)
     )
 end
 
@@ -381,38 +398,47 @@ Returns `(tor, pol, admittance)` where `admittance` is a
 `NamedTuple{(:tor,:pol)}` of `InnerCoreAdmittance{T}` objects.
 """
 function build_magnetic_implicit_matrices_conducting(::Type{T}, cfg, domain, ic_domain, dt;
-                                                     theta::Float64=0.5) where T
+        theta::Float64 = 0.5) where {T}
     η = 1.0  # magnetic diffusivity (matches build_magnetic_implicit_matrices)
     uniq_l = filter(>(0), sort(unique(cfg.l_values)))
 
-    adm_tor = create_inner_core_admittance(T, uniq_l, ic_domain, η, dt; theta=theta)
-    adm_pol = create_inner_core_admittance(T, uniq_l, ic_domain, η, dt; theta=theta)
+    adm_tor = create_inner_core_admittance(T, uniq_l, ic_domain, η, dt; theta = theta)
+    adm_pol = create_inner_core_admittance(T, uniq_l, ic_domain, η, dt; theta = theta)
 
-    alpha_tor = Dict{Int,T}(l => inner_core_alpha(adm_tor, l) for l in uniq_l)
-    alpha_pol = Dict{Int,T}(l => inner_core_alpha(adm_pol, l) for l in uniq_l)
+    alpha_tor = Dict{Int, T}(l => inner_core_alpha(adm_tor, l) for l in uniq_l)
+    alpha_pol = Dict{Int, T}(l => inner_core_alpha(adm_pol, l) for l in uniq_l)
 
     tor = SOLVER_MAGNETIC_TOROIDAL_MATRIX_BUILDER(cfg, domain, η, dt;
-                                                  theta=theta, T=T, inner_alpha=alpha_tor)
+        theta = theta, T = T, inner_alpha = alpha_tor)
     pol = SOLVER_MAGNETIC_POLOIDAL_MATRIX_BUILDER(cfg, domain, η, dt;
-                                                  theta=theta, T=T, inner_alpha=alpha_pol)
+        theta = theta, T = T, inner_alpha = alpha_pol)
 
-    return (tor=tor, pol=pol, admittance=(tor=adm_tor, pol=adm_pol))
+    return (tor = tor, pol = pol, admittance = (tor = adm_tor, pol = adm_pol))
 end
 
-@inline solver_build_temperature_implicit_matrix(cfg, domain, diffusivity, dt, temperature_bc_code) =
-    SOLVER_TEMPERATURE_MATRIX_BUILDER(cfg, domain, diffusivity, dt; temperature_bc_code=temperature_bc_code)
+@inline solver_build_temperature_implicit_matrix(cfg,
+    domain,
+    diffusivity,
+    dt,
+    temperature_bc_code) = SOLVER_TEMPERATURE_MATRIX_BUILDER(
+    cfg, domain, diffusivity, dt; temperature_bc_code = temperature_bc_code)
 
-@inline solver_build_composition_implicit_matrix(cfg, domain, diffusivity, dt, composition_bc_code) =
-    SOLVER_COMPOSITION_MATRIX_BUILDER(cfg, domain, diffusivity, dt; composition_bc_code=composition_bc_code)
+@inline solver_build_composition_implicit_matrix(cfg,
+    domain,
+    diffusivity,
+    dt,
+    composition_bc_code) = SOLVER_COMPOSITION_MATRIX_BUILDER(
+    cfg, domain, diffusivity, dt; composition_bc_code = composition_bc_code)
 
 # Shared core for both the eager (construction-time) and rebuild (dt-change)
 # implicit-matrix paths. `dt` is the authoritative timestep — callers pass it
 # explicitly so the rebuild path can override the (frozen) backend timestep.
 function _build_implicit_matrices_dict(
-        ::Type{T}, cfg, outer, ic_domain, p::SolverParameters, dt::Float64,
-    ) where {T}
+        ::Type{T}, cfg, outer, ic_domain, p::SolverParameters, dt::Float64
+) where {T}
     matrices = Dict{Symbol, OldImplicitMatrices{T}}()
-    velocity = build_velocity_implicit_matrices(cfg, outer, p.Ek, dt, _velocity_bc_code(p.velocity_bcs))
+    velocity = build_velocity_implicit_matrices(
+        cfg, outer, p.Ek, dt, _velocity_bc_code(p.velocity_bcs))
     matrices[:velocity_tor] = velocity.tor
     matrices[:velocity_pol] = velocity.pol
 
@@ -457,12 +483,13 @@ and `nothing` otherwise. The insulating default path is byte-for-byte unchanged.
 """
 function create_solver_implicit_matrices(::Type{T}, backend::SolverBackend{<:AbstractArchitecture}) where {T}
     p = backend.parameters
-    return _build_implicit_matrices_dict(T, backend.shtns_config, backend.outer_core_domain,
-                                         backend.inner_core_domain, p, Float64(p.timestep))
+    return _build_implicit_matrices_dict(
+        T, backend.shtns_config, backend.outer_core_domain,
+        backend.inner_core_domain, p, Float64(p.timestep))
 end
 
-@inline solver_create_gradient_field(::Type{T}, cfg, domain, pencil_spec) where T =
-    SOLVER_SPECTRAL_FIELD_BUILDER(T, cfg, domain, pencil_spec)
+@inline solver_create_gradient_field(::Type{T}, cfg, domain,
+    pencil_spec) where {T} = SOLVER_SPECTRAL_FIELD_BUILDER(T, cfg, domain, pencil_spec)
 
 # Precompute, for every spectral mode (l, m), the storage index of its
 # (l+1, m) and (l-1, m) neighbors used by the θ-gradient recurrence. Neighbors
@@ -473,7 +500,7 @@ function build_theta_gradient_neighbors(cfg::SHTnsConfigType)
     nlm = cfg.nlm
     lvals = cfg.l_values
     mvals = cfg.m_values
-    index_of = Dict{Tuple{Int,Int}, Int}()
+    index_of = Dict{Tuple{Int, Int}, Int}()
     sizehint!(index_of, nlm)
     @inbounds for i in 1:nlm
         index_of[(lvals[i], mvals[i])] = i
@@ -483,13 +510,13 @@ function build_theta_gradient_neighbors(cfg::SHTnsConfigType)
     @inbounds for i in 1:nlm
         l = lvals[i]
         m = mvals[i]
-        lm_plus[i]  = get(index_of, (l + 1, m), 0)
+        lm_plus[i] = get(index_of, (l + 1, m), 0)
         lm_minus[i] = get(index_of, (l - 1, m), 0)
     end
     return lm_plus, lm_minus
 end
 
-function create_solver_gradient_workspace(::Type{T}, backend::SolverBackend{<:AbstractArchitecture}) where T
+function create_solver_gradient_workspace(::Type{T}, backend::SolverBackend{<:AbstractArchitecture}) where {T}
     cfg = backend.shtns_config
     domain = backend.outer_core_domain
     pencil_spec = cfg.pencils.spec
@@ -505,7 +532,7 @@ function create_solver_gradient_workspace(::Type{T}, backend::SolverBackend{<:Ab
         zeros(T, cfg.nlm, nr_local),
         zeros(T, cfg.nlm, nr_local),
         theta_lm_plus,
-        theta_lm_minus,
+        theta_lm_minus
     )
 end
 
@@ -521,17 +548,18 @@ function create_solver_timestep_state(backend::SolverBackend{<:AbstractArchitect
         0,
         Inf,
         false,
-        true,
+        true
     )
 end
 
-function load_field_bc_file!(field, filename, format, config, ::Type{T}, label, rank) where T
+function load_field_bc_file!(
+        field, filename, format, config, ::Type{T}, label, rank) where {T}
     try
         coefficients = SOLVER_LOAD_SPECTRAL_BC(
             filename,
             config;
-            format=format,
-            T=T,
+            format = format,
+            T = T
         )
         SOLVER_STORE_BC_IN_FIELD!(field, coefficients)
         if rank == 0
@@ -543,7 +571,8 @@ function load_field_bc_file!(field, filename, format, config, ::Type{T}, label, 
     return field
 end
 
-function load_solver_file_bcs!(runtime::SolverRuntime{T,<:AbstractArchitecture}, params::SolverParameters, rank::Int) where T
+function load_solver_file_bcs!(runtime::SolverRuntime{T, <:AbstractArchitecture},
+        params::SolverParameters, rank::Int) where {T}
     if !isempty(params.temperature_bc_file)
         load_field_bc_file!(
             runtime.temperature,
@@ -552,7 +581,7 @@ function load_solver_file_bcs!(runtime::SolverRuntime{T,<:AbstractArchitecture},
             runtime.shtns_config,
             T,
             "temperature",
-            rank,
+            rank
         )
     end
 
@@ -564,7 +593,7 @@ function load_solver_file_bcs!(runtime::SolverRuntime{T,<:AbstractArchitecture},
             runtime.shtns_config,
             T,
             "composition",
-            rank,
+            rank
         )
     end
 
@@ -598,8 +627,10 @@ function apply_scalar_boundary_parameters!(field, boundary_conditions::BoundaryC
     mean_mode = get_mode_index(field.config, 0, 0)
     if mean_mode > 0
         sqrt_4pi = sqrt(4 * convert(T, π))
-        field.boundary_values[1, mean_mode] = sqrt_4pi * T(solver_scalar_boundary_value(boundary_conditions.inner))
-        field.boundary_values[2, mean_mode] = sqrt_4pi * T(solver_scalar_boundary_value(boundary_conditions.outer))
+        field.boundary_values[1, mean_mode] = sqrt_4pi *
+                                              T(solver_scalar_boundary_value(boundary_conditions.inner))
+        field.boundary_values[2, mean_mode] = sqrt_4pi *
+                                              T(solver_scalar_boundary_value(boundary_conditions.outer))
     end
 
     return field
@@ -616,8 +647,8 @@ user-supplied spectral boundary file cleanly overrides the homogeneous or
 mean-mode defaults.
 """
 function create_solver_runtime(::Type{T}, backend::SolverBackend{A};
-                               auto_optimize::Bool=false,
-                               adaptive_threading::Bool=false) where {T, A}
+        auto_optimize::Bool = false,
+        adaptive_threading::Bool = false) where {T, A}
     backend_ensure_mpi!()
 
     velocity, magnetic, temperature, composition = create_solver_fields(T, backend)
@@ -643,8 +674,9 @@ function create_solver_runtime(::Type{T}, backend::SolverBackend{A};
         backend.outer_core_domain,
         # Ball geometry has no distinct inner-core domain, but downstream
         # magnetic kernels expect both slots to be populated consistently.
-        isnothing(backend.inner_core_domain) ? backend.outer_core_domain : backend.inner_core_domain,
-        timestep_state,
+        isnothing(backend.inner_core_domain) ? backend.outer_core_domain :
+        backend.inner_core_domain,
+        timestep_state
     )
 
     load_solver_file_bcs!(runtime, backend.parameters, backend.rank)

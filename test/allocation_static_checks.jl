@@ -10,14 +10,15 @@ function _allocation_static_function_body(source::String, signature::String)
     start = findfirst(signature, source)
     start === nothing && error("Could not find function signature: $signature")
     next_function = findnext("\nfunction ", source, last(start) + 1)
-    return next_function === nothing ? source[first(start):end] : source[first(start):first(next_function)-1]
+    return next_function === nothing ? source[first(start):end] :
+           source[first(start):(first(next_function) - 1)]
 end
 
 @testset "Hot-path allocation source checks" begin
     numerics = _allocation_static_source("solver", "numerics.jl")
     vorticity_body = _allocation_static_function_body(
         numerics,
-        "function solver_compute_vorticity_spectral!(",
+        "function solver_compute_vorticity_spectral!("
     )
     @test occursin("get_velocity_workspace(T)", vorticity_body)
     @test !occursin("[zeros(T, nr) for _ in 1:nthreads]", vorticity_body)
@@ -29,7 +30,7 @@ end
     nonlinear = _allocation_static_source("physics", "nonlinear.jl")
     theta_body = _allocation_static_function_body(
         nonlinear,
-        "function solver_compute_theta_gradient_spectral!(",
+        "function solver_compute_theta_gradient_spectral!("
     )
     @test occursin("ws.theta_full_real", theta_body)
     @test !occursin("full_real = zeros(T, nlm)", theta_body)
@@ -37,7 +38,7 @@ end
 
     scalar_transform_body = _allocation_static_function_body(
         nonlinear,
-        "function solver_transform_field_and_gradients_to_physical!(",
+        "function solver_transform_field_and_gradients_to_physical!("
     )
     @test !occursin("spectral_fields = [", scalar_transform_body)
     @test !occursin("physical_fields = [", scalar_transform_body)
@@ -98,7 +99,7 @@ end
         _allocation_static_source("physics", "temperature", "field.jl"),
         _allocation_static_source("physics", "composition", "field.jl"),
         _allocation_static_source("physics", "velocity", "field.jl"),
-        _allocation_static_source("physics", "magnetic", "field.jl"),
+        _allocation_static_source("physics", "magnetic", "field.jl")
     )
         @test !occursin("config::SHTnsKitConfig", source)
     end
@@ -117,7 +118,7 @@ end
     imex = _allocation_static_source("timestep", "imex.jl")
     krylov_body = _allocation_static_function_body(
         imex,
-        "function solver_eab2_update_krylov_cached!(",
+        "function solver_eab2_update_krylov_cached!("
     )
     @test occursin("krylov_work::Union{SolverRadialWork{T}, Nothing}=nothing", krylov_body)
     @test occursin("krylov_action_work = work_ok ? krylov_work.krylov : nothing", krylov_body)
@@ -133,38 +134,40 @@ end
     @test occursin("curl_work::NTuple{6,Vector{T}}", magnetic_field)
     current_body = _allocation_static_function_body(
         magnetic_field,
-        "function compute_current_density_spectral!(",
+        "function compute_current_density_spectral!("
     )
     induction_body = _allocation_static_function_body(
         magnetic_field,
-        "function compute_curl_of_induction!(",
+        "function compute_curl_of_induction!("
     )
     @test occursin("_work=ℬ.curl_work", current_body)
     @test occursin("_work=ℬ.curl_work", induction_body)
 
     solver_current_body = _allocation_static_function_body(
         solver_numerics,
-        "function solver_compute_current_density_spectral!(",
+        "function solver_compute_current_density_spectral!("
     )
     solver_induction_body = _allocation_static_function_body(
         solver_numerics,
-        "function solver_compute_curl_of_induction!(",
+        "function solver_compute_curl_of_induction!("
     )
     @test occursin("_work=magnetic_fields.curl_work", solver_current_body)
     @test occursin("_work=magnetic_fields.curl_work", solver_induction_body)
 
     @test !occursin("solver_get_cached_buffer!(create_func::Function", nonlinear)
     @test !occursin("field = get(_SOLVER_BUFFERS_KEY_MAP", nonlinear)
-    @test occursin("function solver_get_cached_buffer!(create_func::F, config, ::Val{key}) where {F,key}", nonlinear)
+    @test occursin(
+        "function solver_get_cached_buffer!(create_func::F, config, ::Val{key}) where {F,key}",
+        nonlinear)
 
     scalar_ops = _allocation_static_source("fields", "scalar_operators.jl")
     flux_tau_body = _allocation_static_function_body(
         scalar_ops,
-        "function apply_flux_bc_tau!(",
+        "function apply_flux_bc_tau!("
     )
     influence_body = _allocation_static_function_body(
         scalar_ops,
-        "function apply_flux_bc_influence_matrix!(",
+        "function apply_flux_bc_influence_matrix!("
     )
     @test occursin("struct ScalarFluxBCWork{T}", scalar_ops)
     @test occursin("flux_work = ScalarFluxBCWork{T}(domain.N)", scalar_ops)
@@ -177,11 +180,11 @@ end
     erk2 = _allocation_static_source("timestep", "erk2.jl")
     integrate_erk2_body = _allocation_static_function_body(
         erk2,
-        "function integrate_solver_erk2_step!(",
+        "function integrate_solver_erk2_step!("
     )
     finalize_erk2_body = _allocation_static_function_body(
         erk2,
-        "function finalize_solver_erk2_field!(",
+        "function finalize_solver_erk2_field!("
     )
     @test occursin("erk2_field_buffers::Dict{Symbol, SolverERK2FieldBuffers{T}}", solver_state)
     @test occursin("get_solver_erk2_field_buffers!", integrate_erk2_body)
@@ -192,12 +195,24 @@ end
     temperature_solver = _allocation_static_source("physics", "temperature", "solver.jl")
     composition_solver = _allocation_static_source("physics", "composition", "solver.jl")
     magnetic_solver = _allocation_static_source("physics", "magnetic", "solver.jl")
-    @test occursin("solver_solve_temperature_implicit_step!(\n            temperature.spectral,\n            temperature.nonlinear,\n            matrices;\n            bc_inner=bc.inner_real,\n            bc_outer=bc.outer_real,\n            bc_inner_imag=bc.inner_imag,\n            bc_outer_imag=bc.outer_imag,\n            work=radial_work,", temperature_solver)
-    @test occursin("solver_solve_velocity_implicit_step!(\n            velocity.𝒯,\n            velocity.nlᵀ,\n            matrices,\n            :toroidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.𝒟ᵒᶜ,\n            work=radial_work,", velocity_solver)
-    @test occursin("solver_solve_velocity_implicit_step!(\n            velocity.𝒫,\n            velocity.nlᴾ,\n            matrices,\n            :poloidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.𝒟ᵒᶜ,\n            work=radial_work,", velocity_solver)
-    @test occursin("solver_solve_composition_implicit_step!(\n            composition.spectral,\n            composition.nonlinear,\n            matrices;\n            bc_inner=bc.inner_real,\n            bc_outer=bc.outer_real,\n            bc_inner_imag=bc.inner_imag,\n            bc_outer_imag=bc.outer_imag,\n            work=radial_work,", composition_solver)
-    @test occursin("solver_solve_magnetic_implicit_step!(\n            magnetic.𝒯,\n            magnetic.nlᵀ,\n            matrices,\n            :toroidal;\n            mag_bc_inner=inner_bc === nothing ? nothing : inner_bc[1],\n            prev_bc_inner=inner_bc === nothing ? nothing : inner_bc[2],\n            mag_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[3],\n            prev_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[4],\n            work=radial_work,", magnetic_solver)
-    @test occursin("solver_solve_magnetic_implicit_step!(\n            magnetic.𝒫,\n            magnetic.nlᴾ,\n            matrices,\n            :poloidal,\n            work=radial_work,", magnetic_solver)
+    @test occursin(
+        "solver_solve_temperature_implicit_step!(\n            temperature.spectral,\n            temperature.nonlinear,\n            matrices;\n            bc_inner=bc.inner_real,\n            bc_outer=bc.outer_real,\n            bc_inner_imag=bc.inner_imag,\n            bc_outer_imag=bc.outer_imag,\n            work=radial_work,",
+        temperature_solver)
+    @test occursin(
+        "solver_solve_velocity_implicit_step!(\n            velocity.𝒯,\n            velocity.nlᵀ,\n            matrices,\n            :toroidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.𝒟ᵒᶜ,\n            work=radial_work,",
+        velocity_solver)
+    @test occursin(
+        "solver_solve_velocity_implicit_step!(\n            velocity.𝒫,\n            velocity.nlᴾ,\n            matrices,\n            :poloidal;\n            velocity_bc_code=velocity_bc,\n            domain=runtime.𝒟ᵒᶜ,\n            work=radial_work,",
+        velocity_solver)
+    @test occursin(
+        "solver_solve_composition_implicit_step!(\n            composition.spectral,\n            composition.nonlinear,\n            matrices;\n            bc_inner=bc.inner_real,\n            bc_outer=bc.outer_real,\n            bc_inner_imag=bc.inner_imag,\n            bc_outer_imag=bc.outer_imag,\n            work=radial_work,",
+        composition_solver)
+    @test occursin(
+        "solver_solve_magnetic_implicit_step!(\n            magnetic.𝒯,\n            magnetic.nlᵀ,\n            matrices,\n            :toroidal;\n            mag_bc_inner=inner_bc === nothing ? nothing : inner_bc[1],\n            prev_bc_inner=inner_bc === nothing ? nothing : inner_bc[2],\n            mag_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[3],\n            prev_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[4],\n            work=radial_work,",
+        magnetic_solver)
+    @test occursin(
+        "solver_solve_magnetic_implicit_step!(\n            magnetic.𝒫,\n            magnetic.nlᴾ,\n            matrices,\n            :poloidal,\n            work=radial_work,",
+        magnetic_solver)
 
     velocity_field = _allocation_static_source("physics", "velocity", "field.jl")
     @test !occursin("_compute_vorticity_spectral_threaded!", velocity_field)

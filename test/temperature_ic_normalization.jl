@@ -41,20 +41,20 @@ end
         # pin a uniform physical mean of 0.5 via the composition boundaries (the
         # default is 0/0, which would seed 0 — see src/physics/composition/solver.jl).
         composition_bcs = G.BoundaryConditions(
-            inner = G.FixedTemperature(0.5), outer = G.FixedTemperature(0.5)),
+            inner = G.FixedTemperature(0.5), outer = G.FixedTemperature(0.5))
     )
 
     state = G.initialize_simulation(params)
     G.initialize_temperature_field!(state)
 
     temp = state.fields.temperature
-    cfg  = temp.config
-    dom  = state.backend.outer_core_domain
-    N    = dom.N
+    cfg = temp.config
+    dom = state.backend.outer_core_domain
+    N = dom.N
 
-    m00  = G.get_mode_index(cfg, 0, 0)
+    m00 = G.get_mode_index(cfg, 0, 0)
     slot = G.local_spectral_storage_slot(cfg, m00)
-    sr   = parent(temp.spectral.data_real)
+    sr = parent(temp.spectral.data_real)
 
     inner_coeff = G.local_spectral_value(sr, slot, 1)
     outer_coeff = G.local_spectral_value(sr, slot, N)
@@ -63,13 +63,13 @@ end
     phys_outer = _physical_from_mean_coeff(cfg, dom, outer_coeff)
 
     # Standard nondimensional shell conduction: physical T(inner)=1, T(outer)=0.
-    @test isapprox(phys_inner, 1.0; atol=1e-9)
-    @test isapprox(phys_outer, 0.0; atol=1e-9)
+    @test isapprox(phys_inner, 1.0; atol = 1e-9)
+    @test isapprox(phys_outer, 0.0; atol = 1e-9)
 
     # IC must agree with the FixedTemperature BC endpoints it is solved against.
     bc = G.get_bc_vectors(temp)
-    @test isapprox(inner_coeff, bc.inner_real[m00]; atol=1e-9)
-    @test isapprox(outer_coeff, bc.outer_real[m00]; atol=1e-9)
+    @test isapprox(inner_coeff, bc.inner_real[m00]; atol = 1e-9)
+    @test isapprox(outer_coeff, bc.outer_real[m00]; atol = 1e-9)
 
     # Composition shares the scalar path; its uniform background of physical
     # mean 0.5 must likewise reconstruct to 0.5 after synthesis.
@@ -79,5 +79,5 @@ end
     cspec = parent(comp.spectral.data_real)
     cslot = G.local_spectral_storage_slot(comp.config, m00)
     comp_coeff = G.local_spectral_value(cspec, cslot, 1)
-    @test isapprox(_physical_from_mean_coeff(comp.config, dom, comp_coeff), 0.5; atol=1e-9)
+    @test isapprox(_physical_from_mean_coeff(comp.config, dom, comp_coeff), 0.5; atol = 1e-9)
 end

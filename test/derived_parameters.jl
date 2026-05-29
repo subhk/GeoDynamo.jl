@@ -22,7 +22,7 @@ using Test
 
     @testset "SolverParameters keyword construction" begin
         params = GeoDynamo.SolverParameters(
-            nr=128, lmax=64, Ra=1e8, geometry=:ball, radius_ratio=0.0, nr_inner=0
+            nr = 128, lmax = 64, Ra = 1e8, geometry = :ball, radius_ratio = 0.0, nr_inner = 0
         )
         @test params.nr == 128
         @test params.lmax == 64

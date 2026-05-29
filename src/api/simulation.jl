@@ -9,20 +9,20 @@ Holds a `GeodynamoModel` together with time-stepping controls, callbacks, and
 output writers.  Create with `Simulation(model; dt, ...)` and advance with
 `run!(sim)`.
 """
-mutable struct Simulation{M,C,O}
-    model           :: M
-    dt              :: Float64
-    stop_time       :: Float64
-    stop_iteration  :: Int
-    wall_time_limit :: Float64
-    callbacks       :: C
-    output_writers  :: O
-    _wall_start     :: Float64
+mutable struct Simulation{M, C, O}
+    model::M
+    dt::Float64
+    stop_time::Float64
+    stop_iteration::Int
+    wall_time_limit::Float64
+    callbacks::C
+    output_writers::O
+    _wall_start::Float64
 end
 
-_to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol,Any}()
+_to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol, Any}()
 function _to_ordered(items, prefix::Symbol)
-    d = OrderedDict{Symbol,Any}()
+    d = OrderedDict{Symbol, Any}()
     if items isa AbstractDict
         for (k, v) in items
             d[Symbol(k)] = v
@@ -59,33 +59,33 @@ initialized.  A warning is emitted when `restart_from` is set but MPI is not
 available.
 """
 function Simulation(model::GeodynamoModel;
-        dt             :: Real,
-        stop_time      :: Float64 = Inf,
-        stop_iteration :: Int     = typemax(Int),
-        wall_time_limit :: Real   = Inf,
+        dt::Real,
+        stop_time::Float64 = Inf,
+        stop_iteration::Int = typemax(Int),
+        wall_time_limit::Real = Inf,
         timestepper = nothing,
-        timestep_scheme :: Union{Symbol, Nothing} = nothing,
-        implicit_theta  :: Union{Real, Nothing} = nothing,
-        etd_krylov_dimension :: Union{Int, Nothing} = nothing,
-        krylov_tolerance :: Union{Real, Nothing} = nothing,
-        courant        :: Union{Real, Nothing} = nothing,
-        callbacks                 = (),
-        output_writers            = (),
-        restart_from   :: String  = "")
-
+        timestep_scheme::Union{Symbol, Nothing} = nothing,
+        implicit_theta::Union{Real, Nothing} = nothing,
+        etd_krylov_dimension::Union{Int, Nothing} = nothing,
+        krylov_tolerance::Union{Real, Nothing} = nothing,
+        courant::Union{Real, Nothing} = nothing,
+        callbacks = (),
+        output_writers = (),
+        restart_from::String = "")
     if !isempty(restart_from)
         if MPI.Initialized()
-            config  = default_config()
+            config = default_config()
             tracker = create_time_tracker(config)
             try
-                restart_data, metadata = read_restart!(tracker, restart_from,
-                                                       model.state.time, config,
-                                                       model.state.runtime.shtns_config.pencils;
-                                                       shtns_config=model.state.runtime.shtns_config)
+                restart_data,
+                metadata = read_restart!(tracker, restart_from,
+                    model.state.time, config,
+                    model.state.runtime.shtns_config.pencils;
+                    shtns_config = model.state.runtime.shtns_config)
                 restore_fields_from_restart!(model.state, restart_data)
                 restart_time = Float64(get(metadata, "current_time", model.state.time))
                 restart_step = Int(get(metadata, "current_step", model.state.step))
-                reset_solver_clock!(model.state; time=restart_time, step=restart_step)
+                reset_solver_clock!(model.state; time = restart_time, step = restart_step)
                 @info "Simulation: loaded restart from $restart_from" time=model.state.time
             catch e
                 @warn "Simulation: read_restart! failed — starting from initial state" exception=e
@@ -107,15 +107,15 @@ function Simulation(model::GeodynamoModel;
         implicit_theta,
         etd_krylov_dimension,
         krylov_tolerance,
-        p,
+        p
     )
     model.state.parameters = SolverParameters(;
         (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
-        timestep  = dt_f,
-        end_time  = stop_time,
+        timestep = dt_f,
+        end_time = stop_time,
         stop_iteration = stop_iteration,
         timestepper = timestep_options.timestepper,
-        courant = Float64(something(courant, p.courant)),
+        courant = Float64(something(courant, p.courant))
     )
     if dt_f != old_timestep
         rebuild_solver_implicit_matrices!(model.state, dt_f)
@@ -130,7 +130,7 @@ function Simulation(model::GeodynamoModel;
         model, dt_f, stop_time, stop_iteration, Float64(wall_time_limit),
         callback_items,
         output_writer_items,
-        0.0,
+        0.0
     )
 end
 
@@ -150,7 +150,7 @@ function time_step!(model::GeodynamoModel, dt::Real)
         p = state.parameters
         state.parameters = SolverParameters(;
             (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
-            timestep = dt_f,
+            timestep = dt_f
         )
         rebuild_solver_implicit_matrices!(state, dt_f)
         state.runtime.timestep_state.dt = dt_f
@@ -190,8 +190,8 @@ function run!(sim::Simulation)
     sim._wall_start = time()
     clock = sim.model.clock
     while clock.time < sim.stop_time &&
-          clock.iteration < sim.stop_iteration &&
-          (time() - sim._wall_start) < sim.wall_time_limit
+              clock.iteration < sim.stop_iteration &&
+              (time() - sim._wall_start) < sim.wall_time_limit
         time_step!(sim)
     end
     return sim
@@ -203,8 +203,7 @@ end
 Register `func(sim)` to fire on `schedule`. Returns `sim`.
 """
 function add_callback!(sim::Simulation, func; schedule,
-                       name::Symbol = Symbol(:callback, length(sim.callbacks) + 1))
+        name::Symbol = Symbol(:callback, length(sim.callbacks) + 1))
     sim.callbacks[name] = Callback(func; schedule = schedule)
     return sim
 end
-

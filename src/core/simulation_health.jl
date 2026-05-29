@@ -22,10 +22,10 @@ const DEFAULT_NAN_CONFIG = NaNDetectionConfig(true, 1, true, true)
 Check a field for NaN or Inf values. Returns `(has_nan, has_inf, nan_count, inf_count)`.
 """
 function check_field_for_nan(
-    field_data::AbstractArray,
-    field_name::String,
-    config::NaNDetectionConfig,
-    step::Int,
+        field_data::AbstractArray,
+        field_name::String,
+        config::NaNDetectionConfig,
+        step::Int
 )
     if !config.enabled || step % config.check_every_n_steps != 0
         return (false, false, 0, 0)
@@ -49,22 +49,26 @@ end
 Check both real and imaginary parts of a spectral field.
 """
 function check_spectral_field_for_nan(
-    field,
-    field_name::String,
-    config::NaNDetectionConfig,
-    step::Int,
+        field,
+        field_name::String,
+        config::NaNDetectionConfig,
+        step::Int
 )
-    has_nan_r, has_inf_r, nan_r, inf_r = check_field_for_nan(
+    has_nan_r, has_inf_r,
+    nan_r,
+    inf_r = check_field_for_nan(
         parent(field.data_real),
         "$(field_name)_real",
         config,
-        step,
+        step
     )
-    has_nan_i, has_inf_i, nan_i, inf_i = check_field_for_nan(
+    has_nan_i, has_inf_i,
+    nan_i,
+    inf_i = check_field_for_nan(
         parent(field.data_imag),
         "$(field_name)_imag",
         config,
-        step,
+        step
     )
 
     return (has_nan_r || has_nan_i, has_inf_r || has_inf_i, nan_r + nan_i, inf_r + inf_i)
@@ -77,9 +81,9 @@ Comprehensive NaN/Inf check across all simulation fields.
 Returns true if any NaN/Inf is detected.
 """
 function check_simulation_state_for_nan(
-    state,
-    step::Int;
-    config::NaNDetectionConfig=DEFAULT_NAN_CONFIG,
+        state,
+        step::Int;
+        config::NaNDetectionConfig = DEFAULT_NAN_CONFIG
 )
     if !config.enabled || step % config.check_every_n_steps != 0
         return false
@@ -87,52 +91,60 @@ function check_simulation_state_for_nan(
 
     any_issue = false
 
-    has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+    has_nan, has_inf,
+    _, _ = check_spectral_field_for_nan(
         state.velocity.𝒯,
         "velocity_toroidal",
         config,
-        step,
+        step
     )
     any_issue |= (has_nan || has_inf)
 
-    has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+    has_nan, has_inf,
+    _, _ = check_spectral_field_for_nan(
         state.velocity.𝒫,
         "velocity_poloidal",
         config,
-        step,
+        step
     )
     any_issue |= (has_nan || has_inf)
 
-    has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+    has_nan, has_inf,
+    _, _ = check_spectral_field_for_nan(
         state.magnetic.𝒯,
         "magnetic_toroidal",
         config,
-        step,
+        step
     )
     any_issue |= (has_nan || has_inf)
 
-    has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+    has_nan, has_inf,
+    _, _ = check_spectral_field_for_nan(
         state.magnetic.𝒫,
         "magnetic_poloidal",
         config,
-        step,
+        step
     )
     any_issue |= (has_nan || has_inf)
 
-    has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+    has_nan, has_inf,
+    _,
+    _ = check_spectral_field_for_nan(
         state.temperature.spectral,
         "temperature",
         config,
-        step,
+        step
     )
     any_issue |= (has_nan || has_inf)
 
     if state.composition !== nothing
-        has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+        has_nan, has_inf,
+        _,
+        _ = check_spectral_field_for_nan(
             state.composition.spectral,
             "composition",
             config,
-            step,
+            step
         )
         any_issue |= (has_nan || has_inf)
     end

@@ -40,9 +40,10 @@ Apply topography corrections to thermal boundary conditions.
 - `config`: TopographyCouplingConfig with coupling parameters
 - `T_cond`: Optional conductive temperature profile function T_cond(r)
 """
-function apply_thermal_topography_correction!(temperature_field, topography::TopographyData,
-                                              config::TopographyCouplingConfig;
-                                              T_cond::Union{Function, Nothing}=nothing)
+function apply_thermal_topography_correction!(
+        temperature_field, topography::TopographyData,
+        config::TopographyCouplingConfig;
+        T_cond::Union{Function, Nothing} = nothing)
     if !config.thermal_coupling || !config.enabled
         return nothing
     end
@@ -67,19 +68,19 @@ function apply_thermal_topography_correction!(temperature_field, topography::Top
 
     # Prefer BC metadata from the parent scalar field when available
     bc_inner = hasfield(typeof(temperature_field), :bc_type_inner) ?
-        temperature_field.bc_type_inner : spectral.bc_type_inner
+               temperature_field.bc_type_inner : spectral.bc_type_inner
     bc_outer = hasfield(typeof(temperature_field), :bc_type_outer) ?
-        temperature_field.bc_type_outer : spectral.bc_type_outer
+               temperature_field.bc_type_outer : spectral.bc_type_outer
     bv = hasfield(typeof(temperature_field), :boundary_values) ?
-        temperature_field.boundary_values : spectral.boundary_values
+         temperature_field.boundary_values : spectral.boundary_values
 
     # Radial derivative metadata for accurate coupling terms
     ∂r = hasfield(typeof(temperature_field), :∂r) ?
-        temperature_field.∂r : nothing
+         temperature_field.∂r : nothing
     ∂²r = hasfield(typeof(temperature_field), :∂²r) ?
-        temperature_field.∂²r : nothing
+          temperature_field.∂²r : nothing
     domain = hasfield(typeof(temperature_field), :domain) ?
-        temperature_field.domain : nothing
+             temperature_field.domain : nothing
 
     cache = nothing
     if ∂r !== nothing && domain !== nothing
@@ -123,16 +124,16 @@ end
 Apply thermal topography corrections at a specific boundary.
 """
 function apply_thermal_correction_at_boundary!(spectral,
-                                               cache::Union{BoundaryDerivativeCache{T}, Nothing},
-                                               boundary_values::AbstractMatrix{T},
-                                               bc_inner::AbstractVector{Int},
-                                               bc_outer::AbstractVector{Int},
-                                               topo_field::TopographyField{T},
-                                               gaunt::GauntTensorCache{T},
-                                               ε::T,
-                                               config::TopographyCouplingConfig,
-                                               location::BoundaryLocation,
-                                               T_cond::Union{Function, Nothing}) where T
+        cache::Union{BoundaryDerivativeCache{T}, Nothing},
+        boundary_values::AbstractMatrix{T},
+        bc_inner::AbstractVector{Int},
+        bc_outer::AbstractVector{Int},
+        topo_field::TopographyField{T},
+        gaunt::GauntTensorCache{T},
+        ε::T,
+        config::TopographyCouplingConfig,
+        location::BoundaryLocation,
+        T_cond::Union{Function, Nothing}) where {T}
     rb = topo_field.radius
     lmax = min(spectral.config.lmax, gaunt.lmax)
     mmax = min(spectral.config.mmax, gaunt.lmax)
@@ -212,14 +213,14 @@ The correction to the RHS involves:
 2. Conductive correction: h · ∂_r T_cond (modifies boundary value)
 """
 function compute_dirichlet_thermal_correction(l::Int, m::Int,
-                                              spectral,
-                                              cache::Union{BoundaryDerivativeCache{T}, Nothing},
-                                              topo::TopographyField{T},
-                                              gaunt::GauntTensorCache{T},
-                                              rb::T,
-                                              location::BoundaryLocation,
-                                              config::TopographyCouplingConfig,
-                                              dTcond_dr::T) where T
+        spectral,
+        cache::Union{BoundaryDerivativeCache{T}, Nothing},
+        topo::TopographyField{T},
+        gaunt::GauntTensorCache{T},
+        rb::T,
+        location::BoundaryLocation,
+        config::TopographyCouplingConfig,
+        dTcond_dr::T) where {T}
     correction = zero(Complex{T})
 
     lmax = min(spectral.config.lmax, gaunt.lmax)
@@ -294,15 +295,15 @@ The correction involves:
 3. Conductive correction: h · ∂_rr T_cond
 """
 function compute_neumann_thermal_correction(l::Int, m::Int,
-                                            spectral,
-                                            cache::Union{BoundaryDerivativeCache{T}, Nothing},
-                                            topo::TopographyField{T},
-                                            gaunt::GauntTensorCache{T},
-                                            rb::T,
-                                            location::BoundaryLocation,
-                                            config::TopographyCouplingConfig,
-                                            dTcond_dr::T,
-                                            d2Tcond_dr2::T) where T
+        spectral,
+        cache::Union{BoundaryDerivativeCache{T}, Nothing},
+        topo::TopographyField{T},
+        gaunt::GauntTensorCache{T},
+        rb::T,
+        location::BoundaryLocation,
+        config::TopographyCouplingConfig,
+        dTcond_dr::T,
+        d2Tcond_dr2::T) where {T}
     correction = zero(Complex{T})
 
     lmax = min(spectral.config.lmax, gaunt.lmax)
@@ -367,7 +368,6 @@ end
 # Utility Functions
 # ================================================================================
 
-
 # ================================================================================
 # Compositional Field Support
 # ================================================================================
@@ -381,12 +381,13 @@ Apply topography corrections to compositional boundary conditions.
 Composition follows the same mathematical structure as temperature,
 so we can reuse the thermal correction functions.
 """
-function apply_composition_topography_correction!(composition_field, topography::TopographyData,
-                                                  config::TopographyCouplingConfig)
+function apply_composition_topography_correction!(
+        composition_field, topography::TopographyData,
+        config::TopographyCouplingConfig)
     # Composition uses the same equations as temperature (advection-diffusion)
     # Default: no conductive profile for composition
     apply_thermal_topography_correction!(composition_field, topography, config;
-                                         T_cond=nothing)
+        T_cond = nothing)
 end
 
 # ================================================================================
@@ -409,9 +410,9 @@ Assemble the thermal boundary condition operator matrix row for mode l.
 - `bc_type`: :dirichlet or :neumann
 """
 function assemble_thermal_boundary_operator(l::Int, topo::TopographyField{T},
-                                            gaunt::GauntTensorCache{T},
-                                            config::TopographyCouplingConfig,
-                                            bc_type::Symbol) where T
+        gaunt::GauntTensorCache{T},
+        config::TopographyCouplingConfig,
+        bc_type::Symbol) where {T}
     rb = topo.radius
     ε = config.epsilon
     lmax = gaunt.lmax
@@ -498,9 +499,9 @@ q_n = -k [∂_r T - ε ∇_H h · ∇_H T + εh ∂_rr T]
 Returns heat flux on the (θ, φ) grid.
 """
 function compute_boundary_heat_flux(temperature_field, topography::TopographyData,
-                                    config::TopographyCouplingConfig,
-                                    location::BoundaryLocation;
-                                    k::Float64=1.0)
+        config::TopographyCouplingConfig,
+        location::BoundaryLocation;
+        k::Float64 = 1.0)
     ε = config.epsilon
     topo_field = location == INNER_BOUNDARY ? topography.icb : topography.cmb
 
@@ -522,7 +523,8 @@ function compute_boundary_heat_flux(temperature_field, topography::TopographyDat
 
     ∂r = hasfield(typeof(temperature_field), :∂r) ? temperature_field.∂r : nothing
     ∂²r = hasfield(typeof(temperature_field), :∂²r) ? temperature_field.∂²r : nothing
-    domain = hasfield(typeof(temperature_field), :domain) ? temperature_field.domain : nothing
+    domain = hasfield(typeof(temperature_field), :domain) ? temperature_field.domain :
+             nothing
     if ∂r === nothing || domain === nothing
         @warn "Missing radial derivative metadata; cannot compute boundary heat flux"
         return nothing
@@ -551,7 +553,7 @@ function compute_boundary_heat_flux(temperature_field, topography::TopographyDat
             shift_sum = zero(Complex{T})
 
             if gaunt !== nothing && l <= lmax_coupling &&
-                (config.include_slope_terms || config.include_shift_terms)
+               (config.include_slope_terms || config.include_shift_terms)
                 for L in 0:lmax_t
                     for M in -L:L
                         h_LM = get_coefficient(topo_field, L, M)

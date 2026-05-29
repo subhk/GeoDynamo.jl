@@ -18,7 +18,7 @@ const FINALIZE_MPI_OW = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true
     @testset "OutputConfig from parameters" begin
         config = GeoDynamo.output_config_from_parameters(
             output_precision = :float32,
-            output_interval  = 50.0,
+            output_interval = 50.0
         )
         @test config !== nothing
         @test config.output_precision === Float32
@@ -29,7 +29,7 @@ const FINALIZE_MPI_OW = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true
     # Test 2: Time tracker creation and scheduling
     # ------------------------------------------------------------------
     @testset "TimeTracker scheduling" begin
-        config = GeoDynamo.output_config_from_parameters(output_interval=10.0)
+        config = GeoDynamo.output_config_from_parameters(output_interval = 10.0)
         tracker = GeoDynamo.create_time_tracker(config)
         @test tracker !== nothing
     end
@@ -92,23 +92,23 @@ const FINALIZE_MPI_OW = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true
     # ------------------------------------------------------------------
     @testset "enhanced metadata" begin
         tiny_params = GeoDynamo.SolverParameters(
-            architecture=:cpu,
-            geometry=:shell,
-            nr=16,
-            nr_inner=4,
-            lmax=4,
-            mmax=4,
-            nlat=12,
-            nlon=16,
-            Ra=1e4,
-            Ek=1e-2,
-            timestep=1e-4,
-            end_time=1e-3,
-            stop_iteration=10,
-            include_magnetic_field=false,
-            include_composition=false,
-            topography_enabled=false,
-            stefan_enabled=false,
+            architecture = :cpu,
+            geometry = :shell,
+            nr = 16,
+            nr_inner = 4,
+            lmax = 4,
+            mmax = 4,
+            nlat = 12,
+            nlon = 16,
+            Ra = 1e4,
+            Ek = 1e-2,
+            timestep = 1e-4,
+            end_time = 1e-3,
+            stop_iteration = 10,
+            include_magnetic_field = false,
+            include_composition = false,
+            topography_enabled = false,
+            stefan_enabled = false
         )
         state = GeoDynamo.initialize_simulation(Float64, tiny_params)
         GeoDynamo.initialize_fields!(state)

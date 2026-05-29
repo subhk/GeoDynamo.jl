@@ -12,10 +12,10 @@ It is correct to read between steps, not mid-step.
 the current drivers are single-stage, so it stays `0`.
 """
 mutable struct Clock{T}
-    time      :: T
-    iteration :: Int
-    stage     :: Int
-    last_dt   :: T
+    time::T
+    iteration::Int
+    stage::Int
+    last_dt::T
 end
 
 Clock{T}() where {T} = Clock{T}(zero(T), 0, 0, zero(T))
@@ -27,12 +27,12 @@ end
 
 # state::SolverState — pull the authoritative values into the mirror.
 function sync_clock!(clock::Clock{T}, state) where {T}
-    clock.time      = T(state.time)
+    clock.time = T(state.time)
     clock.iteration = state.step
     return clock
 end
 
 function Base.show(io::IO, ::MIME"text/plain", c::Clock)
     print(io, "Clock(time=$(c.time), iteration=$(c.iteration), ",
-              "stage=$(c.stage), last_dt=$(c.last_dt))")
+        "stage=$(c.stage), last_dt=$(c.last_dt))")
 end

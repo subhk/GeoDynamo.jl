@@ -68,64 +68,64 @@ Fields that are `nothing` at construction time are lazily allocated on first use
 """
 mutable struct SHTnsBuffers
     # Set eagerly at config creation (CPU only)
-    sht_plan                 :: Union{SHTnsKit.SHTPlan, Nothing}
+    sht_plan::Union{SHTnsKit.SHTPlan, Nothing}
 
     # Scalar synthesis / analysis output buffers
-    synth_out                :: Union{Matrix{Float64}, Nothing}
-    anal_out                 :: Union{Matrix{ComplexF64}, Nothing}
+    synth_out::Union{Matrix{Float64}, Nothing}
+    anal_out::Union{Matrix{ComplexF64}, Nothing}
 
     # Vector synthesis output buffers (tangential components)
-    vt_out                   :: Union{Matrix{Float64}, Nothing}
-    vp_out                   :: Union{Matrix{Float64}, Nothing}
+    vt_out::Union{Matrix{Float64}, Nothing}
+    vp_out::Union{Matrix{Float64}, Nothing}
 
     # Vector analysis output buffers (toroidal/poloidal coefficients)
-    slm_out                  :: Union{Matrix{ComplexF64}, Nothing}
-    tlm_out                  :: Union{Matrix{ComplexF64}, Nothing}
+    slm_out::Union{Matrix{ComplexF64}, Nothing}
+    tlm_out::Union{Matrix{ComplexF64}, Nothing}
 
     # Temporary phi-pencil arrays for transpose-based synthesis/analysis
-    synthesis_phi_tmp        :: Union{PencilArray, Nothing}
-    analysis_phi_tmp         :: Union{PencilArray, Nothing}
+    synthesis_phi_tmp::Union{PencilArray, Nothing}
+    analysis_phi_tmp::Union{PencilArray, Nothing}
 
     # Coefficient extraction buffers (scalar)
-    coeffs_buffer            :: Union{Matrix{ComplexF64}, Nothing}
-    coeffs_buffer_gathered   :: Union{Matrix{ComplexF64}, Nothing}
+    coeffs_buffer::Union{Matrix{ComplexF64}, Nothing}
+    coeffs_buffer_gathered::Union{Matrix{ComplexF64}, Nothing}
 
     # Coefficient extraction buffers (paired, for vector transforms)
-    coeffs_buffer_pair1      :: Union{Matrix{ComplexF64}, Nothing}
-    coeffs_buffer_pair2      :: Union{Matrix{ComplexF64}, Nothing}
-    coeffs_gathered_pair1    :: Union{Matrix{ComplexF64}, Nothing}
-    coeffs_gathered_pair2    :: Union{Matrix{ComplexF64}, Nothing}
+    coeffs_buffer_pair1::Union{Matrix{ComplexF64}, Nothing}
+    coeffs_buffer_pair2::Union{Matrix{ComplexF64}, Nothing}
+    coeffs_gathered_pair1::Union{Matrix{ComplexF64}, Nothing}
+    coeffs_gathered_pair2::Union{Matrix{ComplexF64}, Nothing}
 
     # Radial-component poloidal synthesis buffer
-    pol_rad_coeffs_buffer    :: Union{Matrix{ComplexF64}, Nothing}
+    pol_rad_coeffs_buffer::Union{Matrix{ComplexF64}, Nothing}
 
     # Vector component physical-space buffers used in vector analysis
-    vector_component_vt      :: Union{Matrix{Float64}, Nothing}
-    vector_component_vp      :: Union{Matrix{Float64}, Nothing}
+    vector_component_vt::Union{Matrix{Float64}, Nothing}
+    vector_component_vp::Union{Matrix{Float64}, Nothing}
 
     # Generic physical-slice extraction buffers
-    phi_slice_buffer         :: Union{Matrix{Float64}, Nothing}
-    generic_slice_buffer     :: Union{Matrix{Float64}, Nothing}
-    vector_component_buffer  :: Union{Matrix{Float64}, Nothing}
+    phi_slice_buffer::Union{Matrix{Float64}, Nothing}
+    generic_slice_buffer::Union{Matrix{Float64}, Nothing}
+    vector_component_buffer::Union{Matrix{Float64}, Nothing}
 
     # Local storage-coordinate -> global linear spectral mode map
-    local_spectral_lm_map    :: Union{Matrix{Int}, Nothing}
-    local_spectral_slot_lookup :: Union{Vector{CartesianIndex{2}}, Nothing}
-    local_spectral_mode_indices :: Union{Vector{Int}, Nothing}
+    local_spectral_lm_map::Union{Matrix{Int}, Nothing}
+    local_spectral_slot_lookup::Union{Vector{CartesianIndex{2}}, Nothing}
+    local_spectral_mode_indices::Union{Vector{Int}, Nothing}
 
     # Solver-level transform workspace (set by solver/backend.jl)
-    solver_transform_workspace :: Union{AbstractTransformWorkspace, Nothing}
+    solver_transform_workspace::Union{AbstractTransformWorkspace, Nothing}
 
     # Device metadata (set at config creation)
-    transform_device         :: Union{AbstractArchitecture, Symbol, Nothing}
+    transform_device::Union{AbstractArchitecture, Symbol, Nothing}
 
     # SHTnsKit scratch buffers (CPU only, optional)
-    spatial_scratch          :: Union{AbstractArray, Nothing}
-    fft_scratch              :: Union{AbstractArray, Nothing}
+    spatial_scratch::Union{AbstractArray, Nothing}
+    fft_scratch::Union{AbstractArray, Nothing}
 
     # MIE vector-transform spheroidal scalar buffers
-    mie_spheroidal_real      :: Union{AbstractArray, Nothing}
-    mie_spheroidal_imag      :: Union{AbstractArray, Nothing}
+    mie_spheroidal_real::Union{AbstractArray, Nothing}
+    mie_spheroidal_imag::Union{AbstractArray, Nothing}
 end
 
 """
@@ -133,13 +133,15 @@ end
 
 Construct a fully-uninitialized `SHTnsBuffers` with all fields set to `nothing`.
 """
-SHTnsBuffers() = SHTnsBuffers(
-    nothing, nothing, nothing, nothing, nothing, nothing, nothing,
-    nothing, nothing, nothing, nothing, nothing, nothing, nothing,
-    nothing, nothing, nothing, nothing, nothing, nothing, nothing,
-    nothing, nothing, nothing, nothing, nothing, nothing, nothing,
-    nothing, nothing,
-)
+function SHTnsBuffers()
+    SHTnsBuffers(
+        nothing, nothing, nothing, nothing, nothing, nothing, nothing,
+        nothing, nothing, nothing, nothing, nothing, nothing, nothing,
+        nothing, nothing, nothing, nothing, nothing, nothing, nothing,
+        nothing, nothing, nothing, nothing, nothing, nothing, nothing,
+        nothing, nothing
+    )
+end
 
 # ================================================================================
 # Field map: legacy Symbol key → SHTnsBuffers field name
@@ -149,28 +151,28 @@ SHTnsBuffers() = SHTnsBuffers(
 # :spatial_scratch, :fft_scratch) are set directly and not routed through this function.
 
 const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
-    :synth_out                   => :synth_out,
-    :anal_out                    => :anal_out,
-    :vt_out                      => :vt_out,
-    :vp_out                      => :vp_out,
-    :slm_out                     => :slm_out,
-    :tlm_out                     => :tlm_out,
-    :synthesis_phi_tmp           => :synthesis_phi_tmp,
-    :analysis_phi_tmp            => :analysis_phi_tmp,
-    :coeffs_buffer               => :coeffs_buffer,
-    :coeffs_buffer_gathered      => :coeffs_buffer_gathered,
-    :coeffs_buffer_pair1         => :coeffs_buffer_pair1,
-    :coeffs_buffer_pair2         => :coeffs_buffer_pair2,
-    :coeffs_gathered_pair1       => :coeffs_gathered_pair1,
-    :coeffs_gathered_pair2       => :coeffs_gathered_pair2,
-    :pol_rad_coeffs_buffer       => :pol_rad_coeffs_buffer,
-    :vector_component_buffer_vt  => :vector_component_vt,
-    :vector_component_buffer_vp  => :vector_component_vp,
-    :phi_slice_buffer            => :phi_slice_buffer,
-    :generic_slice_buffer        => :generic_slice_buffer,
-    :vector_component_buffer     => :vector_component_buffer,
-    :mie_spheroidal_real         => :mie_spheroidal_real,
-    :mie_spheroidal_imag         => :mie_spheroidal_imag,
+    :synth_out => :synth_out,
+    :anal_out => :anal_out,
+    :vt_out => :vt_out,
+    :vp_out => :vp_out,
+    :slm_out => :slm_out,
+    :tlm_out => :tlm_out,
+    :synthesis_phi_tmp => :synthesis_phi_tmp,
+    :analysis_phi_tmp => :analysis_phi_tmp,
+    :coeffs_buffer => :coeffs_buffer,
+    :coeffs_buffer_gathered => :coeffs_buffer_gathered,
+    :coeffs_buffer_pair1 => :coeffs_buffer_pair1,
+    :coeffs_buffer_pair2 => :coeffs_buffer_pair2,
+    :coeffs_gathered_pair1 => :coeffs_gathered_pair1,
+    :coeffs_gathered_pair2 => :coeffs_gathered_pair2,
+    :pol_rad_coeffs_buffer => :pol_rad_coeffs_buffer,
+    :vector_component_buffer_vt => :vector_component_vt,
+    :vector_component_buffer_vp => :vector_component_vp,
+    :phi_slice_buffer => :phi_slice_buffer,
+    :generic_slice_buffer => :generic_slice_buffer,
+    :vector_component_buffer => :vector_component_buffer,
+    :mie_spheroidal_real => :mie_spheroidal_real,
+    :mie_spheroidal_imag => :mie_spheroidal_imag
 )
 
 @inline function _shtns_buffer_field(::Val{key}) where {key}
@@ -224,11 +226,12 @@ end
     return get_cached_buffer!(create_func, config, Val(key))
 end
 
-@inline function get_cached_buffer!(create_func::F, config, ::Val{key}) where {F,key}
+@inline function get_cached_buffer!(create_func::F, config, ::Val{key}) where {F, key}
     return _get_cached_buffer_field!(create_func, config, _shtns_buffer_field(Val(key)))
 end
 
-@inline function _get_cached_buffer_field!(create_func::F, config, ::Val{field}) where {F,field}
+@inline function _get_cached_buffer_field!(create_func::F, config, ::Val{field}) where {
+        F, field}
     lock(_BUFFER_CACHE_LOCK) do
         b = config._buffers
         val = getfield(b, field)
@@ -251,25 +254,25 @@ construction/initialization and should persist).
 function clear_buffer_cache!(config)
     lock(_BUFFER_CACHE_LOCK) do
         b = config._buffers
-        b.synth_out              = nothing
-        b.anal_out               = nothing
-        b.vt_out                 = nothing
-        b.vp_out                 = nothing
-        b.slm_out                = nothing
-        b.tlm_out                = nothing
-        b.synthesis_phi_tmp      = nothing
-        b.analysis_phi_tmp       = nothing
-        b.coeffs_buffer          = nothing
+        b.synth_out = nothing
+        b.anal_out = nothing
+        b.vt_out = nothing
+        b.vp_out = nothing
+        b.slm_out = nothing
+        b.tlm_out = nothing
+        b.synthesis_phi_tmp = nothing
+        b.analysis_phi_tmp = nothing
+        b.coeffs_buffer = nothing
         b.coeffs_buffer_gathered = nothing
-        b.coeffs_buffer_pair1    = nothing
-        b.coeffs_buffer_pair2    = nothing
-        b.coeffs_gathered_pair1  = nothing
-        b.coeffs_gathered_pair2  = nothing
-        b.pol_rad_coeffs_buffer  = nothing
-        b.vector_component_vt    = nothing
-        b.vector_component_vp    = nothing
-        b.phi_slice_buffer       = nothing
-        b.generic_slice_buffer   = nothing
+        b.coeffs_buffer_pair1 = nothing
+        b.coeffs_buffer_pair2 = nothing
+        b.coeffs_gathered_pair1 = nothing
+        b.coeffs_gathered_pair2 = nothing
+        b.pol_rad_coeffs_buffer = nothing
+        b.vector_component_vt = nothing
+        b.vector_component_vp = nothing
+        b.phi_slice_buffer = nothing
+        b.generic_slice_buffer = nothing
         b.vector_component_buffer = nothing
     end
 end
@@ -386,7 +389,8 @@ This struct encapsulates all parameters needed for transforms and parallelizatio
 config = create_shtnskit_config(lmax=32, mmax=32, nlat=64, nlon=128)
 ```
 """
-struct SHTnsKitConfig{T<:AbstractFloat,P,FP,TP,B<:SHTnsBuffers} <: AbstractSHTnsConfig
+struct SHTnsKitConfig{T <: AbstractFloat, P, FP, TP, B <: SHTnsBuffers} <:
+       AbstractSHTnsConfig
     # SHTnsKit configuration - the underlying transform engine
     sht_config::SHTnsKit.SHTConfig
 
@@ -458,34 +462,33 @@ transforms with MPI parallelization.
 config = create_shtnskit_config(lmax=63, nlat=96, nlon=192)
 ```
 """
-function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
-                               nlat::Int=max(lmax+2, get_default_nlat()),
-                               nlon::Int=max(2*lmax+1, 4, get_default_nlon()),
-                               nr::Int,
-                               optimize_decomp::Bool=true,
-                               device::Symbol=:cpu,
-                               T::Type{<:AbstractFloat}=Float64)
+function create_shtnskit_config(; lmax::Int, mmax::Int = lmax,
+        nlat::Int = max(lmax+2, get_default_nlat()),
+        nlon::Int = max(2*lmax+1, 4, get_default_nlon()),
+        nr::Int,
+        optimize_decomp::Bool = true,
+        device::Symbol = :cpu,
+        T::Type{<:AbstractFloat} = Float64)
 
     # Step 1: Create base SHTnsKit configuration
     # Uses Gauss-Legendre quadrature for latitude (exact integration up to degree 2*nlat-1)
     # and uniform grid for longitude (FFT-based)
-    sht_config =
-        device === :cpu ?
-        SHTnsKit.create_gauss_config(
-            lmax,
-            nlat;
-            mmax=mmax,
-            nlon=nlon,
-            norm=:orthonormal,
-        ) :
-        SHTnsKit.create_gauss_config_gpu(
-            lmax,
-            nlat;
-            mmax=mmax,
-            nlon=nlon,
-            device=device,
-            norm=:orthonormal,
-        )
+    sht_config = device === :cpu ?
+                 SHTnsKit.create_gauss_config(
+        lmax,
+        nlat;
+        mmax = mmax,
+        nlon = nlon,
+        norm = :orthonormal
+    ) :
+                 SHTnsKit.create_gauss_config_gpu(
+        lmax,
+        nlat;
+        mmax = mmax,
+        nlon = nlon,
+        device = device,
+        norm = :orthonormal
+    )
 
     # Disable precomputed Legendre polynomial tables to avoid version-dependent
     # dimension mismatches between SHTnsKit's table creation and transform code.
@@ -509,8 +512,8 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
         sht_config,
         comm,
         optimize_decomp;
-        lmax=lmax,
-        mmax=mmax,
+        lmax = lmax,
+        mmax = mmax
     )
 
     # Step 4: Create FFT plans for longitude (phi) direction transforms
@@ -537,14 +540,14 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
         Vector{Float64}(SHTnsKit.grid_latitudes(sht_config))
     catch
         # Fallback: uniform grid (less accurate but works)
-        range(-pi/2, stop=pi/2, length=nlat) |> collect |> Vector{Float64}
+        range(-pi/2, stop = pi/2, length = nlat) |> collect |> Vector{Float64}
     end
 
     # Longitude grid (uniform spacing in [0, 2π))
     phi_grid = try
         Vector{Float64}(SHTnsKit.grid_longitudes(sht_config))
     catch
-        range(0, stop=2pi, length=nlon+1)[1:end-1] |> collect |> Vector{Float64}
+        range(0, stop = 2pi, length = nlon+1)[1:(end - 1)] |> collect |> Vector{Float64}
     end
 
     # Gauss-Legendre quadrature weights for numerical integration over θ
@@ -572,7 +575,8 @@ function create_shtnskit_config(; lmax::Int, mmax::Int=lmax,
     end
 
     if get_rank() == 0
-        print_shtnskit_config_summary(nlat, nlon, nr, lmax, mmax, nlm, nprocs, memory_estimate)
+        print_shtnskit_config_summary(
+            nlat, nlon, nr, lmax, mmax, nlm, nprocs, memory_estimate)
     end
 
     # Step 8: Initialize typed buffer store with device-aware transform metadata
@@ -658,10 +662,10 @@ degree/order grid. Invalid `(l,m)` slots such as `m > l` are left unmapped.
 NamedTuple with pencil configurations: (:theta, :θ, :phi, :φ, :r, :spec, :mixed)
 """
 function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
-                                             sht_config::SHTnsKit.SHTConfig,
-                                             comm, optimize::Bool=true;
-                                             lmax::Int,
-                                             mmax::Int)
+        sht_config::SHTnsKit.SHTConfig,
+        comm, optimize::Bool = true;
+        lmax::Int,
+        mmax::Int)
     nprocs = MPI.Comm_size(comm)
 
     # Determine optimal 2D process grid for theta-phi parallelization.
@@ -707,13 +711,13 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     # the same rectangular (l, m, r) ownership contract as the spectral pencil.
 
     # Return named tuple with both ASCII and Unicode names for convenience
-    return (; theta=pencil_theta,
-            θ=pencil_theta,      # Unicode alias
-            phi=pencil_phi,
-            φ=pencil_phi,        # Unicode alias
-            r=pencil_r,
-            spec=pencil_spec,
-            mixed=pencil_spec)
+    return (; theta = pencil_theta,
+        θ = pencil_theta,      # Unicode alias
+        phi = pencil_phi,
+        φ = pencil_phi,        # Unicode alias
+        r = pencil_r,
+        spec = pencil_spec,
+        mixed = pencil_spec)
 end
 
 """
@@ -749,7 +753,7 @@ For nprocs=12, nlat=64, nlon=128:
 - `(p_theta, p_phi)`: Optimal process grid dimensions
 """
 function optimize_process_topology_shtnskit(nprocs::Int, nlat::Int, nlon::Int,
-                                            lmax::Int, mmax::Int)
+        lmax::Int, mmax::Int)
     physical_dims = (nlat, nlon, 1)
     spectral_dims = spectral_mode_grid_dims(lmax, mmax, 1)
     return optimize_process_topology(nprocs, physical_dims, spectral_dims)
@@ -784,7 +788,7 @@ Plan creation involves:
 # Returns
 Dict mapping plan names to FFTW plan objects. Contains `:fallback => true` on error.
 """
-function create_pencil_fft_plans(pencils, dims::Tuple{Int,Int,Int})
+function create_pencil_fft_plans(pencils, dims::Tuple{Int, Int, Int})
     nlat, nlon, nr = dims
     fft_plans = Dict{Symbol, Any}()
 
@@ -859,8 +863,10 @@ function create_shtnskit_transpose_plans(pencils)
     # Theta ↔ Phi transposes (most common for SH transforms)
     if haskey(pencils, :theta) && haskey(pencils, :phi)
         try
-            transpose_plans[:theta_to_phi] = _shtns_make_transpose(pencils.theta => pencils.phi)
-            transpose_plans[:phi_to_theta] = _shtns_make_transpose(pencils.phi => pencils.theta)
+            transpose_plans[:theta_to_phi] = _shtns_make_transpose(pencils.theta =>
+                pencils.phi)
+            transpose_plans[:phi_to_theta] = _shtns_make_transpose(pencils.phi =>
+                pencils.theta)
         catch e
             if get_rank() == 0
                 @debug "Could not create theta<->phi transpose: $e"
@@ -889,7 +895,8 @@ function create_shtnskit_transpose_plans(pencils)
             transpose_plans[:r_to_phi] = _shtns_make_transpose(pencils.r => pencils.phi)
         catch e
             # Expected failure - try multi-step approach
-            if haskey(transpose_plans, :phi_to_theta) && haskey(transpose_plans, :theta_to_r)
+            if haskey(transpose_plans, :phi_to_theta) &&
+               haskey(transpose_plans, :theta_to_r)
                 transpose_plans[:phi_to_r] = :multi_step  # Marker for calling code
                 transpose_plans[:r_to_phi] = :multi_step
                 if get_rank() == 0
@@ -924,8 +931,8 @@ Estimate memory usage for SHTnsKit-based transforms with PencilArrays.
 - `T`: Element type (e.g., Float64)
 """
 function estimate_memory_usage_shtnskit(nlat::Int, nlon::Int, nr::Int, lmax::Int,
-                                       field_count::Int, ::Type{T};
-                                       mmax::Int=lmax) where T
+        field_count::Int, ::Type{T};
+        mmax::Int = lmax) where {T}
 
     # Physical grid memory per process (distributed)
     physical_memory_per_process = (nlat * nlon * nr * sizeof(T)) / get_nprocs()
@@ -942,7 +949,7 @@ function estimate_memory_usage_shtnskit(nlat::Int, nlon::Int, nr::Int, lmax::Int
 
     # Total per field per process
     per_field_memory = physical_memory_per_process + spectral_memory_per_process +
-                      transpose_memory + fft_memory
+                       transpose_memory + fft_memory
 
     # Total for all fields
     total_memory = per_field_memory * field_count
@@ -955,7 +962,8 @@ end
 
 Print configuration summary for SHTnsKit setup.
 """
-function print_shtnskit_config_summary(nlat, nlon, nr, lmax, mmax, nlm, nprocs, memory_estimate)
+function print_shtnskit_config_summary(
+        nlat, nlon, nr, lmax, mmax, nlm, nprocs, memory_estimate)
     # Get version info for feature flags
     version = try
         string(pkgversion(SHTnsKit))

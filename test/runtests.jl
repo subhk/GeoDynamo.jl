@@ -31,24 +31,24 @@ const MPI_FINALIZE_KEY = "GEODYNAMO_TEST_MPI_FINALIZE"
         @test isdefined(GeoDynamo, :GeoDynamoBall)
         # extras/ removed from core — guard against accidental re-export
         for sym in (:SpectralToPhysicalConverter, :FieldCombiner, :CombinerConfig,
-                    :create_spectral_converter, :create_combiner_config,
-                    :combine_distributed_time, :combine_time_series,
-                    :list_available_times, :save_combined_time_series, :save_combined_fields)
+            :create_spectral_converter, :create_combiner_config,
+            :combine_distributed_time, :combine_time_series,
+            :list_available_times, :save_combined_time_series, :save_combined_fields)
             @test !Base.isexported(GeoDynamo, sym)
             @test !isdefined(GeoDynamo, sym)
         end
         # performance/tools.jl deleted — guard against accidental re-export
         for sym in (:AdvancedThreadManager, :ThreadingAccelerator, :SIMDOptimizer,
-                    :TaskGraph, :MemoryOptimizer, :AsyncCommManager,
-                    :DynamicLoadBalancer, :ParallelIOOptimizer, :PerformanceMonitor,
-                    :CPUParallelizer, :MasterParallelizer,
-                    :create_advanced_thread_manager, :create_threading_accelerator,
-                    :create_simd_optimizer, :create_task_graph, :create_memory_optimizer,
-                    :create_async_comm_manager, :create_dynamic_load_balancer,
-                    :create_parallel_io_optimizer, :create_performance_monitor,
-                    :create_cpu_parallelizer, :create_master_parallelizer,
-                    :add_task!, :execute_task_graph!, :adaptive_rebalance!,
-                    :run_parallel_operations!)
+            :TaskGraph, :MemoryOptimizer, :AsyncCommManager,
+            :DynamicLoadBalancer, :ParallelIOOptimizer, :PerformanceMonitor,
+            :CPUParallelizer, :MasterParallelizer,
+            :create_advanced_thread_manager, :create_threading_accelerator,
+            :create_simd_optimizer, :create_task_graph, :create_memory_optimizer,
+            :create_async_comm_manager, :create_dynamic_load_balancer,
+            :create_parallel_io_optimizer, :create_performance_monitor,
+            :create_cpu_parallelizer, :create_master_parallelizer,
+            :add_task!, :execute_task_graph!, :adaptive_rebalance!,
+            :run_parallel_operations!)
             @test !Base.isexported(GeoDynamo, sym)
             @test !isdefined(GeoDynamo, sym)
         end
@@ -183,7 +183,7 @@ additional_tests = (
     # Integration tests
     "output_writer.jl",
     "netcdf_write_roundtrip.jl",
-    "integration_simulation.jl",
+    "integration_simulation.jl"
 )
 
 previous_setting = haskey(ENV, MPI_FINALIZE_KEY) ? ENV[MPI_FINALIZE_KEY] : nothing

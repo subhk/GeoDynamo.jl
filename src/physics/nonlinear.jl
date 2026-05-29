@@ -1,4 +1,4 @@
-function zero_gradient_workspace!(ws::SolverGradientWorkspace{T}) where T
+function zero_gradient_workspace!(ws::SolverGradientWorkspace{T}) where {T}
     fill!(parent(ws.∇θ_spec.data_real), zero(T))
     fill!(parent(ws.∇θ_spec.data_imag), zero(T))
     fill!(parent(ws.∇φ_spec.data_real), zero(T))
@@ -16,9 +16,9 @@ end
 const _THETA_GATHER_REDUCE_COUNT = Ref(0)
 
 function compute_theta_gradient_spectral!(
-    𝔽::ScalarFieldType{T},
-    ws::SolverGradientWorkspace{T},
-) where T
+        𝔽::ScalarFieldType{T},
+        ws::SolverGradientWorkspace{T}
+) where {T}
     spec_real = parent(𝔽.spectral.data_real)
     spec_imag = parent(𝔽.spectral.data_imag)
     ∇θ_real = parent(ws.∇θ_spec.data_real)
@@ -36,8 +36,10 @@ function compute_theta_gradient_spectral!(
     # sum use one collective per component instead of one per level.
     full_real = ws.theta_full_real
     full_imag = ws.theta_full_imag
-    size(full_real, 1) == nlm || error("theta-gradient workspace real buffer has $(size(full_real, 1)) modes; expected $nlm")
-    size(full_imag, 1) == nlm || error("theta-gradient workspace imaginary buffer has $(size(full_imag, 1)) modes; expected $nlm")
+    size(full_real, 1) == nlm ||
+        error("theta-gradient workspace real buffer has $(size(full_real, 1)) modes; expected $nlm")
+    size(full_imag, 1) == nlm ||
+        error("theta-gradient workspace imaginary buffer has $(size(full_imag, 1)) modes; expected $nlm")
 
     # Phase 1: scatter this rank's owned modes into every radial column. Cleared
     # first so modes owned by other ranks contribute zero before the sum.
@@ -92,7 +94,7 @@ function compute_theta_gradient_spectral!(
                     lm_plus = ws.theta_lm_plus[lm_idx]
                     if lm_plus > 0 && lm_plus <= nlm
                         A_plus = T(l) * sqrt(T((l + abs_m + 1) * (l - abs_m + 1)) /
-                                             T((2 * l + 1) * (2 * l + 3)))
+                                      T((2 * l + 1) * (2 * l + 3)))
                         dtheta_real += A_plus * full_real[lm_plus, local_r]
                         dtheta_imag += A_plus * full_imag[lm_plus, local_r]
                     end
@@ -102,7 +104,7 @@ function compute_theta_gradient_spectral!(
                     lm_minus = ws.theta_lm_minus[lm_idx]
                     if lm_minus > 0 && lm_minus <= nlm
                         A_minus = -T(l + 1) * sqrt(T((l + abs_m) * (l - abs_m)) /
-                                                   T((2 * l - 1) * (2 * l + 1)))
+                                       T((2 * l - 1) * (2 * l + 1)))
                         dtheta_real += A_minus * full_real[lm_minus, local_r]
                         dtheta_imag += A_minus * full_imag[lm_minus, local_r]
                     end
@@ -118,9 +120,9 @@ function compute_theta_gradient_spectral!(
 end
 
 function compute_phi_gradient_spectral!(
-    𝔽::ScalarFieldType{T},
-    ws::SolverGradientWorkspace{T},
-) where T
+        𝔽::ScalarFieldType{T},
+        ws::SolverGradientWorkspace{T}
+) where {T}
     spec_real = parent(𝔽.spectral.data_real)
     spec_imag = parent(𝔽.spectral.data_imag)
     ∇φ_real = parent(ws.∇φ_spec.data_real)
@@ -141,13 +143,13 @@ function compute_phi_gradient_spectral!(
                             ∇φ_real,
                             slot,
                             local_r,
-                            -T(m) * local_spectral_value(spec_imag, slot, local_r),
+                            -T(m) * local_spectral_value(spec_imag, slot, local_r)
                         )
                         set_local_spectral_value!(
                             ∇φ_imag,
                             slot,
                             local_r,
-                            T(m) * local_spectral_value(spec_real, slot, local_r),
+                            T(m) * local_spectral_value(spec_real, slot, local_r)
                         )
                     end
                 end
@@ -159,10 +161,10 @@ function compute_phi_gradient_spectral!(
 end
 
 function compute_radial_gradient_spectral!(
-    𝔽::ScalarFieldType{T},
-    domain::RadialDomainType,
-    ws::SolverGradientWorkspace{T},
-) where T
+        𝔽::ScalarFieldType{T},
+        domain::RadialDomainType,
+        ws::SolverGradientWorkspace{T}
+) where {T}
     spec_real = parent(𝔽.spectral.data_real)
     spec_imag = parent(𝔽.spectral.data_imag)
     ∇r_real = parent(ws.∇r_spec.data_real)
@@ -195,8 +197,10 @@ function compute_radial_gradient_spectral!(
                         band_row = bandwidth + 1 + r_idx - j
                         if 1 <= band_row <= 2 * bandwidth + 1
                             coeff = 𝔽.∂r.data[band_row, j]
-                            dr_real += coeff * local_spectral_value(spec_real, slot, local_j)
-                            dr_imag += coeff * local_spectral_value(spec_imag, slot, local_j)
+                            dr_real += coeff *
+                                       local_spectral_value(spec_real, slot, local_j)
+                            dr_imag += coeff *
+                                       local_spectral_value(spec_imag, slot, local_j)
                         end
                     end
 
@@ -211,10 +215,10 @@ function compute_radial_gradient_spectral!(
 end
 
 function apply_geometric_factors_spectral!(
-    ws::SolverGradientWorkspace{T},
-    𝔽::ScalarFieldType{T},
-    domain::RadialDomainType,
-) where T
+        ws::SolverGradientWorkspace{T},
+        𝔽::ScalarFieldType{T},
+        domain::RadialDomainType
+) where {T}
     ∇θ_real = parent(ws.∇θ_spec.data_real)
     ∇θ_imag = parent(ws.∇θ_spec.data_imag)
     ∇φ_real = parent(ws.∇φ_spec.data_real)
@@ -246,25 +250,25 @@ function apply_geometric_factors_spectral!(
                             ∇θ_real,
                             slot,
                             local_r,
-                            local_spectral_value(∇θ_real, slot, local_r) * r⁻¹,
+                            local_spectral_value(∇θ_real, slot, local_r) * r⁻¹
                         )
                         set_local_spectral_value!(
                             ∇θ_imag,
                             slot,
                             local_r,
-                            local_spectral_value(∇θ_imag, slot, local_r) * r⁻¹,
+                            local_spectral_value(∇θ_imag, slot, local_r) * r⁻¹
                         )
                         set_local_spectral_value!(
                             ∇φ_real,
                             slot,
                             local_r,
-                            local_spectral_value(∇φ_real, slot, local_r) * r⁻¹,
+                            local_spectral_value(∇φ_real, slot, local_r) * r⁻¹
                         )
                         set_local_spectral_value!(
                             ∇φ_imag,
                             slot,
                             local_r,
-                            local_spectral_value(∇φ_imag, slot, local_r) * r⁻¹,
+                            local_spectral_value(∇φ_imag, slot, local_r) * r⁻¹
                         )
                     end
                 end
@@ -276,10 +280,9 @@ function apply_geometric_factors_spectral!(
 end
 
 function compute_all_gradients_spectral!(
-    𝔽::ScalarFieldType{T},
-    domain::RadialDomainType,
-    ws::SolverGradientWorkspace{T},) where T
-
+        𝔽::ScalarFieldType{T},
+        domain::RadialDomainType,
+        ws::SolverGradientWorkspace{T}) where {T}
     compute_theta_gradient_spectral!(𝔽, ws)
     compute_phi_gradient_spectral!(𝔽, ws)
     compute_radial_gradient_spectral!(𝔽, domain, ws)
@@ -288,12 +291,13 @@ function compute_all_gradients_spectral!(
     return ws
 end
 
-solver_main_physical_field(𝔽::ScalarFieldType) =
+function solver_main_physical_field(𝔽::ScalarFieldType)
     error("Solver scalar transform does not support $(typeof(𝔽))")
+end
 
-solver_main_physical_field(𝔽::TemperatureFieldType{T}) where T = 𝔽.temperature
+solver_main_physical_field(𝔽::TemperatureFieldType{T}) where {T} = 𝔽.temperature
 
-solver_main_physical_field(𝔽::CompositionFieldType{T}) where T = 𝔽.composition
+solver_main_physical_field(𝔽::CompositionFieldType{T}) where {T} = 𝔽.composition
 
 # Number of batched cross-rank gather passes performed by the most recent scalar
 # transform (`scalar_spectral_to_physical!` / `scalar_physical_to_spectral!`).
@@ -303,9 +307,8 @@ solver_main_physical_field(𝔽::CompositionFieldType{T}) where T = 𝔽.composi
 const _SCALAR_GATHER_REDUCE_COUNT = Ref(0)
 
 function scalar_spectral_to_physical!(
-    spec::SpectralFieldType{T},
-    phys::PhysicalFieldType{T},) where T
-
+        spec::SpectralFieldType{T},
+        phys::PhysicalFieldType{T}) where {T}
     config = spec.config
     spec_real_data = parent(spec.data_real)
     spec_imag_data = parent(spec.data_imag)
@@ -330,15 +333,15 @@ function scalar_spectral_to_physical!(
     # buffer (zero elsewhere) so the cross-rank sum is a single collective.
     coeffs_stack = solver_get_cached_buffer!(config, :coeffs_buffer_batched) do
         workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1, nr)
-    end::Array{ComplexF64,3}
+    end::Array{ComplexF64, 3}
 
     @inbounds for r_local in 1:nr
         fill_scalar_coeff_buffer!(
-            view(coeffs_stack, :, :, r_local),
+            view(coeffs_stack,:,:,r_local),
             spec_real_data,
             spec_imag_data,
             r_local,
-            config,
+            config
         )
     end
 
@@ -348,7 +351,7 @@ function scalar_spectral_to_physical!(
 
     # Phase 3: synthesize each radial level from the gathered coefficients.
     @inbounds for r_local in 1:nr
-        coeffs_matrix = view(coeffs_stack, :, :, r_local)
+        coeffs_matrix = view(coeffs_stack,:,:,r_local)
         if plan !== nothing && synth_out !== nothing
             synthesize_scalar!(plan, synth_out, coeffs_matrix)
             local_synth = @view synth_out[axes_local[1], axes_local[2]]
@@ -380,19 +383,19 @@ end
 end
 
 function extract_physical_slice!(
-    slice_buffer::AbstractMatrix{T},
-    phys_data,
-    r_local,
-    config;
-    axes_local::Union{Nothing,Tuple}=nothing,
-) where T
+        slice_buffer::AbstractMatrix{T},
+        phys_data,
+        r_local,
+        config;
+        axes_local::Union{Nothing, Tuple} = nothing
+) where {T}
     if uses_gpu(config) && solver_gpu_device() !== :cuda
         return solver_gpu_extract_physical_slice(
             slice_buffer,
             phys_data,
             r_local,
             config;
-            axes_local=axes_local,
+            axes_local = axes_local
         )
     end
     return cpu_extract_physical_slice!(
@@ -400,17 +403,17 @@ function extract_physical_slice!(
         phys_data,
         r_local,
         config;
-        axes_local=axes_local,
+        axes_local = axes_local
     )
 end
 
 function cpu_extract_physical_slice!(
-    slice_buffer::AbstractMatrix{T},
-    phys_data,
-    r_local,
-    config;
-    axes_local::Union{Nothing,Tuple}=nothing,
-) where T
+        slice_buffer::AbstractMatrix{T},
+        phys_data,
+        r_local,
+        config;
+        axes_local::Union{Nothing, Tuple} = nothing
+) where {T}
     nlat, nlon = config.nlat, config.nlon
     fill!(slice_buffer, zero(T))
 
@@ -444,16 +447,17 @@ function cpu_extract_physical_slice!(
 end
 
 function extract_physical_slice(
-    phys_data,
-    r_local,
-    config;
-    axes_local::Union{Nothing,Tuple}=nothing,
+        phys_data,
+        r_local,
+        config;
+        axes_local::Union{Nothing, Tuple} = nothing
 )
     nlat, nlon = config.nlat, config.nlon
     slice_buffer = solver_get_cached_buffer!(config, :solver_generic_slice_buffer) do
         workspace_zeros(config, eltype(phys_data), nlat, nlon)
     end::Matrix{Float64}
-    gathered_buffer = solver_get_cached_buffer!(config, :solver_generic_slice_buffer_gathered) do
+    gathered_buffer = solver_get_cached_buffer!(
+        config, :solver_generic_slice_buffer_gathered) do
         workspace_zeros(config, eltype(phys_data), nlat, nlon)
     end::Matrix{Float64}
     extract_physical_slice!(
@@ -461,18 +465,18 @@ function extract_physical_slice(
         phys_data,
         r_local,
         config;
-        axes_local=axes_local,
+        axes_local = axes_local
     )
     allreduce_sum!(slice_buffer, gathered_buffer)
     return gathered_buffer
 end
 
 function store_scalar_coefficients!(
-    spec_real,
-    spec_imag,
-    coeffs_matrix,
-    r_local,
-    config,
+        spec_real,
+        spec_imag,
+        coeffs_matrix,
+        r_local,
+        config
 )
     if uses_gpu(config) && solver_gpu_device() !== :cuda
         return solver_gpu_store_scalar_coefficients(
@@ -480,7 +484,7 @@ function store_scalar_coefficients!(
             spec_imag,
             coeffs_matrix,
             r_local,
-            config,
+            config
         )
     end
     return cpu_store_scalar_coefficients!(
@@ -488,16 +492,16 @@ function store_scalar_coefficients!(
         spec_imag,
         coeffs_matrix,
         r_local,
-        config,
+        config
     )
 end
 
 function cpu_store_scalar_coefficients!(
-    spec_real,
-    spec_imag,
-    coeffs_matrix,
-    r_local,
-    config,
+        spec_real,
+        spec_imag,
+        coeffs_matrix,
+        r_local,
+        config
 )
     matrix_lmax = size(coeffs_matrix, 1) - 1
     matrix_mmax = size(coeffs_matrix, 2) - 1
@@ -513,7 +517,8 @@ function cpu_store_scalar_coefficients!(
             if l <= matrix_lmax && m <= matrix_mmax
                 coeff = coeffs_matrix[l + 1, m + 1]
                 set_local_spectral_value!(spec_real, slot, r_local, real(coeff))
-                set_local_spectral_value!(spec_imag, slot, r_local, m == 0 ? 0.0 : imag(coeff))
+                set_local_spectral_value!(spec_imag, slot, r_local, m == 0 ? 0.0 :
+                                                                    imag(coeff))
             else
                 set_local_spectral_value!(spec_real, slot, r_local, 0.0)
                 set_local_spectral_value!(spec_imag, slot, r_local, 0.0)
@@ -525,9 +530,9 @@ function cpu_store_scalar_coefficients!(
 end
 
 function scalar_physical_to_spectral!(
-    phys::PhysicalFieldType{T},
-    spec::SpectralFieldType{T},
-) where T
+        phys::PhysicalFieldType{T},
+        spec::SpectralFieldType{T}
+) where {T}
     config = spec.config
 
     phys_data = parent(phys.data)
@@ -548,22 +553,22 @@ function scalar_physical_to_spectral!(
     # A θ/φ-distributed physical grid needs the full slice assembled across
     # ranks; a fully-local grid skips the gather.
     needs_collective = !physical_grid_is_local(
-        (size(phys_data, 1), size(phys_data, 2)), phys_axes_local, nlat, nlon,
+        (size(phys_data, 1), size(phys_data, 2)), phys_axes_local, nlat, nlon
     )
 
     # Phase 1: stack every radial level's locally-owned physical slice into one
     # buffer (zero elsewhere) so the cross-rank sum is a single collective.
     slice_stack = solver_get_cached_buffer!(config, :slice_buffer_batched) do
         workspace_zeros(config, Float64, nlat, nlon, nr)
-    end::Array{Float64,3}
+    end::Array{Float64, 3}
 
     @inbounds for r_local in 1:nr
         extract_physical_slice!(
-            view(slice_stack, :, :, r_local),
+            view(slice_stack,:,:,r_local),
             phys_data,
             r_local,
             config;
-            axes_local=phys_axes_local,
+            axes_local = phys_axes_local
         )
     end
 
@@ -573,7 +578,7 @@ function scalar_physical_to_spectral!(
 
     # Phase 3: analyze each gathered radial slice into spectral coefficients.
     @inbounds for r_local in 1:nr
-        phys_slice = view(slice_stack, :, :, r_local)
+        phys_slice = view(slice_stack,:,:,r_local)
         if plan !== nothing && anal_out !== nothing
             analyze_scalar!(plan, anal_out, phys_slice)
             store_scalar_coefficients!(
@@ -581,7 +586,7 @@ function scalar_physical_to_spectral!(
                 spec_imag_data,
                 anal_out,
                 r_local,
-                config,
+                config
             )
         else
             coeffs_matrix = analyze_scalar(config, phys_slice)
@@ -590,7 +595,7 @@ function scalar_physical_to_spectral!(
                 spec_imag_data,
                 coeffs_matrix,
                 r_local,
-                config,
+                config
             )
         end
     end
@@ -610,7 +615,7 @@ function collect_scalar_coefficients(spec_real, spec_imag, r_local, config)
         spec_real,
         spec_imag,
         r_local,
-        config,
+        config
     )
 
     coeffs_gathered = solver_get_cached_buffer!(config, :coeffs_buffer_gathered) do
@@ -631,19 +636,19 @@ end
 end
 
 const _SOLVER_BUFFERS_KEY_MAP = Dict{Symbol, Symbol}(
-    :solver_vector_coeffs_buffer_1          => :vector_coeffs_1,
-    :solver_vector_coeffs_buffer_2          => :vector_coeffs_2,
-    :solver_vector_coeffs_gathered_1        => :vector_coeffs_gathered_1,
-    :solver_vector_coeffs_gathered_2        => :vector_coeffs_gathered_2,
-    :solver_pol_rad_coeffs_buffer           => :pol_rad_coeffs,
-    :solver_vector_component_buffer_vt      => :vector_component_vt,
-    :solver_vector_component_buffer_vp      => :vector_component_vp,
-    :solver_generic_slice_buffer            => :generic_slice,
-    :solver_generic_slice_buffer_gathered   => :generic_slice_gathered,
-    :coeffs_buffer                          => :coeffs_buffer,
-    :coeffs_buffer_gathered                 => :coeffs_gathered,
-    :coeffs_buffer_batched                  => :coeffs_buffer_batched,
-    :slice_buffer_batched                   => :slice_buffer_batched,
+    :solver_vector_coeffs_buffer_1 => :vector_coeffs_1,
+    :solver_vector_coeffs_buffer_2 => :vector_coeffs_2,
+    :solver_vector_coeffs_gathered_1 => :vector_coeffs_gathered_1,
+    :solver_vector_coeffs_gathered_2 => :vector_coeffs_gathered_2,
+    :solver_pol_rad_coeffs_buffer => :pol_rad_coeffs,
+    :solver_vector_component_buffer_vt => :vector_component_vt,
+    :solver_vector_component_buffer_vp => :vector_component_vp,
+    :solver_generic_slice_buffer => :generic_slice,
+    :solver_generic_slice_buffer_gathered => :generic_slice_gathered,
+    :coeffs_buffer => :coeffs_buffer,
+    :coeffs_buffer_gathered => :coeffs_gathered,
+    :coeffs_buffer_batched => :coeffs_buffer_batched,
+    :slice_buffer_batched => :slice_buffer_batched
 )
 
 @inline function _solver_buffer_field(::Val{key}) where {key}
@@ -658,11 +663,13 @@ end
     return solver_get_cached_buffer!(create_func, config, Val(key))
 end
 
-@inline function solver_get_cached_buffer!(create_func::F, config, ::Val{key}) where {F,key}
+@inline function solver_get_cached_buffer!(create_func::F, config, ::Val{key}) where {
+        F, key}
     return _solver_get_cached_buffer_field!(create_func, config, _solver_buffer_field(Val(key)))
 end
 
-@inline function _solver_get_cached_buffer_field!(create_func::F, config, ::Val{field}) where {F,field}
+@inline function _solver_get_cached_buffer_field!(create_func::F, config, ::Val{field}) where {
+        F, field}
     workspace = config._buffers.solver_transform_workspace
     # Fallback: no solver workspace installed (should not happen in production)
     workspace isa TransformWorkspace || return create_func()
@@ -696,11 +703,11 @@ end
 end
 
 function fill_scalar_coeff_buffer!(
-    coeffs_buffer::AbstractMatrix{ComplexF64},
-    spec_real,
-    spec_imag,
-    r_local,
-    config,
+        coeffs_buffer::AbstractMatrix{ComplexF64},
+        spec_real,
+        spec_imag,
+        r_local,
+        config
 )
     if uses_gpu(config) && solver_gpu_device() !== :cuda
         return solver_gpu_fill_scalar_coeff_buffer(
@@ -708,7 +715,7 @@ function fill_scalar_coeff_buffer!(
             spec_real,
             spec_imag,
             r_local,
-            config,
+            config
         )
     end
     return cpu_fill_scalar_coeff_buffer!(
@@ -716,16 +723,16 @@ function fill_scalar_coeff_buffer!(
         spec_real,
         spec_imag,
         r_local,
-        config,
+        config
     )
 end
 
 function cpu_fill_scalar_coeff_buffer!(
-    coeffs_buffer::AbstractMatrix{ComplexF64},
-    spec_real,
-    spec_imag,
-    r_local,
-    config,
+        coeffs_buffer::AbstractMatrix{ComplexF64},
+        spec_real,
+        spec_imag,
+        r_local,
+        config
 )
     buffer_lmax = size(coeffs_buffer, 1) - 1
     buffer_mmax = size(coeffs_buffer, 2) - 1
@@ -773,25 +780,25 @@ function cpu_store_physical_slice!(phys_data, phys_slice, r_local)
 end
 
 function apply_scalar_transform_batch!(
-    spectral_fields::Vector{SpectralFieldType{T}},
-    physical_fields::Vector{PhysicalFieldType{T}},
-) where T
+        spectral_fields::Vector{SpectralFieldType{T}},
+        physical_fields::Vector{PhysicalFieldType{T}}
+) where {T}
     @assert length(spectral_fields) == length(physical_fields)
 
     # Keep transforms sequential because each synthesis path uses MPI collectives.
     for field_idx in eachindex(spectral_fields)
         scalar_spectral_to_physical!(
             spectral_fields[field_idx],
-            physical_fields[field_idx],
+            physical_fields[field_idx]
         )
     end
     return nothing
 end
 
 function transform_field_and_gradients_to_physical!(
-    𝔽::ScalarFieldType{T},
-    ws::SolverGradientWorkspace{T},
-) where T
+        𝔽::ScalarFieldType{T},
+        ws::SolverGradientWorkspace{T}
+) where {T}
     main_physical_field = solver_main_physical_field(𝔽)
     scalar_spectral_to_physical!(𝔽.spectral, main_physical_field)
     scalar_spectral_to_physical!(ws.∇θ_spec, 𝔽.gradient.θ_component)
@@ -800,7 +807,7 @@ function transform_field_and_gradients_to_physical!(
     return 𝔽
 end
 
-function solver_zero_scalar_work_arrays!(𝔽::ScalarFieldType{T}) where T
+function solver_zero_scalar_work_arrays!(𝔽::ScalarFieldType{T}) where {T}
     fill!(parent(𝔽.work_spectral.data_real), zero(T))
     fill!(parent(𝔽.work_spectral.data_imag), zero(T))
     fill!(parent(𝔽.work_physical.data), zero(T))
@@ -811,9 +818,9 @@ function solver_zero_scalar_work_arrays!(𝔽::ScalarFieldType{T}) where T
 end
 
 function solver_compute_scalar_advection_local!(
-    𝔽::ScalarFieldType{T},
-    vel_fields,
-) where T
+        𝔽::ScalarFieldType{T},
+        vel_fields
+) where {T}
     u_r = parent(vel_fields.velocity.r_component.data)
     u_θ = parent(vel_fields.velocity.θ_component.data)
     u_φ = parent(vel_fields.velocity.φ_component.data)
@@ -842,9 +849,9 @@ function solver_compute_scalar_advection_local!(
 end
 
 function solver_add_internal_sources_local!(
-    𝔽::ScalarFieldType{T},
-    domain::RadialDomainType,
-) where T
+        𝔽::ScalarFieldType{T},
+        domain::RadialDomainType
+) where {T}
     advection = parent(𝔽.advection_physical.data)
 
     if !all(iszero, 𝔽.internal_sources)
@@ -902,19 +909,19 @@ function solver_enforce_ball_scalar_regularity!(spec::SpectralFieldType)
 end
 
 function ball_scalar_physical_to_spectral!(
-    phys::PhysicalFieldType{T},
-    spec::SpectralFieldType{T},
-) where T
+        phys::PhysicalFieldType{T},
+        spec::SpectralFieldType{T}
+) where {T}
     scalar_physical_to_spectral!(phys, spec)
     solver_enforce_ball_scalar_regularity!(spec)
     return spec
 end
 
 function scalar_nonlinear_to_spectral!(
-    phys::PhysicalFieldType{T},
-    spec::SpectralFieldType{T},
-    geometry::Symbol,
-) where T
+        phys::PhysicalFieldType{T},
+        spec::SpectralFieldType{T},
+        geometry::Symbol
+) where {T}
     if geometry === :ball
         return ball_scalar_physical_to_spectral!(phys, spec)
     end
@@ -922,14 +929,14 @@ function scalar_nonlinear_to_spectral!(
 end
 
 function solver_compute_velocity_nonlinear!(
-    velocity_fields::VelocityFieldsType{T},
-    temperature_field,
-    composition_field,
-    magnetic_field,
-    domain::RadialDomainType;
-    geometry::Symbol=solver_default_geometry(),
-    params::Union{Nothing,SolverParameters}=nothing,
-) where T
+        velocity_fields::VelocityFieldsType{T},
+        temperature_field,
+        composition_field,
+        magnetic_field,
+        domain::RadialDomainType;
+        geometry::Symbol = solver_default_geometry(),
+        params::Union{Nothing, SolverParameters} = nothing
+) where {T}
     solver_params = isnothing(params) ? create_solver_parameters() : params
     prepare_velocity_fields!(velocity_fields, domain)
     accumulate_velocity_nonlinear_terms!(
@@ -938,59 +945,59 @@ function solver_compute_velocity_nonlinear!(
         composition_field,
         magnetic_field,
         domain,
-        solver_params,
+        solver_params
     )
     finish_velocity_nonlinear!(velocity_fields; geometry)
     return velocity_fields
 end
 
 function solver_compute_magnetic_nonlinear!(
-    magnetic_fields::MagneticFieldsType{T},
-    velocity_fields,
-    outer_domain::RadialDomainType,
-    inner_domain::RadialDomainType,
-    rotation_rate::Float64=0.0;
-    geometry::Symbol=solver_default_geometry(),
-) where T
+        magnetic_fields::MagneticFieldsType{T},
+        velocity_fields,
+        outer_domain::RadialDomainType,
+        inner_domain::RadialDomainType,
+        rotation_rate::Float64 = 0.0;
+        geometry::Symbol = solver_default_geometry()
+) where {T}
     prepare_magnetic_fields!(magnetic_fields, outer_domain)
     apply_magnetic_nonlinear_terms!(
         magnetic_fields,
         velocity_fields;
         geometry,
-        rotation_rate,
+        rotation_rate
     )
     return magnetic_fields
 end
 
 function GeoDynamo.compute_temperature_nonlinear!(
-    temp_𝔽::TemperatureFieldType{T},
-    vel_fields,
-    𝒟ᵒᶜ::RadialDomainType,
-    ws::SolverGradientWorkspace{T};
-    geometry::Symbol=solver_default_geometry(),
+        temp_𝔽::TemperatureFieldType{T},
+        vel_fields,
+        𝒟ᵒᶜ::RadialDomainType,
+        ws::SolverGradientWorkspace{T};
+        geometry::Symbol = solver_default_geometry()
 ) where {T}
     return solver_compute_temperature_nonlinear!(
         temp_𝔽,
         vel_fields,
         𝒟ᵒᶜ,
         ws;
-        geometry,
+        geometry
     )
 end
 
 function GeoDynamo.compute_composition_nonlinear!(
-    𝔽::CompositionFieldType{T},
-    vel_fields,
-    𝒟ᵒᶜ::RadialDomainType,
-    ws::SolverGradientWorkspace{T};
-    geometry::Symbol=solver_default_geometry(),
+        𝔽::CompositionFieldType{T},
+        vel_fields,
+        𝒟ᵒᶜ::RadialDomainType,
+        ws::SolverGradientWorkspace{T};
+        geometry::Symbol = solver_default_geometry()
 ) where {T}
     return solver_compute_composition_nonlinear!(
         𝔽,
         vel_fields,
         𝒟ᵒᶜ,
         ws;
-        geometry,
+        geometry
     )
 end
 
@@ -1003,19 +1010,20 @@ function compute_solver_nonlinear_terms!(state::SolverState)
         state.fields.composition,
         state.fields.magnetic,
         state.backend.outer_core_domain,
-        params=state.parameters,
-        geometry=state.parameters.geometry,
+        params = state.parameters,
+        geometry = state.parameters.geometry
     )
 
     if state.parameters.include_magnetic_field && state.fields.magnetic !== nothing
         # Ball runs reuse the outer-core domain in both slots; shell runs carry
         # a distinct inner-core domain that the magnetic coupling needs.
-        inner_domain = isnothing(state.backend.inner_core_domain) ? state.backend.outer_core_domain : state.backend.inner_core_domain
+        inner_domain = isnothing(state.backend.inner_core_domain) ?
+                       state.backend.outer_core_domain : state.backend.inner_core_domain
         solver_compute_magnetic_nonlinear!(
             state.fields.magnetic,
             state.fields.velocity,
             state.backend.outer_core_domain,
-            inner_domain,
+            inner_domain
         )
     end
 
@@ -1025,7 +1033,7 @@ function compute_solver_nonlinear_terms!(state::SolverState)
         state.fields.temperature,
         state.fields.velocity,
         state.backend.outer_core_domain,
-        state.runtime.gradient_workspace,
+        state.runtime.gradient_workspace
     )
 
     if state.fields.composition !== nothing
@@ -1033,7 +1041,7 @@ function compute_solver_nonlinear_terms!(state::SolverState)
             state.fields.composition,
             state.fields.velocity,
             state.backend.outer_core_domain,
-            state.runtime.gradient_workspace,
+            state.runtime.gradient_workspace
         )
     end
 

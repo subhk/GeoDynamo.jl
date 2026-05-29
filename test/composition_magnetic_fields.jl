@@ -1,7 +1,8 @@
 using Test
 using MPI
 
-const FINALIZE_MPI_FIELD_BEHAVIOR = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
+const FINALIZE_MPI_FIELD_BEHAVIOR = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") ==
+                                    "true"
 
 @testset "Composition And Magnetic Field Behavior" begin
     if MPI.Finalized()
@@ -18,7 +19,8 @@ const FINALIZE_MPI_FIELD_BEHAVIOR = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "tru
     nlon = max(2lmax + 1, 16)
     nr = 6
 
-    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     shell = GeoDynamo.create_radial_domain(nr)
 
     @testset "composition defaults and initial-condition helpers" begin

@@ -3,20 +3,24 @@ const Shell = GeoDynamo.GeoDynamoShell
 
 @testset "Shell programmatic boundary application" begin
     # Small config
-    lmax = 6; mmax = 6
+    lmax = 6;
+    mmax = 6
     nlat = max(lmax + 2, 12)
     nlon = max(2lmax + 1, 24)
-    nr   = 6
+    nr = 6
 
-    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = Shell.create_shell_radial_domain(nr)
-    temp = Shell.create_shell_temperature_field(Float64, cfg; nr=nr)
+    temp = Shell.create_shell_temperature_field(Float64, cfg; nr = nr)
 
     # Programmatic uniform boundaries
     inner_val = 100.0
     outer_val = 250.0
-    bset = Shell.create_shell_hybrid_temperature_boundaries((:uniform, inner_val), (:uniform, outer_val), cfg)
-    Shell.apply_shell_temperature_boundaries!(temp, bset; time=0.0)
+    bset = Shell.create_shell_hybrid_temperature_boundaries(
+        (:uniform, inner_val), (
+            :uniform, outer_val), cfg)
+    Shell.apply_shell_temperature_boundaries!(temp, bset; time = 0.0)
 
     # Check BC types are Dirichlet (1)
     @test all(temp.bc_type_inner .== 1)

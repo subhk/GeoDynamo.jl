@@ -64,7 +64,7 @@ const _TIMING_LOCK = ReentrantLock()
 
 Perform transpose with optional timing and statistics.
 """
-function transpose_with_timer!(dest::PencilArray, src::PencilArray, label::Symbol=:default)
+function transpose_with_timer!(dest::PencilArray, src::PencilArray, label::Symbol = :default)
     if ENABLE_TIMING[]
         t_start = MPI.Wtime()
         PencilArrays.transpose!(dest, src)
@@ -90,7 +90,7 @@ function print_transpose_statistics()
         println(" Transpose Operation Statistics")
         println("═══════════════════════════════════════════════════════")
 
-        for (label, total_time) in sort(collect(TRANSPOSE_TIMES), by=x->x[2], rev=true)
+        for (label, total_time) in sort(collect(TRANSPOSE_TIMES), by = x->x[2], rev = true)
             count = TRANSPOSE_COUNTS[label]
             avg_time = total_time / count
             println(" $label:")
@@ -122,7 +122,7 @@ function optimize_communication_order(plans::Dict)
         end
     end
 
-    return sort(collect(comm_costs), by=x->x[2])
+    return sort(collect(comm_costs), by = x->x[2])
 end
 
 """

@@ -43,7 +43,8 @@ using Test
         data[3, 3] = -Inf
         data[4, 4] = NaN
 
-        has_nan, has_inf, nan_count, inf_count = GeoDynamo.check_field_for_nan(
+        has_nan, has_inf,
+        nan_count, inf_count = GeoDynamo.check_field_for_nan(
             data, "mixed", config, 1)
         @test has_nan
         @test has_inf
@@ -54,7 +55,8 @@ using Test
     @testset "check_field_for_nan: empty array" begin
         config = GeoDynamo.NaNDetectionConfig(true, 1, false, false)
         data = Float64[]
-        has_nan, has_inf, nan_count, inf_count = GeoDynamo.check_field_for_nan(
+        has_nan, has_inf,
+        nan_count, inf_count = GeoDynamo.check_field_for_nan(
             data, "empty", config, 1)
         @test !has_nan
         @test !has_inf
@@ -66,7 +68,8 @@ using Test
         config = GeoDynamo.NaNDetectionConfig(true, 1, false, false)
         data = zeros(3, 4, 5)
         data[2, 3, 4] = NaN
-        has_nan, has_inf, nan_count, inf_count = GeoDynamo.check_field_for_nan(
+        has_nan, has_inf,
+        nan_count, inf_count = GeoDynamo.check_field_for_nan(
             data, "3d", config, 1)
         @test has_nan
         @test nan_count == 1

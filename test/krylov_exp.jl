@@ -16,7 +16,7 @@ using LinearAlgebra
             return nothing
         end
 
-        result = GeoDynamo.exp_action_krylov(Aop!, v, dt; m=10, tol=1e-12)
+        result = GeoDynamo.exp_action_krylov(Aop!, v, dt; m = 10, tol = 1e-12)
         expected = [exp(dt * lambda[i]) for i in 1:N]
         @test result ≈ expected atol=1e-8
     end
@@ -44,12 +44,12 @@ using LinearAlgebra
         v = [1.0, 0.5]
 
         function Aop!(out, x)
-            out[1] = A[1,1]*x[1] + A[1,2]*x[2]
-            out[2] = A[2,1]*x[1] + A[2,2]*x[2]
+            out[1] = A[1, 1]*x[1] + A[1, 2]*x[2]
+            out[2] = A[2, 1]*x[1] + A[2, 2]*x[2]
             return nothing
         end
 
-        result = GeoDynamo.exp_action_krylov(Aop!, v, dt; m=10, tol=1e-14)
+        result = GeoDynamo.exp_action_krylov(Aop!, v, dt; m = 10, tol = 1e-14)
         expected = exp(dt * A) * v
         @test result ≈ expected atol=1e-10
     end
@@ -61,7 +61,7 @@ using LinearAlgebra
         v = [1.0, 2.0, 3.0]
         Aop!(out, x) = (out .= x; nothing)
 
-        result = GeoDynamo.exp_action_krylov(Aop!, v, dt; m=10, tol=1e-14)
+        result = GeoDynamo.exp_action_krylov(Aop!, v, dt; m = 10, tol = 1e-14)
         @test result ≈ exp(dt) .* v atol=1e-10
     end
 
@@ -80,7 +80,8 @@ using LinearAlgebra
         operator = GeoDynamo.Solver.BandedOperator{Float64}(reshape(copy(λ), 1, :), 0, length(λ))
         lu = GeoDynamo.Solver.solver_factorize_banded(operator)
 
-        result = GeoDynamo.Solver.solver_phi1_action_krylov(Aop!, lu, v, dt; m=10, tol=1e-14)
+        result = GeoDynamo.Solver.solver_phi1_action_krylov(
+            Aop!, lu, v, dt; m = 10, tol = 1e-14)
         expected = [((exp(dt * λi) - 1.0) / (dt * λi)) * vi for (λi, vi) in zip(λ, v)]
 
         @test result ≈ expected atol=1e-10

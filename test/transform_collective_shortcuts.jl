@@ -18,7 +18,8 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     @test GeoDynamo.get_nprocs() == 1
 
     function build_cfg_and_domain()
-        cfg = GeoDynamo.create_shtnskit_config(lmax=4, mmax=4, nlat=12, nlon=16, nr=4)
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 4)
         dom = GeoDynamo.create_radial_domain(4)
         return cfg, dom
     end
@@ -33,7 +34,8 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
         @test !GeoDynamo.physical_grid_is_local((6, 16), nothing, 12, 16)
 
         buffer = reshape(collect(1.0:12.0), 3, 4)
-        result = GeoDynamo.maybe_allreduce_matrix!(copy(buffer), false, nothing; reducer=(args...)->error("collective should not run"))
+        result = GeoDynamo.maybe_allreduce_matrix!(copy(buffer), false, nothing;
+            reducer = (args...)->error("collective should not run"))
         @test result == buffer
     end
 
@@ -79,13 +81,14 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
         GeoDynamo.extract_coefficients_for_shtnskit!(expected1, real1, imag1, 1, cfg)
         GeoDynamo.extract_coefficients_for_shtnskit!(expected2, real2, imag2, 1, cfg)
 
-        coeffs1, coeffs2 = GeoDynamo.extract_coefficients_pair_for_shtnskit(
+        coeffs1,
+        coeffs2 = GeoDynamo.extract_coefficients_pair_for_shtnskit(
             real1,
             imag1,
             real2,
             imag2,
             1,
-            cfg,
+            cfg
         )
 
         @test coeffs1 == expected1

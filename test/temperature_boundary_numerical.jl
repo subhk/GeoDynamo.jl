@@ -49,7 +49,8 @@ end
     nlon = max(2lmax + 1, 16)
     nr = 24
 
-    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = GeoDynamo.create_radial_domain(nr)
     N = dom.N
     dt = 1.0e-3
@@ -65,7 +66,7 @@ end
         out
     end
     mat(code) = GeoDynamo.create_temperature_matrices(cfg, dom, diffusivity, dt;
-                    temperature_bc_code=code, theta=θ)
+        temperature_bc_code = code, theta = θ)
 
     # Smooth interior RHS; endpoints carry the prescribed boundary values.
     interior = Float64[0.3 * sin(1.7 * dom.r[i, 4]) for i in 1:N]
@@ -76,34 +77,35 @@ end
 
     @testset "DD (code 1) ⇒ T = value at both boundaries" begin
         T = solve_mode(mat(1), 2, rhs_with(0.8, -0.3))
-        @test isapprox(T[1], 0.8;  atol=val_atol)
-        @test isapprox(T[N], -0.3; atol=val_atol)
+        @test isapprox(T[1], 0.8; atol = val_atol)
+        @test isapprox(T[N], -0.3; atol = val_atol)
     end
 
     @testset "NN (code 4), l ≥ 1 ⇒ ∂T/∂r = value at both boundaries" begin
         T = solve_mode(mat(4), 2, rhs_with(0.5, -0.2))
         dT = d1 * T
-        @test isapprox(dT[1], 0.5;  atol=der_atol)
-        @test isapprox(dT[N], -0.2; atol=der_atol)
+        @test isapprox(dT[1], 0.5; atol = der_atol)
+        @test isapprox(dT[N], -0.2; atol = der_atol)
     end
 
     @testset "DN (code 2) ⇒ T(inner)=value, ∂T/∂r(outer)=value" begin
         T = solve_mode(mat(2), 2, rhs_with(0.8, -0.2))
         dT = d1 * T
-        @test isapprox(T[1], 0.8;   atol=val_atol)     # Dirichlet inner
-        @test isapprox(dT[N], -0.2; atol=der_atol)     # Neumann outer
+        @test isapprox(T[1], 0.8; atol = val_atol)     # Dirichlet inner
+        @test isapprox(dT[N], -0.2; atol = der_atol)     # Neumann outer
     end
 
     @testset "ND (code 3) ⇒ ∂T/∂r(inner)=value, T(outer)=value" begin
         T = solve_mode(mat(3), 2, rhs_with(0.5, -0.3))
         dT = d1 * T
-        @test isapprox(dT[1], 0.5;  atol=der_atol)     # Neumann inner
-        @test isapprox(T[N], -0.3; atol=val_atol)      # Dirichlet outer
+        @test isapprox(dT[1], 0.5; atol = der_atol)     # Neumann inner
+        @test isapprox(T[N], -0.3; atol = val_atol)      # Dirichlet outer
     end
 
     @testset "NN (code 4), l=0 mean mode ⇒ inner pinned to Dirichlet (gauge fix)" begin
         mats = mat(4)
-        e1 = zeros(N); e1[1] = 1.0
+        e1 = zeros(N);
+        e1[1] = 1.0
         # Structural: l=0 inner row is the identity (pinned); l≥1 inner stays Neumann.
         @test _tempbc_banded_row(mats.system_matrices[mats.lookup[0]], 1) ≈ e1 atol=1e-14
         @test !(_tempbc_banded_row(mats.system_matrices[mats.lookup[2]], 1) ≈ e1)
@@ -111,16 +113,20 @@ end
         # pinned inner value plus the prescribed outer flux.
         T = solve_mode(mats, 0, rhs_with(0.8, -0.2))
         dT = d1 * T
-        @test isapprox(T[1], 0.8;   atol=val_atol)     # pinned reference value
-        @test isapprox(dT[N], -0.2; atol=der_atol)     # outer flux still honored
+        @test isapprox(T[1], 0.8; atol = val_atol)     # pinned reference value
+        @test isapprox(dT[N], -0.2; atol = der_atol)     # outer flux still honored
     end
 
     @testset "thermal BC code mapping matches BoundaryConditions types" begin
         D = GeoDynamo.FixedTemperature(0.0)
         F = GeoDynamo.FixedFlux(0.0)
-        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner=D, outer=D)) == 1
-        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner=D, outer=F)) == 2
-        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner=F, outer=D)) == 3
-        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner=F, outer=F)) == 4
+        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner = D, outer = D)) ==
+              1
+        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner = D, outer = F)) ==
+              2
+        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner = F, outer = D)) ==
+              3
+        @test GeoDynamo._thermal_bc_code(GeoDynamo.BoundaryConditions(inner = F, outer = F)) ==
+              4
     end
 end

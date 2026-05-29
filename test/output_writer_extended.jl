@@ -24,7 +24,7 @@ using Test
     end
 
     @testset "default_config with keyword precision" begin
-        config = GeoDynamo.default_config(; precision=Float32)
+        config = GeoDynamo.default_config(; precision = Float32)
         @test config.output_precision === Float32
     end
 
@@ -84,7 +84,8 @@ using Test
     @testset "resolve_output_precision" begin
         @test GeoDynamo.resolve_output_precision(:float32) === Float32
         @test GeoDynamo.resolve_output_precision(:float64) === Float64
-        @test (@test_logs (:warn,) GeoDynamo.resolve_output_precision(:bfloat16)) === Float64
+        @test (@test_logs (:warn,) GeoDynamo.resolve_output_precision(:bfloat16)) ===
+              Float64
     end
 
     # ─── FieldInfo ────────────────────────────────────────────────────────

@@ -37,7 +37,7 @@ components to account for topographic coupling.
 - `config`: TopographyCouplingConfig with coupling parameters
 """
 function apply_magnetic_topography_correction!(magnetic_field, topography::TopographyData,
-                                               config::TopographyCouplingConfig)
+        config::TopographyCouplingConfig)
     if !config.magnetic_coupling || !config.enabled
         return nothing
     end
@@ -64,13 +64,13 @@ function apply_magnetic_topography_correction!(magnetic_field, topography::Topog
 
     # Precompute boundary value/derivative caches once for this field
     p_cache = compute_boundary_derivative_cache(poloidal,
-                                                magnetic_field.∂r,
-                                                magnetic_field.∂²r,
-                                                magnetic_field.outer_domain)
+        magnetic_field.∂r,
+        magnetic_field.∂²r,
+        magnetic_field.outer_domain)
     t_cache = compute_boundary_derivative_cache(toroidal,
-                                                magnetic_field.∂r,
-                                                magnetic_field.∂²r,
-                                                magnetic_field.outer_domain)
+        magnetic_field.∂r,
+        magnetic_field.∂²r,
+        magnetic_field.outer_domain)
 
     # Apply corrections at ICB if topography defined
     if topography.icb !== nothing
@@ -105,15 +105,15 @@ Apply magnetic topography corrections at a specific boundary.
 - `bc_type`: :insulating_inner, :insulating_outer, or :conducting_inner
 """
 function apply_magnetic_correction_at_boundary!(poloidal,
-                                                toroidal,
-                                                p_cache::BoundaryDerivativeCache{T},
-                                                t_cache::BoundaryDerivativeCache{T},
-                                                topo_field::TopographyField{T},
-                                                gaunt::GauntTensorCache{T},
-                                                ε::T,
-                                                config::TopographyCouplingConfig,
-                                                location::BoundaryLocation,
-                                                bc_type::Symbol) where T
+        toroidal,
+        p_cache::BoundaryDerivativeCache{T},
+        t_cache::BoundaryDerivativeCache{T},
+        topo_field::TopographyField{T},
+        gaunt::GauntTensorCache{T},
+        ε::T,
+        config::TopographyCouplingConfig,
+        location::BoundaryLocation,
+        bc_type::Symbol) where {T}
     rb = topo_field.radius
     lmax = min(poloidal.config.lmax, gaunt.lmax)
     mmax = min(poloidal.config.mmax, gaunt.lmax)
@@ -139,7 +139,8 @@ function apply_magnetic_correction_at_boundary!(poloidal,
 
             if bc_type == :insulating_outer
                 # CMB insulating: ∂_r P + (l+1)/r_o P = 0, T = 0
-                P_corr, T_corr = compute_cmb_insulating_correction(
+                P_corr,
+                T_corr = compute_cmb_insulating_correction(
                     l, m, p_cache, t_cache, topo_field, gaunt, rb, location, config
                 )
                 P_bv[bc_row, lm_idx] -= ε * real(P_corr)
@@ -147,7 +148,8 @@ function apply_magnetic_correction_at_boundary!(poloidal,
 
             elseif bc_type == :insulating_inner
                 # ICB insulating: ∂_r P - l/r_i P = 0, T = 0
-                P_corr, T_corr = compute_icb_insulating_correction(
+                P_corr,
+                T_corr = compute_icb_insulating_correction(
                     l, m, p_cache, t_cache, topo_field, gaunt, rb, location, config
                 )
                 P_bv[bc_row, lm_idx] -= ε * real(P_corr)
@@ -180,13 +182,13 @@ and toroidal:
 T + εh_o ∂_r T = 0
 """
 function compute_cmb_insulating_correction(l::Int, m::Int,
-                                           p_cache::BoundaryDerivativeCache{T},
-                                           t_cache::BoundaryDerivativeCache{T},
-                                           topo::TopographyField{T},
-                                           gaunt::GauntTensorCache{T},
-                                           ro::T,
-                                           location::BoundaryLocation,
-                                           config::TopographyCouplingConfig) where T
+        p_cache::BoundaryDerivativeCache{T},
+        t_cache::BoundaryDerivativeCache{T},
+        topo::TopographyField{T},
+        gaunt::GauntTensorCache{T},
+        ro::T,
+        location::BoundaryLocation,
+        config::TopographyCouplingConfig) where {T}
     P_correction = zero(Complex{T})
     T_correction = zero(Complex{T})
 
@@ -289,13 +291,13 @@ With topography, the poloidal condition becomes:
 [∂_r P - l/r_i P]_{lm} + ε Σ h^i_{LM} (α^i ∂_r P + β^i T + γ^i P) = 0
 """
 function compute_icb_insulating_correction(l::Int, m::Int,
-                                           p_cache::BoundaryDerivativeCache{T},
-                                           t_cache::BoundaryDerivativeCache{T},
-                                           topo::TopographyField{T},
-                                           gaunt::GauntTensorCache{T},
-                                           ri::T,
-                                           location::BoundaryLocation,
-                                           config::TopographyCouplingConfig) where T
+        p_cache::BoundaryDerivativeCache{T},
+        t_cache::BoundaryDerivativeCache{T},
+        topo::TopographyField{T},
+        gaunt::GauntTensorCache{T},
+        ri::T,
+        location::BoundaryLocation,
+        config::TopographyCouplingConfig) where {T}
     P_correction = zero(Complex{T})
     T_correction = zero(Complex{T})
 
@@ -399,9 +401,9 @@ Returns a sparse representation of coupling coefficients.
 - `location`: INNER_BOUNDARY (ICB) or OUTER_BOUNDARY (CMB)
 """
 function assemble_magnetic_boundary_operator(l::Int, topo::TopographyField{T},
-                                             gaunt::GauntTensorCache{T},
-                                             config::TopographyCouplingConfig,
-                                             location::BoundaryLocation) where T
+        gaunt::GauntTensorCache{T},
+        config::TopographyCouplingConfig,
+        location::BoundaryLocation) where {T}
     rb = topo.radius
     ε = config.epsilon
     lmax = gaunt.lmax
@@ -498,8 +500,8 @@ For an insulating exterior, B = -∇Φ where:
 Continuity of B_t at the true surface introduces topography coupling.
 """
 function compute_potential_matching_coefficients(l::Int, topo::TopographyField{T},
-                                                 gaunt::GauntTensorCache{T},
-                                                 location::BoundaryLocation) where T
+        gaunt::GauntTensorCache{T},
+        location::BoundaryLocation) where {T}
     rb = topo.radius
     ε = one(T) * 0.01  # Default epsilon
     lmax_t = topo.lmax

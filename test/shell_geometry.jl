@@ -13,12 +13,14 @@ const FINALIZE_MPI_SHELL = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         MPI.Init()
     end
 
-    lmax = 4; mmax = 4
+    lmax = 4;
+    mmax = 4
     nlat = max(lmax + 2, 10)
     nlon = max(2lmax + 1, 16)
     nr = 6
 
-    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
 
     @testset "Shell radial domain" begin
         dom = Shell.create_shell_radial_domain(nr)
@@ -30,14 +32,14 @@ const FINALIZE_MPI_SHELL = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
 
     @testset "Solver inner-core domain" begin
         params = GeoDynamo.SolverParameters(
-            geometry=:shell,
-            nr=16,
-            nr_inner=8,
-            lmax=4,
-            mmax=4,
-            nlat=12,
-            nlon=16,
-            radius_ratio=0.35,
+            geometry = :shell,
+            nr = 16,
+            nr_inner = 8,
+            lmax = 4,
+            mmax = 4,
+            nlat = 12,
+            nlon = 16,
+            radius_ratio = 0.35
         )
         _, inner = GeoDynamo.create_radial_domains(params)
         @test inner !== nothing
@@ -67,27 +69,27 @@ const FINALIZE_MPI_SHELL = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
     end
 
     @testset "Shell temperature field" begin
-        temp = Shell.create_shell_temperature_field(Float64, cfg; nr=nr)
+        temp = Shell.create_shell_temperature_field(Float64, cfg; nr = nr)
         @test temp !== nothing
         @test temp.config === cfg
         @test length(temp.l_factors) == cfg.nlm
     end
 
     @testset "Shell composition field" begin
-        comp = Shell.create_shell_composition_field(Float64, cfg; nr=nr)
+        comp = Shell.create_shell_composition_field(Float64, cfg; nr = nr)
         @test comp !== nothing
         @test comp.config === cfg
     end
 
     @testset "Shell velocity fields" begin
-        vel = Shell.create_shell_velocity_fields(Float64, cfg; nr=nr)
+        vel = Shell.create_shell_velocity_fields(Float64, cfg; nr = nr)
         @test vel !== nothing
         @test all(parent(vel.𝒯.data_real) .== 0.0)
         @test all(parent(vel.𝒫.data_real) .== 0.0)
     end
 
     @testset "Shell magnetic fields" begin
-        mag = Shell.create_shell_magnetic_fields(Float64, cfg; nr_oc=nr, nr_ic=nr)
+        mag = Shell.create_shell_magnetic_fields(Float64, cfg; nr_oc = nr, nr_ic = nr)
         @test mag !== nothing
         @test all(parent(mag.𝒯.data_real) .== 0.0)
     end

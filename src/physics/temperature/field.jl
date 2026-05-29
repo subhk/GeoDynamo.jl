@@ -72,10 +72,10 @@ operators.
 """
 mutable struct SHTnsTemperatureField{
     T,
-    C<:SHTnsKitConfig,
-    PF<:SHTnsPhysField{T},
-    VF<:SHTnsVectorField{T},
-    SF<:SHTnsSpecField{T},
+    C <: SHTnsKitConfig,
+    PF <: SHTnsPhysField{T},
+    VF <: SHTnsVectorField{T},
+    SF <: SHTnsSpecField{T}
 } <: AbstractScalarField{T}
     # Physical space temperature
     temperature::PF
@@ -103,21 +103,21 @@ mutable struct SHTnsTemperatureField{
     boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}  # Loaded boundary conditions
     boundary_interpolation_cache::bcs.BoundaryInterpolationCache{T}  # Cached interpolated data
     boundary_time_index::Ref{Int}                                    # Current time index for time-dependent BCs
-    
+
     # Pre-computed coefficients
     l_factors::Vector{T}               # l(l+1) values
-    
+
     # Configuration (SHTnsKit)
     config::C
-    
+
     # Radial derivative matrices
     ∂r::BandedMatrix{T}
     ∂²r::BandedMatrix{T}
-    
+
     # Spectral derivative operators
-    theta_derivative_matrix::SparseMatrixCSC{T,Int}  # Pre-computed θ-derivative
+    theta_derivative_matrix::SparseMatrixCSC{T, Int}  # Pre-computed θ-derivative
     theta_recurrence_coeffs::Matrix{T}               # Recurrence coefficients
-    
+
     # Performance tracking
     computation_time::Ref{Float64}
     transform_time::Ref{Float64}
@@ -129,7 +129,7 @@ mutable struct SHTnsTemperatureField{
 end
 
 # Specialization for temperature field (moved after struct definition)
-get_main_physical_field(𝔽::SHTnsTemperatureField{T}) where T = 𝔽.temperature
+get_main_physical_field(𝔽::SHTnsTemperatureField{T}) where {T} = 𝔽.temperature
 
 """
     create_shtns_temperature_field(T, config, domain; pencils=nothing, pencil_spec=nothing)
@@ -137,8 +137,8 @@ get_main_physical_field(𝔽::SHTnsTemperatureField{T}) where T = 𝔽.temperatu
 Allocate and initialize the temperature field container for a simulation.
 """
 function create_shtns_temperature_field(::Type{T}, config::C,
-                                        𝒟ᵒᶜ::RadialDomain,
-                                        pencils=nothing, pencil_spec=nothing) where {T,C<:SHTnsKitConfig}
+        𝒟ᵒᶜ::RadialDomain,
+        pencils = nothing, pencil_spec = nothing) where {T, C <: SHTnsKitConfig}
     # Use config's pencils by default (consistent with velocity/magnetic creators)
     if pencils === nothing
         pencils = config.pencils
@@ -146,45 +146,45 @@ function create_shtns_temperature_field(::Type{T}, config::C,
     if pencil_spec === nothing
         pencil_spec = pencils.spec
     end
-    
+
     # Temperature field in r-pencil for efficient radial operations
     temperature = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
-    
+
     # Gradient components
-    gradient = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, 
-                                        (pencils.θ, pencils.φ, pencils.r))
-    
+    gradient = create_shtns_vector_field(T, config, 𝒟ᵒᶜ,
+        (pencils.θ, pencils.φ, pencils.r))
+
     # Spectral representation using spectral pencil
-    spectral  = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    spectral = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
     nonlinear = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
     prev_nonlinear = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
 
     # Work arrays
-    work_spectral      = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    work_physical      = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
+    work_spectral = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    work_physical = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
     advection_physical = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
 
     # Sources and boundary conditions
     internal_sources = zeros(T, 𝒟ᵒᶜ.N)
-    boundary_values  = zeros(T, 2, config.nlm)
-    
+    boundary_values = zeros(T, 2, config.nlm)
+
     # Default BC types (DIRICHLET = fixed temperature, NEUMANN = fixed flux)
     bc_type_inner = fill(Int(DIRICHLET), config.nlm)  # Default to fixed temperature
     bc_type_outer = fill(Int(DIRICHLET), config.nlm)
-    
+
     # Pre-compute l(l+1) factors
     l_factors = T[l * (l + 1) for l in config.l_values]
-    
+
     # Transform manager removed in SHTnsKit migration
-    
+
     # Create radial derivative matrices
-    ∂r  = create_derivative_matrix(T, 1, 𝒟ᵒᶜ)
+    ∂r = create_derivative_matrix(T, 1, 𝒟ᵒᶜ)
     ∂²r = create_derivative_matrix(T, 2, 𝒟ᵒᶜ)
-    
+
     # Pre-compute spectral derivative operators
     theta_derivative_matrix = build_∂θ(T, config)
     theta_recurrence_coeffs = compute_theta_recurrence_coefficients(T, config)
-    
+
     return SHTnsTemperatureField(
         temperature, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
@@ -206,9 +206,9 @@ include("../../bcs/thermal_bc.jl")
 # Main nonlinear computation with full spectral optimization
 # ================================================================================
 function compute_temperature_nonlinear!(temp_𝔽::SHTnsTemperatureField{T},
-                                        vel_fields, 𝒟ᵒᶜ::RadialDomain,
-                                        ws::GradientWorkspace{T};
-                                        geometry::Symbol) where T
+        vel_fields, 𝒟ᵒᶜ::RadialDomain,
+        ws::GradientWorkspace{T};
+        geometry::Symbol) where {T}
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
 
     # Zero work arrays and gradient workspace
@@ -273,7 +273,7 @@ end
 # ================================================================================
 
 function add_internal_sources_local!(temp_𝔽::SHTnsTemperatureField{T},
-                                    domain::RadialDomain) where T
+        domain::RadialDomain) where {T}
     advection = parent(temp_𝔽.advection_physical.data)
 
     if !all(iszero, temp_𝔽.internal_sources)
@@ -302,8 +302,6 @@ function add_internal_sources_local!(temp_𝔽::SHTnsTemperatureField{T},
     end
 end
 
-
-
 # ================================================================================
 # Boundary condition implementation moved to `fields/scalar_operators.jl`.
 # ================================================================================
@@ -321,11 +319,11 @@ function validate_flux_bc(temp_field, domain)
     """
     spec_real = parent(temp_field.spectral.data_real)
     spec_imag = parent(temp_field.spectral.data_imag)
-    
+
     lm_range = local_spectral_mode_indices(temp_field.config)
-    
+
     max_error = 0.0
-    
+
     for lm_idx in lm_range
         if lm_idx <= temp_field.config.nlm
             slot = local_spectral_storage_slot(temp_field.config, lm_idx)
@@ -335,7 +333,7 @@ function validate_flux_bc(temp_field, domain)
             if temp_field.bc_type_inner[lm_idx] == Int(NEUMANN)
                 prescribed = get_flux_value(lm_idx, 1, temp_field)
                 actual = compute_flux_at_boundary(spec_real, spec_imag, slot,
-                                                 1, temp_field, domain)
+                    1, temp_field, domain)
                 error = abs(prescribed - actual)
                 max_error = max(max_error, error)
             end
@@ -344,26 +342,25 @@ function validate_flux_bc(temp_field, domain)
             if temp_field.bc_type_outer[lm_idx] == Int(NEUMANN)
                 prescribed = get_flux_value(lm_idx, 2, temp_field)
                 actual = compute_flux_at_boundary(spec_real, spec_imag, slot,
-                                                 2, temp_field, domain)
+                    2, temp_field, domain)
                 error = abs(prescribed - actual)
                 max_error = max(max_error, error)
             end
         end
     end
-    
+
     # Global maximum error
     global_max_error = MPI.Allreduce(max_error, MPI.MAX, get_comm())
-    
+
     if get_rank() == 0
         println("Maximum flux BC error: $(global_max_error)")
         if global_max_error > 1e-6
             println("Warning: Flux BC error exceeds tolerance")
         end
     end
-    
+
     return global_max_error
 end
-
 
 # ================================================================================
 # Diagnostic functions
@@ -375,7 +372,7 @@ Compute a shell-averaged Nusselt number from the radial heat flux at the inner
 and outer boundaries.
 """
 function compute_nusselt_number(temp_𝔽::SHTnsTemperatureField{T},
-                               domain::RadialDomain) where T
+        domain::RadialDomain) where {T}
     ∇r = temp_𝔽.gradient.r_component
     config = temp_𝔽.config
 
@@ -404,13 +401,12 @@ function compute_nusselt_number(temp_𝔽::SHTnsTemperatureField{T},
     return abs(mean_grad_outer / cond_grad_outer)
 end
 
-
 """
     compute_thermal_energy(temperature_field)
 
 Compute the global thermal energy from the spectral temperature coefficients.
 """
-function compute_thermal_energy(temp_𝔽::SHTnsTemperatureField{T}) where T
+function compute_thermal_energy(temp_𝔽::SHTnsTemperatureField{T}) where {T}
     spec_real = parent(temp_𝔽.spectral.data_real)
     spec_imag = parent(temp_𝔽.spectral.data_imag)
 
@@ -418,7 +414,7 @@ function compute_thermal_energy(temp_𝔽::SHTnsTemperatureField{T}) where T
     local_energy = 0.0
 
     lm_range = local_spectral_mode_indices(temp_𝔽.config)
-    r_range  = range_local(temp_𝔽.config.pencils.spec, 3)
+    r_range = range_local(temp_𝔽.config.pencils.spec, 3)
 
     @inbounds for lm_idx in lm_range
         if lm_idx <= temp_𝔽.config.nlm
@@ -429,7 +425,7 @@ function compute_thermal_energy(temp_𝔽::SHTnsTemperatureField{T}) where T
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(spec_real, 3)
                     local_energy += (local_spectral_value(spec_real, slot, local_r)^2 +
-                                   local_spectral_value(spec_imag, slot, local_r)^2)
+                                     local_spectral_value(spec_imag, slot, local_r)^2)
                 end
             end
         end
@@ -439,7 +435,6 @@ function compute_thermal_energy(temp_𝔽::SHTnsTemperatureField{T}) where T
     return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
 end
 
-
 """
     compute_surface_flux(field, r_level, config)
 
@@ -448,26 +443,28 @@ Compute the horizontally integrated scalar flux through the radial shell at
 boundary-flux post-processing.
 """
 function compute_surface_flux(field::SHTnsPhysField{T}, r_level::Int,
-                              config::C) where {T,C<:SHTnsKitConfig}
+        config::C) where {T, C <: SHTnsKitConfig}
     data = parent(field.data)
-    
+
     # Local contribution
     local_flux = 0.0
-    
+
     # Get local range
     local_range = range_local(config.pencils.r)
     θ_range, φ_range, r_range = local_range
-    
+
     if r_level in r_range
         local_r = r_level - first(r_range) + 1
-        
+
         for φ_idx in φ_range, θ_idx in θ_range
+
             if θ_idx <= config.nlat && φ_idx <= config.nlon
                 local_θ = θ_idx - first(θ_range) + 1
                 local_φ = φ_idx - first(φ_range) + 1
-                
-                idx = local_θ + (local_φ-1)*length(θ_range) + (local_r-1)*length(θ_range)*length(φ_range)
-                
+
+                idx = local_θ + (local_φ-1)*length(θ_range) +
+                      (local_r-1)*length(θ_range)*length(φ_range)
+
                 if idx <= length(data)
                     # Use Gaussian quadrature weights (already account for sin(θ) via Gauss-Legendre)
                     weight = config.gauss_weights[θ_idx] * (2π / config.nlon)
@@ -476,7 +473,7 @@ function compute_surface_flux(field::SHTnsPhysField{T}, r_level::Int,
             end
         end
     end
-    
+
     # Global reduction
     return MPI.Allreduce(local_flux, MPI.SUM, get_comm())
 end
@@ -484,11 +481,12 @@ end
 # Quadrature norm ∮dΩ at radial level r_level, using the same Gauss weights and
 # summation as compute_surface_flux. compute_nusselt_number divides by this to
 # form the solid-angle mean, so the weight-normalization convention cancels.
-function surface_solid_angle(r_level::Int, config::C) where {C<:SHTnsKitConfig}
+function surface_solid_angle(r_level::Int, config::C) where {C <: SHTnsKitConfig}
     local_norm = 0.0
     θ_range, φ_range, r_range = range_local(config.pencils.r)
     if r_level in r_range
         for φ_idx in φ_range, θ_idx in θ_range
+
             if θ_idx <= config.nlat && φ_idx <= config.nlon
                 local_norm += config.gauss_weights[θ_idx] * (2π / config.nlon)
             end
@@ -496,7 +494,6 @@ function surface_solid_angle(r_level::Int, config::C) where {C<:SHTnsKitConfig}
     end
     return MPI.Allreduce(local_norm, MPI.SUM, get_comm())
 end
-
 
 # ================================================================================
 # Performance monitoring and statistics
@@ -508,7 +505,7 @@ Return a named set of basic temperature statistics such as extrema, RMS level,
 surface fluxes, and Nusselt number.
 """
 function get_temperature_statistics(temp_𝔽::SHTnsTemperatureField{T},
-                                   domain::RadialDomain) where T
+        domain::RadialDomain) where {T}
     # Min/max temperature
     temp_data = parent(temp_𝔽.temperature.data)
     local_min = minimum(temp_data)
@@ -533,16 +530,16 @@ function get_temperature_statistics(temp_𝔽::SHTnsTemperatureField{T},
     energy = compute_thermal_energy(temp_𝔽)
 
     return (min = global_min,
-            max = global_max,
-            rms = rms_temp,
-            nusselt = Nu,
-            energy = energy)
+        max = global_max,
+        rms = rms_temp,
+        nusselt = Nu,
+        energy = energy)
 end
 
 # ================================================================================
 # Utility functions
 # ================================================================================
-function zero_temperature_work_arrays!(temp_𝔽::SHTnsTemperatureField{T}) where T
+function zero_temperature_work_arrays!(temp_𝔽::SHTnsTemperatureField{T}) where {T}
     fill!(parent(temp_𝔽.work_spectral.data_real), zero(T))
     fill!(parent(temp_𝔽.work_spectral.data_imag), zero(T))
     fill!(parent(temp_𝔽.work_physical.data), zero(T))
@@ -558,8 +555,8 @@ used by examples and tests that want a nontrivial thermal state without
 loading an external restart.
 """
 function set_temperature_ic!(temp_𝔽::SHTnsTemperatureField{T},
-                            domain::RadialDomain;
-                            perturbation_amplitude::T = T(1e-3)) where T
+        domain::RadialDomain;
+        perturbation_amplitude::T = T(1e-3)) where {T}
     spec_real = parent(temp_𝔽.spectral.data_real)
     spec_imag = parent(temp_𝔽.spectral.data_imag)
 
@@ -572,26 +569,26 @@ function set_temperature_ic!(temp_𝔽::SHTnsTemperatureField{T},
             slot === nothing && continue
             l = temp_𝔽.config.l_values[lm_idx]
             m = temp_𝔽.config.m_values[lm_idx]
-            
+
             for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(spec_real, 3)
                     r = domain.r[r_idx, 4]
-                    
+
                     if l == 0 && m == 0
                         # Conductive profile for spherical shell: T(r) = ri*ro/(ro-ri) * (1/r - 1/ro)
                         ri = domain.r[1, 4]
                         ro = domain.r[domain.N, 4]
                         set_local_spectral_value!(spec_real, slot, local_r,
-                                                  ri * ro / (ro - ri) * (1.0 / r - 1.0 / ro))
+                            ri * ro / (ro - ri) * (1.0 / r - 1.0 / ro))
                         set_local_spectral_value!(spec_imag, slot, local_r, 0.0)
                     elseif l <= 4
                         # Small perturbation for low modes
                         set_local_spectral_value!(spec_real, slot, local_r,
-                                                  perturbation_amplitude * randn(T))
+                            perturbation_amplitude * randn(T))
                         if m > 0
                             set_local_spectral_value!(spec_imag, slot, local_r,
-                                                      perturbation_amplitude * randn(T))
+                                perturbation_amplitude * randn(T))
                         else
                             set_local_spectral_value!(spec_imag, slot, local_r, 0.0)
                         end
@@ -617,21 +614,21 @@ so the thermal boundary state stays consistent with a spherically symmetric
 prescribed profile.
 """
 function set_boundary_conditions!(temp_𝔽::SHTnsTemperatureField{T};
-                                 inner_bc_type::Int = Int(DIRICHLET),
-                                 outer_bc_type::Int = Int(DIRICHLET),
-                                 inner_value::T = T(1.0),
-                                 outer_value::T = T(0.0)) where T
+        inner_bc_type::Int = Int(DIRICHLET),
+        outer_bc_type::Int = Int(DIRICHLET),
+        inner_value::T = T(1.0),
+        outer_value::T = T(0.0)) where {T}
     # Set BC types for all modes
     fill!(temp_𝔽.bc_type_inner, inner_bc_type)
     fill!(temp_𝔽.bc_type_outer, outer_bc_type)
-    
+
     # Set boundary values for l=0, m=0 mode (mean temperature)
     l0m0_idx = get_mode_index(temp_𝔽.config, 0, 0)
     if l0m0_idx > 0
         temp_𝔽.boundary_values[1, l0m0_idx] = inner_value
         temp_𝔽.boundary_values[2, l0m0_idx] = outer_value
     end
-    
+
     # Other modes have zero boundary values by default
     for lm_idx in 2:temp_𝔽.config.nlm
         temp_𝔽.boundary_values[1, lm_idx] = T(0.0)
@@ -647,9 +644,9 @@ The helper provides a few common analytic profiles so tests and examples can
 configure volumetric heating without constructing the source vector manually.
 """
 function set_internal_heating!(temp_𝔽::SHTnsTemperatureField{T},
-                              domain::RadialDomain;
-                              heating_type::Symbol = :uniform,
-                              amplitude::T = T(1.0)) where T
+        domain::RadialDomain;
+        heating_type::Symbol = :uniform,
+        amplitude::T = T(1.0)) where {T}
     if heating_type == :uniform
         # Uniform volumetric heating
         fill!(temp_𝔽.internal_sources, amplitude)
@@ -686,7 +683,6 @@ end
 # export compute_surface_flux, get_temperature_statistics
 # export zero_temperature_work_arrays!
 # export set_temperature_ic!, set_boundary_conditions!, set_internal_heating!
-
 
 #export print_temperature_performance
 

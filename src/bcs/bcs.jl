@@ -120,7 +120,7 @@ end
 
 # Create a module-like object for compatibility with existing code
 module _Statistics
-    import ..bcs: _mean as mean, _std as std
+import ..bcs: _mean as mean, _std as std
 end
 
 # ================================================================================
@@ -179,7 +179,8 @@ end
 
 export AbstractBoundaryCondition
 export BoundaryLocation, INNER_BOUNDARY, OUTER_BOUNDARY
-export BoundaryType, DIRICHLET, NEUMANN, MIXED, ROBIN, NEUMANN_DERIV1, NEUMANN_DERIV2, NEUMANN_MAG_INNER, NEUMANN_MAG_OUTER, CONTINUITY_MAG
+export BoundaryType, DIRICHLET, NEUMANN, MIXED, ROBIN, NEUMANN_DERIV1, NEUMANN_DERIV2,
+       NEUMANN_MAG_INNER, NEUMANN_MAG_OUTER, CONTINUITY_MAG
 export FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC
 
 # ================================================================================
@@ -242,7 +243,7 @@ load_boundary_conditions!(comp_field, COMPOSITION, Dict(
     :outer => (:dirichlet, 0.0),
 ))
 ```
-""" 
+"""
 function load_boundary_conditions!(field, field_type::FieldType, boundary_specs::Dict)
     config = hasfield(typeof(field), :config) ? field.config : nothing
     validate_boundary_files(field_type, boundary_specs, config)
@@ -292,11 +293,13 @@ Vector BCs remain matrix-embedded and are therefore rejected if a
 time-dependent boundary set is attached.
 """
 function update_time_dependent_boundaries!(field, field_type::FieldType, current_time::Float64)
-    if !(field_type == TEMPERATURE || field_type == COMPOSITION || field_type == VELOCITY || field_type == MAGNETIC)
+    if !(field_type == TEMPERATURE || field_type == COMPOSITION || field_type == VELOCITY ||
+         field_type == MAGNETIC)
         throw(ArgumentError("Unknown field type: $field_type"))
     end
 
-    if !hasfield(typeof(field), :boundary_condition_set) || field.boundary_condition_set === nothing
+    if !hasfield(typeof(field), :boundary_condition_set) ||
+       field.boundary_condition_set === nothing
         return field
     end
 
@@ -349,7 +352,8 @@ Validate boundary condition specifications for any field type.
   configuration path is still the matrix-embedded timestep system.
 """
 function validate_boundary_files(field_type::FieldType, boundary_specs::Dict, config)
-    if !(field_type == TEMPERATURE || field_type == COMPOSITION || field_type == VELOCITY || field_type == MAGNETIC)
+    if !(field_type == TEMPERATURE || field_type == COMPOSITION || field_type == VELOCITY ||
+         field_type == MAGNETIC)
         throw(ArgumentError("Unknown field type: $field_type"))
     end
 
@@ -369,7 +373,8 @@ function validate_boundary_files(field_type::FieldType, boundary_specs::Dict, co
             validate_netcdf_boundary_file(spec)
         elseif spec isa Tuple
             if field_type == TEMPERATURE || field_type == COMPOSITION
-                config === nothing && throw(ArgumentError("Programmatic scalar boundary validation requires a config"))
+                config === nothing &&
+                    throw(ArgumentError("Programmatic scalar boundary validation requires a config"))
                 _parse_boundary_spec(spec, config)
             else
                 throw(ArgumentError(
@@ -430,27 +435,27 @@ Print a summary of loaded boundary conditions for any field type.
 function print_boundary_summary(field, field_type::FieldType)
     boundaries = get_current_boundaries(field, field_type)
     field_name = string(field_type)
-    
+
     println("╔═══════════════════════════════════════════════════════════════╗")
     println("║                 $(uppercase(field_name)) BOUNDARY SUMMARY                    ║")
     println("╠═══════════════════════════════════════════════════════════════╣")
-    
+
     if haskey(boundaries, :metadata)
         metadata = boundaries[:metadata]
         println("║ Source: $(get(metadata, "source", "unknown"))                              ║")
-        
+
         if haskey(metadata, "inner_file")
             inner_file = basename(get(metadata, "inner_file", ""))
             outer_file = basename(get(metadata, "outer_file", ""))
             println("║ Inner file: $(inner_file)                           ║")
             println("║ Outer file: $(outer_file)                           ║")
         end
-        
+
         if haskey(boundaries, :time_index)
             println("║ Time index: $(boundaries[:time_index])                                      ║")
         end
     end
-    
+
     println("╚═══════════════════════════════════════════════════════════════╝")
 end
 
@@ -477,7 +482,7 @@ export validate_boundary_files, get_current_boundaries, print_boundary_summary
 # ================================================================================
 # This avoids recreating configs for each boundary transform call
 
-const _BC_SHTNS_CONFIG_CACHE = Dict{Tuple{Int,Int,Int,Int}, Any}()
+const _BC_SHTNS_CONFIG_CACHE = Dict{Tuple{Int, Int, Int, Int}, Any}()
 const _BC_SHTNS_CONFIG_LOCK = ReentrantLock()
 
 """
@@ -493,7 +498,7 @@ function _get_cached_bc_shtns_config(lmax::Int, mmax::Int, nlat::Int, nlon::Int)
     # Julia Dict is not thread-safe for concurrent read/write — always lock
     lock(_BC_SHTNS_CONFIG_LOCK) do
         if !haskey(_BC_SHTNS_CONFIG_CACHE, key)
-            _BC_SHTNS_CONFIG_CACHE[key] = SHTnsKit.create_gauss_config(lmax, nlat; mmax=mmax, nlon=nlon)
+            _BC_SHTNS_CONFIG_CACHE[key] = SHTnsKit.create_gauss_config(lmax, nlat; mmax = mmax, nlon = nlon)
         end
         return _BC_SHTNS_CONFIG_CACHE[key]
     end
@@ -536,8 +541,7 @@ Vector of spectral coefficients of length nlm.
 # Performance (v1.1.15)
 Uses cached SHTnsKit configurations to avoid repeated setup overhead.
 """
-function shtns_physical_to_spectral(physical_data::Matrix{T}, config; return_complex::Bool=false) where T
-
+function shtns_physical_to_spectral(physical_data::Matrix{T}, config; return_complex::Bool = false) where {T}
     try
         # Use cached configuration for efficiency (v1.1.15 optimization)
         nlat, nlon = size(physical_data)
@@ -565,10 +569,10 @@ function shtns_physical_to_spectral(physical_data::Matrix{T}, config; return_com
                 idx += 1
                 if idx <= nlm && l < size(coeffs_matrix, 1) && m < size(coeffs_matrix, 2)
                     if return_complex
-                        coeffs[idx] = coeffs_matrix[l+1, m+1]
+                        coeffs[idx] = coeffs_matrix[l + 1, m + 1]
                     else
                         # Extract real part (boundary conditions typically use real values)
-                        coeffs[idx] = real(coeffs_matrix[l+1, m+1])
+                        coeffs[idx] = real(coeffs_matrix[l + 1, m + 1])
                     end
                 end
             end
@@ -596,7 +600,7 @@ Inverse of shtns_physical_to_spectral.
 # Returns
 Matrix of physical values on (nlat, nlon) grid.
 """
-function shtns_spectral_to_physical(coeffs::Vector{T}, config, nlat::Int, nlon::Int) where T
+function shtns_spectral_to_physical(coeffs::Vector{T}, config, nlat::Int, nlon::Int) where {T}
     try
         # Use cached configuration
         shtconfig = _get_cached_bc_shtns_config(config.lmax, config.mmax, nlat, nlon)
@@ -610,13 +614,13 @@ function shtns_spectral_to_physical(coeffs::Vector{T}, config, nlat::Int, nlon::
             for m in 0:min(l, mmax_val)
                 idx += 1
                 if idx <= length(coeffs)
-                    coeffs_matrix[l+1, m+1] = complex(coeffs[idx])
+                    coeffs_matrix[l + 1, m + 1] = complex(coeffs[idx])
                 end
             end
         end
 
         # Perform inverse transform
-        physical_data = SHTnsKit.synthesis(shtconfig, coeffs_matrix; real_output=true)
+        physical_data = SHTnsKit.synthesis(shtconfig, coeffs_matrix; real_output = true)
         return physical_data
     catch e
         @warn "SHTnsKit synthesis failed, using fallback: $e"

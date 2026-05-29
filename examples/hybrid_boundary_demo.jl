@@ -16,14 +16,14 @@ Run with:
 
 using GeoDynamo
 using GeoDynamo.bcs:
-    Ylm,
-    create_hybrid_composition_boundaries,
-    create_hybrid_temperature_boundaries,
-    create_programmatic_boundary,
-    create_programmatic_temperature_boundaries,
-    create_time_dependent_programmatic_boundary,
-    get_boundary_statistics,
-    print_boundary_info
+                     Ylm,
+                     create_hybrid_composition_boundaries,
+                     create_hybrid_temperature_boundaries,
+                     create_programmatic_boundary,
+                     create_programmatic_temperature_boundaries,
+                     create_time_dependent_programmatic_boundary,
+                     get_boundary_statistics,
+                     print_boundary_info
 
 example_file(name) = joinpath(@__DIR__, name)
 
@@ -38,14 +38,15 @@ function ensure_sample_files!()
         example_file("cmb_temp.nc"),
         example_file("surface_temp.nc"),
         example_file("cmb_composition.nc"),
-        example_file("surface_composition.nc"),
+        example_file("surface_composition.nc")
     )
     all(isfile, required) && return nothing
 
     generator = load_sample_boundary_generator()
     cd(@__DIR__) do
-        Base.invokelatest(getfield(generator, :create_sample_temperature_boundaries); nlat=64, nlon=128, time_dependent=false)
-        Base.invokelatest(getfield(generator, :create_sample_composition_boundaries); nlat=64, nlon=128)
+        Base.invokelatest(getfield(generator, :create_sample_temperature_boundaries);
+            nlat = 64, nlon = 128, time_dependent = false)
+        Base.invokelatest(getfield(generator, :create_sample_composition_boundaries); nlat = 64, nlon = 128)
     end
     return nothing
 end
@@ -63,26 +64,26 @@ function demo_hybrid_sets(cfg)
     programmatic_temp = create_programmatic_temperature_boundaries(
         (:dirichlet, 4000.0),
         (:dirichlet, 300.0),
-        cfg,
+        cfg
     )
 
     hybrid_temp = create_hybrid_temperature_boundaries(
         example_file("cmb_temp.nc"),
         (:dirichlet, 300.0),
-        cfg,
+        cfg
     )
 
     swapped_temp = create_hybrid_temperature_boundaries(
         example_file("surface_temp.nc"),
         (:dirichlet, 4000.0),
         cfg;
-        swap_boundaries=true,
+        swap_boundaries = true
     )
 
     hybrid_comp = create_hybrid_composition_boundaries(
         example_file("cmb_composition.nc"),
         (:neumann, 0.0),
-        cfg,
+        cfg
     )
 
     summarize_programmatic_set("Programmatic temperature boundaries", programmatic_temp)
@@ -94,8 +95,8 @@ end
 function demo_spherical_harmonic_patterns(cfg)
     println("\n=== Direct spherical-harmonic boundary data ===")
 
-    y20 = create_programmatic_boundary(Ylm(2, 0), cfg, 0.5; field_type="temperature")
-    y32 = create_programmatic_boundary(Ylm(3, 2), cfg, 0.25; field_type="temperature")
+    y20 = create_programmatic_boundary(Ylm(2, 0), cfg, 0.5; field_type = "temperature")
+    y32 = create_programmatic_boundary(Ylm(3, 2), cfg, 0.25; field_type = "temperature")
 
     print_stats("Y₂⁰ temperature pattern", y20)
     print_stats("Y₃² temperature pattern", y32)
@@ -109,9 +110,9 @@ function demo_time_dependent_pattern(cfg)
         cfg,
         (0.0, 1.0),
         6;
-        amplitude=0.4,
-        time_factor=2π,
-        field_type="temperature",
+        amplitude = 0.4,
+        time_factor = 2π,
+        field_type = "temperature"
     )
 
     stats = get_boundary_statistics(rotating)
@@ -130,7 +131,8 @@ end
 function main()
     ensure_sample_files!()
 
-    cfg = GeoDynamo.create_shtnskit_config(lmax=32, mmax=32, nlat=64, nlon=128, nr=32)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = 32, mmax = 32, nlat = 64, nlon = 128, nr = 32)
     demo_hybrid_sets(cfg)
     demo_spherical_harmonic_patterns(cfg)
     demo_time_dependent_pattern(cfg)

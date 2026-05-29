@@ -1,4 +1,4 @@
-    
+
 # Banded matrix structure for radial derivatives
 struct BandedMatrix{T}
     data::Matrix{T}           # Banded storage
@@ -20,12 +20,12 @@ end
     return bw + 1 + i - j
 end
 
-function factorize_banded(A::BandedMatrix{T}) where T
-    N  = A.size
+function factorize_banded(A::BandedMatrix{T}) where {T}
+    N = A.size
     bw = A.bandwidth
     lu = copy(A.data)
 
-    @inbounds for k in 1:N-1
+    @inbounds for k in 1:(N - 1)
         # Pivot (no pivoting for banded SPD-like operators)
         piv_row = _band_row(k, k, bw)
         if !(1 <= piv_row <= 2*bw+1)
@@ -46,14 +46,14 @@ function factorize_banded(A::BandedMatrix{T}) where T
 
         # Eliminate entries below pivot within bandwidth
         i_max = min(N, k + bw)
-        for i in k+1:i_max
+        for i in (k + 1):i_max
             row = _band_row(i, k, bw)
             if 1 <= row <= 2*bw+1
                 L = lu[row, k] / piv
                 lu[row, k] = L  # store L below diagonal
                 # Update row i for columns within band
                 j_max = min(N, k + bw)
-                for j in k+1:j_max
+                for j in (k + 1):j_max
                     col = _band_row(i, j, bw)
                     if 1 <= col <= 2*bw+1
                         urow = _band_row(k, j, bw)
@@ -81,15 +81,15 @@ in descending order with the same safe access pattern.
 
 WARNING: Do not change the loop ordering without verifying aliasing safety.
 """
-function solve_banded!(x::Vector{T}, lu::BandedLU{T}, b::Vector{T}) where T
-    N  = lu.size
+function solve_banded!(x::Vector{T}, lu::BandedLU{T}, b::Vector{T}) where {T}
+    N = lu.size
     bw = lu.bandwidth
     # Forward substitution: L y = b (L has unit diagonal)
     # NOTE: x === b aliasing is safe — see docstring
     @inbounds for i in 1:N
         s = zero(T)
         j_min = max(1, i - bw)
-        for j in j_min:i-1
+        for j in j_min:(i - 1)
             row = _band_row(i, j, bw)
             if 1 <= row <= 2*bw+1
                 s += lu.lu[row, j] * x[j]
@@ -97,12 +97,12 @@ function solve_banded!(x::Vector{T}, lu::BandedLU{T}, b::Vector{T}) where T
         end
         x[i] = b[i] - s
     end
-    
+
     # Back substitution: U x = y
     @inbounds for i in N:-1:1
         s = zero(T)
         j_max = min(N, i + bw)
-        for j in i+1:j_max
+        for j in (i + 1):j_max
             row = _band_row(i, j, bw)
             if 1 <= row <= 2*bw+1
                 s += lu.lu[row, j] * x[j]
@@ -124,7 +124,7 @@ function solve_banded!(x::Vector{T}, lu::BandedLU{T}, b::Vector{T}) where T
     return x
 end
 
-function create_derivative_matrix(::Type{T}, order::Int, domain::RadialDomain) where T
+function create_derivative_matrix(::Type{T}, order::Int, domain::RadialDomain) where {T}
     # Create finite difference matrix for given derivative order
     N = domain.N
     bandwidth = isempty(domain.dr_matrices) ?
@@ -150,7 +150,7 @@ function create_derivative_matrix(::Type{T}, order::Int, domain::RadialDomain) w
 
         for j in 2:stencil_size
             for i in 1:stencil_size
-                V[i, j] = V[i, j-1] * (points[i] - center)
+                V[i, j] = V[i, j - 1] * (points[i] - center)
             end
         end
 
@@ -192,7 +192,7 @@ function create_derivative_matrix(order::Int, domain::RadialDomain)
     return create_derivative_matrix(eltype(domain.r), order, domain)
 end
 
-function create_radial_laplacian(::Type{T}, domain::RadialDomain) where T
+function create_radial_laplacian(::Type{T}, domain::RadialDomain) where {T}
     # d²/dr² + (2/r) d/dr
     d2_matrix = create_derivative_matrix(T, 2, domain)
     d1_matrix = create_derivative_matrix(T, 1, domain)
@@ -244,8 +244,8 @@ function _populate_radial_operators!(domain::RadialDomain)
 end
 
 function apply_∂r!(output::Vector{T},
-                                matrix::BandedMatrix{T},
-                                input::Vector{T}) where T
+        matrix::BandedMatrix{T},
+        input::Vector{T}) where {T}
     N = matrix.size
     bandwidth = matrix.bandwidth
 
@@ -282,6 +282,5 @@ end
 
 #export BandedMatrix, BandedLU, create_derivative_matrix, create_radial_laplacian,
 #       apply_banded_matrix!, factorize_banded, solve_banded!
-
 
 #end

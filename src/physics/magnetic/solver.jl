@@ -1,4 +1,4 @@
-function initialize_magnetic_field!(state::SolverState{T,<:AbstractArchitecture}) where T
+function initialize_magnetic_field!(state::SolverState{T, <:AbstractArchitecture}) where {T}
     magnetic = state.fields.magnetic
     magnetic === nothing && return state
 
@@ -13,7 +13,7 @@ function initialize_magnetic_field!(state::SolverState{T,<:AbstractArchitecture}
 
     domain = state.backend.outer_core_domain
     lm_range = local_spectral_mode_indices(magnetic.𝒯.config)
-    r_range  = local_range(magnetic.𝒯.config.pencils.spec, 3)
+    r_range = local_range(magnetic.𝒯.config.pencils.spec, 3)
 
     pol_real = parent(magnetic.𝒫.data_real)
     pol_imag = parent(magnetic.𝒫.data_imag)
@@ -36,26 +36,26 @@ function initialize_magnetic_field!(state::SolverState{T,<:AbstractArchitecture}
                     tor_real,
                     slot,
                     r_idx,
-                    amplitude * (rand(T) - T(0.5)),
+                    amplitude * (rand(T) - T(0.5))
                 )
                 set_local_spectral_value!(
                     pol_real,
                     slot,
                     r_idx,
-                    amplitude * (rand(T) - T(0.5)),
+                    amplitude * (rand(T) - T(0.5))
                 )
                 if m > 0
                     set_local_spectral_value!(
                         tor_imag,
                         slot,
                         r_idx,
-                        amplitude * (rand(T) - T(0.5)),
+                        amplitude * (rand(T) - T(0.5))
                     )
                     set_local_spectral_value!(
                         pol_imag,
                         slot,
                         r_idx,
-                        amplitude * (rand(T) - T(0.5)),
+                        amplitude * (rand(T) - T(0.5))
                     )
                 end
             end
@@ -80,16 +80,16 @@ function prepare_magnetic_fields!(magnetic_fields, outer_domain)
 end
 
 function apply_magnetic_nonlinear_terms!(
-    magnetic_fields,
-    velocity_fields;
-    geometry::Symbol,
-    rotation_rate::Float64,
+        magnetic_fields,
+        velocity_fields;
+        geometry::Symbol,
+        rotation_rate::Float64
 )
     if velocity_fields !== nothing
         apply_induction_nonlinear!(
             magnetic_fields,
             velocity_fields;
-            geometry,
+            geometry
         )
     end
     if rotation_rate != 0.0
@@ -99,8 +99,8 @@ function apply_magnetic_nonlinear_terms!(
 end
 
 function _magnetic_toroidal_inner_bc_increment(
-    magnetic::GeoDynamo.SHTnsMagneticFields{T},
-) where T
+        magnetic::GeoDynamo.SHTnsMagneticFields{T},
+) where {T}
     continuity_code = Int(GeoDynamo.CONTINUITY_MAG)
     any(==(continuity_code), magnetic.𝒯.bc_type_inner) || return nothing
 
@@ -153,10 +153,10 @@ derivative continuity across the ICB. Returns mode-indexed real/imag vectors
 values to the matrix rows. `l=0` is skipped (magnetic has no `l=0` mode).
 """
 function _magnetic_conducting_history_flux(
-    magnetic::SHTnsMagneticFields{T},
-    ic_spec::SHTnsSpecField{T},
-    adm::InnerCoreAdmittance{T},
-) where T
+        magnetic::SHTnsMagneticFields{T},
+        ic_spec::SHTnsSpecField{T},
+        adm::InnerCoreAdmittance{T}
+) where {T}
     nlm = ic_spec.nlm
     φ0_real = zeros(T, nlm)
     φ0_imag = zeros(T, nlm)
@@ -207,10 +207,10 @@ by construction (`g` is shared); the result is written over inner-core radial
 indices `1..Nic`. `l=0` is skipped.
 """
 function _magnetic_conducting_reconstruct!(
-    oc_spec::SHTnsSpecField{T},
-    ic_spec::SHTnsSpecField{T},
-    adm::InnerCoreAdmittance{T},
-) where T
+        oc_spec::SHTnsSpecField{T},
+        ic_spec::SHTnsSpecField{T},
+        adm::InnerCoreAdmittance{T}
+) where {T}
     oc_real = parent(oc_spec.data_real)
     oc_imag = parent(oc_spec.data_imag)
     ic_real = parent(ic_spec.data_real)
@@ -246,7 +246,8 @@ function _magnetic_conducting_reconstruct!(
     return ic_spec
 end
 
-function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:AbstractArchitecture}) where T
+function apply_magnetic_toroidal_implicit_update!(state::SolverState{
+        T, <:AbstractArchitecture}) where {T}
     magnetic = state.fields.magnetic
     magnetic === nothing && return state
 
@@ -261,12 +262,13 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
     adm_set = state.magnetic_ic_admittance
     if adm_set !== nothing && timestepper isa CNAB2
         adm_tor = adm_set.tor::InnerCoreAdmittance{T}
-        φ0_real, φ0_imag = _magnetic_conducting_history_flux(magnetic, magnetic.𝒯ⁱᶜ, adm_tor)
+        φ0_real,
+        φ0_imag = _magnetic_conducting_history_flux(magnetic, magnetic.𝒯ⁱᶜ, adm_tor)
         matrices = state.implicit_matrices[:magnetic_tor]
         radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_toroidal,
-            matrices.system_matrices[1].size,
+            matrices.system_matrices[1].size
         )
         solver_build_rhs_cnab2!(
             magnetic.work_tor,
@@ -275,16 +277,16 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             magnetic.prev_nlᵀ,
             dt,
             matrices;
-            work=radial_work,
+            work = radial_work
         )
         solver_solve_magnetic_implicit_step!(
             magnetic.𝒯,
             magnetic.work_tor,
             matrices,
             :toroidal;
-            mag_bc_inner=φ0_real,
-            mag_bc_inner_imag=φ0_imag,
-            work=radial_work,
+            mag_bc_inner = φ0_real,
+            mag_bc_inner_imag = φ0_imag,
+            work = radial_work
         )
         # Reconstruct the inner-core profile from the new ICB value (g = 𝒯[ICB]).
         _magnetic_conducting_reconstruct!(magnetic.𝒯, magnetic.𝒯ⁱᶜ, adm_tor)
@@ -298,7 +300,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
         radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_toroidal,
-            matrices.system_matrices[1].size,
+            matrices.system_matrices[1].size
         )
         solver_build_rhs_cnab2!(
             magnetic.work_tor,
@@ -307,18 +309,18 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             magnetic.prev_nlᵀ,
             dt,
             matrices;
-            work=radial_work,
+            work = radial_work
         )
         solver_solve_magnetic_implicit_step!(
             magnetic.𝒯,
             magnetic.work_tor,
             matrices,
             :toroidal;
-            mag_bc_inner=inner_bc === nothing ? nothing : inner_bc[1],
-            prev_bc_inner=inner_bc === nothing ? nothing : inner_bc[2],
-            mag_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[3],
-            prev_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[4],
-            work=radial_work,
+            mag_bc_inner = inner_bc === nothing ? nothing : inner_bc[1],
+            prev_bc_inner = inner_bc === nothing ? nothing : inner_bc[2],
+            mag_bc_inner_imag = inner_bc === nothing ? nothing : inner_bc[3],
+            prev_bc_inner_imag = inner_bc === nothing ? nothing : inner_bc[4],
+            work = radial_work
         )
     elseif timestepper isa EAB2
         if inner_bc !== nothing
@@ -328,7 +330,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
         radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_toroidal,
-            runtime.𝒟ᵒᶜ.N,
+            runtime.𝒟ᵒᶜ.N
         )
         bc_spec = build_solver_erk2_magnetic_tor_bc(T, runtime.𝒟ᵒᶜ.N)
         solver_eab2_update_krylov_cached!(
@@ -340,35 +342,36 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{T,<:Abstrac
             1.0,
             runtime.shtns_config,
             dt;
-            m=_timestepper_krylov_dimension(timestepper, state.parameters),
-            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
-            bc_spec=bc_spec,
-            krylov_work=radial_work,
+            m = _timestepper_krylov_dimension(timestepper, state.parameters),
+            tol = _timestepper_krylov_tolerance(timestepper, state.parameters),
+            bc_spec = bc_spec,
+            krylov_work = radial_work
         )
     else
         matrices = state.implicit_matrices[:magnetic_tor]
         radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_toroidal,
-            matrices.system_matrices[1].size,
+            matrices.system_matrices[1].size
         )
         solver_solve_magnetic_implicit_step!(
             magnetic.𝒯,
             magnetic.nlᵀ,
             matrices,
             :toroidal;
-            mag_bc_inner=inner_bc === nothing ? nothing : inner_bc[1],
-            prev_bc_inner=inner_bc === nothing ? nothing : inner_bc[2],
-            mag_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[3],
-            prev_bc_inner_imag=inner_bc === nothing ? nothing : inner_bc[4],
-            work=radial_work,
+            mag_bc_inner = inner_bc === nothing ? nothing : inner_bc[1],
+            prev_bc_inner = inner_bc === nothing ? nothing : inner_bc[2],
+            mag_bc_inner_imag = inner_bc === nothing ? nothing : inner_bc[3],
+            prev_bc_inner_imag = inner_bc === nothing ? nothing : inner_bc[4],
+            work = radial_work
         )
     end
 
     return state
 end
 
-function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:AbstractArchitecture}) where T
+function apply_magnetic_poloidal_implicit_update!(state::SolverState{
+        T, <:AbstractArchitecture}) where {T}
     magnetic = state.fields.magnetic
     magnetic === nothing && return state
 
@@ -382,12 +385,13 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
     adm_set = state.magnetic_ic_admittance
     if adm_set !== nothing && timestepper isa CNAB2
         adm_pol = adm_set.pol::InnerCoreAdmittance{T}
-        φ0_real, φ0_imag = _magnetic_conducting_history_flux(magnetic, magnetic.𝒫ⁱᶜ, adm_pol)
+        φ0_real,
+        φ0_imag = _magnetic_conducting_history_flux(magnetic, magnetic.𝒫ⁱᶜ, adm_pol)
         matrices = state.implicit_matrices[:magnetic_pol]
         radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_poloidal,
-            matrices.system_matrices[1].size,
+            matrices.system_matrices[1].size
         )
         solver_build_rhs_cnab2!(
             magnetic.work_pol,
@@ -396,16 +400,16 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             magnetic.prev_nlᴾ,
             dt,
             matrices;
-            work=radial_work,
+            work = radial_work
         )
         solver_solve_magnetic_implicit_step!(
             magnetic.𝒫,
             magnetic.work_pol,
             matrices,
             :poloidal;
-            mag_bc_inner=φ0_real,
-            mag_bc_inner_imag=φ0_imag,
-            work=radial_work,
+            mag_bc_inner = φ0_real,
+            mag_bc_inner_imag = φ0_imag,
+            work = radial_work
         )
         _magnetic_conducting_reconstruct!(magnetic.𝒫, magnetic.𝒫ⁱᶜ, adm_pol)
         return state
@@ -416,7 +420,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
         radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_poloidal,
-            matrices.system_matrices[1].size,
+            matrices.system_matrices[1].size
         )
         solver_build_rhs_cnab2!(
             magnetic.work_pol,
@@ -425,21 +429,21 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             magnetic.prev_nlᴾ,
             dt,
             matrices;
-            work=radial_work,
+            work = radial_work
         )
         solver_solve_magnetic_implicit_step!(
             magnetic.𝒫,
             magnetic.work_pol,
             matrices,
             :poloidal,
-            work=radial_work,
+            work = radial_work
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_magnetic_poloidal::EAB2CacheEntry{T}).map
         radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_poloidal,
-            runtime.𝒟ᵒᶜ.N,
+            runtime.𝒟ᵒᶜ.N
         )
         bc_spec = build_solver_erk2_magnetic_pol_bc(T, runtime.𝒟ᵒᶜ)
         solver_eab2_update_krylov_cached!(
@@ -451,24 +455,24 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
             1.0,
             runtime.shtns_config,
             dt;
-            m=_timestepper_krylov_dimension(timestepper, state.parameters),
-            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
-            bc_spec=bc_spec,
-            krylov_work=radial_work,
+            m = _timestepper_krylov_dimension(timestepper, state.parameters),
+            tol = _timestepper_krylov_tolerance(timestepper, state.parameters),
+            bc_spec = bc_spec,
+            krylov_work = radial_work
         )
     else
         matrices = state.implicit_matrices[:magnetic_pol]
         radial_work = get_radial_work!(
             state.timestep_caches,
             :magnetic_poloidal,
-            matrices.system_matrices[1].size,
+            matrices.system_matrices[1].size
         )
         solver_solve_magnetic_implicit_step!(
             magnetic.𝒫,
             magnetic.nlᴾ,
             matrices,
             :poloidal,
-            work=radial_work,
+            work = radial_work
         )
     end
 
@@ -476,9 +480,9 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
 end
 
 function queue_magnetic_implicit_updates!(
-    operations::Vector{Function},
-    state::SolverState{T,<:AbstractArchitecture},
-) where T
+        operations::Vector{Function},
+        state::SolverState{T, <:AbstractArchitecture}
+) where {T}
     state.fields.magnetic === nothing && return operations
     push!(operations, () -> apply_magnetic_toroidal_implicit_update!(state))
     push!(operations, () -> apply_magnetic_poloidal_implicit_update!(state))

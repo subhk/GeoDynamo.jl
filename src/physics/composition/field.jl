@@ -80,10 +80,10 @@ data separate.
 """
 mutable struct SHTnsCompositionField{
     T,
-    C<:SHTnsKitConfig,
-    PF<:SHTnsPhysField{T},
-    VF<:SHTnsVectorField{T},
-    SF<:SHTnsSpecField{T},
+    C <: SHTnsKitConfig,
+    PF <: SHTnsPhysField{T},
+    VF <: SHTnsVectorField{T},
+    SF <: SHTnsSpecField{T}
 } <: AbstractScalarField{T}
     # Physical space composition
     composition::PF
@@ -125,7 +125,7 @@ mutable struct SHTnsCompositionField{
     ∂²r::BandedMatrix{T}        # Second derivative d²/dr²
 
     # Spectral derivative operators (matching physics/temperature/field.jl types)
-    ∂θ::SparseMatrixCSC{T,Int}  # Pre-computed θ-derivative
+    ∂θ::SparseMatrixCSC{T, Int}  # Pre-computed θ-derivative
     theta_recurrence_coeffs::Matrix{T}               # Recurrence coefficients
 
     # Performance tracking
@@ -139,7 +139,7 @@ mutable struct SHTnsCompositionField{
 end
 
 # Specialization for composition field
-get_main_physical_field(𝔽::SHTnsCompositionField{T}) where T = 𝔽.composition
+get_main_physical_field(𝔽::SHTnsCompositionField{T}) where {T} = 𝔽.composition
 
 # ================================================================================
 # Field Creation
@@ -174,8 +174,8 @@ Default boundary conditions are no-flux (NEUMANN) at both boundaries,
 appropriate for typical compositional convection problems.
 """
 function create_shtns_composition_field(::Type{T}, config::C,
-                                        𝒟ᵒᶜ::RadialDomain,
-                                        pencils=nothing, pencil_spec=nothing) where {T,C<:SHTnsKitConfig}
+        𝒟ᵒᶜ::RadialDomain,
+        pencils = nothing, pencil_spec = nothing) where {T, C <: SHTnsKitConfig}
     # Use config's pencils by default (consistent with velocity/magnetic creators)
     if pencils === nothing
         pencils = config.pencils
@@ -189,20 +189,20 @@ function create_shtns_composition_field(::Type{T}, config::C,
 
     # Gradient components
     gradient = create_shtns_vector_field(T, config, 𝒟ᵒᶜ,
-                                        (pencils.θ, pencils.φ, pencils.r))
+        (pencils.θ, pencils.φ, pencils.r))
 
     # Spectral representation using spectral pencil
-    spectral       = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    nonlinear      = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    spectral = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    nonlinear = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
     prev_nonlinear = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
 
     # Work arrays
-    work_spectral      = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    work_physical      = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
+    work_spectral = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    work_physical = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
     advection_physical = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
 
     # Boundary conditions
-    boundary_values  = zeros(T, 2, config.nlm)
+    boundary_values = zeros(T, 2, config.nlm)
 
     # Default BC types (DIRICHLET = fixed value, NEUMANN = fixed flux)
     # For composition: typically no-flux at both boundaries
@@ -213,7 +213,7 @@ function create_shtns_composition_field(::Type{T}, config::C,
     l_factors = T[l * (l + 1) for l in config.l_values]
 
     # Create radial derivative matrices
-    ∂r  = create_derivative_matrix(T, 1, 𝒟ᵒᶜ)
+    ∂r = create_derivative_matrix(T, 1, 𝒟ᵒᶜ)
     ∂²r = create_derivative_matrix(T, 2, 𝒟ᵒᶜ)
 
     # Pre-compute spectral derivative operators
@@ -278,9 +278,9 @@ The advection term -u·∇C is computed using the following optimized workflow:
 - Physical space operations are embarrassingly parallel
 """
 function compute_composition_nonlinear!(𝔽::SHTnsCompositionField{T},
-                                        vel_fields, 𝒟ᵒᶜ::RadialDomain,
-                                        ws::GradientWorkspace{T};
-                                        geometry::Symbol) where T
+        vel_fields, 𝒟ᵒᶜ::RadialDomain,
+        ws::GradientWorkspace{T};
+        geometry::Symbol) where {T}
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
 
     # Zero work arrays and gradient workspace
@@ -327,7 +327,9 @@ end
 
 # Backwards compatibility wrapper using shared implementation from
 # `fields/scalar_operators.jl`.
-zero_composition_work_arrays!(𝔽::SHTnsCompositionField{T}) where T = zero_scalar_work_arrays!(𝔽)
+function zero_composition_work_arrays!(𝔽::SHTnsCompositionField{T}) where {T}
+    zero_scalar_work_arrays!(𝔽)
+end
 
 # ================================================================================
 # NOTE: Gradient computation functions moved to `fields/scalar_operators.jl`.
@@ -338,12 +340,12 @@ zero_composition_work_arrays!(𝔽::SHTnsCompositionField{T}) where T = zero_sca
 # Validation and Testing
 # ================================================================================
 
-function validate_composition_field(𝔽::SHTnsCompositionField{T}, domain::RadialDomain) where T
+function validate_composition_field(𝔽::SHTnsCompositionField{T}, domain::RadialDomain) where {T}
     """
     Validate composition field consistency and boundary conditions
     """
     errors = String[]
-    
+
     # Check spectral field dimensions
     spec_real = parent(𝔽.spectral.data_real)
     local_slot_capacity = size(spec_real, 1) * size(spec_real, 2)
@@ -351,12 +353,12 @@ function validate_composition_field(𝔽::SHTnsCompositionField{T}, domain::Radi
     if local_mode_count > local_slot_capacity
         push!(errors, "Spectral field local slot capacity is smaller than owned spectral mode count")
     end
-    
+
     # Check boundary condition arrays
     if length(𝔽.bc_type_inner) != 𝔽.config.nlm
         push!(errors, "Inner BC array size mismatch")
     end
-    
+
     if length(𝔽.bc_type_outer) != 𝔽.config.nlm
         push!(errors, "Outer BC array size mismatch")
     end
@@ -364,7 +366,7 @@ function validate_composition_field(𝔽::SHTnsCompositionField{T}, domain::Radi
     if !isempty(errors)
         error("Composition field validation failed:\n" * join(errors, "\n"))
     end
-    
+
     return true
 end
 
@@ -378,13 +380,13 @@ end
 Compute a global RMS measure of the composition field from its spectral
 coefficients.
 """
-function compute_composition_rms(𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::RadialDomain) where T
+function compute_composition_rms(𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::RadialDomain) where {T}
     # Compute RMS composition
     spec_real = parent(𝔽.spectral.data_real)
     spec_imag = parent(𝔽.spectral.data_imag)
-    
+
     local_sum = zero(T)
-    
+
     lm_range = local_spectral_mode_indices(𝔽.config)
     r_range = range_local(𝔽.config.pencils.spec, 3)
 
@@ -401,11 +403,11 @@ function compute_composition_rms(𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::Rad
             local_sum += val_real^2 + val_imag^2
         end
     end
-    
+
     # Global reduction
     comm = get_comm()
     global_sum = MPI.Allreduce(local_sum, MPI.SUM, comm)
-    
+
     return sqrt(global_sum / (𝒟ᵒᶜ.N * 𝔽.config.nlm))
 end
 
@@ -414,31 +416,31 @@ end
 
 Compute a volume-averaged compositional energy from the current physical field.
 """
-function compute_composition_energy(𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::RadialDomain) where T
+function compute_composition_energy(𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::RadialDomain) where {T}
     # Compute compositional energy ∫ C² dV
-    
+
     # Transform to physical space first
     shtnskit_spectral_to_physical!(𝔽.spectral, 𝔽.work_physical)
-    
+
     comp_data = parent(𝔽.work_physical.data)
     local_energy = zero(T)
-    
+
     # Integrate over local physical space
     nlat, nlon, nr = size(comp_data)
-    
+
     for r_idx in 1:nr
-        for φ_idx in 1:nlon  
+        for φ_idx in 1:nlon
             for θ_idx in 1:nlat
                 C = comp_data[θ_idx, φ_idx, r_idx]
                 local_energy += C^2
             end
         end
     end
-    
+
     # Global reduction
     comm = get_comm()
     global_energy = MPI.Allreduce(local_energy, MPI.SUM, comm)
-    
+
     return global_energy / (𝔽.config.nlat * 𝔽.config.nlon * 𝒟ᵒᶜ.N)
 end
 
@@ -452,8 +454,8 @@ end
 Return a named collection of basic composition statistics such as extrema, RMS
 level, and integrated energy.
 """
-function get_composition_statistics(𝔽::SHTnsCompositionField{T}, 
-                                   domain::RadialDomain) where T
+function get_composition_statistics(𝔽::SHTnsCompositionField{T},
+        domain::RadialDomain) where {T}
     """
     Compute various composition field statistics
     """
@@ -471,16 +473,16 @@ function get_composition_statistics(𝔽::SHTnsCompositionField{T},
 
     global_sum = MPI.Allreduce(local_sum, MPI.SUM, get_comm())
     global_count = MPI.Allreduce(local_count, MPI.SUM, get_comm())
-    
+
     rms_comp = sqrt(global_sum / global_count)
-    
+
     # Total energy
     energy = compute_composition_energy(𝔽, domain)
-    
+
     return (min = global_min,
-            max = global_max,
-            rms = rms_comp,
-            energy = energy)
+        max = global_max,
+        rms = rms_comp,
+        energy = energy)
 end
 
 # ================================================================================
@@ -494,10 +496,10 @@ Initialize the composition field from one of the built-in analytic profiles.
 The helper is intended for tests and simple setups that want a uniform, linear,
 or randomly perturbed compositional state without reading a restart file.
 """
-function set_composition_ic!(𝔽::SHTnsCompositionField{T}, 
-                             ic_type::Symbol, 𝒟ᵒᶜ::RadialDomain) where T
+function set_composition_ic!(𝔽::SHTnsCompositionField{T},
+        ic_type::Symbol, 𝒟ᵒᶜ::RadialDomain) where {T}
     # Set initial conditions for composition field
-    
+
     spec_real = parent(𝔽.spectral.data_real)
     spec_imag = parent(𝔽.spectral.data_imag)
 
@@ -505,7 +507,7 @@ function set_composition_ic!(𝔽::SHTnsCompositionField{T},
     fill!(spec_imag, zero(T))
     lm_range = local_spectral_mode_indices(𝔽.config)
     r_range = range_local(𝔽.config.pencils.spec, 3)
-    
+
     if ic_type == :uniform
         # Uniform composition (only l=0, m=0 mode)
         # Set uniform value in l=0, m=0 mode
@@ -516,7 +518,7 @@ function set_composition_ic!(𝔽::SHTnsCompositionField{T},
                 set_local_spectral_value!(spec_real, slot, local_r, one(T))
             end
         end
-        
+
     elseif ic_type == :linear
         # Linear profile in radius
         slot = local_spectral_storage_slot(𝔽.config, 1)
@@ -527,7 +529,7 @@ function set_composition_ic!(𝔽::SHTnsCompositionField{T},
                 set_local_spectral_value!(spec_real, slot, local_r, T(r))
             end
         end
-        
+
     elseif ic_type == :random_perturbation
         # Small random perturbation on all modes
         amplitude = 1e-3
@@ -537,8 +539,10 @@ function set_composition_ic!(𝔽::SHTnsCompositionField{T},
                 if lm_idx > 1  # Don't perturb l=0, m=0 mode
                     slot = local_spectral_storage_slot(𝔽.config, lm_idx)
                     slot === nothing && continue
-                    set_local_spectral_value!(spec_real, slot, local_r, amplitude * (rand(T) - T(0.5)))
-                    set_local_spectral_value!(spec_imag, slot, local_r, amplitude * (rand(T) - T(0.5)))
+                    set_local_spectral_value!(spec_real, slot, local_r, amplitude *
+                                                                        (rand(T) - T(0.5)))
+                    set_local_spectral_value!(spec_imag, slot, local_r, amplitude *
+                                                                        (rand(T) - T(0.5)))
                 end
             end
         end
@@ -553,11 +557,11 @@ Assign simple programmatic boundary conditions to the composition field. Use
 `:fixed` for Dirichlet concentration values or `:no_flux` for impermeable
 Neumann boundaries at the inner and outer shell surfaces.
 """
-function set_composition_boundary_conditions!(𝔽::SHTnsCompositionField{T}, 
-                                              bc_inner::Symbol, bc_outer::Symbol,
-                                              value_inner::T = zero(T), value_outer::T = zero(T)) where T
+function set_composition_boundary_conditions!(𝔽::SHTnsCompositionField{T},
+        bc_inner::Symbol, bc_outer::Symbol,
+        value_inner::T = zero(T), value_outer::T = zero(T)) where {T}
     # Set boundary condition types and values
-    
+
     if bc_inner == :fixed
         fill!(𝔽.bc_type_inner, Int(DIRICHLET))
         𝔽.boundary_values[1, :] .= value_inner

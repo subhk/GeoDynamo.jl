@@ -149,25 +149,25 @@ enable_topography!(epsilon=0.05, stefan=true)
 ```
 """
 function enable_topography!(;
-    epsilon::Float64=0.01,
-    velocity::Bool=true,
-    magnetic::Bool=true,
-    thermal::Bool=true,
-    stefan::Bool=false,
-    slope_terms::Bool=true,
-    shift_terms::Bool=true,
-    lmax_topo::Int=-1
+        epsilon::Float64 = 0.01,
+        velocity::Bool = true,
+        magnetic::Bool = true,
+        thermal::Bool = true,
+        stefan::Bool = false,
+        slope_terms::Bool = true,
+        shift_terms::Bool = true,
+        lmax_topo::Int = -1
 )
     config = TopographyCouplingConfig(
-        enabled=true,
-        velocity_coupling=velocity,
-        magnetic_coupling=magnetic,
-        thermal_coupling=thermal,
-        stefan_enabled=stefan,
-        include_slope_terms=slope_terms,
-        include_shift_terms=shift_terms,
-        epsilon=epsilon,
-        lmax_topo=lmax_topo
+        enabled = true,
+        velocity_coupling = velocity,
+        magnetic_coupling = magnetic,
+        thermal_coupling = thermal,
+        stefan_enabled = stefan,
+        include_slope_terms = slope_terms,
+        include_shift_terms = shift_terms,
+        epsilon = epsilon,
+        lmax_topo = lmax_topo
     )
     set_topography_config!(config)
 
@@ -277,7 +277,7 @@ the simulation timestep.
 - `config`: TopographyCouplingConfig (optional, uses global if not provided)
 """
 function apply_all_topography_corrections!(fields, topography;
-                                           config::TopographyCouplingConfig=get_topography_config())
+        config::TopographyCouplingConfig = get_topography_config())
     if !config.enabled
         return nothing
     end

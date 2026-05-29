@@ -26,7 +26,7 @@ function demo_scalar_transforms(cfg, domain)
     println("=== Scalar transform roundtrip ===")
 
     field = create_shtns_temperature_field(Float64, cfg, domain)
-    set_temperature_ic!(field, domain; perturbation_amplitude=1e-3)
+    set_temperature_ic!(field, domain; perturbation_amplitude = 1e-3)
 
     before_real = copy(parent(field.spectral.data_real))
     before_imag = copy(parent(field.spectral.data_imag))
@@ -38,7 +38,7 @@ function demo_scalar_transforms(cfg, domain)
         before_real,
         before_imag,
         parent(field.work_spectral.data_real),
-        parent(field.work_spectral.data_imag),
+        parent(field.work_spectral.data_imag)
     )
 
     println("Local scalar roundtrip error: $(round(error, sigdigits=4))")
@@ -49,27 +49,27 @@ function demo_vector_transforms(cfg, domain)
 
     fields = create_shtns_velocity_fields(Float64, cfg, domain)
     Random.seed!(42)
-    randomize_vector_field!(fields; amplitude=1e-4, lmax=4, domain=domain)
+    randomize_vector_field!(fields; amplitude = 1e-4, lmax = 4, domain = domain)
 
     before_t_real = copy(parent(fields.𝒯.data_real))
     before_t_imag = copy(parent(fields.𝒯.data_imag))
     before_p_real = copy(parent(fields.𝒫.data_real))
     before_p_imag = copy(parent(fields.𝒫.data_imag))
 
-    shtnskit_vector_synthesis!(fields.𝒯, fields.𝒫, fields.velocity; domain=domain)
+    shtnskit_vector_synthesis!(fields.𝒯, fields.𝒫, fields.velocity; domain = domain)
     shtnskit_vector_analysis!(fields.velocity, fields.work_tor, fields.work_pol)
 
     tor_error = local_roundtrip_error(
         before_t_real,
         before_t_imag,
         parent(fields.work_tor.data_real),
-        parent(fields.work_tor.data_imag),
+        parent(fields.work_tor.data_imag)
     )
     pol_error = local_roundtrip_error(
         before_p_real,
         before_p_imag,
         parent(fields.work_pol.data_real),
-        parent(fields.work_pol.data_imag),
+        parent(fields.work_pol.data_imag)
     )
 
     println("Local toroidal roundtrip error: $(round(tor_error, sigdigits=4))")
@@ -86,15 +86,16 @@ function demo_spectrum_and_rotation(cfg)
 
     spectrum = compute_scalar_energy_spectrum(cfg, alm)
     rotated = similar(alm)
-    rotate_field_z!(cfg, alm, π / 4; alm_out=rotated)
+    rotate_field_z!(cfg, alm, π / 4; alm_out = rotated)
 
     println("Total scalar energy: $(round(sum(spectrum), sigdigits=4))")
     println("Energy in l=0       : $(round(spectrum[1], sigdigits=4))")
     println("Rotation preserved norm: $(isapprox(norm(alm), norm(rotated); rtol=1e-10, atol=1e-12))")
 end
 
-function main(; lmax=32, mmax=32, nlat=64, nlon=128, nr=16)
-    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+function main(; lmax = 32, mmax = 32, nlat = 64, nlon = 128, nr = 16)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     domain = create_shell_radial_domain(nr)
 
     info = get_shtnskit_version_info()

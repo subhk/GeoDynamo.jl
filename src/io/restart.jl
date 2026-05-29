@@ -11,26 +11,28 @@ output.
 The restart file also stores enough `TimeTracker` state for a resumed run to
 continue output and restart numbering without clobbering earlier files.
 """
-function write_restart!(fields::Dict{String,Any}, tracker::TimeTracker,
-                        metadata::Dict{String,Any}, config::OutputConfig,
-                        pencils::Union{NamedTuple,Nothing}=nothing;
-                        shtns_config::Union{SHTnsKitConfig,Nothing}=nothing,
-                        geometry::Symbol = :shell,
-                        radius_ratio::Float64 = 0.35,
-                        radial_grid::Union{AbstractVector{<:Real},Nothing}=nothing)
+function write_restart!(fields::Dict{String, Any}, tracker::TimeTracker,
+        metadata::Dict{String, Any}, config::OutputConfig,
+        pencils::Union{NamedTuple, Nothing} = nothing;
+        shtns_config::Union{SHTnsKitConfig, Nothing} = nothing,
+        geometry::Symbol = :shell,
+        radius_ratio::Float64 = 0.35,
+        radial_grid::Union{AbstractVector{<:Real}, Nothing} = nothing)
     comm = output_comm()
     rank = MPI.Comm_rank(comm)
     current_time = metadata["current_time"]
     current_step = metadata["current_step"]
 
     restart_number = tracker.restart_count + 1
-    filename = generate_filename(config, current_time, current_step, "restart", restart_number; geometry=geometry)
+    filename = generate_filename(
+        config, current_time, current_step, "restart", restart_number; geometry = geometry)
 
     if rank == 0
         println("Writing parallel restart #$(restart_number): $(basename(filename))")
     end
 
-    field_info = extract_field_info(fields, shtns_config, pencils; radius_ratio=radius_ratio, radial_grid=radial_grid)
+    field_info = extract_field_info(fields, shtns_config, pencils;
+        radius_ratio = radius_ratio, radial_grid = radial_grid)
 
     restart_metadata = copy(metadata)
     restart_metadata["restart_time"] = current_time
@@ -38,7 +40,8 @@ function write_restart!(fields::Dict{String,Any}, tracker::TimeTracker,
     restart_metadata["output_count"] = tracker.output_count
     restart_metadata["restart_count"] = tracker.restart_count
 
-    ds = create_parallel_netcdf(filename, config, field_info, restart_metadata, comm; geometry=geometry)
+    ds = create_parallel_netcdf(
+        filename, config, field_info, restart_metadata, comm; geometry = geometry)
 
     try
         setup_dimensions!(ds, field_info, config)
@@ -82,9 +85,9 @@ only its local slices; without pencils, each rank reads full field arrays. The
 passed tracker is updated from the restart metadata.
 """
 function read_restart!(tracker::TimeTracker, restart_dir::String,
-                        restart_time::Float64, config::OutputConfig,
-                        pencils::Union{NamedTuple,Nothing}=nothing;
-                        shtns_config::Union{SHTnsKitConfig,Nothing}=nothing)
+        restart_time::Float64, config::OutputConfig,
+        pencils::Union{NamedTuple, Nothing} = nothing;
+        shtns_config::Union{SHTnsKitConfig, Nothing} = nothing)
     comm = output_comm()
     rank = MPI.Comm_rank(comm)
 
@@ -103,7 +106,7 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
     metadata = Dict{String, Any}()
 
     # All ranks open the file collectively for reading
-    ds = NCDataset(comm, filename, "r"; info=MPI.Info())
+    ds = NCDataset(comm, filename, "r"; info = MPI.Info())
 
     try
         # Read metadata (all ranks read scalars)
@@ -151,8 +154,8 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
         end
 
         for component in ["velocity_toroidal", "velocity_poloidal",
-                          "magnetic_toroidal", "magnetic_poloidal",
-                          "temperature_spectral", "composition_spectral"]
+            "magnetic_toroidal", "magnetic_poloidal",
+            "temperature_spectral", "composition_spectral"]
             real_name = "$(component)_real"
             imag_name = "$(component)_imag"
 
@@ -163,10 +166,11 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
                         r_range = range_local(shtns_config.pencils.spec, 3)
                         real_slice = read_local_spectral_coefficients(ds[real_name], mode_indices, r_range)
                         imag_slice = read_local_spectral_coefficients(ds[imag_name], mode_indices, r_range)
-                        real_data, imag_data = unpack_local_spectral_coefficients(real_slice, imag_slice, shtns_config)
+                        real_data,
+                        imag_data = unpack_local_spectral_coefficients(real_slice, imag_slice, shtns_config)
                         restart_data[component] = Dict(
                             "real" => real_data,
-                            "imag" => imag_data,
+                            "imag" => imag_data
                         )
                     else
                         lm_range, r_range = _legacy_linear_spectral_io_ranges(pencils)
@@ -174,7 +178,7 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
                         imag_slice = Array(ds[imag_name][lm_range, r_range])
                         restart_data[component] = Dict(
                             "real" => real_slice,
-                            "imag" => imag_slice,
+                            "imag" => imag_slice
                         )
                     end
                 else
@@ -203,8 +207,8 @@ Load simulation state from a specific restart NetCDF file path using parallel I/
 All ranks open the file collectively and read their local slices.
 """
 function _load_restart_file(filepath::String, tracker::TimeTracker, config::OutputConfig;
-                           pencils::Union{NamedTuple,Nothing}=nothing,
-                           shtns_config::Union{SHTnsKitConfig,Nothing}=nothing)
+        pencils::Union{NamedTuple, Nothing} = nothing,
+        shtns_config::Union{SHTnsKitConfig, Nothing} = nothing)
     comm = output_comm()
     rank = MPI.Comm_rank(comm)
 
@@ -219,7 +223,7 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
     restart_data = Dict{String, Any}()
     metadata = Dict{String, Any}()
 
-    ds = NCDataset(comm, filepath, "r"; info=MPI.Info())
+    ds = NCDataset(comm, filepath, "r"; info = MPI.Info())
 
     try
         # Read time and step metadata
@@ -271,8 +275,8 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
         end
 
         for component in ["velocity_toroidal", "velocity_poloidal",
-                          "magnetic_toroidal", "magnetic_poloidal",
-                          "temperature_spectral", "composition_spectral"]
+            "magnetic_toroidal", "magnetic_poloidal",
+            "temperature_spectral", "composition_spectral"]
             real_name = "$(component)_real"
             imag_name = "$(component)_imag"
 
@@ -283,10 +287,11 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
                         r_range = range_local(shtns_config.pencils.spec, 3)
                         real_slice = read_local_spectral_coefficients(ds[real_name], mode_indices, r_range)
                         imag_slice = read_local_spectral_coefficients(ds[imag_name], mode_indices, r_range)
-                        real_data, imag_data = unpack_local_spectral_coefficients(real_slice, imag_slice, shtns_config)
+                        real_data,
+                        imag_data = unpack_local_spectral_coefficients(real_slice, imag_slice, shtns_config)
                         restart_data[component] = Dict(
                             "real" => real_data,
-                            "imag" => imag_data,
+                            "imag" => imag_data
                         )
                     else
                         lm_range, r_range = _legacy_linear_spectral_io_ranges(pencils)
@@ -294,7 +299,7 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
                         imag_slice = Array(ds[imag_name][lm_range, r_range])
                         restart_data[component] = Dict(
                             "real" => real_slice,
-                            "imag" => imag_slice,
+                            "imag" => imag_slice
                         )
                     end
                 else
@@ -340,6 +345,6 @@ function find_restart_files(restart_dir::String, target_time::Float64)
 
     # Sort by modification time (most recent first) as a proxy for closest time
     full_paths = [joinpath(restart_dir, f) for f in restart_files]
-    sort!(full_paths, by=mtime, rev=true)
+    sort!(full_paths, by = mtime, rev = true)
     return full_paths
 end

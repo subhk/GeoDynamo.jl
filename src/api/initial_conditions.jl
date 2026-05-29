@@ -29,19 +29,19 @@ Superimpose random spectral perturbations up to degree `lmax` on a field.
 - `seed`      – optional `Int` random seed for reproducibility
 """
 struct RandomPerturbation
-    amplitude :: Float64
-    lmax      :: Int
-    domain    :: Any          # Union{RadialDomainType, Nothing} – kept as Any to
-                               # avoid a hard dependency on the internal type alias
-    seed      :: Union{Int, Nothing}
+    amplitude::Float64
+    lmax::Int
+    domain::Any          # Union{RadialDomainType, Nothing} – kept as Any to
+    # avoid a hard dependency on the internal type alias
+    seed::Union{Int, Nothing}
 end
 
 function RandomPerturbation(;
         amplitude::Real,
         lmax::Int,
         domain = nothing,
-        seed::Union{Int, Nothing} = nothing,
-    )
+        seed::Union{Int, Nothing} = nothing
+)
     return RandomPerturbation(Float64(amplitude), lmax, domain, seed)
 end
 
@@ -65,9 +65,9 @@ Any extra keyword arguments are forwarded verbatim to the underlying
 `set_analytical_initial_conditions!` call.
 """
 struct AnalyticIC{P}
-    pattern    :: Symbol
-    amplitude  :: Float64
-    parameters :: P
+    pattern::Symbol
+    amplitude::Float64
+    parameters::P
 end
 
 function AnalyticIC(pattern::Symbol; amplitude::Real = 1.0, parameters...)
@@ -90,7 +90,7 @@ module; at runtime a warning is printed and an analytical fallback is used inste
 `:composition`).
 """
 struct FileIC
-    file_path :: String
+    file_path::String
 end
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -158,10 +158,10 @@ function set_initial_condition! end
 # --- RandomPerturbation --------------------------------------------------------
 
 function set_initial_condition!(
-        model :: GeodynamoModel,
-        field :: Symbol,
-        ic    :: RandomPerturbation,
-    )
+        model::GeodynamoModel,
+        field::Symbol,
+        ic::RandomPerturbation
+)
     if ic.seed !== nothing
         Random.seed!(ic.seed)
     end
@@ -172,20 +172,20 @@ function set_initial_condition!(
     if field === :velocity
         InitialConditions.randomize_vector_field!(f;
             amplitude = ic.amplitude,
-            lmax      = ic.lmax,
-            domain    = domain,
+            lmax = ic.lmax,
+            domain = domain
         )
     elseif field === :temperature || field === :composition
         InitialConditions.randomize_scalar_field!(f;
             amplitude = ic.amplitude,
-            lmax      = ic.lmax,
-            domain    = domain,
+            lmax = ic.lmax,
+            domain = domain
         )
     elseif field === :magnetic
         InitialConditions.randomize_magnetic_field!(f;
             amplitude = ic.amplitude,
-            lmax      = ic.lmax,
-            domain    = domain,
+            lmax = ic.lmax,
+            domain = domain
         )
     end
 
@@ -195,14 +195,14 @@ end
 # --- AnalyticIC ----------------------------------------------------------------
 
 function set_initial_condition!(
-        model :: GeodynamoModel,
-        field :: Symbol,
-        ic    :: AnalyticIC,
-    )
+        model::GeodynamoModel,
+        field::Symbol,
+        ic::AnalyticIC
+)
     f = _get_field(model, field)
     InitialConditions.set_analytical_initial_conditions!(f, field, ic.pattern;
-        amplitude  = ic.amplitude,
-        ic.parameters...,
+        amplitude = ic.amplitude,
+        ic.parameters...
     )
     return model
 end
@@ -216,10 +216,10 @@ end
 # profile.
 
 function set_initial_condition!(
-        model :: GeodynamoModel,
-        field :: Symbol,
-        ic    :: FileIC,
-    )
+        model::GeodynamoModel,
+        field::Symbol,
+        ic::FileIC
+)
     f = _get_field(model, field)
     InitialConditions.load_initial_conditions!(f, field, ic.file_path)
     return model
@@ -230,20 +230,20 @@ end
 # Fields are zero-initialised by `initialize_solver_state`, so this is a no-op.
 
 function set_initial_condition!(
-        model :: GeodynamoModel,
-        field :: Symbol,
-        ::ZeroIC,
-    )
+        model::GeodynamoModel,
+        field::Symbol,
+        ::ZeroIC
+)
     return model
 end
 
 # --- Catch-all for unknown IC types --------------------------------------------
 
 function set_initial_condition!(
-        model :: GeodynamoModel,
-        field :: Symbol,
-        ic,
-    )
+        model::GeodynamoModel,
+        field::Symbol,
+        ic
+)
     throw(ArgumentError(
         "Unrecognised initial condition type $(typeof(ic)).  " *
         "Expected one of: RandomPerturbation, AnalyticIC, FileIC, ZeroIC."))

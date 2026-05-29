@@ -59,11 +59,11 @@ and outer radial boundaries. Common types:
 - `boundary_values`: Boundary values [2, nlm] for inner/outer
 """
 mutable struct SHTnsSpecField{
-    T<:Number,
-    C<:SHTnsKitConfig,
-    DR<:PencilArray{T,3},
-    DI<:PencilArray{T,3},
-    P<:Pencil{3},
+    T <: Number,
+    C <: SHTnsKitConfig,
+    DR <: PencilArray{T, 3},
+    DI <: PencilArray{T, 3},
+    P <: Pencil{3}
 }
     config::C
     nlm::Int
@@ -98,10 +98,10 @@ Different pencil orientations are optimal for different operations:
 - r pencil: Optimal for radial operations (all radii local)
 """
 struct SHTnsPhysField{
-    T<:Number,
-    C<:SHTnsKitConfig,
-    D<:PencilArray{T,3},
-    P<:Pencil{3},
+    T <: Number,
+    C <: SHTnsKitConfig,
+    D <: PencilArray{T, 3},
+    P <: Pencil{3}
 }
     config::C
     nlat::Int                     # Number of latitude points
@@ -128,10 +128,10 @@ Each component is a SHTnsPhysField, potentially with different pencil
 orientations for optimal computation of different operations.
 """
 struct SHTnsVectorField{
-    T<:Number,
-    R<:SHTnsPhysField{T},
-    Θ<:SHTnsPhysField{T},
-    Φ<:SHTnsPhysField{T},
+    T <: Number,
+    R <: SHTnsPhysField{T},
+    Θ <: SHTnsPhysField{T},
+    Φ <: SHTnsPhysField{T}
 }
     r_component::R
     θ_component::Θ
@@ -160,9 +160,9 @@ where T and P are scalar functions called the toroidal and poloidal potentials.
 - `poloidal`: Poloidal potential P(l,m,r) in spectral space
 """
 struct SHTnsTorPolField{
-    T<:Number,
-    Tor<:SHTnsSpecField{T},
-    Pol<:SHTnsSpecField{T},
+    T <: Number,
+    Tor <: SHTnsSpecField{T},
+    Pol <: SHTnsSpecField{T}
 }
     toroidal::Tor
     poloidal::Pol
@@ -223,8 +223,8 @@ A new SHTnsSpecField with:
 - Zero boundary values
 """
 function create_shtns_spectral_field(::Type{T}, config::AbstractSHTnsConfig,
-                                    𝒟ᵒᶜ::RadialDomain,
-                                    pencil_spec::Pencil{3}) where T
+        𝒟ᵒᶜ::RadialDomain,
+        pencil_spec::Pencil{3}) where {T}
     nlm = config.nlm
 
     # Allocate distributed arrays for real and imaginary parts
@@ -241,8 +241,8 @@ function create_shtns_spectral_field(::Type{T}, config::AbstractSHTnsConfig,
     boundary_vals = zeros(T, 2, nlm)  # Row 1: inner, Row 2: outer
 
     return SHTnsSpecField(config, nlm,
-                          data_real, data_imag, pencil_spec,
-                          bc_inner, bc_outer, boundary_vals)
+        data_real, data_imag, pencil_spec,
+        bc_inner, bc_outer, boundary_vals)
 end
 
 """
@@ -260,8 +260,8 @@ Create a new physical space field initialized to zero.
 A new SHTnsPhysField with all grid values initialized to zero.
 """
 function create_shtns_physical_field(::Type{T}, config::AbstractSHTnsConfig,
-                                    𝒟ᵒᶜ::RadialDomain,
-                                    pencil::Pencil{3}) where T
+        𝒟ᵒᶜ::RadialDomain,
+        pencil::Pencil{3}) where {T}
     nlat = config.nlat
     nlon = config.nlon
 
@@ -290,26 +290,27 @@ Each component uses a potentially different pencil orientation for
 optimal computation of different operations.
 """
 function create_shtns_vector_field(::Type{T}, config::AbstractSHTnsConfig,
-                                    𝒟ᵒᶜ::RadialDomain,
-                                    pencils) where T
+        𝒟ᵒᶜ::RadialDomain,
+        pencils) where {T}
     # Handle both NamedTuple and plain tuple input for pencils
     if pencils isa NamedTuple
         # Support both Unicode (θ, φ) and ASCII (theta, phi) names
-        pencil_θ = hasproperty(pencils, Symbol("θ")) ? getproperty(pencils, Symbol("θ")) : getproperty(pencils, :theta)
-        pencil_φ = hasproperty(pencils, Symbol("φ")) ? getproperty(pencils, Symbol("φ")) : getproperty(pencils, :phi)
+        pencil_θ = hasproperty(pencils, Symbol("θ")) ? getproperty(pencils, Symbol("θ")) :
+                   getproperty(pencils, :theta)
+        pencil_φ = hasproperty(pencils, Symbol("φ")) ? getproperty(pencils, Symbol("φ")) :
+                   getproperty(pencils, :phi)
         pencil_r = getproperty(pencils, :r)
     else
         pencil_θ, pencil_φ, pencil_r = pencils
     end
-    
+
     # Create each component with the r-pencil (contiguous in r)
     r_comp = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencil_r)
     θ_comp = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencil_r)
     φ_comp = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencil_r)
-    
+
     return SHTnsVectorField(r_comp, θ_comp, φ_comp)
 end
-
 
 """
     create_radial_domain(nr=nothing; radius_ratio=nothing, radial_bandwidth=nothing) -> RadialDomain
@@ -324,10 +325,11 @@ Create a radial domain for a spherical shell geometry.
 # Returns
 A RadialDomain with Chebyshev-like radial spacing optimized for spectral accuracy.
 """
-function create_radial_domain(nr::Union{Int,Nothing}=nothing;
-                              radius_ratio::Union{Real,Nothing}=nothing,
-                              radial_bandwidth::Union{Int,Nothing}=nothing)
-    N = nr !== nothing ? nr : error("create_radial_domain: nr (number of radial points) must be provided")
+function create_radial_domain(nr::Union{Int, Nothing} = nothing;
+        radius_ratio::Union{Real, Nothing} = nothing,
+        radial_bandwidth::Union{Int, Nothing} = nothing)
+    N = nr !== nothing ? nr :
+        error("create_radial_domain: nr (number of radial points) must be provided")
     ratio = radius_ratio !== nothing ? Float64(radius_ratio) : 0.35
     bandwidth = radial_bandwidth !== nothing ? radial_bandwidth : 4
 
@@ -360,8 +362,8 @@ function create_radial_domain(nr::Union{Int,Nothing}=nothing;
     end
 
     # Allocate derivative matrices and integration weights
-    dr_matrices         = [zeros(2*bandwidth+1, N) for _ in 1:3]
-    radial_laplacian    = zeros(2*bandwidth+1, N)
+    dr_matrices = [zeros(2*bandwidth+1, N) for _ in 1:3]
+    radial_laplacian = zeros(2*bandwidth+1, N)
 
     # Clenshaw-Curtis integration weights for Chebyshev-Lobatto points
     # Grid: x_n = cos(π(N-n)/(N-1)) in [-1,1], mapped to [ri, ri+1] with h = 0.5
@@ -387,7 +389,6 @@ function create_radial_domain(nr::Union{Int,Nothing}=nothing;
     return domain
 end
 
-
 # range_local helper mirroring PencilArrays API but returning the logical-order
 # ranges directly from the pencil metadata.
 function range_local(pencil::Pencil{3}, dim::Int)
@@ -406,20 +407,20 @@ function get_local_indices(pencil::Pencil{3})
 end
 
 # Access patterns for PencilArrays
-function local_data_size(field::SHTnsSpecField{T}) where T
+function local_data_size(field::SHTnsSpecField{T}) where {T}
     return size_local(field.pencil)
 end
 
-function local_data_size(field::SHTnsPhysField{T}) where T
+function local_data_size(field::SHTnsPhysField{T}) where {T}
     return size_local(field.pencil)
 end
 
 # Safe accessors that respect PencilArray's local data
-function get_local_data(field::SHTnsSpecField{T}) where T
-    return (real=parent(field.data_real), imag=parent(field.data_imag))
+function get_local_data(field::SHTnsSpecField{T}) where {T}
+    return (real = parent(field.data_real), imag = parent(field.data_imag))
 end
 
-function get_local_data(field::SHTnsPhysField{T}) where T
+function get_local_data(field::SHTnsPhysField{T}) where {T}
     return parent(field.data)
 end
 
@@ -427,11 +428,11 @@ end
 # Base interface implementations for PencilArray-backed field types
 # ------------------------------------------------------------------------------
 
-function Base.similar(field::SHTnsSpecField{T}) where T
+function Base.similar(field::SHTnsSpecField{T}) where {T}
     return Base.similar(field, T)
 end
 
-function Base.similar(field::SHTnsSpecField{T}, ::Type{S}) where {T,S<:Number}
+function Base.similar(field::SHTnsSpecField{T}, ::Type{S}) where {T, S <: Number}
     data_real = PencilArray{S}(undef, field.pencil)
     data_imag = PencilArray{S}(undef, field.pencil)
     fill!(parent(data_real), zero(S))
@@ -440,11 +441,11 @@ function Base.similar(field::SHTnsSpecField{T}, ::Type{S}) where {T,S<:Number}
     bc_outer = copy(field.bc_type_outer)
     boundary_values = zeros(S, size(field.boundary_values, 1), size(field.boundary_values, 2))
     return SHTnsSpecField(field.config, field.nlm,
-                          data_real, data_imag, field.pencil,
-                          bc_inner, bc_outer, boundary_values)
+        data_real, data_imag, field.pencil,
+        bc_inner, bc_outer, boundary_values)
 end
 
-function Base.copy(field::SHTnsSpecField{T}) where T
+function Base.copy(field::SHTnsSpecField{T}) where {T}
     duplicate = similar(field)
     parent(duplicate.data_real) .= parent(field.data_real)
     parent(duplicate.data_imag) .= parent(field.data_imag)
@@ -454,17 +455,17 @@ function Base.copy(field::SHTnsSpecField{T}) where T
     return duplicate
 end
 
-function Base.similar(field::SHTnsPhysField{T}) where T
+function Base.similar(field::SHTnsPhysField{T}) where {T}
     return Base.similar(field, T)
 end
 
-function Base.similar(field::SHTnsPhysField{T}, ::Type{S}) where {T,S<:Number}
+function Base.similar(field::SHTnsPhysField{T}, ::Type{S}) where {T, S <: Number}
     data = PencilArray{S}(undef, field.pencil)
     fill!(parent(data), zero(S))
     return SHTnsPhysField(field.config, field.nlat, field.nlon, data, field.pencil)
 end
 
-function Base.copy(field::SHTnsPhysField{T}) where T
+function Base.copy(field::SHTnsPhysField{T}) where {T}
     duplicate = similar(field)
     parent(duplicate.data) .= parent(field.data)
     return duplicate

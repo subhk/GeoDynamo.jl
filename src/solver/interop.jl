@@ -3,8 +3,10 @@ const SOLVER_BACKEND_MPI = getproperty(GeoDynamo, :MPI)
 const SOLVER_MPI = SOLVER_BACKEND_MPI
 const SOLVER_LINEAR_ALGEBRA = getproperty(GeoDynamo, :LinearAlgebra)
 const SOLVER_SHTNS_CONFIG_BUILDER = getproperty(GeoDynamo, :create_shtnskit_config)
-const SOLVER_BALL_DOMAIN_BUILDER = getproperty(getproperty(GeoDynamo, :GeoDynamoBall), :create_ball_radial_domain)
-const SOLVER_SHELL_DOMAIN_BUILDER = getproperty(getproperty(GeoDynamo, :GeoDynamoShell), :create_shell_radial_domain)
+const SOLVER_BALL_DOMAIN_BUILDER = getproperty(
+    getproperty(GeoDynamo, :GeoDynamoBall), :create_ball_radial_domain)
+const SOLVER_SHELL_DOMAIN_BUILDER = getproperty(
+    getproperty(GeoDynamo, :GeoDynamoShell), :create_shell_radial_domain)
 const SOLVER_VELOCITY_FIELD_BUILDER = getproperty(GeoDynamo, :create_shtns_velocity_fields)
 const SOLVER_MAGNETIC_FIELD_BUILDER = getproperty(GeoDynamo, :create_shtns_magnetic_fields)
 const SOLVER_TEMPERATURE_FIELD_BUILDER = getproperty(GeoDynamo, :create_shtns_temperature_field)
@@ -63,33 +65,67 @@ const OldImplicitMatrices = getproperty(GeoDynamo, :SHTnsImplicitMatrices)
 @inline solver_shared_erk2_diagnostics_enabled() = SOLVER_SHARED_ERK2_DIAGNOSTICS_ENABLED[]
 @inline solver_shared_erk2_diagnostics_interval() = SOLVER_SHARED_ERK2_DIAGNOSTICS_INTERVAL[]
 @inline solver_gpu_device() = SOLVER_GPU_BACKEND_DEVICE()
-@inline solver_gpu_scalar_synthesis(cfg, coeffs; real_output::Bool=true) =
-    SOLVER_GPU_SCALAR_SYNTHESIS(cfg, coeffs; real_output=real_output)
-@inline solver_gpu_scalar_analysis(cfg, spatial; real_output::Bool=true) =
-    SOLVER_GPU_SCALAR_ANALYSIS(cfg, spatial; real_output=real_output)
-@inline solver_gpu_vector_synthesis(cfg, sph_coeffs, tor_coeffs; real_output::Bool=true) =
-    SOLVER_GPU_VECTOR_SYNTHESIS(cfg, sph_coeffs, tor_coeffs; real_output=real_output)
-@inline solver_gpu_vector_analysis(cfg, vtheta, vphi) =
-    SOLVER_GPU_VECTOR_ANALYSIS(cfg, vtheta, vphi)
-@inline function solver_gpu_scratch_zeros(::Type{T}, dims::Vararg{Int,N}) where {T,N}
-    return SOLVER_GPU_SCRATCH_ZEROS(T, dims...)::AbstractArray{T,N}
+@inline solver_gpu_scalar_synthesis(cfg,
+    coeffs;
+    real_output::Bool = true) = SOLVER_GPU_SCALAR_SYNTHESIS(cfg, coeffs; real_output = real_output)
+@inline solver_gpu_scalar_analysis(cfg,
+    spatial;
+    real_output::Bool = true) = SOLVER_GPU_SCALAR_ANALYSIS(cfg, spatial; real_output = real_output)
+@inline solver_gpu_vector_synthesis(cfg,
+    sph_coeffs,
+    tor_coeffs;
+    real_output::Bool = true) = SOLVER_GPU_VECTOR_SYNTHESIS(
+    cfg, sph_coeffs, tor_coeffs; real_output = real_output)
+@inline solver_gpu_vector_analysis(cfg, vtheta, vphi) = SOLVER_GPU_VECTOR_ANALYSIS(cfg, vtheta, vphi)
+@inline function solver_gpu_scratch_zeros(::Type{T}, dims::Vararg{Int, N}) where {T, N}
+    return SOLVER_GPU_SCRATCH_ZEROS(T, dims...)::AbstractArray{T, N}
 end
-@inline solver_gpu_fill_scalar_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config) =
-    SOLVER_GPU_FILL_SCALAR_COEFF_BUFFER(coeffs_buffer, spec_real, spec_imag, r_local, config)
-@inline solver_gpu_store_scalar_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config) =
-    SOLVER_GPU_STORE_SCALAR_COEFFICIENTS(spec_real, spec_imag, coeffs_matrix, r_local, config)
-@inline solver_gpu_extract_physical_slice(slice_buffer, phys_data, r_local, config; axes_local=nothing) =
-    SOLVER_GPU_EXTRACT_PHYSICAL_SLICE(slice_buffer, phys_data, r_local, config; axes_local=axes_local)
-@inline solver_gpu_store_physical_slice(phys_data, phys_slice, r_local) =
-    SOLVER_GPU_STORE_PHYSICAL_SLICE(phys_data, phys_slice, r_local)
-@inline solver_gpu_fill_vector_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config) =
-    SOLVER_GPU_FILL_VECTOR_COEFF_BUFFER(coeffs_buffer, spec_real, spec_imag, r_local, config)
-@inline solver_gpu_store_vector_coefficients(spec_real, spec_imag, coeffs_matrix, r_local, config) =
-    SOLVER_GPU_STORE_VECTOR_COEFFICIENTS(spec_real, spec_imag, coeffs_matrix, r_local, config)
-@inline solver_gpu_extract_vector_component(component_buffer, v_data, r_local, config; axes_local=nothing) =
-    SOLVER_GPU_EXTRACT_VECTOR_COMPONENT(component_buffer, v_data, r_local, config; axes_local=axes_local)
-@inline solver_gpu_store_vector_components(v_theta, v_phi, vt_field, vp_field, r_local, config; axes_local=nothing) =
-    SOLVER_GPU_STORE_VECTOR_COMPONENTS(v_theta, v_phi, vt_field, vp_field, r_local, config; axes_local=axes_local)
+@inline solver_gpu_fill_scalar_coeff_buffer(coeffs_buffer,
+    spec_real,
+    spec_imag,
+    r_local,
+    config) = SOLVER_GPU_FILL_SCALAR_COEFF_BUFFER(
+    coeffs_buffer, spec_real, spec_imag, r_local, config)
+@inline solver_gpu_store_scalar_coefficients(spec_real,
+    spec_imag,
+    coeffs_matrix,
+    r_local,
+    config) = SOLVER_GPU_STORE_SCALAR_COEFFICIENTS(
+    spec_real, spec_imag, coeffs_matrix, r_local, config)
+@inline solver_gpu_extract_physical_slice(slice_buffer,
+    phys_data,
+    r_local,
+    config;
+    axes_local = nothing) = SOLVER_GPU_EXTRACT_PHYSICAL_SLICE(
+    slice_buffer, phys_data, r_local, config; axes_local = axes_local)
+@inline solver_gpu_store_physical_slice(phys_data, phys_slice,
+    r_local) = SOLVER_GPU_STORE_PHYSICAL_SLICE(phys_data, phys_slice, r_local)
+@inline solver_gpu_fill_vector_coeff_buffer(coeffs_buffer,
+    spec_real,
+    spec_imag,
+    r_local,
+    config) = SOLVER_GPU_FILL_VECTOR_COEFF_BUFFER(
+    coeffs_buffer, spec_real, spec_imag, r_local, config)
+@inline solver_gpu_store_vector_coefficients(spec_real,
+    spec_imag,
+    coeffs_matrix,
+    r_local,
+    config) = SOLVER_GPU_STORE_VECTOR_COEFFICIENTS(
+    spec_real, spec_imag, coeffs_matrix, r_local, config)
+@inline solver_gpu_extract_vector_component(component_buffer,
+    v_data,
+    r_local,
+    config;
+    axes_local = nothing) = SOLVER_GPU_EXTRACT_VECTOR_COMPONENT(
+    component_buffer, v_data, r_local, config; axes_local = axes_local)
+@inline solver_gpu_store_vector_components(v_theta,
+    v_phi,
+    vt_field,
+    vp_field,
+    r_local,
+    config;
+    axes_local = nothing) = SOLVER_GPU_STORE_VECTOR_COMPONENTS(
+    v_theta, v_phi, vt_field, vp_field, r_local, config; axes_local = axes_local)
 @inline solver_gpu_not_loaded_error() = SOLVER_GPU_NOT_LOADED_ERROR()
 @inline solver_gpu_unavailable_error() = SOLVER_GPU_UNAVAILABLE_ERROR()
 

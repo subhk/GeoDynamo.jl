@@ -29,10 +29,10 @@ grid  = SphericalShellGrid(lmax = 31, nr = 64)
 model = GeodynamoModel(grid; Ra = 1e6, include_magnetic = true)
 ```
 """
-struct GeodynamoModel{T, A<:AbstractArchitecture, G}
-    state :: SolverState{T,A}
-    grid  :: G
-    clock :: Clock{T}
+struct GeodynamoModel{T, A <: AbstractArchitecture, G}
+    state::SolverState{T, A}
+    grid::G
+    clock::Clock{T}
 end
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -50,31 +50,31 @@ function _build_geodynamo_model(
         include_topography_shift_terms, stefan_enabled, stefan_number,
         inner_core_conductivity_ratio, latent_heat,
         icb_topography_file, ocb_topography_file,
-        magnetic_inner_bc::Symbol,
-    )
+        magnetic_inner_bc::Symbol
+)
     params = SolverParameters(
-        architecture           = arch_sym,
-        geometry               = geometry,
-        lmax                   = grid.lmax,
-        mmax                   = grid.mmax,
-        nlat                   = grid.nlat,
-        nlon                   = grid.nlon,
-        nr                     = grid.nr,
-        nr_inner               = nr_inner,
-        radius_ratio           = radius_ratio,
-        Ek                     = Ek,
-        Pr                     = Pr,
-        Pm                     = Pm,
-        Sc                     = Sc,
-        Ra                     = Ra,
+        architecture = arch_sym,
+        geometry = geometry,
+        lmax = grid.lmax,
+        mmax = grid.mmax,
+        nlat = grid.nlat,
+        nlon = grid.nlon,
+        nr = grid.nr,
+        nr_inner = nr_inner,
+        radius_ratio = radius_ratio,
+        Ek = Ek,
+        Pr = Pr,
+        Pm = Pm,
+        Sc = Sc,
+        Ra = Ra,
         include_magnetic_field = include_magnetic,
-        include_composition    = include_composition,
-        velocity_bcs          = velocity_bcs,
-        temperature_bcs       = temperature_bcs,
-        composition_bcs       = composition_bcs,
-        topography_enabled     = topography_enabled,
-        topography_epsilon     = topography_epsilon,
-        topography_degree      = topography_degree,
+        include_composition = include_composition,
+        velocity_bcs = velocity_bcs,
+        temperature_bcs = temperature_bcs,
+        composition_bcs = composition_bcs,
+        topography_enabled = topography_enabled,
+        topography_epsilon = topography_epsilon,
+        topography_degree = topography_degree,
         include_topography_velocity = include_topography_velocity,
         include_topography_magnetic = include_topography_magnetic,
         include_topography_thermal = include_topography_thermal,
@@ -86,9 +86,9 @@ function _build_geodynamo_model(
         latent_heat = latent_heat,
         icb_topography_file = icb_topography_file,
         ocb_topography_file = ocb_topography_file,
-        magnetic_inner_bc = magnetic_inner_bc,
+        magnetic_inner_bc = magnetic_inner_bc
     )
-    state = initialize_solver_state(T; params=params)
+    state = initialize_solver_state(T; params = params)
     clock = Clock{T}(T(state.time), state.step, 0, zero(T))
     model = GeodynamoModel{T, typeof(state.backend.architecture), typeof(grid)}(state, grid, clock)
     if !isnothing(initial_conditions)
@@ -104,21 +104,21 @@ end
 # ────────────────────────────────────────────────────────────────────────────────
 
 function GeodynamoModel(grid::SphericalShellGrid;
-        T::Type                   = Float64,
-        Ek::Real                  = 1e-4,
-        Pr::Real                  = 1.0,
-        Pm::Real                  = 1.0,
-        Sc::Real                  = 1.0,
-        Ra::Real                  = 1e6,
-        velocity_bcs              = BoundaryConditions(inner=NoSlip(), outer=NoSlip()),
-        temperature_bcs           = BoundaryConditions(inner=FixedFlux(1.0), outer=FixedTemperature(0.0)),
-        composition_bcs           = BoundaryConditions(inner=FixedFlux(0.0), outer=FixedTemperature(0.0)),
-        include_magnetic::Bool    = false,
+        T::Type = Float64,
+        Ek::Real = 1e-4,
+        Pr::Real = 1.0,
+        Pm::Real = 1.0,
+        Sc::Real = 1.0,
+        Ra::Real = 1e6,
+        velocity_bcs = BoundaryConditions(inner = NoSlip(), outer = NoSlip()),
+        temperature_bcs = BoundaryConditions(inner = FixedFlux(1.0), outer = FixedTemperature(0.0)),
+        composition_bcs = BoundaryConditions(inner = FixedFlux(0.0), outer = FixedTemperature(0.0)),
+        include_magnetic::Bool = false,
         include_composition::Bool = false,
-        initial_conditions        = nothing,
-        topography_enabled::Bool  = false,
-        topography_epsilon::Real  = 0.01,
-        topography_degree::Int    = -1,
+        initial_conditions = nothing,
+        topography_enabled::Bool = false,
+        topography_epsilon::Real = 0.01,
+        topography_degree::Int = -1,
         include_topography_velocity::Bool = true,
         include_topography_magnetic::Bool = true,
         include_topography_thermal::Bool = true,
@@ -130,8 +130,8 @@ function GeodynamoModel(grid::SphericalShellGrid;
         latent_heat::Real = 1.0,
         icb_topography_file::AbstractString = "",
         ocb_topography_file::AbstractString = "",
-        magnetic_inner_bc::Symbol = :insulating,
-    )
+        magnetic_inner_bc::Symbol = :insulating
+)
     arch_sym = grid.arch isa CPU ? :cpu : :gpu
     return _build_geodynamo_model(grid, T, arch_sym, :shell,
         grid.r_inner / grid.r_outer,
@@ -148,21 +148,21 @@ function GeodynamoModel(grid::SphericalShellGrid;
 end
 
 function GeodynamoModel(grid::SphericalBallGrid;
-        T::Type                   = Float64,
-        Ek::Real                  = 1e-4,
-        Pr::Real                  = 1.0,
-        Pm::Real                  = 1.0,
-        Sc::Real                  = 1.0,
-        Ra::Real                  = 1e6,
-        velocity_bcs              = BoundaryConditions(inner=NoSlip(), outer=NoSlip()),
-        temperature_bcs           = BoundaryConditions(inner=FixedFlux(1.0), outer=FixedTemperature(0.0)),
-        composition_bcs           = BoundaryConditions(inner=FixedFlux(0.0), outer=FixedTemperature(0.0)),
-        include_magnetic::Bool    = false,
+        T::Type = Float64,
+        Ek::Real = 1e-4,
+        Pr::Real = 1.0,
+        Pm::Real = 1.0,
+        Sc::Real = 1.0,
+        Ra::Real = 1e6,
+        velocity_bcs = BoundaryConditions(inner = NoSlip(), outer = NoSlip()),
+        temperature_bcs = BoundaryConditions(inner = FixedFlux(1.0), outer = FixedTemperature(0.0)),
+        composition_bcs = BoundaryConditions(inner = FixedFlux(0.0), outer = FixedTemperature(0.0)),
+        include_magnetic::Bool = false,
         include_composition::Bool = false,
-        initial_conditions        = nothing,
-        topography_enabled::Bool  = false,
-        topography_epsilon::Real  = 0.01,
-        topography_degree::Int    = -1,
+        initial_conditions = nothing,
+        topography_enabled::Bool = false,
+        topography_epsilon::Real = 0.01,
+        topography_degree::Int = -1,
         include_topography_velocity::Bool = true,
         include_topography_magnetic::Bool = true,
         include_topography_thermal::Bool = true,
@@ -174,8 +174,8 @@ function GeodynamoModel(grid::SphericalBallGrid;
         latent_heat::Real = 1.0,
         icb_topography_file::AbstractString = "",
         ocb_topography_file::AbstractString = "",
-        magnetic_inner_bc::Symbol = :insulating,
-    )
+        magnetic_inner_bc::Symbol = :insulating
+)
     arch_sym = grid.arch isa CPU ? :cpu : :gpu
     return _build_geodynamo_model(grid, T, arch_sym, :ball,
         0.0,
@@ -190,4 +190,3 @@ function GeodynamoModel(grid::SphericalBallGrid;
         String(icb_topography_file), String(ocb_topography_file),
         magnetic_inner_bc)
 end
-

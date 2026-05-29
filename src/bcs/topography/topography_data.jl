@@ -19,7 +19,7 @@ using Random
 # Topography Field Structure
 # ================================================================================
 
-mutable struct TopographyField{T<:AbstractFloat}
+mutable struct TopographyField{T <: AbstractFloat}
     radius::T                          # Reference radius r_b
     lmax::Int                          # Maximum degree L
     mmax::Int                          # Maximum order M
@@ -37,7 +37,7 @@ end
 
 Create an empty TopographyField with zero coefficients.
 """
-function TopographyField{T}(lmax::Int, mmax::Int, radius::T, location::BoundaryLocation) where T
+function TopographyField{T}(lmax::Int, mmax::Int, radius::T, location::BoundaryLocation) where {T}
     mmax = min(mmax, lmax)  # mmax cannot exceed lmax
     nlm = (lmax + 1) * (mmax + 1) - mmax * (mmax + 1) ÷ 2  # Approximate
 
@@ -92,14 +92,15 @@ topo = TopographyField(32, 32, 0.35, INNER_BOUNDARY)
 See also: [`TopographyData`](@ref), [`set_topography_coefficients!`](@ref)
 """ TopographyField
 
-TopographyField(lmax::Int, mmax::Int, radius::Float64, location::BoundaryLocation) =
+function TopographyField(lmax::Int, mmax::Int, radius::Float64, location::BoundaryLocation)
     TopographyField{Float64}(lmax, mmax, radius, location)
+end
 
 # ================================================================================
 # Main Topography Data Structure
 # ================================================================================
 
-mutable struct TopographyData{T<:AbstractFloat}
+mutable struct TopographyData{T <: AbstractFloat}
     icb::Union{TopographyField{T}, Nothing}      # Inner boundary
     cmb::Union{TopographyField{T}, Nothing}      # Outer boundary
     gaunt_cache::Union{GauntTensorCache{T}, Nothing}  # Gaunt tensors
@@ -112,7 +113,7 @@ end
 
 Create empty TopographyData with no topography.
 """
-function TopographyData{T}() where T
+function TopographyData{T}() where {T}
     return TopographyData{T}(nothing, nothing, nothing, T(0.01), false)
 end
 
@@ -211,13 +212,13 @@ topo = create_topography_data(cmb_coeffs=cmb_h, cmb_radius=1.0, lmax=32)
 ```
 """
 function create_topography_data(;
-    icb_coeffs::Union{Vector{<:Number}, Nothing}=nothing,
-    cmb_coeffs::Union{Vector{<:Number}, Nothing}=nothing,
-    icb_radius::Union{Float64, Nothing}=nothing,
-    cmb_radius::Union{Float64, Nothing}=nothing,
-    lmax::Int=32,
-    mmax::Int=-1,
-    epsilon::Float64=0.01
+        icb_coeffs::Union{Vector{<:Number}, Nothing} = nothing,
+        cmb_coeffs::Union{Vector{<:Number}, Nothing} = nothing,
+        icb_radius::Union{Float64, Nothing} = nothing,
+        cmb_radius::Union{Float64, Nothing} = nothing,
+        lmax::Int = 32,
+        mmax::Int = -1,
+        epsilon::Float64 = 0.01
 )
     mmax = mmax < 0 ? lmax : mmax
     T = Float64
@@ -253,7 +254,7 @@ Accepts either:
 - Complex vector: splits into real and imaginary parts
 - Real vector: sets real parts only (imaginary = 0)
 """
-function set_topography_coefficients!(field::TopographyField{T}, coeffs::Vector) where T
+function set_topography_coefficients!(field::TopographyField{T}, coeffs::Vector) where {T}
     n = min(length(coeffs), field.nlm)
 
     if eltype(coeffs) <: Complex
@@ -277,7 +278,7 @@ end
 
 Get complex spectral coefficients from topography field.
 """
-function get_topography_coefficients(field::TopographyField{T}) where T
+function get_topography_coefficients(field::TopographyField{T}) where {T}
     return complex.(field.coeffs_real, field.coeffs_imag)
 end
 
@@ -286,7 +287,7 @@ end
 
 Get the h_{l,m} coefficient from the topography field.
 """
-function get_coefficient(field::TopographyField{T}, l::Int, m::Int) where T
+function get_coefficient(field::TopographyField{T}, l::Int, m::Int) where {T}
     if l > field.lmax || abs(m) > min(l, field.mmax)
         return zero(Complex{T})
     end
@@ -307,7 +308,7 @@ end
 
 Update RMS and max amplitude statistics for the topography field.
 """
-function update_topography_statistics!(field::TopographyField{T}) where T
+function update_topography_statistics!(field::TopographyField{T}) where {T}
     # RMS amplitude: sqrt(Σ |h_{LM}|²)
     sum_sq = zero(T)
     max_amp = zero(T)
@@ -335,7 +336,7 @@ end
 Create uniform (degree-0) topography h = amplitude everywhere.
 """
 function create_uniform_topography(amplitude::Float64, radius::Float64,
-                                   location::BoundaryLocation; lmax::Int=32)
+        location::BoundaryLocation; lmax::Int = 32)
     field = TopographyField(lmax, lmax, radius, location)
 
     # Y_0^0 = 1/√(4π), so h_{0,0} = amplitude * √(4π)
@@ -357,8 +358,8 @@ For m >= 0, sets the real (cosine) part. For m < 0, sets the imaginary (sine)
 part via conjugate symmetry, since only |m| entries are stored.
 """
 function create_spherical_harmonic_topography(l::Int, m::Int, amplitude::Float64,
-                                              radius::Float64, location::BoundaryLocation;
-                                              lmax::Int=32)
+        radius::Float64, location::BoundaryLocation;
+        lmax::Int = 32)
     @assert l <= lmax "l must be <= lmax"
     @assert abs(m) <= l "m must satisfy |m| <= l"
 
@@ -400,8 +401,8 @@ topo = create_random_topography(l -> 1.0/max(l,1)^2, 1.0, OUTER_BOUNDARY)
 ```
 """
 function create_random_topography(spectrum::Function, radius::Float64,
-                                  location::BoundaryLocation;
-                                  lmax::Int=32, seed::Int=0)
+        location::BoundaryLocation;
+        lmax::Int = 32, seed::Int = 0)
     if seed > 0
         Random.seed!(seed)
     end
@@ -442,7 +443,7 @@ Expected NetCDF structure:
 - Attributes: lmax, radius (optional)
 """
 function load_topography_from_file(filename::String, location::BoundaryLocation;
-                                   radius::Union{Float64, Nothing}=nothing)
+        radius::Union{Float64, Nothing} = nothing)
     if !isfile(filename)
         throw(ArgumentError("Topography file not found: $filename"))
     end
@@ -500,8 +501,8 @@ Load topography from a physical space array h(θ, φ) by transforming to spectra
 - `lmax`: Maximum degree to retain (-1 for config.lmax)
 """
 function load_topography_from_array(h_physical::Matrix{T}, radius::Float64,
-                                    location::BoundaryLocation, config;
-                                    lmax::Int=-1) where T
+        location::BoundaryLocation, config;
+        lmax::Int = -1) where {T}
     lmax_use = lmax > 0 ? lmax : config.lmax
 
     field = TopographyField{Float64}(lmax_use, lmax_use, radius, location)
@@ -517,8 +518,8 @@ function load_topography_from_array(h_physical::Matrix{T}, radius::Float64,
             for m in 0:min(l, config.mmax)
                 idx += 1
                 if idx <= field.nlm && l < size(coeffs, 1) && m < size(coeffs, 2)
-                    field.coeffs_real[idx] = real(coeffs[l+1, m+1])
-                    field.coeffs_imag[idx] = imag(coeffs[l+1, m+1])
+                    field.coeffs_real[idx] = real(coeffs[l + 1, m + 1])
+                    field.coeffs_imag[idx] = imag(coeffs[l + 1, m + 1])
                 end
             end
         end
@@ -584,7 +585,7 @@ Evaluate topography in physical space using SHTnsKit synthesis.
 
 Returns h(θ, φ) as a nlat × nlon matrix on the Gauss-Legendre grid.
 """
-function evaluate_topography(field::TopographyField{T}, config) where T
+function evaluate_topography(field::TopographyField{T}, config) where {T}
     # Build spectral coefficient array in SHTnsKit format
     coeffs_sht = zeros(Complex{T}, field.lmax + 1, field.mmax + 1)
 
@@ -592,7 +593,7 @@ function evaluate_topography(field::TopographyField{T}, config) where T
     for l in 0:field.lmax
         for m in 0:min(l, field.mmax)
             idx += 1
-            coeffs_sht[l+1, m+1] = complex(field.coeffs_real[idx], field.coeffs_imag[idx])
+            coeffs_sht[l + 1, m + 1] = complex(field.coeffs_real[idx], field.coeffs_imag[idx])
         end
     end
 
@@ -616,7 +617,7 @@ This uses direct summation and is slower than the SHTnsKit version.
 Returns h(θ_i, φ_j) as a nlat × nlon matrix.
 """
 function evaluate_topography(field::TopographyField{T}, theta::Vector{T},
-                             phi::Vector{T}) where T
+        phi::Vector{T}) where {T}
     nlat = length(theta)
     nlon = length(phi)
     h = zeros(T, nlat, nlon)
@@ -644,7 +645,8 @@ function evaluate_topography(field::TopographyField{T}, theta::Vector{T},
 
                     # Y_l^m contribution (real part)
                     # Y_l^m = N_l^m * P_l^m(cos θ) * exp(im*φ)
-                    nlm = sqrt((2l + 1) / (4π) * factorial(big(l - m)) / factorial(big(l + m)))
+                    nlm = sqrt((2l + 1) / (4π) * factorial(big(l - m)) /
+                               factorial(big(l + m)))
 
                     coeff_re = field.coeffs_real[idx]
                     coeff_im = field.coeffs_imag[idx]
@@ -659,7 +661,8 @@ function evaluate_topography(field::TopographyField{T}, theta::Vector{T},
                         cos_mφ = cos(m * φ)
                         sin_mφ = sin(m * φ)
 
-                        val += 2 * Float64(nlm) * plm * (coeff_re * cos_mφ - coeff_im * sin_mφ)
+                        val += 2 * Float64(nlm) * plm *
+                               (coeff_re * cos_mφ - coeff_im * sin_mφ)
                     end
                 end
             end
@@ -676,7 +679,7 @@ end
 
 Fallback evaluation when SHTnsKit synthesis fails.
 """
-function evaluate_topography_fallback(field::TopographyField{T}, config) where T
+function evaluate_topography_fallback(field::TopographyField{T}, config) where {T}
     # Get grid information from config
     nlat = config.nlat
     nlon = config.nlon
@@ -703,7 +706,7 @@ end
 Compute the associated Legendre polynomial P_l^m(x).
 Uses the standard normalization (not Schmidt or fully normalized).
 """
-function compute_associated_legendre(l::Int, m::Int, x::T) where T
+function compute_associated_legendre(l::Int, m::Int, x::T) where {T}
     if m < 0 || m > l
         return zero(T)
     end
@@ -735,7 +738,7 @@ function compute_associated_legendre(l::Int, m::Int, x::T) where T
     # Use recurrence relation for higher l:
     # (l-m) P_l^m = x(2l-1) P_{l-1}^m - (l+m-1) P_{l-2}^m
     pll = zero(T)
-    for ll in (m+2):l
+    for ll in (m + 2):l
         pll = (x * (2ll - 1) * pmmp1 - (ll + m - 1) * pmm) / (ll - m)
         pmm = pmmp1
         pmmp1 = pll
@@ -787,9 +790,9 @@ function gauss_legendre_nodes(n::Int)
         end
 
         nodes[i] = -z
-        nodes[n+1-i] = z
+        nodes[n + 1 - i] = z
         weights[i] = 2.0 / ((1 - z^2) * (n * (z * p1 - p2) / (z^2 - 1))^2)
-        weights[n+1-i] = weights[i]
+        weights[n + 1 - i] = weights[i]
     end
 
     return nodes, weights
@@ -806,7 +809,7 @@ end
 Initialize and optionally precompute Gaunt tensor cache for topography coupling.
 """
 function initialize_gaunt_cache!(topo::TopographyData{T}, lmax_field::Int;
-                                 precompute::Bool=true) where T
+        precompute::Bool = true) where {T}
     # Determine topography lmax
     lmax_topo = 0
     if topo.icb !== nothing

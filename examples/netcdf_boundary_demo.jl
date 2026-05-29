@@ -16,13 +16,13 @@ Run with:
 
 using GeoDynamo
 using GeoDynamo.bcs:
-    get_boundary_statistics,
-    interpolate_boundary_to_grid,
-    load_composition_boundaries_from_files,
-    load_temperature_boundaries_from_files,
-    print_boundary_info,
-    read_netcdf_boundary_data,
-    validate_boundary_compatibility
+                     get_boundary_statistics,
+                     interpolate_boundary_to_grid,
+                     load_composition_boundaries_from_files,
+                     load_temperature_boundaries_from_files,
+                     print_boundary_info,
+                     read_netcdf_boundary_data,
+                     validate_boundary_compatibility
 using Printf
 
 example_file(name) = joinpath(@__DIR__, name)
@@ -40,15 +40,17 @@ function ensure_sample_files!()
         example_file("cmb_temp_timedep.nc"),
         example_file("surface_temp_timedep.nc"),
         example_file("cmb_composition.nc"),
-        example_file("surface_composition.nc"),
+        example_file("surface_composition.nc")
     )
     all(isfile, required) && return nothing
 
     generator = load_sample_boundary_generator()
     cd(@__DIR__) do
-        Base.invokelatest(getfield(generator, :create_sample_temperature_boundaries); nlat=64, nlon=128, time_dependent=false)
-        Base.invokelatest(getfield(generator, :create_sample_temperature_boundaries); nlat=64, nlon=128, time_dependent=true)
-        Base.invokelatest(getfield(generator, :create_sample_composition_boundaries); nlat=64, nlon=128)
+        Base.invokelatest(getfield(generator, :create_sample_temperature_boundaries);
+            nlat = 64, nlon = 128, time_dependent = false)
+        Base.invokelatest(getfield(generator, :create_sample_temperature_boundaries);
+            nlat = 64, nlon = 128, time_dependent = true)
+        Base.invokelatest(getfield(generator, :create_sample_composition_boundaries); nlat = 64, nlon = 128)
     end
     return nothing
 end
@@ -64,19 +66,22 @@ end
 function demo_file_boundaries()
     println("=== File-backed boundary sets ===")
 
-    cfg = GeoDynamo.create_shtnskit_config(lmax=21, mmax=21, nlat=64, nlon=128, nr=32)
-    temp_boundaries = load_temperature_boundaries_from_files(example_file("cmb_temp.nc"), example_file("surface_temp.nc"), cfg)
-    comp_boundaries = load_composition_boundaries_from_files(example_file("cmb_composition.nc"), example_file("surface_composition.nc"), cfg)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = 21, mmax = 21, nlat = 64, nlon = 128, nr = 32)
+    temp_boundaries = load_temperature_boundaries_from_files(
+        example_file("cmb_temp.nc"), example_file("surface_temp.nc"), cfg)
+    comp_boundaries = load_composition_boundaries_from_files(
+        example_file("cmb_composition.nc"), example_file("surface_composition.nc"), cfg)
 
     validate_boundary_compatibility(
         temp_boundaries.boundary_set.inner_boundary,
         temp_boundaries.boundary_set.outer_boundary,
-        "temperature",
+        "temperature"
     )
     validate_boundary_compatibility(
         comp_boundaries.boundary_set.inner_boundary,
         comp_boundaries.boundary_set.outer_boundary,
-        "composition",
+        "composition"
     )
 
     print_boundary_info(temp_boundaries.boundary_set)
@@ -93,8 +98,8 @@ end
 function demo_interpolation(temp_boundaries)
     println("\n=== Interpolation to a coarser grid ===")
 
-    target_theta = collect(range(0, π, length=32))
-    target_phi = collect(range(0, 2π, length=65))[1:end-1]
+    target_theta = collect(range(0, π, length = 32))
+    target_phi = collect(range(0, 2π, length = 65))[1:(end - 1)]
 
     inner = temp_boundaries.boundary_set.inner_boundary
     interpolated = interpolate_boundary_to_grid(inner, target_theta, target_phi)

@@ -54,12 +54,12 @@ insulating boundary conditions embedded in the matrix rows (matching Fortran mag
 Both boundary rows use identity (BT = 0) for insulating exterior/interior.
 """
 function create_magnetic_toroidal_matrices(config::SHTnsKitConfig,
-                                            domain::RadialDomain,
-                                            diffusivity::Float64,
-                                            dt::Float64;
-                                            theta::Float64=0.5,
-                                            T::Type{<:Number}=Float64,
-                                            inner_alpha::Union{Dict{Int,<:Real},Nothing}=nothing)
+        domain::RadialDomain,
+        diffusivity::Float64,
+        dt::Float64;
+        theta::Float64 = 0.5,
+        T::Type{<:Number} = Float64,
+        inner_alpha::Union{Dict{Int, <:Real}, Nothing} = nothing)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
     r_inv_sq = @views domain.r[1:domain.N, 2]
@@ -69,7 +69,7 @@ function create_magnetic_toroidal_matrices(config::SHTnsKitConfig,
     linear_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
     factorizations = Vector{BandedLU{T}}(undef, length(unique_l))
     l_values = Vector{Int}(undef, length(unique_l))
-    lookup = Dict{Int,Int}()
+    lookup = Dict{Int, Int}()
 
     # First derivative matrix (needed for the conducting-inner-core Robin row)
     d1_matrix = create_derivative_matrix(T, 1, domain)
@@ -130,7 +130,7 @@ function create_magnetic_toroidal_matrices(config::SHTnsKitConfig,
     end
 
     return SHTnsImplicitMatrices{T}(system_matrices, factorizations,
-                                    linear_matrices, l_values, lookup, theta)
+        linear_matrices, l_values, lookup, theta)
 end
 
 """
@@ -145,12 +145,12 @@ Boundary conditions (l-dependent):
 - Outer: (∂/∂r + (l+1)/r) BP = 0  (field matches r^{-(l+1)} exterior decay)
 """
 function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
-                                            domain::RadialDomain,
-                                            diffusivity::Float64,
-                                            dt::Float64;
-                                            theta::Float64=0.5,
-                                            T::Type{<:Number}=Float64,
-                                            inner_alpha::Union{Dict{Int,<:Real},Nothing}=nothing)
+        domain::RadialDomain,
+        diffusivity::Float64,
+        dt::Float64;
+        theta::Float64 = 0.5,
+        T::Type{<:Number} = Float64,
+        inner_alpha::Union{Dict{Int, <:Real}, Nothing} = nothing)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
     r_inv_sq = @views domain.r[1:domain.N, 2]
@@ -160,7 +160,7 @@ function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
     linear_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
     factorizations = Vector{BandedLU{T}}(undef, length(unique_l))
     l_values = Vector{Int}(undef, length(unique_l))
-    lookup = Dict{Int,Int}()
+    lookup = Dict{Int, Int}()
 
     # Create first derivative matrix for poloidal BCs
     d1_matrix = create_derivative_matrix(T, 1, domain)
@@ -231,7 +231,7 @@ function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
     end
 
     return SHTnsImplicitMatrices{T}(system_matrices, factorizations,
-                                    linear_matrices, l_values, lookup, theta)
+        linear_matrices, l_values, lookup, theta)
 end
 
 """
@@ -244,9 +244,9 @@ Matches Fortran mag_setbc_Tor / tim_zerobc: sets RHS boundary rows to zero.
 For insulating BCs, all boundary values are zero (homogeneous conditions).
 """
 function set_magnetic_rhs_bc!(rhs_real::AbstractArray{T}, rhs_imag::AbstractArray{T},
-                               slot::CartesianIndex{2}, nr::Int;
-                               inner_value::T=zero(T),
-                               outer_value::T=zero(T)) where T
+        slot::CartesianIndex{2}, nr::Int;
+        inner_value::T = zero(T),
+        outer_value::T = zero(T)) where {T}
     # Set boundary rows of RHS to prescribed values
     # Inner boundary (radial index 1)
     set_local_spectral_value!(rhs_real, slot, 1, inner_value)
@@ -279,13 +279,13 @@ for its subset of (l,m) modes:
 - `prev_bc_inner`: Previous step inner BC values (for incremental form)
 """
 function solve_magnetic_implicit_step!(solution::SHTnsSpecField{T},
-                                        rhs::SHTnsSpecField{T},
-                                        matrices::SHTnsImplicitMatrices{T},
-                                        component::Symbol;
-                                        mag_bc_inner::Union{Vector{T},Nothing}=nothing,
-                                        prev_bc_inner::Union{Vector{T},Nothing}=nothing,
-                                        mag_bc_inner_imag::Union{Vector{T},Nothing}=nothing,
-                                        prev_bc_inner_imag::Union{Vector{T},Nothing}=nothing) where T
+        rhs::SHTnsSpecField{T},
+        matrices::SHTnsImplicitMatrices{T},
+        component::Symbol;
+        mag_bc_inner::Union{Vector{T}, Nothing} = nothing,
+        prev_bc_inner::Union{Vector{T}, Nothing} = nothing,
+        mag_bc_inner_imag::Union{Vector{T}, Nothing} = nothing,
+        prev_bc_inner_imag::Union{Vector{T}, Nothing} = nothing) where {T}
     sol_real = parent(solution.data_real)
     sol_imag = parent(solution.data_imag)
     rhs_real = parent(rhs.data_real)

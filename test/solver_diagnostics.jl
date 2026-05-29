@@ -56,7 +56,8 @@ const FINALIZE_MPI_DIAGNOSTICS = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true")
         config = GeoDynamo.NaNDetectionConfig(true, 2, false, false)
         field = reshape([0.0, NaN, Inf, 1.0], 2, 2)
 
-        @test GeoDynamo.check_field_for_nan(field, "field", config, 1) == (false, false, 0, 0)
+        @test GeoDynamo.check_field_for_nan(field, "field", config, 1) ==
+              (false, false, 0, 0)
         @test GeoDynamo.check_field_for_nan(field, "field", config, 2) == (true, true, 1, 1)
     end
 
@@ -82,7 +83,7 @@ const FINALIZE_MPI_DIAGNOSTICS = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true")
             include_composition = false,
             timestepper = GeoDynamo.CNAB2(),
             topography_enabled = false,
-            stefan_enabled = false,
+            stefan_enabled = false
         )
 
         state = GeoDynamo.initialize_simulation(Float64, tiny_params)
@@ -96,7 +97,7 @@ const FINALIZE_MPI_DIAGNOSTICS = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true")
         parent(state.fields.velocity.𝒯.data_real)[1, 1, 1] = NaN
 
         config = GeoDynamo.NaNDetectionConfig(true, 2, false, false)
-        @test GeoDynamo.check_runtime_for_nan(state; config=config) == true
+        @test GeoDynamo.check_runtime_for_nan(state; config = config) == true
     end
 
     if MPI.Initialized()

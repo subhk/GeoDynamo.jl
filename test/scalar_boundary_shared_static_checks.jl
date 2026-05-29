@@ -10,7 +10,8 @@ function _scalar_bc_shared_function_body(source::String, signature::String)
     start = findfirst(signature, source)
     start === nothing && error("Could not find function signature: $signature")
     next_function = findnext("\nfunction ", source, last(start) + 1)
-    return next_function === nothing ? source[first(start):end] : source[first(start):first(next_function)-1]
+    return next_function === nothing ? source[first(start):end] :
+           source[first(start):(first(next_function) - 1)]
 end
 
 @testset "Shared scalar boundary-condition implementation" begin
@@ -28,11 +29,11 @@ end
 
     temperature_matrices = _scalar_bc_shared_function_body(
         thermal_bc,
-        "function create_temperature_matrices(",
+        "function create_temperature_matrices("
     )
     composition_matrices = _scalar_bc_shared_function_body(
         composition_bc,
-        "function create_composition_matrices(",
+        "function create_composition_matrices("
     )
     @test occursin("create_scalar_matrices(", temperature_matrices)
     @test occursin("create_scalar_matrices(", composition_matrices)
@@ -41,11 +42,11 @@ end
 
     temperature_solve = _scalar_bc_shared_function_body(
         thermal_bc,
-        "function solve_temperature_implicit_step!(",
+        "function solve_temperature_implicit_step!("
     )
     composition_solve = _scalar_bc_shared_function_body(
         composition_bc,
-        "function solve_composition_implicit_step!(",
+        "function solve_composition_implicit_step!("
     )
     @test occursin("solve_scalar_implicit_step!(", temperature_solve)
     @test occursin("solve_scalar_implicit_step!(", composition_solve)

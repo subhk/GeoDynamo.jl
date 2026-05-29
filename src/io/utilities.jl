@@ -26,16 +26,18 @@ Verify that the single parallel output file exists for a given history number
 and has correct global dimensions.
 """
 function verify_all_ranks_wrote(output_dir::String, hist_number::Int;
-                               geometry::String="shell",
-                               expected_dims::Union{Dict{String,Int},Nothing}=nothing)
+        geometry::String = "shell",
+        expected_dims::Union{Dict{String, Int}, Nothing} = nothing)
     # Look for the single shared file
     pattern = Regex("$(geometry)_hist_$(hist_number)\\.nc")
     files = readdir(output_dir)
     matching = filter(f -> occursin(pattern, f), files)
 
     if isempty(matching)
-        return (false, ["File not found"], Dict{String,Any}(
-            "hist_number" => hist_number, "error" => "No matching file found"))
+        return (false,
+            ["File not found"],
+            Dict{String, Any}(
+                "hist_number" => hist_number, "error" => "No matching file found"))
     end
 
     filepath = joinpath(output_dir, matching[1])
@@ -95,13 +97,13 @@ function cleanup_old_files(output_dir::String, keep_last_n::Int = 10)
         end
     end
 
-    sort!(file_numbers, by = x -> x[2], rev=true)
+    sort!(file_numbers, by = x -> x[2], rev = true)
 
     if length(file_numbers) <= keep_last_n
         return
     end
 
-    for (file, _) in file_numbers[(keep_last_n+1):end]
+    for (file, _) in file_numbers[(keep_last_n + 1):end]
         try
             rm(joinpath(output_dir, file))
             println("Removed old file: $file")
@@ -178,8 +180,9 @@ SHTns configuration.
 The `pencils` argument is currently accepted to mirror setup call sites that
 construct output configuration together with decomposition metadata.
 """
-function create_shtns_aware_output_config(shtns_config::SHTnsKitConfig, pencils::NamedTuple;
-                                         base_config::OutputConfig = default_config())
+function create_shtns_aware_output_config(
+        shtns_config::SHTnsKitConfig, pencils::NamedTuple;
+        base_config::OutputConfig = default_config())
     return OutputConfig(
         base_config.output_space,
         base_config.output_dir,

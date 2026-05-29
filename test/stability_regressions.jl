@@ -2,7 +2,7 @@ using Test
 
 @testset "Stability Regressions" begin
     @testset "gpu scratch allocation hook is inferred" begin
-        ci = only(code_typed(GeoDynamo.gpu_scratch_zeros, (Type{Float64}, Int, Int); optimize=true))
+        ci = only(code_typed(GeoDynamo.gpu_scratch_zeros, (Type{Float64}, Int, Int); optimize = true))
         @test ci.second !== Any
     end
 
@@ -11,7 +11,8 @@ using Test
     end
 
     @testset "scalar cache cleanup helpers empty global caches" begin
-        cfg = GeoDynamo.create_shtnskit_config(lmax=2, mmax=2, nlat=8, nlon=16, nr=4)
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 2, mmax = 2, nlat = 8, nlon = 16, nr = 4)
         GeoDynamo.get_mode_index(cfg, 0, 0)
         @test !isempty(GeoDynamo._MODE_INDEX_CACHE)
 
@@ -35,7 +36,8 @@ using Test
 
         function populate_solver_mode_cache()
             for _ in 1:3
-                cfg = GeoDynamo.create_shtnskit_config(lmax=2, mmax=2, nlat=8, nlon=16, nr=4)
+                cfg = GeoDynamo.create_shtnskit_config(
+                    lmax = 2, mmax = 2, nlat = 8, nlon = 16, nr = 4)
                 GeoDynamo.mode_index(cfg, 0, 0)
             end
             return nothing
@@ -60,21 +62,21 @@ using Test
 
     @testset "ERK2 influence cache invalidates when non-dt parameters change" begin
         params = GeoDynamo.SolverParameters(
-            architecture=:cpu,
-            geometry=:shell,
-            nr=8,
-            nr_inner=4,
-            lmax=4,
-            mmax=4,
-            nlat=12,
-            nlon=16,
-            timestep=1e-4,
-            stop_iteration=1,
-            timestepper=GeoDynamo.ERK2(),
-            include_magnetic_field=false,
-            include_composition=false,
-            topography_enabled=false,
-            stefan_enabled=false,
+            architecture = :cpu,
+            geometry = :shell,
+            nr = 8,
+            nr_inner = 4,
+            lmax = 4,
+            mmax = 4,
+            nlat = 12,
+            nlon = 16,
+            timestep = 1e-4,
+            stop_iteration = 1,
+            timestepper = GeoDynamo.ERK2(),
+            include_magnetic_field = false,
+            include_composition = false,
+            topography_enabled = false,
+            stefan_enabled = false
         )
         state = GeoDynamo.initialize_simulation(Float64, params)
         tc = state.timestep_caches
@@ -90,7 +92,7 @@ using Test
             params.Ek,
             params.timestep,
             1;
-            theta=0.5,
+            theta = 0.5
         )
         changed_bc = GeoDynamo.get_solver_erk2_influence_matrices!(
             tc,
@@ -101,7 +103,7 @@ using Test
             params.Ek,
             params.timestep,
             4;
-            theta=0.5,
+            theta = 0.5
         )
         changed_theta = GeoDynamo.get_solver_erk2_influence_matrices!(
             tc,
@@ -112,7 +114,7 @@ using Test
             params.Ek,
             params.timestep,
             4;
-            theta=0.5 + 0.1,
+            theta = 0.5 + 0.1
         )
 
         @test changed_bc !== base
@@ -121,21 +123,21 @@ using Test
 
     @testset "EAB2 caches can be prepared before threaded implicit updates" begin
         params = GeoDynamo.SolverParameters(
-            architecture=:cpu,
-            geometry=:shell,
-            nr=8,
-            nr_inner=4,
-            lmax=4,
-            mmax=4,
-            nlat=12,
-            nlon=16,
-            timestep=1e-4,
-            stop_iteration=1,
-            timestepper=GeoDynamo.EAB2(),
-            include_magnetic_field=true,
-            include_composition=true,
-            topography_enabled=false,
-            stefan_enabled=false,
+            architecture = :cpu,
+            geometry = :shell,
+            nr = 8,
+            nr_inner = 4,
+            lmax = 4,
+            mmax = 4,
+            nlat = 12,
+            nlon = 16,
+            timestep = 1e-4,
+            stop_iteration = 1,
+            timestepper = GeoDynamo.EAB2(),
+            include_magnetic_field = true,
+            include_composition = true,
+            topography_enabled = false,
+            stefan_enabled = false
         )
         state = GeoDynamo.initialize_simulation(Float64, params)
         tc = state.timestep_caches
@@ -159,7 +161,8 @@ using Test
     end
 
     @testset "sync_spectral_history! copies real and imaginary coefficients" begin
-        cfg = GeoDynamo.create_shtnskit_config(lmax=2, mmax=2, nlat=8, nlon=16, nr=4)
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 2, mmax = 2, nlat = 8, nlon = 16, nr = 4)
         domain = GeoDynamo.create_shell_radial_domain(4)
         current = GeoDynamo.create_shtns_spectral_field(Float64, cfg, domain, cfg.pencils.spec)
         previous = GeoDynamo.create_shtns_spectral_field(Float64, cfg, domain, cfg.pencils.spec)
@@ -176,10 +179,11 @@ using Test
     end
 
     @testset "Reynolds stress uses spherical quadrature weights" begin
-        cfg = GeoDynamo.create_shtnskit_config(lmax=3, mmax=3, nlat=8, nlon=12, nr=6)
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 3, mmax = 3, nlat = 8, nlon = 12, nr = 6)
         domain = GeoDynamo.create_shell_radial_domain(6)
         velocity = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, domain;
-            params=GeoDynamo.SolverParameters(geometry=:shell))
+            params = GeoDynamo.SolverParameters(geometry = :shell))
 
         v_r = parent(velocity.velocity.r_component.data)
         v_θ = parent(velocity.velocity.θ_component.data)
@@ -206,7 +210,8 @@ using Test
                 for i in 1:local_size[1]
                     theta_idx = θ_range[i]
                     weight = radial_weight * cfg.gauss_weights[theta_idx] * (2π / cfg.nlon)
-                    linear_idx = i + (j - 1) * local_size[1] + (k - 1) * local_size[1] * local_size[2]
+                    linear_idx = i + (j - 1) * local_size[1] +
+                                 (k - 1) * local_size[1] * local_size[2]
                     u_r = domain.r[r_idx, 4]
                     u_θ = cos(cfg.theta_grid[theta_idx])
                     u_φ = 0.5
@@ -221,8 +226,10 @@ using Test
         end
 
         total_weight = GeoDynamo.MPI.Allreduce(local_weight_sum, GeoDynamo.MPI.SUM, GeoDynamo.get_comm())
-        expected_rr = GeoDynamo.MPI.Allreduce(local_rr_sum, GeoDynamo.MPI.SUM, GeoDynamo.get_comm()) / total_weight
-        expected_rθ = GeoDynamo.MPI.Allreduce(local_rθ_sum, GeoDynamo.MPI.SUM, GeoDynamo.get_comm()) / total_weight
+        expected_rr = GeoDynamo.MPI.Allreduce(local_rr_sum, GeoDynamo.MPI.SUM, GeoDynamo.get_comm()) /
+                      total_weight
+        expected_rθ = GeoDynamo.MPI.Allreduce(local_rθ_sum, GeoDynamo.MPI.SUM, GeoDynamo.get_comm()) /
+                      total_weight
 
         R_rr, _, _, R_rθ, _, _ = GeoDynamo.compute_reynolds_stress(velocity)
         @test R_rr ≈ expected_rr

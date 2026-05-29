@@ -44,8 +44,10 @@ struct Ylm
     m::Int
 
     function Ylm(l::Int, m::Int)
-        l >= 0 || throw(ArgumentError("Spherical harmonic degree l must be non-negative, got l=$l"))
-        abs(m) <= l || throw(ArgumentError("Spherical harmonic order |m| must be ≤ l, got l=$l, m=$m"))
+        l >= 0 ||
+            throw(ArgumentError("Spherical harmonic degree l must be non-negative, got l=$l"))
+        abs(m) <= l ||
+            throw(ArgumentError("Spherical harmonic order |m| must be ≤ l, got l=$l, m=$m"))
         new(l, m)
     end
 end
@@ -64,8 +66,8 @@ boundary = create_programmatic_boundary(Ylm(2, 1), config, 0.5)
 boundary = create_programmatic_boundary(Ylm(4, -2), config, 1.0)
 ```
 """
-function create_programmatic_boundary(ylm::Ylm, config, amplitude::Real=1.0;
-                                    description::String="", field_type::String="temperature")
+function create_programmatic_boundary(ylm::Ylm, config, amplitude::Real = 1.0;
+        description::String = "", field_type::String = "temperature")
     l, m = ylm.l, ylm.m
 
     if l > config.lmax
@@ -94,7 +96,7 @@ function create_programmatic_boundary(ylm::Ylm, config, amplitude::Real=1.0;
     end
 
     # Use SHTnsKit synthesis to convert to physical space
-    values_complex = SHTnsKit.synthesis(config.sht_config, coeffs; real_output=false)
+    values_complex = SHTnsKit.synthesis(config.sht_config, coeffs; real_output = false)
 
     # Extract appropriate component based on m
     values = zeros(eltype(amplitude), nlat, nlon)
@@ -112,10 +114,10 @@ function create_programmatic_boundary(ylm::Ylm, config, amplitude::Real=1.0;
 
     return create_boundary_data(
         values, field_type;
-        theta=theta, phi=phi, time=nothing,
-        units=get_default_units(determine_field_type_from_name(field_type)),
-        description=description,
-        file_path="programmatic"
+        theta = theta, phi = phi, time = nothing,
+        units = get_default_units(determine_field_type_from_name(field_type)),
+        description = description,
+        file_path = "programmatic"
     )
 end
 
@@ -132,10 +134,10 @@ boundary = create_time_dependent_programmatic_boundary(Ylm(3, 2), config, (0.0, 
 ```
 """
 function create_time_dependent_programmatic_boundary(ylm::Ylm, config,
-                                                   time_span::Tuple{Real, Real}, ntime::Int;
-                                                   amplitude::Real=1.0, time_factor::Real=1.0,
-                                                   phase_offset::Real=0.0, description::String="",
-                                                   field_type::String="temperature")
+        time_span::Tuple{Real, Real}, ntime::Int;
+        amplitude::Real = 1.0, time_factor::Real = 1.0,
+        phase_offset::Real = 0.0, description::String = "",
+        field_type::String = "temperature")
     l, m = ylm.l, ylm.m
 
     if l > config.lmax
@@ -146,7 +148,7 @@ function create_time_dependent_programmatic_boundary(ylm::Ylm, config,
     nlat, nlon = config.nlat, config.nlon
     theta = copy(config.theta_grid)
     phi = copy(config.phi_grid)
-    time_coords = collect(range(time_span[1], time_span[2], length=ntime))
+    time_coords = collect(range(time_span[1], time_span[2], length = ntime))
 
     # Initialize data array
     values = zeros(eltype(amplitude), nlat, nlon, ntime)
@@ -168,7 +170,7 @@ function create_time_dependent_programmatic_boundary(ylm::Ylm, config,
             coeffs[l + 1, abs(m) + 1] = Complex{Float64}(phase * time_modulated_amplitude, 0.0)
         end
 
-        values_complex = SHTnsKit.synthesis(config.sht_config, coeffs; real_output=false)
+        values_complex = SHTnsKit.synthesis(config.sht_config, coeffs; real_output = false)
 
         if m >= 0
             values[:, :, t] .= real.(values_complex)
@@ -183,10 +185,10 @@ function create_time_dependent_programmatic_boundary(ylm::Ylm, config,
 
     return create_boundary_data(
         values, field_type;
-        theta=theta, phi=phi, time=time_coords,
-        units=get_default_units(determine_field_type_from_name(field_type)),
-        description=description,
-        file_path="programmatic"
+        theta = theta, phi = phi, time = time_coords,
+        units = get_default_units(determine_field_type_from_name(field_type)),
+        description = description,
+        file_path = "programmatic"
     )
 end
 
@@ -196,11 +198,10 @@ end
 
 Add noise to existing boundary data.
 """
-function add_noise_to_boundary(boundary_data::BoundaryData, noise_amplitude::Real, 
-                              noise_type::Symbol=:gaussian)
-    
+function add_noise_to_boundary(boundary_data::BoundaryData, noise_amplitude::Real,
+        noise_type::Symbol = :gaussian)
     noisy_values = copy(boundary_data.values)
-    
+
     if noise_type == :gaussian
         noise = noise_amplitude * randn(size(noisy_values))
     elseif noise_type == :uniform
@@ -208,16 +209,16 @@ function add_noise_to_boundary(boundary_data::BoundaryData, noise_amplitude::Rea
     else
         throw(ArgumentError("Unknown noise type: $noise_type"))
     end
-    
+
     noisy_values .+= noise
-    
+
     # Create new boundary data with noise added
     return BoundaryData(
         boundary_data.theta, boundary_data.phi, boundary_data.time,
-        noisy_values, boundary_data.units, 
+        noisy_values, boundary_data.units,
         boundary_data.description * " + $(noise_type) noise",
         boundary_data.file_path, boundary_data.field_type,
-        boundary_data.is_time_dependent, boundary_data.nlat, 
+        boundary_data.is_time_dependent, boundary_data.nlat,
         boundary_data.nlon, boundary_data.ntime, boundary_data.ncomponents
     )
 end
@@ -228,17 +229,16 @@ end
 Apply spatial smoothing to boundary data.
 """
 function smooth_boundary_data(boundary_data::BoundaryData, smoothing_radius::Real)
-    
     smoothed_values = copy(boundary_data.values)
-    
+
     if boundary_data.theta === nothing || boundary_data.phi === nothing
         @warn "Cannot smooth boundary data without coordinate information"
         return boundary_data
     end
-    
+
     theta = boundary_data.theta
     phi = boundary_data.phi
-    
+
     # Apply Gaussian smoothing kernel
     for time_idx in 1:boundary_data.ntime
         if boundary_data.is_time_dependent
@@ -263,10 +263,10 @@ function smooth_boundary_data(boundary_data::BoundaryData, smoothing_radius::Rea
                 continue
             end
         end
-        
+
         apply_gaussian_smoothing!(data_slice, theta, phi, smoothing_radius)
     end
-    
+
     # Create new boundary data with smoothed values
     return BoundaryData(
         boundary_data.theta, boundary_data.phi, boundary_data.time,
@@ -284,7 +284,6 @@ end
 Apply Gaussian smoothing kernel to 2D data array.
 """
 function apply_gaussian_smoothing!(data::AbstractMatrix, theta::Vector, phi::Vector, radius::Real)
-
     nlat, nlon = size(data)
     original_data = copy(data)
 
@@ -343,7 +342,7 @@ Wrapper around BoundaryConditionSet that also stores BC types for each boundary.
 Returned by `create_programmatic_temperature_boundaries` and
 `create_programmatic_composition_boundaries`.
 """
-struct ProgrammaticBoundarySet{T<:AbstractFloat}
+struct ProgrammaticBoundarySet{T <: AbstractFloat}
     boundary_set::BoundaryConditionSet{T}
     inner_bc_type::BoundaryType
     outer_bc_type::BoundaryType
@@ -370,7 +369,7 @@ function _parse_boundary_spec(spec::Tuple, cfg)
         bc_type = NEUMANN
     else
         throw(ArgumentError("Unknown boundary pattern type: $pattern_type. " *
-            "Supported types: :uniform, :dirichlet, :neumann"))
+                            "Supported types: :uniform, :dirichlet, :neumann"))
     end
 
     return values, bc_type
@@ -401,21 +400,22 @@ function create_programmatic_temperature_boundaries(inner_spec::Tuple, outer_spe
 
     inner_data = create_boundary_data(
         inner_values, "temperature";
-        theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,
-        units=get_default_units(TEMPERATURE),
-        description="Programmatic $(inner_spec[1]) boundary (value=$(inner_spec[2]))",
-        file_path="programmatic"
+        theta = copy(cfg.theta_grid), phi = copy(cfg.phi_grid), time = nothing,
+        units = get_default_units(TEMPERATURE),
+        description = "Programmatic $(inner_spec[1]) boundary (value=$(inner_spec[2]))",
+        file_path = "programmatic"
     )
 
     outer_data = create_boundary_data(
         outer_values, "temperature";
-        theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,
-        units=get_default_units(TEMPERATURE),
-        description="Programmatic $(outer_spec[1]) boundary (value=$(outer_spec[2]))",
-        file_path="programmatic"
+        theta = copy(cfg.theta_grid), phi = copy(cfg.phi_grid), time = nothing,
+        units = get_default_units(TEMPERATURE),
+        description = "Programmatic $(outer_spec[1]) boundary (value=$(outer_spec[2]))",
+        file_path = "programmatic"
     )
 
-    bcs_set = BoundaryConditionSet{Float64}(inner_data, outer_data, "temperature", TEMPERATURE, time())
+    bcs_set = BoundaryConditionSet{Float64}(
+        inner_data, outer_data, "temperature", TEMPERATURE, time())
     return ProgrammaticBoundarySet{Float64}(bcs_set, inner_bc_type, outer_bc_type)
 end
 
@@ -431,21 +431,22 @@ function create_programmatic_composition_boundaries(inner_spec::Tuple, outer_spe
 
     inner_data = create_boundary_data(
         inner_values, "composition";
-        theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,
-        units=get_default_units(COMPOSITION),
-        description="Programmatic $(inner_spec[1]) boundary (value=$(inner_spec[2]))",
-        file_path="programmatic"
+        theta = copy(cfg.theta_grid), phi = copy(cfg.phi_grid), time = nothing,
+        units = get_default_units(COMPOSITION),
+        description = "Programmatic $(inner_spec[1]) boundary (value=$(inner_spec[2]))",
+        file_path = "programmatic"
     )
 
     outer_data = create_boundary_data(
         outer_values, "composition";
-        theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,
-        units=get_default_units(COMPOSITION),
-        description="Programmatic $(outer_spec[1]) boundary (value=$(outer_spec[2]))",
-        file_path="programmatic"
+        theta = copy(cfg.theta_grid), phi = copy(cfg.phi_grid), time = nothing,
+        units = get_default_units(COMPOSITION),
+        description = "Programmatic $(outer_spec[1]) boundary (value=$(outer_spec[2]))",
+        file_path = "programmatic"
     )
 
-    bcs_set = BoundaryConditionSet{Float64}(inner_data, outer_data, "composition", COMPOSITION, time())
+    bcs_set = BoundaryConditionSet{Float64}(
+        inner_data, outer_data, "composition", COMPOSITION, time())
     return ProgrammaticBoundarySet{Float64}(bcs_set, inner_bc_type, outer_bc_type)
 end
 
@@ -457,7 +458,8 @@ Load temperature boundary conditions from two NetCDF files.
 function load_temperature_boundaries_from_files(inner_file::String, outer_file::String, cfg)
     inner_data = read_netcdf_boundary_data(inner_file)
     outer_data = read_netcdf_boundary_data(outer_file)
-    bcs_set = BoundaryConditionSet{Float64}(inner_data, outer_data, "temperature", TEMPERATURE, time())
+    bcs_set = BoundaryConditionSet{Float64}(
+        inner_data, outer_data, "temperature", TEMPERATURE, time())
     return ProgrammaticBoundarySet{Float64}(bcs_set, DIRICHLET, DIRICHLET)
 end
 
@@ -469,7 +471,8 @@ Load composition boundary conditions from two NetCDF files.
 function load_composition_boundaries_from_files(inner_file::String, outer_file::String, cfg)
     inner_data = read_netcdf_boundary_data(inner_file)
     outer_data = read_netcdf_boundary_data(outer_file)
-    bcs_set = BoundaryConditionSet{Float64}(inner_data, outer_data, "composition", COMPOSITION, time())
+    bcs_set = BoundaryConditionSet{Float64}(
+        inner_data, outer_data, "composition", COMPOSITION, time())
     return ProgrammaticBoundarySet{Float64}(bcs_set, DIRICHLET, DIRICHLET)
 end
 
@@ -480,21 +483,24 @@ Create temperature boundaries with one from file and one programmatic.
 When `swap_boundaries=false`, file is inner and programmatic is outer.
 When `swap_boundaries=true`, file is outer and programmatic is inner.
 """
-function create_hybrid_temperature_boundaries(file_spec::String, prog_spec::Tuple, cfg; swap_boundaries::Bool=false)
+function create_hybrid_temperature_boundaries(
+        file_spec::String, prog_spec::Tuple, cfg; swap_boundaries::Bool = false)
     file_data = read_netcdf_boundary_data(file_spec)
     prog_values, prog_bc_type = _parse_boundary_spec(prog_spec, cfg)
     prog_data = create_boundary_data(
         prog_values, "temperature";
-        theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,
-        units=get_default_units(TEMPERATURE),
-        description="Programmatic $(prog_spec[1]) boundary (value=$(prog_spec[2]))",
-        file_path="programmatic"
+        theta = copy(cfg.theta_grid), phi = copy(cfg.phi_grid), time = nothing,
+        units = get_default_units(TEMPERATURE),
+        description = "Programmatic $(prog_spec[1]) boundary (value=$(prog_spec[2]))",
+        file_path = "programmatic"
     )
     if swap_boundaries
-        bcs_set = BoundaryConditionSet{Float64}(prog_data, file_data, "temperature", TEMPERATURE, time())
+        bcs_set = BoundaryConditionSet{Float64}(
+            prog_data, file_data, "temperature", TEMPERATURE, time())
         return ProgrammaticBoundarySet{Float64}(bcs_set, prog_bc_type, DIRICHLET)
     else
-        bcs_set = BoundaryConditionSet{Float64}(file_data, prog_data, "temperature", TEMPERATURE, time())
+        bcs_set = BoundaryConditionSet{Float64}(
+            file_data, prog_data, "temperature", TEMPERATURE, time())
         return ProgrammaticBoundarySet{Float64}(bcs_set, DIRICHLET, prog_bc_type)
     end
 end
@@ -504,21 +510,24 @@ end
 
 Create composition boundaries with one from file and one programmatic.
 """
-function create_hybrid_composition_boundaries(file_spec::String, prog_spec::Tuple, cfg; swap_boundaries::Bool=false)
+function create_hybrid_composition_boundaries(
+        file_spec::String, prog_spec::Tuple, cfg; swap_boundaries::Bool = false)
     file_data = read_netcdf_boundary_data(file_spec)
     prog_values, prog_bc_type = _parse_boundary_spec(prog_spec, cfg)
     prog_data = create_boundary_data(
         prog_values, "composition";
-        theta=copy(cfg.theta_grid), phi=copy(cfg.phi_grid), time=nothing,
-        units=get_default_units(COMPOSITION),
-        description="Programmatic $(prog_spec[1]) boundary (value=$(prog_spec[2]))",
-        file_path="programmatic"
+        theta = copy(cfg.theta_grid), phi = copy(cfg.phi_grid), time = nothing,
+        units = get_default_units(COMPOSITION),
+        description = "Programmatic $(prog_spec[1]) boundary (value=$(prog_spec[2]))",
+        file_path = "programmatic"
     )
     if swap_boundaries
-        bcs_set = BoundaryConditionSet{Float64}(prog_data, file_data, "composition", COMPOSITION, time())
+        bcs_set = BoundaryConditionSet{Float64}(
+            prog_data, file_data, "composition", COMPOSITION, time())
         return ProgrammaticBoundarySet{Float64}(bcs_set, prog_bc_type, DIRICHLET)
     else
-        bcs_set = BoundaryConditionSet{Float64}(file_data, prog_data, "composition", COMPOSITION, time())
+        bcs_set = BoundaryConditionSet{Float64}(
+            file_data, prog_data, "composition", COMPOSITION, time())
         return ProgrammaticBoundarySet{Float64}(bcs_set, DIRICHLET, prog_bc_type)
     end
 end
@@ -526,6 +535,7 @@ end
 export Ylm, ProgrammaticBoundarySet
 export create_programmatic_boundary, create_time_dependent_programmatic_boundary
 export add_noise_to_boundary, smooth_boundary_data
-export create_programmatic_temperature_boundaries, create_programmatic_composition_boundaries
+export create_programmatic_temperature_boundaries,
+       create_programmatic_composition_boundaries
 export create_hybrid_temperature_boundaries, create_hybrid_composition_boundaries
 export load_temperature_boundaries_from_files, load_composition_boundaries_from_files

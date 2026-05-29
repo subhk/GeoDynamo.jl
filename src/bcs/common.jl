@@ -7,23 +7,23 @@
 
 Common data structure for boundary condition data from any source.
 """
-struct BoundaryData{T<:AbstractFloat}
+struct BoundaryData{T <: AbstractFloat}
     # Spatial coordinates (if provided)
     theta::Union{Vector{T}, Nothing}      # Colatitude coordinates [rad]
     phi::Union{Vector{T}, Nothing}        # Longitude coordinates [rad]
-    
+
     # Time coordinate (if time-dependent)
     time::Union{Vector{T}, Nothing}       # Time values
-    
+
     # Boundary values (can be scalar, vector, or tensor depending on field)
     values::Array{T}                      # Boundary values
-    
+
     # Metadata
     units::String                         # Physical units
     description::String                   # Field description
     file_path::String                     # Source file path
     field_type::String                    # Type of field (temperature, velocity, etc.)
-    
+
     # Validation info
     is_time_dependent::Bool               # Whether data varies in time
     nlat::Int                            # Number of latitude points
@@ -37,7 +37,7 @@ end
 
 Complete set of boundary conditions for inner and outer boundaries.
 """
-struct BoundaryConditionSet{T<:AbstractFloat}
+struct BoundaryConditionSet{T <: AbstractFloat}
     inner_boundary::BoundaryData{T}       # Inner boundary data
     outer_boundary::BoundaryData{T}       # Outer boundary data
     field_name::String                    # Field name (temperature, velocity, etc.)
@@ -58,7 +58,7 @@ mutable struct BoundaryCache{T}
 end
 
 # Constructor for empty cache
-function BoundaryCache{T}() where T
+function BoundaryCache{T}() where {T}
     return BoundaryCache{T}(
         Dict{String, Array{T}}(),
         Dict{String, Array{T}}(),
@@ -75,9 +75,8 @@ end
 Create a BoundaryData structure from raw data.
 """
 function create_boundary_data(values::Array{T}, field_type::String;
-                            theta=nothing, phi=nothing, time=nothing,
-                            units="", description="", file_path="programmatic") where T
-
+        theta = nothing, phi = nothing, time = nothing,
+        units = "", description = "", file_path = "programmatic") where {T}
     dims = size(values)
 
     # Determine array layout based on dimensions and time parameter
@@ -110,8 +109,8 @@ function create_boundary_data(values::Array{T}, field_type::String;
         is_time_dependent = ntime > 1
     else
         throw(ArgumentError("Unsupported array dimensions: $dims. " *
-            "Expected 2D (nlat×nlon), 3D (nlat×nlon×ntime or nlat×nlon×ncomponents), " *
-            "or 4D (nlat×nlon×ntime×ncomponents)."))
+                            "Expected 2D (nlat×nlon), 3D (nlat×nlon×ntime or nlat×nlon×ncomponents), " *
+                            "or 4D (nlat×nlon×ntime×ncomponents)."))
     end
 
     return BoundaryData{T}(
@@ -127,45 +126,47 @@ Validate that inner and outer boundary data are compatible.
 """
 function validate_boundary_compatibility(inner::BoundaryData, outer::BoundaryData, field_name::String)
     errors = String[]
-    
+
     # Check spatial resolution
     if inner.nlat != outer.nlat
         push!(errors, "Mismatched nlat: inner=$(inner.nlat), outer=$(outer.nlat)")
     end
-    
+
     if inner.nlon != outer.nlon
         push!(errors, "Mismatched nlon: inner=$(inner.nlon), outer=$(outer.nlon)")
     end
-    
+
     # Check field components
     if inner.ncomponents != outer.ncomponents
         push!(errors, "Mismatched components: inner=$(inner.ncomponents), outer=$(outer.ncomponents)")
     end
-    
+
     # Check time dependency
     if inner.is_time_dependent != outer.is_time_dependent
-        push!(errors, "Time dependency mismatch: inner=$(inner.is_time_dependent), outer=$(outer.is_time_dependent)")
+        push!(errors,
+            "Time dependency mismatch: inner=$(inner.is_time_dependent), outer=$(outer.is_time_dependent)")
     end
-    
+
     if inner.is_time_dependent && inner.ntime != outer.ntime
         push!(errors, "Mismatched ntime: inner=$(inner.ntime), outer=$(outer.ntime)")
     end
-    
+
     # Check coordinate consistency (if both have coordinates)
     if inner.theta !== nothing && outer.theta !== nothing
-        if !isapprox(inner.theta, outer.theta, rtol=1e-10)
+        if !isapprox(inner.theta, outer.theta, rtol = 1e-10)
             push!(errors, "Theta coordinates don't match between files")
         end
     end
-    
+
     if inner.phi !== nothing && outer.phi !== nothing
-        if !isapprox(inner.phi, outer.phi, rtol=1e-10)
+        if !isapprox(inner.phi, outer.phi, rtol = 1e-10)
             push!(errors, "Phi coordinates don't match between files")
         end
     end
-    
+
     if !isempty(errors)
-        error_msg = "$field_name boundary compatibility validation failed:\n" * join(errors, "\n")
+        error_msg = "$field_name boundary compatibility validation failed:\n" *
+                    join(errors, "\n")
         throw(ArgumentError(error_msg))
     end
 
@@ -183,7 +184,7 @@ Get statistical information about boundary data.
 """
 function get_boundary_statistics(boundary_data::BoundaryData)
     values = boundary_data.values
-    
+
     stats = Dict{String, Any}(
         "min" => minimum(values),
         "max" => maximum(values),
@@ -198,7 +199,7 @@ function get_boundary_statistics(boundary_data::BoundaryData)
         "ncomponents" => boundary_data.ncomponents,
         "file_path" => boundary_data.file_path
     )
-    
+
     return stats
 end
 
@@ -207,17 +208,17 @@ end
 
 Print detailed information about boundary data.
 """
-function print_boundary_data_info(boundary_data::BoundaryData, prefix::String="")
+function print_boundary_data_info(boundary_data::BoundaryData, prefix::String = "")
     println("$(prefix)Field Type: $(boundary_data.field_type)")
     println("$(prefix)Grid: $(boundary_data.nlat) × $(boundary_data.nlon)")
     println("$(prefix)Components: $(boundary_data.ncomponents)")
     println("$(prefix)Time steps: $(boundary_data.ntime)")
     println("$(prefix)Units: $(boundary_data.units)")
-    
+
     values = boundary_data.values
     println("$(prefix)Range: [$(round(minimum(values), digits=3)), $(round(maximum(values), digits=3))]")
     println("$(prefix)Mean: $(round(_Statistics.mean(values), digits=3))")
-    
+
     # Extract filename from path
     filename = basename(boundary_data.file_path)
     println("$(prefix)Source: $(filename)")
@@ -230,18 +231,18 @@ Print comprehensive information about a boundary condition set.
 """
 function print_boundary_info(boundary_set::BoundaryConditionSet)
     field_name = uppercase(boundary_set.field_name)
-    
+
     println("╔══════════════════════════════════════════════════════════════╗")
     println("║                  $field_name BOUNDARY CONDITIONS                  ║")
     println("╠══════════════════════════════════════════════════════════════╣")
-    
+
     println("║ INNER BOUNDARY:                                              ║")
     print_boundary_data_info(boundary_set.inner_boundary, "║ ")
-    
+
     println("║                                                              ║")
-    println("║ OUTER BOUNDARY:                                              ║") 
+    println("║ OUTER BOUNDARY:                                              ║")
     print_boundary_data_info(boundary_set.outer_boundary, "║ ")
-    
+
     println("╚══════════════════════════════════════════════════════════════╝")
 end
 
@@ -252,14 +253,17 @@ Determine field type from field name string.
 """
 function determine_field_type_from_name(field_name::String)
     field_lower = lowercase(field_name)
-    
+
     if occursin("temp", field_lower) || occursin("thermal", field_lower)
         return TEMPERATURE
-    elseif occursin("comp", field_lower) || occursin("concentration", field_lower) || occursin("xi", field_lower)
+    elseif occursin("comp", field_lower) || occursin("concentration", field_lower) ||
+           occursin("xi", field_lower)
         return COMPOSITION
-    elseif occursin("veloc", field_lower) || occursin("flow", field_lower) || field_lower == "u"
+    elseif occursin("veloc", field_lower) || occursin("flow", field_lower) ||
+           field_lower == "u"
         return VELOCITY
-    elseif occursin("magn", field_lower) || occursin("magnetic", field_lower) || field_lower == "b"
+    elseif occursin("magn", field_lower) || occursin("magnetic", field_lower) ||
+           field_lower == "b"
         return MAGNETIC
     else
         throw(ArgumentError("Cannot determine field type from name: $field_name"))
@@ -311,7 +315,7 @@ end
 
 Cache processed boundary data.
 """
-function cache_boundary_data!(cache::BoundaryCache{T}, key::String, data::Array{T}) where T
+function cache_boundary_data!(cache::BoundaryCache{T}, key::String, data::Array{T}) where {T}
     cache.interpolated_data[key] = data
     if !(key in cache.cache_keys)
         push!(cache.cache_keys, key)
@@ -324,7 +328,7 @@ end
 
 Retrieve cached boundary data.
 """
-function get_cached_data(cache::BoundaryCache{T}, key::String) where T
+function get_cached_data(cache::BoundaryCache{T}, key::String) where {T}
     return get(cache.interpolated_data, key, nothing)
 end
 
@@ -406,7 +410,8 @@ function find_boundary_time_index(boundary_set::BoundaryConditionSet, current_ti
     else
         # Binary search for closest time (O(log n) instead of O(n))
         i = searchsortedlast(time_coords, current_time)
-        if i < length(time_coords) && abs(current_time - time_coords[i+1]) < abs(current_time - time_coords[i])
+        if i < length(time_coords) &&
+           abs(current_time - time_coords[i + 1]) < abs(current_time - time_coords[i])
             return i + 1
         end
         return i

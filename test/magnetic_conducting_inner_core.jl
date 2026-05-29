@@ -7,11 +7,11 @@ const FINALIZE_MPI_CONDIC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
 # Task 1: Opt-in flag — this testset must PASS.
 @testset "conducting flag sets CONTINUITY_MAG bc_type_inner" begin
     params = GeoDynamo.SolverParameters(
-        architecture=:cpu, geometry=:shell, nr=16, nr_inner=8,
-        lmax=4, mmax=4, nlat=12, nlon=16,
-        include_magnetic_field=true, include_composition=false,
-        timestepper=GeoDynamo.CNAB2(),
-        magnetic_inner_bc=:conducting_inner_core,
+        architecture = :cpu, geometry = :shell, nr = 16, nr_inner = 8,
+        lmax = 4, mmax = 4, nlat = 12, nlon = 16,
+        include_magnetic_field = true, include_composition = false,
+        timestepper = GeoDynamo.CNAB2(),
+        magnetic_inner_bc = :conducting_inner_core
     )
     state = GeoDynamo.initialize_simulation(Float64, params)
     GeoDynamo.initialize_fields!(state)
@@ -69,7 +69,7 @@ end
         # Enable the conducting inner core via the opt-in parameter. This builds
         # the ICB admittances and the conducting Robin inner row (Part 1) and
         # sets CONTINUITY_MAG on the magnetic tor/pol modes during field init.
-        magnetic_inner_bc = :conducting_inner_core,
+        magnetic_inner_bc = :conducting_inner_core
     )
 
     state = GeoDynamo.initialize_simulation(Float64, params)

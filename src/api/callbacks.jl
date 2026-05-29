@@ -35,8 +35,8 @@ Wraps an arbitrary callable `f` with a firing schedule.  When the callback
 fires, `f(sim)` is called with the current `Simulation` object.
 """
 struct Callback{F, S <: AbstractSchedule}
-    func     :: F
-    schedule :: S
+    func::F
+    schedule::S
 end
 Callback(f; schedule) = Callback(f, schedule)
 
@@ -48,7 +48,7 @@ Logs kinetic energy at each scheduled interval.  Calls
 radial domain; otherwise emits a placeholder log message.
 """
 struct EnergyDiagnostics{S <: AbstractSchedule}
-    schedule :: S
+    schedule::S
 end
 EnergyDiagnostics(; schedule) = EnergyDiagnostics(schedule)
 
@@ -59,10 +59,10 @@ Checks divergence of the velocity field against `threshold` at each
 scheduled interval.  Currently a placeholder — logs a note and returns.
 """
 struct SolenoidalMonitor{S <: AbstractSchedule}
-    schedule  :: S
-    threshold :: Float64
+    schedule::S
+    threshold::Float64
 end
-SolenoidalMonitor(; schedule, threshold=1e-10) = SolenoidalMonitor(schedule, threshold)
+SolenoidalMonitor(; schedule, threshold = 1e-10) = SolenoidalMonitor(schedule, threshold)
 
 """
     SimulationProgress(; schedule)
@@ -70,7 +70,7 @@ SolenoidalMonitor(; schedule, threshold=1e-10) = SolenoidalMonitor(schedule, thr
 Logs simulation time and step count at each scheduled interval.
 """
 struct SimulationProgress{S <: AbstractSchedule}
-    schedule :: S
+    schedule::S
 end
 SimulationProgress(; schedule) = SimulationProgress(schedule)
 
@@ -82,10 +82,10 @@ Currently a placeholder — NaN detection wiring is deferred.
 If `abort=true` the simulation should be halted upon detecting a NaN.
 """
 struct HealthCheck{S <: AbstractSchedule}
-    schedule :: S
-    abort    :: Bool
+    schedule::S
+    abort::Bool
 end
-HealthCheck(; schedule, abort=true) = HealthCheck(schedule, abort)
+HealthCheck(; schedule, abort = true) = HealthCheck(schedule, abort)
 
 # ================================================================================
 # Schedule accessor
@@ -96,11 +96,11 @@ HealthCheck(; schedule, abort=true) = HealthCheck(schedule, abort)
 
 Returns the `AbstractSchedule` associated with any callback object.
 """
-_callback_schedule(cb::Callback)           = cb.schedule
-_callback_schedule(cb::EnergyDiagnostics)  = cb.schedule
-_callback_schedule(cb::SolenoidalMonitor)  = cb.schedule
+_callback_schedule(cb::Callback) = cb.schedule
+_callback_schedule(cb::EnergyDiagnostics) = cb.schedule
+_callback_schedule(cb::SolenoidalMonitor) = cb.schedule
 _callback_schedule(cb::SimulationProgress) = cb.schedule
-_callback_schedule(cb::HealthCheck)        = cb.schedule
+_callback_schedule(cb::HealthCheck) = cb.schedule
 function _callback_schedule(cb)
     error("Unknown callback type $(typeof(cb)). " *
           "Expected one of: Callback, EnergyDiagnostics, SolenoidalMonitor, " *

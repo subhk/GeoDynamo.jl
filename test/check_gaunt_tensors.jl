@@ -3,11 +3,12 @@ using Random
 using Printf
 using GeoDynamo
 using GeoDynamo: GauntTensorCache, gaunt_on_the_fly, compute_gaunt_tensor,
-                 evaluate_spherical_harmonics_grid, evaluate_spherical_harmonic_gradient_grid,
+                 evaluate_spherical_harmonics_grid,
+                 evaluate_spherical_harmonic_gradient_grid,
                  gradient_gaunt_from_basic
 
 function gradient_gaunt_numeric(l1::Int, m1::Int, l2::Int, m2::Int, L::Int, M::Int,
-                                cache::GauntTensorCache{T}) where T
+        cache::GauntTensorCache{T}) where {T}
     if m1 != m2 + M
         return zero(T)
     end
@@ -33,7 +34,8 @@ function gradient_gaunt_numeric(l1::Int, m1::Int, l2::Int, m2::Int, L::Int, M::I
     for i in 1:nlat
         w = weights[i]
         for j in 1:nlon
-            dot_grad = grad2_theta[i, j] * gradL_theta[i, j] + grad2_phi[i, j] * gradL_phi[i, j]
+            dot_grad = grad2_theta[i, j] * gradL_theta[i, j] +
+                       grad2_phi[i, j] * gradL_phi[i, j]
             result += w * dphi * conj(Y1[i, j]) * dot_grad
         end
     end
@@ -84,7 +86,7 @@ function main()
     for _ in 1:ntest
         l1, m1, l2, m2, L, M = random_mode(lmax, lmax_t)
 
-        G_wigner = gaunt_on_the_fly(l1, m1, l2, m2, L, M; use_wigner=true)
+        G_wigner = gaunt_on_the_fly(l1, m1, l2, m2, L, M; use_wigner = true)
         G_num = compute_gaunt_tensor(l1, m1, l2, m2, L, M, cache)
 
         abs_err = abs(G_num - G_wigner)
@@ -112,7 +114,8 @@ function main()
         @test max_abs < 1e-10
         @test max_rel < 1e-6
 
-        @printf("max |G_grad_num - G_grad_ana| = %.3e  (rel %.3e)\n", max_abs_grad, max_rel_grad)
+        @printf("max |G_grad_num - G_grad_ana| = %.3e  (rel %.3e)\n", max_abs_grad,
+            max_rel_grad)
         @test max_abs_grad < 1e-8
         @test max_rel_grad < 1e-4
     end

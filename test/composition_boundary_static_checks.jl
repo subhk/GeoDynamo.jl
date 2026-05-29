@@ -1,3 +1,8 @@
+# Whitespace-insensitive source matching: SciML auto-formatting (spacing,
+# line wraps) must not break these static source-contract checks.
+_sc_wsn(s) = replace(s, r"\s+" => "")
+_sc_occ(pat, src) = occursin(_sc_wsn(pat), _sc_wsn(src))
+
 using Test
 
 const COMPOSITION_BC_STATIC_ROOT = normpath(joinpath(@__DIR__, ".."))
@@ -10,7 +15,8 @@ function _composition_bc_static_function_body(source::String, signature::String)
     start = findfirst(signature, source)
     start === nothing && error("Could not find function signature: $signature")
     next_function = findnext("\nfunction ", source, last(start) + 1)
-    return next_function === nothing ? source[first(start):end] : source[first(start):first(next_function)-1]
+    return next_function === nothing ? source[first(start):end] :
+           source[first(start):(first(next_function) - 1)]
 end
 
 @testset "Composition boundary-condition static contract" begin
@@ -23,72 +29,72 @@ end
     imex = _composition_bc_static_source("src", "timestep", "imex.jl")
     erk2 = _composition_bc_static_source("src", "timestep", "erk2.jl")
 
-    @test occursin("_composition_bc_code(bc) = _thermal_bc_code(bc)", api)
+    @test _sc_occ("_composition_bc_code(bc) = _thermal_bc_code(bc)", api)
 
     composition_matrices = _composition_bc_static_function_body(
         composition_bc,
-        "function create_composition_matrices(",
+        "function create_composition_matrices("
     )
-    @test occursin("create_scalar_matrices(", composition_matrices)
-    @test occursin("scalar_bc_code=composition_bc_code", composition_matrices)
+    @test _sc_occ("create_scalar_matrices(", composition_matrices)
+    @test _sc_occ("scalar_bc_code=composition_bc_code", composition_matrices)
 
     scalar_rows = _composition_bc_static_function_body(
         scalar_bc,
-        "function _apply_scalar_boundary_rows!(",
+        "function _apply_scalar_boundary_rows!("
     )
-    @test occursin("system_data[bw + 1, 1] = one(T)", scalar_rows)
-    @test occursin("system_data[bw + 1, N] = one(T)", scalar_rows)
-    @test occursin("= d1_data", scalar_rows)
-    @test occursin("scalar_bc_code == 4 && l == 0", scalar_rows)
+    @test _sc_occ("system_data[bw + 1, 1] = one(T)", scalar_rows)
+    @test _sc_occ("system_data[bw + 1, N] = one(T)", scalar_rows)
+    @test _sc_occ("= d1_data", scalar_rows)
+    @test _sc_occ("scalar_bc_code == 4 && l == 0", scalar_rows)
 
     legacy_composition_solve = _composition_bc_static_function_body(
         composition_bc,
-        "function solve_composition_implicit_step!(",
+        "function solve_composition_implicit_step!("
     )
-    @test occursin("Union{AbstractVector{T},Nothing}", legacy_composition_solve)
-    @test occursin("solve_scalar_implicit_step!(", legacy_composition_solve)
-    @test !occursin("get_local_range(solution.pencil, 1)", legacy_composition_solve)
+    @test _sc_occ("Union{AbstractVector{T},Nothing}", legacy_composition_solve)
+    @test _sc_occ("solve_scalar_implicit_step!(", legacy_composition_solve)
+    @test !_sc_occ("get_local_range(solution.pencil, 1)", legacy_composition_solve)
 
     shared_scalar_solve = _composition_bc_static_function_body(
         scalar_bc,
-        "function solve_scalar_implicit_step!(",
+        "function solve_scalar_implicit_step!("
     )
-    @test occursin("local_spectral_mode_indices(solution.config)", shared_scalar_solve)
+    @test _sc_occ("local_spectral_mode_indices(solution.config)", shared_scalar_solve)
 
     get_bc_vectors = _composition_bc_static_function_body(
         numerics,
-        "function get_bc_vectors(field)",
+        "function get_bc_vectors(field)"
     )
-    @test occursin("inner_real=view(field.boundary_values, 1, :)", get_bc_vectors)
-    @test occursin("inner_imag=nothing", get_bc_vectors)
+    @test _sc_occ("inner_real=view(field.boundary_values, 1, :)", get_bc_vectors)
+    @test _sc_occ("inner_imag=nothing", get_bc_vectors)
 
     runtime_create = _composition_bc_static_function_body(
         backend,
-        "function create_solver_runtime(",
+        "function create_solver_runtime("
     )
-    @test occursin("apply_scalar_boundary_parameters!(composition", runtime_create)
+    @test _sc_occ("apply_scalar_boundary_parameters!(composition", runtime_create)
 
     scalar_solve = _composition_bc_static_function_body(
         imex,
-        "function _solver_solve_scalar_implicit_step!(",
+        "function _solver_solve_scalar_implicit_step!("
     )
-    @test occursin("Union{AbstractVector{T}, Nothing}", scalar_solve)
-    @test occursin("local_spectral_mode_indices(solution.config)", scalar_solve)
+    @test _sc_occ("Union{AbstractVector{T}, Nothing}", scalar_solve)
+    @test _sc_occ("local_spectral_mode_indices(solution.config)", scalar_solve)
 
     composition_update = _composition_bc_static_function_body(
         composition_solver,
-        "function apply_composition_implicit_update!(",
+        "function apply_composition_implicit_update!("
     )
-    @test occursin("build_solver_erk2_scalar_bc", composition_update)
-    @test occursin("with_boundary_mode_values", composition_update)
-    @test occursin("bc_spec=bc_spec", composition_update)
-    @test occursin("_timestepper_krylov_dimension(timestepper, state.parameters)", composition_update)
-    @test !occursin("_timestepper_krylov_dimension(state.parameters.timestepper)", composition_update)
+    @test _sc_occ("build_solver_erk2_scalar_bc", composition_update)
+    @test _sc_occ("with_boundary_mode_values", composition_update)
+    @test _sc_occ("bc_spec=bc_spec", composition_update)
+    @test _sc_occ("_timestepper_krylov_dimension(timestepper, state.parameters)", composition_update)
+    @test !_sc_occ("_timestepper_krylov_dimension(state.parameters.timestepper)", composition_update)
 
     integrate_erk2 = _composition_bc_static_function_body(
         erk2,
-        "function integrate_solver_erk2_step!(",
+        "function integrate_solver_erk2_step!("
     )
-    @test occursin("comp_bc_values = get_bc_vectors(state.fields.composition)", integrate_erk2)
-    @test occursin("comp_bc = with_boundary_mode_values(", integrate_erk2)
+    @test _sc_occ("comp_bc_values = get_bc_vectors(state.fields.composition)", integrate_erk2)
+    @test _sc_occ("comp_bc = with_boundary_mode_values(", integrate_erk2)
 end

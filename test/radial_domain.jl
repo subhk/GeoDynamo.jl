@@ -43,7 +43,8 @@ const FINALIZE_MPI_RD = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true
         @test dom.radial_laplacian ≈ GeoDynamo.create_radial_laplacian(dom).data
         for order in 1:length(dom.dr_matrices)
             @test any(!iszero, dom.dr_matrices[order])
-            @test dom.dr_matrices[order] ≈ GeoDynamo.create_derivative_matrix(order, dom).data
+            @test dom.dr_matrices[order] ≈
+                  GeoDynamo.create_derivative_matrix(order, dom).data
         end
     end
 

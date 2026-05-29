@@ -26,12 +26,12 @@ using LinearAlgebra
 # Gaunt Tensor Cache Structure
 # ================================================================================
 
-mutable struct GauntTensorCache{T<:AbstractFloat}
+mutable struct GauntTensorCache{T <: AbstractFloat}
     lmax::Int
     lmax_topo::Int
-    G::Dict{NTuple{6,Int}, T}           # (l,m,l',m',L,M) -> value
-    G_∇::Dict{NTuple{6,Int}, T}      # Gradient Gaunt
-    G_cross::Dict{NTuple{6,Int}, T}     # Cross Gaunt
+    G::Dict{NTuple{6, Int}, T}           # (l,m,l',m',L,M) -> value
+    G_∇::Dict{NTuple{6, Int}, T}      # Gradient Gaunt
+    G_cross::Dict{NTuple{6, Int}, T}     # Cross Gaunt
     sht_config::SHTnsKit.SHTConfig       # SHTnsKit configuration
     nlat::Int                            # Number of latitude points
     nlon::Int                            # Number of longitude points
@@ -54,7 +54,7 @@ Create a Gaunt tensor cache with SHTnsKit configuration.
 - `nth::Int`: Number of theta points (default: 2*max(lmax,lmax_topo) + 2)
 - `nph::Int`: Number of phi points (default: 2*nth)
 """
-function GauntTensorCache{T}(lmax::Int, lmax_topo::Int; nth::Int=0, nph::Int=0) where T
+function GauntTensorCache{T}(lmax::Int, lmax_topo::Int; nth::Int = 0, nph::Int = 0) where {T}
     # Set default quadrature resolution (need enough points for triple products)
     # For triple product of Y_l1^m1 * Y_l2^m2 * Y_L^M, need at least 3*lmax points
     lmax_total = lmax + lmax_topo
@@ -63,16 +63,16 @@ function GauntTensorCache{T}(lmax::Int, lmax_topo::Int; nth::Int=0, nph::Int=0) 
 
     # Create SHTnsKit configuration for the quadrature grid
     # Using lmax_total to ensure we can represent all products
-    sht_config = SHTnsKit.create_gauss_config(lmax_total, nth; mmax=lmax_total, nlon=nph)
+    sht_config = SHTnsKit.create_gauss_config(lmax_total, nth; mmax = lmax_total, nlon = nph)
 
     # Get Gauss-Legendre points and weights from SHTnsKit
     theta, weights = _get_gauss_legendre_from_shtns(sht_config, nth)
 
     return GauntTensorCache{T}(
         lmax, lmax_topo,
-        Dict{NTuple{6,Int}, T}(),
-        Dict{NTuple{6,Int}, T}(),
-        Dict{NTuple{6,Int}, T}(),
+        Dict{NTuple{6, Int}, T}(),
+        Dict{NTuple{6, Int}, T}(),
+        Dict{NTuple{6, Int}, T}(),
         sht_config,
         nth, nph,
         theta, weights,
@@ -111,8 +111,9 @@ precompute_gaunt_tensors!(gaunt)
 See also: [`precompute_gaunt_tensors!`](@ref), [`get_gaunt_tensor`](@ref)
 """ GauntTensorCache
 
-GauntTensorCache(lmax::Int, lmax_topo::Int; kwargs...) =
+function GauntTensorCache(lmax::Int, lmax_topo::Int; kwargs...)
     GauntTensorCache{Float64}(lmax, lmax_topo; kwargs...)
+end
 
 """
     _get_gauss_legendre_from_shtns(sht_config, nlat)
@@ -205,7 +206,7 @@ Evaluate Y_l^m on the Gauss-Legendre × uniform φ grid using SHTnsKit.
 
 Returns a (nlat, nlon) matrix of complex values.
 """
-function evaluate_spherical_harmonics_grid(l::Int, m::Int, cache::GauntTensorCache{T}) where T
+function evaluate_spherical_harmonics_grid(l::Int, m::Int, cache::GauntTensorCache{T}) where {T}
     if l > cache.lmax + cache.lmax_topo || abs(m) > l
         return zeros(Complex{T}, cache.nlat, cache.nlon)
     end
@@ -218,7 +219,7 @@ function evaluate_spherical_harmonics_grid(l::Int, m::Int, cache::GauntTensorCac
     coeffs[l + 1, mabs + 1] = 1.0
 
     # Use SHTnsKit synthesis to get Y_l^m on the grid
-    ylm_grid = SHTnsKit.synthesis(cache.sht_config, coeffs; real_output=false)
+    ylm_grid = SHTnsKit.synthesis(cache.sht_config, coeffs; real_output = false)
     ylm = Complex{T}.(ylm_grid)
     if m < 0
         phase = iseven(mabs) ? one(T) : -one(T)
@@ -234,7 +235,7 @@ Evaluate ∇_H Y_l^m on the Gauss-Legendre × uniform φ grid using SHTnsKit.
 
 Returns (∇θ, ∇φ) matrices of complex values.
 """
-function evaluate_spherical_harmonic_gradient_grid(l::Int, m::Int, cache::GauntTensorCache{T}) where T
+function evaluate_spherical_harmonic_gradient_grid(l::Int, m::Int, cache::GauntTensorCache{T}) where {T}
     if l > cache.lmax + cache.lmax_topo || abs(m) > l || l == 0
         zero_grid = zeros(Complex{T}, cache.nlat, cache.nlon)
         return (zero_grid, zero_grid)
@@ -249,7 +250,7 @@ function evaluate_spherical_harmonic_gradient_grid(l::Int, m::Int, cache::GauntT
 
     # Use SHTnsKit's gradient synthesis (spheroidal transform with T=0)
     # Returns (∂Y/∂θ, (1/sinθ)∂Y/∂φ) — the horizontal gradient components
-    ∇θ, ∇φ = SHTnsKit.synthesis_grad(cache.sht_config, coeffs; real_output=false)
+    ∇θ, ∇φ = SHTnsKit.synthesis_grad(cache.sht_config, coeffs; real_output = false)
     ∇θ_t = Complex{T}.(∇θ)
     ∇φ_t = Complex{T}.(∇φ)
     if m < 0
@@ -264,7 +265,7 @@ end
 
 Fallback gradient computation using finite differences on the Y_l^m grid.
 """
-function _compute_gradient_fallback(l::Int, m::Int, cache::GauntTensorCache{T}) where T
+function _compute_gradient_fallback(l::Int, m::Int, cache::GauntTensorCache{T}) where {T}
     ylm = evaluate_spherical_harmonics_grid(l, m, cache)
 
     nlat, nlon = cache.nlat, cache.nlon
@@ -276,12 +277,12 @@ function _compute_gradient_fallback(l::Int, m::Int, cache::GauntTensorCache{T}) 
 
     # ∂Y/∂θ using central differences
     for j in 1:nlon
-        for i in 2:nlat-1
-            ∇θ[i, j] = (ylm[i+1, j] - ylm[i-1, j]) / (theta[i+1] - theta[i-1])
+        for i in 2:(nlat - 1)
+            ∇θ[i, j] = (ylm[i + 1, j] - ylm[i - 1, j]) / (theta[i + 1] - theta[i - 1])
         end
         # One-sided at boundaries
         ∇θ[1, j] = (ylm[2, j] - ylm[1, j]) / (theta[2] - theta[1])
-        ∇θ[nlat, j] = (ylm[nlat, j] - ylm[nlat-1, j]) / (theta[nlat] - theta[nlat-1])
+        ∇θ[nlat, j] = (ylm[nlat, j] - ylm[nlat - 1, j]) / (theta[nlat] - theta[nlat - 1])
     end
 
     # (1/sin θ) ∂Y/∂φ using central differences with periodic boundary
@@ -314,7 +315,7 @@ G_{l1,m1,l2,m2,L,M} = ∫ Y_{l1}^{m1*} Y_{l2}^{m2} Y_L^M dΩ
 Uses numerical quadrature on Gauss-Legendre × uniform φ grid.
 """
 function compute_gaunt_tensor(l1::Int, m1::Int, l2::Int, m2::Int, L::Int, M::Int,
-                              cache::GauntTensorCache{T}) where T
+        cache::GauntTensorCache{T}) where {T}
     # Selection rules (quick rejection)
     # Azimuthal: m1 = m2 + M
     if m1 != m2 + M
@@ -368,7 +369,7 @@ G^{(∇)}_{l1,m1,l2,m2,L,M} = (1/2)[l2(l2+1) + L(L+1) - l1(l1+1)] G_{l1,m1,l2,m2
 This is more efficient and accurate than numerical gradient computation.
 """
 function compute_gradient_gaunt_tensor(l1::Int, m1::Int, l2::Int, m2::Int, L::Int, M::Int,
-                                       cache::GauntTensorCache{T}) where T
+        cache::GauntTensorCache{T}) where {T}
     # Use analytic identity relating gradient Gaunt to basic Gaunt
     # ∫ Y_1^* (∇_H Y_2 · ∇_H Y_L) dΩ = (1/2)[l2(l2+1) + L(L+1) - l1(l1+1)] G
 
@@ -401,7 +402,7 @@ This integral couples toroidal and poloidal modes through topography.
 Uses SHTnsKit for gradient evaluation when available.
 """
 function compute_cross_gaunt_tensor(l1::Int, m1::Int, l2::Int, m2::Int, L::Int, M::Int,
-                                    cache::GauntTensorCache{T}) where T
+        cache::GauntTensorCache{T}) where {T}
     # Azimuthal selection rule
     if m1 != m2 + M
         return zero(T)
@@ -437,7 +438,8 @@ function compute_cross_gaunt_tensor(l1::Int, m1::Int, l2::Int, m2::Int, L::Int, 
         for j in 1:nlon
             # Cross product in spherical coords:
             # r̂ · (A × B) = A_θ B_φ - A_φ B_θ  (for surface vectors)
-            cross_r = grad2_theta[i, j] * gradL_phi[i, j] - grad2_phi[i, j] * gradL_theta[i, j]
+            cross_r = grad2_theta[i, j] * gradL_phi[i, j] -
+                      grad2_phi[i, j] * gradL_theta[i, j]
 
             integrand = conj(Y1[i, j]) * cross_r
             result += w * dphi * integrand
@@ -554,13 +556,15 @@ Precompute all non-zero Gaunt tensors up to lmax.
 - `use_wigner::Bool=true`: Use analytic Wigner 3j formula (faster and more accurate)
 """
 function precompute_gaunt_tensors!(cache::GauntTensorCache{T};
-                                   verbose::Bool=true,
-                                   use_wigner::Bool=true) where T
+        verbose::Bool = true,
+        use_wigner::Bool = true) where {T}
     lmax = cache.lmax
     lmax_t = cache.lmax_topo
 
     if verbose && get_rank() == 0
-        @info "Precomputing Gaunt tensors" lmax=lmax lmax_topo=lmax_t method=(use_wigner ? "Wigner 3j" : "SHTnsKit numerical")
+        @info "Precomputing Gaunt tensors" lmax=lmax lmax_topo=lmax_t method=(use_wigner ?
+                                                                              "Wigner 3j" :
+                                                                              "SHTnsKit numerical")
     end
 
     count_G = 0
@@ -595,7 +599,8 @@ function precompute_gaunt_tensors!(cache::GauntTensorCache{T};
 
                             # Gradient Gaunt from identity (always use analytic)
                             if l2 > 0 && L > 0
-                                factor = T(0.5) * (l2 * (l2 + 1) + L * (L + 1) - l1 * (l1 + 1))
+                                factor = T(0.5) *
+                                         (l2 * (l2 + 1) + L * (L + 1) - l1 * (l1 + 1))
                                 G_∇_val = factor * G_val
                                 if abs(G_∇_val) > 1e-14
                                     cache.G_∇[(l1, m1, l2, m2, L, M)] = G_∇_val
@@ -609,7 +614,8 @@ function precompute_gaunt_tensors!(cache::GauntTensorCache{T};
                         # analytic Wigner path, we intentionally defer it.
                         # Cross Gaunt (requires numerical integration)
                         if !use_wigner && l2 > 0 && L > 0
-                            G_cross_val = compute_cross_gaunt_tensor(l1, m1, l2, m2, L, M, cache)
+                            G_cross_val = compute_cross_gaunt_tensor(
+                                l1, m1, l2, m2, L, M, cache)
                             if abs(G_cross_val) > 1e-14
                                 cache.G_cross[(l1, m1, l2, m2, L, M)] = G_cross_val
                                 count_cross += 1
@@ -641,7 +647,7 @@ Get the basic Gaunt tensor G_{l1,m1,l2,m2,L,M} from cache.
 Returns 0 if not found (implies zero due to selection rules).
 """
 function get_gaunt_tensor(cache::GauntTensorCache{T}, l1::Int, m1::Int,
-                          l2::Int, m2::Int, L::Int, M::Int) where T
+        l2::Int, m2::Int, L::Int, M::Int) where {T}
     return get(cache.G, (l1, m1, l2, m2, L, M), zero(T))
 end
 
@@ -651,7 +657,7 @@ end
 Get the gradient Gaunt tensor G^{(∇)}_{l1,m1,l2,m2,L,M} from cache.
 """
 function get_gradient_gaunt(cache::GauntTensorCache{T}, l1::Int, m1::Int,
-                            l2::Int, m2::Int, L::Int, M::Int) where T
+        l2::Int, m2::Int, L::Int, M::Int) where {T}
     return get(cache.G_∇, (l1, m1, l2, m2, L, M), zero(T))
 end
 
@@ -661,7 +667,7 @@ end
 Get the cross Gaunt tensor G^{(×)}_{l1,m1,l2,m2,L,M} from cache.
 """
 function get_cross_gaunt(cache::GauntTensorCache{T}, l1::Int, m1::Int,
-                         l2::Int, m2::Int, L::Int, M::Int) where T
+        l2::Int, m2::Int, L::Int, M::Int) where {T}
     key = (l1, m1, l2, m2, L, M)
     # Fast path: read-only lookup (no lock needed for existing entries)
     val = get(cache.G_cross, key, nothing)
@@ -695,7 +701,7 @@ Compute a single Gaunt coefficient on-the-fly.
 Useful when only a few coefficients are needed.
 """
 function gaunt_on_the_fly(l1::Int, m1::Int, l2::Int, m2::Int, L::Int, M::Int;
-                          use_wigner::Bool=true)
+        use_wigner::Bool = true)
     if use_wigner
         return compute_gaunt_from_wigner3j(l1, m1, l2, m2, L, M)
     else
@@ -714,7 +720,7 @@ G^{(∇)} = (1/2)[l2(l2+1) + L(L+1) - l1(l1+1)] G
 
 This avoids computing gradients explicitly.
 """
-function gradient_gaunt_from_basic(l1::Int, l2::Int, L::Int, G_basic::T) where T
+function gradient_gaunt_from_basic(l1::Int, l2::Int, L::Int, G_basic::T) where {T}
     if abs(G_basic) < 1e-15
         return zero(T)
     end

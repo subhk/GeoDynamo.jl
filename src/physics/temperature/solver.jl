@@ -9,7 +9,8 @@ function _ball_conductive_temperature(::SolverParameters, r)
     return 1.0 - r^2
 end
 
-function initialize_temperature_field!(state::SolverState{T,<:AbstractArchitecture}) where T
+function initialize_temperature_field!(state::SolverState{
+        T, <:AbstractArchitecture}) where {T}
     temperature = state.fields.temperature
     domain = state.backend.outer_core_domain
 
@@ -21,8 +22,8 @@ function initialize_temperature_field!(state::SolverState{T,<:AbstractArchitectu
     lm_range = local_spectral_mode_indices(temperature.config)
     r_range = local_range(temperature.config.pencils.spec, 3)
 
-    conductive_profile =
-        state.parameters.geometry === :ball ? _ball_conductive_temperature : _shell_conductive_temperature
+    conductive_profile = state.parameters.geometry === :ball ?
+                         _ball_conductive_temperature : _shell_conductive_temperature
 
     @inbounds for lm_idx in lm_range
         lm_idx <= temperature.config.nlm || continue
@@ -42,7 +43,7 @@ function initialize_temperature_field!(state::SolverState{T,<:AbstractArchitectu
                     spec_real,
                     slot,
                     r_idx,
-                    sqrt(4 * T(π)) * T(conductive_profile(state.parameters, r)),
+                    sqrt(4 * T(π)) * T(conductive_profile(state.parameters, r))
                 )
             elseif 1 <= l <= 4
                 amplitude = T(1e-3)
@@ -50,14 +51,14 @@ function initialize_temperature_field!(state::SolverState{T,<:AbstractArchitectu
                     spec_real,
                     slot,
                     r_idx,
-                    amplitude * (rand(T) - T(0.5)),
+                    amplitude * (rand(T) - T(0.5))
                 )
                 if m > 0
                     set_local_spectral_value!(
                         spec_imag,
                         slot,
                         r_idx,
-                        amplitude * (rand(T) - T(0.5)),
+                        amplitude * (rand(T) - T(0.5))
                     )
                 end
             end
@@ -68,12 +69,12 @@ function initialize_temperature_field!(state::SolverState{T,<:AbstractArchitectu
 end
 
 function solver_compute_temperature_nonlinear!(
-    temp_𝔽::TemperatureFieldType{T},
-    vel_fields,
-    𝒟ᵒᶜ::RadialDomainType,
-    ws::SolverGradientWorkspace{T};
-    geometry::Symbol=solver_default_geometry(),
-) where T
+        temp_𝔽::TemperatureFieldType{T},
+        vel_fields,
+        𝒟ᵒᶜ::RadialDomainType,
+        ws::SolverGradientWorkspace{T};
+        geometry::Symbol = solver_default_geometry()
+) where {T}
     t_start = timing_enabled() ? mpi_wtime() : 0.0
 
     solver_zero_scalar_work_arrays!(temp_𝔽)
@@ -108,7 +109,7 @@ function solver_compute_temperature_nonlinear!(
     scalar_nonlinear_to_spectral!(
         temp_𝔽.advection_physical,
         temp_𝔽.nonlinear,
-        geometry,
+        geometry
     )
     if timing_enabled()
         temp_𝔽.transform_time[] += mpi_wtime() - t_transform
@@ -117,7 +118,8 @@ function solver_compute_temperature_nonlinear!(
     return temp_𝔽
 end
 
-function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchitecture}) where T
+function apply_temperature_implicit_update!(state::SolverState{
+        T, <:AbstractArchitecture}) where {T}
     temperature = state.fields.temperature
     runtime = state.runtime
     diffusivity = state.parameters.Pm / state.parameters.Pr
@@ -132,7 +134,7 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
         radial_work = get_radial_work!(
             state.timestep_caches,
             :temperature,
-            matrices.system_matrices[1].size,
+            matrices.system_matrices[1].size
         )
         solver_build_rhs_cnab2!(
             temperature.work_spectral,
@@ -141,24 +143,24 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
             temperature.prev_nonlinear,
             dt,
             matrices;
-            work=radial_work,
+            work = radial_work
         )
         solver_solve_temperature_implicit_step!(
             temperature.spectral,
             temperature.work_spectral,
             matrices;
-            bc_inner=bc.inner_real,
-            bc_outer=bc.outer_real,
-            bc_inner_imag=bc.inner_imag,
-            bc_outer_imag=bc.outer_imag,
-            work=radial_work,
+            bc_inner = bc.inner_real,
+            bc_outer = bc.outer_real,
+            bc_inner_imag = bc.inner_imag,
+            bc_outer_imag = bc.outer_imag,
+            work = radial_work
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_temperature::EAB2CacheEntry{T}).map
         radial_work = get_radial_work!(
             state.timestep_caches,
             :temperature,
-            runtime.𝒟ᵒᶜ.N,
+            runtime.𝒟ᵒᶜ.N
         )
         temperature_bc_code = _thermal_bc_code(state.parameters.temperature_bcs)
         scalar_bc = build_solver_erk2_scalar_bc(T, runtime.𝒟ᵒᶜ, temperature_bc_code)
@@ -167,7 +169,7 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
             bc.inner_real,
             bc.outer_real,
             bc.inner_imag,
-            bc.outer_imag,
+            bc.outer_imag
         )
         solver_eab2_update_krylov_cached!(
             temperature.spectral,
@@ -178,27 +180,27 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
             diffusivity,
             runtime.shtns_config,
             dt;
-            m=_timestepper_krylov_dimension(timestepper, state.parameters),
-            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
-            bc_spec=bc_spec,
-            krylov_work=radial_work,
+            m = _timestepper_krylov_dimension(timestepper, state.parameters),
+            tol = _timestepper_krylov_tolerance(timestepper, state.parameters),
+            bc_spec = bc_spec,
+            krylov_work = radial_work
         )
     else
         matrices = state.implicit_matrices[:temperature]
         radial_work = get_radial_work!(
             state.timestep_caches,
             :temperature,
-            matrices.system_matrices[1].size,
+            matrices.system_matrices[1].size
         )
         solver_solve_temperature_implicit_step!(
             temperature.spectral,
             temperature.nonlinear,
             matrices;
-            bc_inner=bc.inner_real,
-            bc_outer=bc.outer_real,
-            bc_inner_imag=bc.inner_imag,
-            bc_outer_imag=bc.outer_imag,
-            work=radial_work,
+            bc_inner = bc.inner_real,
+            bc_outer = bc.outer_real,
+            bc_inner_imag = bc.inner_imag,
+            bc_outer_imag = bc.outer_imag,
+            work = radial_work
         )
     end
 
@@ -206,9 +208,9 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
 end
 
 function queue_temperature_implicit_update!(
-    operations::Vector{Function},
-    state::SolverState{T,<:AbstractArchitecture},
-) where T
+        operations::Vector{Function},
+        state::SolverState{T, <:AbstractArchitecture}
+) where {T}
     push!(operations, () -> apply_temperature_implicit_update!(state))
     return operations
 end

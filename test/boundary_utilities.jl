@@ -1,17 +1,22 @@
 using Test
 
 mutable struct DummyCompatibilityField
-    config
+    config::Any
 end
 
 @testset "Boundary Condition Utilities" begin
     @testset "determine_field_type_from_name" begin
-        @test GeoDynamo.bcs.determine_field_type_from_name("temperature") == GeoDynamo.TEMPERATURE
-        @test GeoDynamo.bcs.determine_field_type_from_name("Temperature") == GeoDynamo.TEMPERATURE
-        @test GeoDynamo.bcs.determine_field_type_from_name("thermal_field") == GeoDynamo.TEMPERATURE
+        @test GeoDynamo.bcs.determine_field_type_from_name("temperature") ==
+              GeoDynamo.TEMPERATURE
+        @test GeoDynamo.bcs.determine_field_type_from_name("Temperature") ==
+              GeoDynamo.TEMPERATURE
+        @test GeoDynamo.bcs.determine_field_type_from_name("thermal_field") ==
+              GeoDynamo.TEMPERATURE
 
-        @test GeoDynamo.bcs.determine_field_type_from_name("composition") == GeoDynamo.COMPOSITION
-        @test GeoDynamo.bcs.determine_field_type_from_name("concentration") == GeoDynamo.COMPOSITION
+        @test GeoDynamo.bcs.determine_field_type_from_name("composition") ==
+              GeoDynamo.COMPOSITION
+        @test GeoDynamo.bcs.determine_field_type_from_name("concentration") ==
+              GeoDynamo.COMPOSITION
         @test GeoDynamo.bcs.determine_field_type_from_name("xi") == GeoDynamo.COMPOSITION
 
         @test GeoDynamo.bcs.determine_field_type_from_name("velocity") == GeoDynamo.VELOCITY
@@ -32,10 +37,14 @@ end
     end
 
     @testset "get_default_boundary_type" begin
-        @test GeoDynamo.bcs.get_default_boundary_type(GeoDynamo.TEMPERATURE, GeoDynamo.INNER_BOUNDARY) == GeoDynamo.DIRICHLET
-        @test GeoDynamo.bcs.get_default_boundary_type(GeoDynamo.COMPOSITION, GeoDynamo.INNER_BOUNDARY) == GeoDynamo.NEUMANN
-        @test GeoDynamo.bcs.get_default_boundary_type(GeoDynamo.VELOCITY, GeoDynamo.OUTER_BOUNDARY) == GeoDynamo.DIRICHLET
-        @test GeoDynamo.bcs.get_default_boundary_type(GeoDynamo.MAGNETIC, GeoDynamo.OUTER_BOUNDARY) == GeoDynamo.DIRICHLET
+        @test GeoDynamo.bcs.get_default_boundary_type(GeoDynamo.TEMPERATURE, GeoDynamo.INNER_BOUNDARY) ==
+              GeoDynamo.DIRICHLET
+        @test GeoDynamo.bcs.get_default_boundary_type(GeoDynamo.COMPOSITION, GeoDynamo.INNER_BOUNDARY) ==
+              GeoDynamo.NEUMANN
+        @test GeoDynamo.bcs.get_default_boundary_type(GeoDynamo.VELOCITY, GeoDynamo.OUTER_BOUNDARY) ==
+              GeoDynamo.DIRICHLET
+        @test GeoDynamo.bcs.get_default_boundary_type(GeoDynamo.MAGNETIC, GeoDynamo.OUTER_BOUNDARY) ==
+              GeoDynamo.DIRICHLET
     end
 
     @testset "create_boundary_data: 2D (scalar, time-independent)" begin
@@ -52,8 +61,8 @@ end
 
     @testset "create_boundary_data: 3D with time" begin
         values = rand(Float64, 16, 32, 10)
-        time = collect(range(0.0, 1.0, length=10))
-        bd = GeoDynamo.bcs.create_boundary_data(values, "temperature"; time=time)
+        time = collect(range(0.0, 1.0, length = 10))
+        bd = GeoDynamo.bcs.create_boundary_data(values, "temperature"; time = time)
         @test bd.nlat == 16
         @test bd.nlon == 32
         @test bd.ntime == 10
@@ -120,8 +129,8 @@ end
         inner_vals = rand(Float64, 4, 8, 5)
         outer_vals = rand(Float64, 4, 8, 5)
 
-        inner = GeoDynamo.bcs.create_boundary_data(inner_vals, "temperature"; time=time_coords)
-        outer = GeoDynamo.bcs.create_boundary_data(outer_vals, "temperature"; time=time_coords)
+        inner = GeoDynamo.bcs.create_boundary_data(inner_vals, "temperature"; time = time_coords)
+        outer = GeoDynamo.bcs.create_boundary_data(outer_vals, "temperature"; time = time_coords)
 
         bc_set = GeoDynamo.bcs.BoundaryConditionSet{Float64}(
             inner, outer, "temperature", GeoDynamo.TEMPERATURE, 0.0
@@ -161,7 +170,8 @@ end
     end
 
     @testset "validate_field_boundary_compatibility checks both boundaries" begin
-        cfg = GeoDynamo.create_shtnskit_config(lmax=4, mmax=4, nlat=10, nlon=16, nr=6)
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 4, mmax = 4, nlat = 10, nlon = 16, nr = 6)
         field = DummyCompatibilityField(cfg)
 
         inner = GeoDynamo.bcs.create_boundary_data(zeros(Float64, cfg.nlat, cfg.nlon), "temperature")
@@ -177,35 +187,37 @@ end
     end
 
     @testset "validate_boundary_files validates tuple specs and rejects bad input" begin
-        cfg = GeoDynamo.create_shtnskit_config(lmax=4, mmax=4, nlat=10, nlon=16, nr=6)
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 4, mmax = 4, nlat = 10, nlon = 16, nr = 6)
 
         @test GeoDynamo.bcs.validate_boundary_files(
             GeoDynamo.TEMPERATURE,
             Dict(:inner => (:uniform, 1.0), :outer => (:dirichlet, 0.0)),
-            cfg,
+            cfg
         )
 
         @test_throws ArgumentError GeoDynamo.bcs.validate_boundary_files(
             GeoDynamo.TEMPERATURE,
             Dict(:left => (:uniform, 1.0)),
-            cfg,
+            cfg
         )
 
         @test_throws ArgumentError GeoDynamo.bcs.validate_boundary_files(
             GeoDynamo.TEMPERATURE,
             Dict(:inner => "definitely_missing_boundary_file.nc"),
-            cfg,
+            cfg
         )
     end
 
     @testset "load_boundary_conditions! applies scalar programmatic boundaries" begin
-        cfg = GeoDynamo.create_shtnskit_config(lmax=4, mmax=4, nlat=10, nlon=16, nr=6)
-        temp_field = GeoDynamo.GeoDynamoShell.create_shell_temperature_field(Float64, cfg; nr=6)
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 4, mmax = 4, nlat = 10, nlon = 16, nr = 6)
+        temp_field = GeoDynamo.GeoDynamoShell.create_shell_temperature_field(Float64, cfg; nr = 6)
 
         GeoDynamo.bcs.load_boundary_conditions!(
             temp_field,
             GeoDynamo.TEMPERATURE,
-            Dict(:inner => (:uniform, 1.0), :outer => (:uniform, 0.5)),
+            Dict(:inner => (:uniform, 1.0), :outer => (:uniform, 0.5))
         )
 
         @test temp_field.boundary_condition_set !== nothing
@@ -216,8 +228,9 @@ end
     end
 
     @testset "update_time_dependent_boundaries! refreshes scalar boundary values" begin
-        cfg = GeoDynamo.create_shtnskit_config(lmax=4, mmax=4, nlat=10, nlon=16, nr=6)
-        temp_field = GeoDynamo.GeoDynamoShell.create_shell_temperature_field(Float64, cfg; nr=6)
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 4, mmax = 4, nlat = 10, nlon = 16, nr = 6)
+        temp_field = GeoDynamo.GeoDynamoShell.create_shell_temperature_field(Float64, cfg; nr = 6)
 
         time_coords = Float64[0.0, 1.0]
         inner_vals = zeros(Float64, cfg.nlat, cfg.nlon, 2)
@@ -227,8 +240,8 @@ end
         outer_vals[:, :, 1] .= 3.0
         outer_vals[:, :, 2] .= 4.0
 
-        inner = GeoDynamo.bcs.create_boundary_data(inner_vals, "temperature"; time=time_coords)
-        outer = GeoDynamo.bcs.create_boundary_data(outer_vals, "temperature"; time=time_coords)
+        inner = GeoDynamo.bcs.create_boundary_data(inner_vals, "temperature"; time = time_coords)
+        outer = GeoDynamo.bcs.create_boundary_data(outer_vals, "temperature"; time = time_coords)
         temp_field.boundary_condition_set = GeoDynamo.bcs.BoundaryConditionSet{Float64}(
             inner, outer, "temperature", GeoDynamo.TEMPERATURE, 0.0
         )

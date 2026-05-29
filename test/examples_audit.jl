@@ -33,7 +33,7 @@ end
         r"\bprint_performance_report\b",
         r"include\(\"../src/InitialConditions\.jl\"\)",
         r"initialize_simulation\(Float64;",
-        r"\bGeoDynamoParameters\(",
+        r"\bGeoDynamoParameters\("
     )
 
     for name in readdir(EXAMPLES_DIR)

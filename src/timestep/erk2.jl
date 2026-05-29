@@ -58,12 +58,12 @@ end
 # operate on them live here.
 
 function with_boundary_mode_values(
-    spec::SolverERK2BoundarySpec{T},
-    inner_real::Union{Nothing, AbstractVector{T}},
-    outer_real::Union{Nothing, AbstractVector{T}},
-    inner_imag::Union{Nothing, AbstractVector{T}}=nothing,
-    outer_imag::Union{Nothing, AbstractVector{T}}=nothing,
-) where T
+        spec::SolverERK2BoundarySpec{T},
+        inner_real::Union{Nothing, AbstractVector{T}},
+        outer_real::Union{Nothing, AbstractVector{T}},
+        inner_imag::Union{Nothing, AbstractVector{T}} = nothing,
+        outer_imag::Union{Nothing, AbstractVector{T}} = nothing
+) where {T}
     # Keep the same derivative stencils and BC types, but attach the actual
     # mode-indexed endpoint values used during stage/final enforcement.
     return SolverERK2BoundarySpec{T}(
@@ -72,7 +72,7 @@ function with_boundary_mode_values(
         inner_real,
         outer_real,
         inner_imag,
-        outer_imag,
+        outer_imag
     )
 end
 
@@ -92,17 +92,17 @@ The solver now stores stage caches as `ERK2StageCache`; this constructor keeps
 older call sites that instantiate `GeoDynamo.ERK2Cache` directly working.
 """
 function GeoDynamo.ERK2Cache{T}(
-    dt::Float64,
-    l_values::Vector{Int},
-    E_half::Vector{Matrix{T}},
-    E_full::Vector{Matrix{T}},
-    phi1_half::Vector{Matrix{T}},
-    phi1_full::Vector{Matrix{T}},
-    phi2_full::Vector{Matrix{T}},
-    use_krylov::Bool,
-    krylov_m::Int,
-    krylov_tol::Float64,
-    mpi_consistent::Bool,
+        dt::Float64,
+        l_values::Vector{Int},
+        E_half::Vector{Matrix{T}},
+        E_full::Vector{Matrix{T}},
+        phi1_half::Vector{Matrix{T}},
+        phi1_full::Vector{Matrix{T}},
+        phi2_full::Vector{Matrix{T}},
+        use_krylov::Bool,
+        krylov_m::Int,
+        krylov_tol::Float64,
+        mpi_consistent::Bool
 ) where {T}
     nr = isempty(E_half) ? 0 : size(E_half[1], 1)
     return ERK2StageCache{T}(
@@ -118,7 +118,7 @@ function GeoDynamo.ERK2Cache{T}(
         use_krylov,
         krylov_m,
         krylov_tol,
-        mpi_consistent,
+        mpi_consistent
     )
 end
 
@@ -163,13 +163,13 @@ solve the endpoint value from the stored stencil and optional `l`-dependent
 correction while leaving interior values unchanged.
 """
 function solver_enforce_erk2_bc!(
-    result::AbstractVector{T},
-    bc_side::SolverERK2BoundarySide{T},
-    boundary_idx::Int,
-    l::Int,
-    nr::Int;
-    value_override::Union{T, Nothing}=nothing,
-) where T
+        result::AbstractVector{T},
+        bc_side::SolverERK2BoundarySide{T},
+        boundary_idx::Int,
+        l::Int,
+        nr::Int;
+        value_override::Union{T, Nothing} = nothing
+) where {T}
     b = boundary_idx
     effective_value = value_override !== nothing ? value_override : bc_side.value
 
@@ -210,12 +210,12 @@ end
 Public wrapper for enforcing one ERK2 boundary condition on a radial profile.
 """
 function GeoDynamo.enforce_erk2_bc!(
-    result::AbstractVector{T},
-    bc_side::SolverERK2BoundarySide{T},
-    boundary_idx::Int,
-    l::Int,
-    nr::Int;
-    value_override::Union{T, Nothing}=nothing,
+        result::AbstractVector{T},
+        bc_side::SolverERK2BoundarySide{T},
+        boundary_idx::Int,
+        l::Int,
+        nr::Int;
+        value_override::Union{T, Nothing} = nothing
 ) where {T}
     return solver_enforce_erk2_bc!(
         result,
@@ -223,7 +223,7 @@ function GeoDynamo.enforce_erk2_bc!(
         boundary_idx,
         l,
         nr;
-        value_override,
+        value_override
     )
 end
 
@@ -232,7 +232,7 @@ end
 
 Create a fixed-value endpoint descriptor for ERK2 radial profiles.
 """
-function solver_create_dirichlet_bc(::Type{T}, nr::Int, value::T=zero(T)) where T
+function solver_create_dirichlet_bc(::Type{T}, nr::Int, value::T = zero(T)) where {T}
     stencil = zeros(T, nr)
     return SolverERK2BoundarySide{T}(
         :dirichlet,
@@ -242,7 +242,7 @@ function solver_create_dirichlet_bc(::Type{T}, nr::Int, value::T=zero(T)) where 
         zero(T),
         false,
         zero(T),
-        false,
+        false
     )
 end
 
@@ -251,8 +251,9 @@ end
 
 Create a public fixed-value ERK2 endpoint descriptor.
 """
-GeoDynamo.create_dirichlet_bc(::Type{T}, nr::Int, value::T=zero(T)) where {T} =
+function GeoDynamo.create_dirichlet_bc(::Type{T}, nr::Int, value::T = zero(T)) where {T}
     solver_create_dirichlet_bc(T, nr, value)
+end
 
 """
     solver_create_neumann_bc(T, d1_row, value=zero(T); l0_dirichlet=false)
@@ -260,11 +261,11 @@ GeoDynamo.create_dirichlet_bc(::Type{T}, nr::Int, value::T=zero(T)) where {T} =
 Create a first-derivative endpoint descriptor.
 """
 function solver_create_neumann_bc(
-    ::Type{T},
-    d1_row::Vector{T},
-    value::T=zero(T);
-    l0_dirichlet::Bool=false,
-) where T
+        ::Type{T},
+        d1_row::Vector{T},
+        value::T = zero(T);
+        l0_dirichlet::Bool = false
+) where {T}
     return SolverERK2BoundarySide{T}(
         :neumann,
         value,
@@ -273,7 +274,7 @@ function solver_create_neumann_bc(
         zero(T),
         false,
         zero(T),
-        l0_dirichlet,
+        l0_dirichlet
     )
 end
 
@@ -283,10 +284,10 @@ end
 Create a public first-derivative ERK2 endpoint descriptor.
 """
 function GeoDynamo.create_neumann_bc(
-    ::Type{T},
-    d1_row::Vector{T},
-    value::T=zero(T);
-    l0_dirichlet::Bool=false,
+        ::Type{T},
+        d1_row::Vector{T},
+        value::T = zero(T);
+        l0_dirichlet::Bool = false
 ) where {T}
     return solver_create_neumann_bc(T, d1_row, value; l0_dirichlet)
 end
@@ -296,7 +297,7 @@ end
 
 Create the toroidal velocity stress-free endpoint descriptor.
 """
-function solver_create_stress_free_tor_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where T
+function solver_create_stress_free_tor_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
     return SolverERK2BoundarySide{T}(
         :stress_free_tor,
         zero(T),
@@ -305,7 +306,7 @@ function solver_create_stress_free_tor_bc(::Type{T}, d1_row::Vector{T}, r_inv::T
         zero(T),
         false,
         -r_inv,
-        false,
+        false
     )
 end
 
@@ -314,15 +315,16 @@ end
 
 Create a public toroidal-velocity stress-free endpoint descriptor.
 """
-GeoDynamo.create_stress_free_tor_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T} =
+function GeoDynamo.create_stress_free_tor_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
     solver_create_stress_free_tor_bc(T, d1_row, r_inv)
+end
 
 """
     solver_create_noslip_pol_bc(T, d1_row)
 
 Create the poloidal velocity no-slip endpoint descriptor.
 """
-function solver_create_noslip_pol_bc(::Type{T}, d1_row::Vector{T}) where T
+function solver_create_noslip_pol_bc(::Type{T}, d1_row::Vector{T}) where {T}
     return SolverERK2BoundarySide{T}(
         :noslip_pol,
         zero(T),
@@ -331,7 +333,7 @@ function solver_create_noslip_pol_bc(::Type{T}, d1_row::Vector{T}) where T
         zero(T),
         false,
         zero(T),
-        false,
+        false
     )
 end
 
@@ -340,15 +342,16 @@ end
 
 Create a public poloidal-velocity no-slip endpoint descriptor.
 """
-GeoDynamo.create_noslip_pol_bc(::Type{T}, d1_row::Vector{T}) where {T} =
+function GeoDynamo.create_noslip_pol_bc(::Type{T}, d1_row::Vector{T}) where {T}
     solver_create_noslip_pol_bc(T, d1_row)
+end
 
 """
     solver_create_stress_free_pol_bc(T, d2_row)
 
 Create the poloidal velocity stress-free endpoint descriptor.
 """
-function solver_create_stress_free_pol_bc(::Type{T}, d2_row::Vector{T}) where T
+function solver_create_stress_free_pol_bc(::Type{T}, d2_row::Vector{T}) where {T}
     return SolverERK2BoundarySide{T}(
         :stress_free_pol,
         zero(T),
@@ -357,7 +360,7 @@ function solver_create_stress_free_pol_bc(::Type{T}, d2_row::Vector{T}) where T
         zero(T),
         false,
         zero(T),
-        false,
+        false
     )
 end
 
@@ -366,15 +369,16 @@ end
 
 Create a public poloidal-velocity stress-free endpoint descriptor.
 """
-GeoDynamo.create_stress_free_pol_bc(::Type{T}, d2_row::Vector{T}) where {T} =
+function GeoDynamo.create_stress_free_pol_bc(::Type{T}, d2_row::Vector{T}) where {T}
     solver_create_stress_free_pol_bc(T, d2_row)
+end
 
 """
     solver_create_insulating_inner_bc(T, d1_row, r_inv)
 
 Create the inner insulating magnetic poloidal endpoint descriptor.
 """
-function solver_create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where T
+function solver_create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
     return SolverERK2BoundarySide{T}(
         :insulating_inner,
         zero(T),
@@ -383,7 +387,7 @@ function solver_create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::
         -one(T),
         true,
         zero(T),
-        false,
+        false
     )
 end
 
@@ -392,15 +396,16 @@ end
 
 Create a public inner-boundary insulating magnetic-poloidal descriptor.
 """
-GeoDynamo.create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T} =
+function GeoDynamo.create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
     solver_create_insulating_inner_bc(T, d1_row, r_inv)
+end
 
 """
     solver_create_insulating_outer_bc(T, d1_row, r_inv)
 
 Create the outer insulating magnetic poloidal endpoint descriptor.
 """
-function solver_create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where T
+function solver_create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
     return SolverERK2BoundarySide{T}(
         :insulating_outer,
         zero(T),
@@ -409,7 +414,7 @@ function solver_create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::
         one(T),
         true,
         r_inv,
-        false,
+        false
     )
 end
 
@@ -418,8 +423,9 @@ end
 
 Create a public outer-boundary insulating magnetic-poloidal descriptor.
 """
-GeoDynamo.create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T} =
+function GeoDynamo.create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
     solver_create_insulating_outer_bc(T, d1_row, r_inv)
+end
 
 """
     GeoDynamo.set_erk2_diagnostics_interval!(interval)
@@ -438,7 +444,8 @@ end
 
 Enable ERK2 residual diagnostics and optionally update the reporting interval.
 """
-function GeoDynamo.enable_erk2_diagnostics!(; interval::Int=SOLVER_SHARED_ERK2_DIAGNOSTICS_INTERVAL[])
+function GeoDynamo.enable_erk2_diagnostics!(;
+        interval::Int = SOLVER_SHARED_ERK2_DIAGNOSTICS_INTERVAL[])
     GeoDynamo.set_erk2_diagnostics_interval!(interval)
     SOLVER_SHARED_ERK2_DIAGNOSTICS_ENABLED[] = true
     set_erk2_diagnostics!(true, interval)
@@ -478,21 +485,19 @@ Translate scalar boundary-condition codes into an ERK2 boundary specification.
 Boundary codes follow the existing scalar convention: DD, DN, ND, and NN for
 codes 1 through 4.
 """
-function build_solver_erk2_scalar_bc(::Type{T}, domain::RadialDomainType, boundary_condition::Int) where T
+function build_solver_erk2_scalar_bc(::Type{T}, domain::RadialDomainType, boundary_condition::Int) where {T}
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
     d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
     d1_outer = extract_dense_row(d1.data, d1.bandwidth, nr, nr)
 
-    inner =
-        boundary_condition == 1 || boundary_condition == 2 ?
-        solver_create_dirichlet_bc(T, nr) :
-        solver_create_neumann_bc(T, d1_inner; l0_dirichlet=(boundary_condition == 4))
+    inner = boundary_condition == 1 || boundary_condition == 2 ?
+            solver_create_dirichlet_bc(T, nr) :
+            solver_create_neumann_bc(T, d1_inner; l0_dirichlet = (boundary_condition == 4))
 
-    outer =
-        boundary_condition == 1 || boundary_condition == 3 ?
-        solver_create_dirichlet_bc(T, nr) :
-        solver_create_neumann_bc(T, d1_outer)
+    outer = boundary_condition == 1 || boundary_condition == 3 ?
+            solver_create_dirichlet_bc(T, nr) :
+            solver_create_neumann_bc(T, d1_outer)
 
     return SolverERK2BoundarySpec{T}(inner, outer)
 end
@@ -507,16 +512,16 @@ The cache stores one set of matrices per unique spherical-harmonic degree in
 case operator matrices are stored for Krylov actions.
 """
 function create_solver_erk2_scalar_cache(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64,
-    boundary_condition::Int;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-) where T
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64,
+        boundary_condition::Int;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
     laplacian = build_radial_laplacian(domain)
     nr = domain.N
     bandwidth = laplacian.bandwidth
@@ -566,7 +571,7 @@ function create_solver_erk2_scalar_cache(
             push!(phi1_half, Matrix{T}(phi1_half_l))
             push!(phi1_full, Matrix{T}(phi1_full_l))
 
-            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l=l)
+            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l = l)
             push!(phi2_full, Matrix{T}(phi2_full_l))
         end
     end
@@ -586,7 +591,7 @@ function create_solver_erk2_scalar_cache(
         use_krylov,
         m,
         tol,
-        true,
+        true
     )
 end
 
@@ -596,16 +601,16 @@ end
 Precompute generic ERK2 propagators for velocity-like spectral fields.
 """
 function create_solver_erk2_cache(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-    bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing}=nothing,
-) where T
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8,
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing
+) where {T}
     laplacian = build_radial_laplacian(domain)
     nr = domain.N
     r_inv_sq = @views domain.r[1:nr, 2]
@@ -661,7 +666,7 @@ function create_solver_erk2_cache(
             push!(phi1_half, Matrix{T}(phi1_half_l))
             push!(phi1_full, Matrix{T}(phi1_full_l))
 
-            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l=l)
+            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l = l)
             push!(phi2_full, Matrix{T}(phi2_full_l))
         end
     end
@@ -681,7 +686,7 @@ function create_solver_erk2_cache(
         use_krylov,
         m,
         tol,
-        true,
+        true
     )
 end
 
@@ -692,15 +697,15 @@ Precompute ERK2 propagators for magnetic toroidal fields with embedded
 homogeneous Dirichlet boundary rows.
 """
 function create_solver_erk2_magnetic_toroidal_cache(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-) where T
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
     laplacian = build_radial_laplacian(domain)
     nr = domain.N
     bandwidth = laplacian.bandwidth
@@ -749,7 +754,7 @@ function create_solver_erk2_magnetic_toroidal_cache(
             push!(phi1_half, Matrix{T}(phi1_half_l))
             push!(phi1_full, Matrix{T}(phi1_full_l))
 
-            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l=l)
+            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l = l)
             push!(phi2_full, Matrix{T}(phi2_full_l))
         end
     end
@@ -769,7 +774,7 @@ function create_solver_erk2_magnetic_toroidal_cache(
         use_krylov,
         m,
         tol,
-        true,
+        true
     )
 end
 
@@ -780,15 +785,15 @@ Precompute ERK2 propagators for magnetic poloidal fields with embedded
 insulating boundary rows.
 """
 function create_solver_erk2_magnetic_poloidal_cache(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-) where T
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
     laplacian = build_radial_laplacian(domain)
     first_derivative = build_radial_derivative_matrix(T, 1, domain)
     nr = domain.N
@@ -855,7 +860,7 @@ function create_solver_erk2_magnetic_poloidal_cache(
             push!(phi1_half, Matrix{T}(phi1_half_l))
             push!(phi1_full, Matrix{T}(phi1_full_l))
 
-            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l=l)
+            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l = l)
             push!(phi2_full, Matrix{T}(phi2_full_l))
         end
     end
@@ -875,7 +880,7 @@ function create_solver_erk2_magnetic_poloidal_cache(
         use_krylov,
         m,
         tol,
-        true,
+        true
     )
 end
 
@@ -885,15 +890,15 @@ end
 Public wrapper for constructing a generic ERK2 stage cache.
 """
 function GeoDynamo.create_erk2_cache(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-    bc_spec::Union{Nothing, GeoDynamo.ERK2BoundarySpec{T}}=nothing,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8,
+        bc_spec::Union{Nothing, GeoDynamo.ERK2BoundarySpec{T}} = nothing
 ) where {T}
     return create_solver_erk2_cache(
         T,
@@ -904,7 +909,7 @@ function GeoDynamo.create_erk2_cache(
         use_krylov,
         m,
         tol,
-        bc_spec,
+        bc_spec
     )
 end
 
@@ -915,15 +920,15 @@ Public wrapper for constructing scalar-field ERK2 caches with embedded
 boundary conditions.
 """
 function GeoDynamo.create_erk2_cache_scalar(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64,
-    boundary_condition::Int;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64,
+        boundary_condition::Int;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
 ) where {T}
     return create_solver_erk2_scalar_cache(
         T,
@@ -934,7 +939,7 @@ function GeoDynamo.create_erk2_cache_scalar(
         boundary_condition;
         use_krylov,
         m,
-        tol,
+        tol
     )
 end
 
@@ -943,54 +948,58 @@ end
 
 Create the ERK2 cache used by temperature fields.
 """
-GeoDynamo.create_erk2_cache_temperature(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64,
-    temperature_bcs::BoundaryConditions;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-) where {T} = GeoDynamo.create_erk2_cache_scalar(
-    T,
-    config,
-    domain,
-    diffusivity,
-    dt,
-    _thermal_bc_code(temperature_bcs);
-    use_krylov,
-    m,
-    tol,
-)
+function GeoDynamo.create_erk2_cache_temperature(
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64,
+        temperature_bcs::BoundaryConditions;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
+    GeoDynamo.create_erk2_cache_scalar(
+        T,
+        config,
+        domain,
+        diffusivity,
+        dt,
+        _thermal_bc_code(temperature_bcs);
+        use_krylov,
+        m,
+        tol
+    )
+end
 
 """
     GeoDynamo.create_erk2_cache_composition(T, config, domain, diffusivity, dt, composition_bcs; ...)
 
 Create the ERK2 cache used by composition fields.
 """
-GeoDynamo.create_erk2_cache_composition(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64,
-    composition_bcs::BoundaryConditions;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-) where {T} = GeoDynamo.create_erk2_cache_scalar(
-    T,
-    config,
-    domain,
-    diffusivity,
-    dt,
-    _composition_bc_code(composition_bcs);
-    use_krylov,
-    m,
-    tol,
-)
+function GeoDynamo.create_erk2_cache_composition(
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64,
+        composition_bcs::BoundaryConditions;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
+    GeoDynamo.create_erk2_cache_scalar(
+        T,
+        config,
+        domain,
+        diffusivity,
+        dt,
+        _composition_bc_code(composition_bcs);
+        use_krylov,
+        m,
+        tol
+    )
+end
 
 """
     GeoDynamo.create_erk2_cache_magnetic_toroidal(T, config, domain, diffusivity, dt; ...)
@@ -998,14 +1007,14 @@ GeoDynamo.create_erk2_cache_composition(
 Create the ERK2 cache used by magnetic toroidal fields.
 """
 function GeoDynamo.create_erk2_cache_magnetic_toroidal(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
 ) where {T}
     return create_solver_erk2_magnetic_toroidal_cache(
         T,
@@ -1015,7 +1024,7 @@ function GeoDynamo.create_erk2_cache_magnetic_toroidal(
         dt;
         use_krylov,
         m,
-        tol,
+        tol
     )
 end
 
@@ -1025,14 +1034,14 @@ end
 Create the ERK2 cache used by magnetic poloidal fields.
 """
 function GeoDynamo.create_erk2_cache_magnetic_poloidal(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
 ) where {T}
     return create_solver_erk2_magnetic_poloidal_cache(
         T,
@@ -1042,7 +1051,7 @@ function GeoDynamo.create_erk2_cache_magnetic_poloidal(
         dt;
         use_krylov,
         m,
-        tol,
+        tol
     )
 end
 
@@ -1051,16 +1060,18 @@ end
 
 Public compatibility wrapper for the solver-local phi1 matrix-function helper.
 """
-GeoDynamo.compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where {T} =
+function GeoDynamo.compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where {T}
     solver_compute_phi1_function(A, expA)
+end
 
 """
     GeoDynamo.compute_phi2_function(A, expA; l=0)
 
 Public compatibility wrapper for the solver-local phi2 matrix-function helper.
 """
-GeoDynamo.compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) where {T} =
-    solver_compute_phi2_function(A, expA; l=l)
+function GeoDynamo.compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int = 0) where {T}
+    solver_compute_phi2_function(A, expA; l = l)
+end
 
 """
     GeoDynamo.reset_phi2_monitor!()
@@ -1074,8 +1085,9 @@ GeoDynamo.reset_phi2_monitor!() = reset_solver_phi2_monitor!()
 
 Report phi2 conditioning diagnostics on the requested interval.
 """
-GeoDynamo.report_phi2_conditioning(step::Int; interval::Int=100) =
-    report_solver_phi2_conditioning(step; interval=interval)
+function GeoDynamo.report_phi2_conditioning(step::Int; interval::Int = 100)
+    report_solver_phi2_conditioning(step; interval = interval)
+end
 
 """
     _get_or_build_erk2_cache(existing, label, diffusivity, T, config, domain, dt; ...)
@@ -1086,27 +1098,26 @@ Callers own the storage location; this helper only decides whether the existing
 cache still matches the current grid, timestep, diffusivity, and method flags.
 """
 function _get_or_build_erk2_cache(
-    existing::Union{ERK2StageCache{T}, Nothing},
-    label::AbstractString,
-    diffusivity::Float64,
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-    bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing}=nothing,
-)::ERK2StageCache{T} where T
+        existing::Union{ERK2StageCache{T}, Nothing},
+        label::AbstractString,
+        diffusivity::Float64,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8,
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing
+)::ERK2StageCache{T} where {T}
     nr = domain.N
-    needs_rebuild =
-        existing === nothing ||
-        existing.diffusivity != diffusivity ||
-        existing.nr != nr ||
-        existing.dt != dt ||
-        existing.use_krylov != use_krylov ||
-        !existing.mpi_consistent ||
-        existing.l_values != config.l_values
+    needs_rebuild = existing === nothing ||
+                    existing.diffusivity != diffusivity ||
+                    existing.nr != nr ||
+                    existing.dt != dt ||
+                    existing.use_krylov != use_krylov ||
+                    !existing.mpi_consistent ||
+                    existing.l_values != config.l_values
 
     if needs_rebuild
         if mpi_rank() == 0
@@ -1121,7 +1132,7 @@ function _get_or_build_erk2_cache(
             use_krylov,
             m,
             tol,
-            bc_spec,
+            bc_spec
         )
     end
 
@@ -1134,27 +1145,26 @@ end
 Build or reuse an ERK2 stage cache for scalar fields.
 """
 function _get_or_build_erk2_scalar_cache(
-    existing::Union{ERK2StageCache{T}, Nothing},
-    label::AbstractString,
-    diffusivity::Float64,
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    dt::Float64,
-    boundary_condition::Int;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-)::ERK2StageCache{T} where T
+        existing::Union{ERK2StageCache{T}, Nothing},
+        label::AbstractString,
+        diffusivity::Float64,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        dt::Float64,
+        boundary_condition::Int;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
+)::ERK2StageCache{T} where {T}
     nr = domain.N
-    needs_rebuild =
-        existing === nothing ||
-        existing.diffusivity != diffusivity ||
-        existing.nr != nr ||
-        existing.dt != dt ||
-        existing.use_krylov != use_krylov ||
-        !existing.mpi_consistent ||
-        existing.l_values != config.l_values
+    needs_rebuild = existing === nothing ||
+                    existing.diffusivity != diffusivity ||
+                    existing.nr != nr ||
+                    existing.dt != dt ||
+                    existing.use_krylov != use_krylov ||
+                    !existing.mpi_consistent ||
+                    existing.l_values != config.l_values
 
     if needs_rebuild
         bc_desc = ["DD", "DN", "ND", "NN"][clamp(boundary_condition, 1, 4)]
@@ -1170,7 +1180,7 @@ function _get_or_build_erk2_scalar_cache(
             boundary_condition;
             use_krylov,
             m,
-            tol,
+            tol
         )
     end
 
@@ -1186,28 +1196,27 @@ The cache key includes a hash of the radial grid so boundary-correction
 operators are refreshed when the domain geometry changes.
 """
 function _get_or_build_erk2_influence_entry(
-    existing::Union{ERK2InfluenceCacheEntry{T}, Nothing},
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64,
-    velocity_bc_code::Int;
-    theta::Float64,
-)::ERK2InfluenceCacheEntry{T} where T
+        existing::Union{ERK2InfluenceCacheEntry{T}, Nothing},
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64,
+        velocity_bc_code::Int;
+        theta::Float64
+)::ERK2InfluenceCacheEntry{T} where {T}
     domain_hash = hash(domain.r)
-    needs_refresh =
-        existing === nothing ||
-        existing.diffusivity != diffusivity ||
-        existing.dt != dt ||
-        existing.theta != theta ||
-        existing.velocity_bc_code != velocity_bc_code ||
-        existing.lmax != config.lmax ||
-        existing.mmax != config.mmax ||
-        existing.nlat != config.nlat ||
-        existing.nlon != config.nlon ||
-        existing.nr != domain.N ||
-        existing.domain_hash != domain_hash
+    needs_refresh = existing === nothing ||
+                    existing.diffusivity != diffusivity ||
+                    existing.dt != dt ||
+                    existing.theta != theta ||
+                    existing.velocity_bc_code != velocity_bc_code ||
+                    existing.lmax != config.lmax ||
+                    existing.mmax != config.mmax ||
+                    existing.nlat != config.nlat ||
+                    existing.nlon != config.nlon ||
+                    existing.nr != domain.N ||
+                    existing.domain_hash != domain_hash
 
     if needs_refresh
         matrices = create_solver_velocity_poloidal_influence_matrices(
@@ -1217,7 +1226,7 @@ function _get_or_build_erk2_influence_entry(
             diffusivity,
             dt,
             velocity_bc_code;
-            theta=theta,
+            theta = theta
         )
         return ERK2InfluenceCacheEntry{T}(
             matrices,
@@ -1230,7 +1239,7 @@ function _get_or_build_erk2_influence_entry(
             config.nlat,
             config.nlon,
             domain.N,
-            domain_hash,
+            domain_hash
         )
     end
 
@@ -1246,12 +1255,12 @@ When a rotating inner core is requested, the `(l=1, m=0)` mode gets a
 mode-dependent inner boundary value.
 """
 function build_solver_erk2_velocity_tor_bc(
-    ::Type{T},
-    domain::RadialDomainType,
-    velocity_bc_code::Int;
-    config::Union{SHTnsConfigType, Nothing}=nothing,
-    rot_omega::Float64=0.0,
-) where T
+        ::Type{T},
+        domain::RadialDomainType,
+        velocity_bc_code::Int;
+        config::Union{SHTnsConfigType, Nothing} = nothing,
+        rot_omega::Float64 = 0.0
+) where {T}
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
     d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
@@ -1259,18 +1268,17 @@ function build_solver_erk2_velocity_tor_bc(
     r_inv_inner = T(domain.r[1, 3])
     r_inv_outer = T(domain.r[nr, 3])
 
-    inner =
-        velocity_bc_code == 1 || velocity_bc_code == 2 ?
-        solver_create_dirichlet_bc(T, nr) :
-        solver_create_stress_free_tor_bc(T, d1_inner, r_inv_inner)
+    inner = velocity_bc_code == 1 || velocity_bc_code == 2 ?
+            solver_create_dirichlet_bc(T, nr) :
+            solver_create_stress_free_tor_bc(T, d1_inner, r_inv_inner)
 
-    outer =
-        velocity_bc_code == 1 || velocity_bc_code == 3 ?
-        solver_create_dirichlet_bc(T, nr) :
-        solver_create_stress_free_tor_bc(T, d1_outer, r_inv_outer)
+    outer = velocity_bc_code == 1 || velocity_bc_code == 3 ?
+            solver_create_dirichlet_bc(T, nr) :
+            solver_create_stress_free_tor_bc(T, d1_outer, r_inv_outer)
 
     inner_mode_values = nothing
-    if rot_omega != 0.0 && (velocity_bc_code == 1 || velocity_bc_code == 2) && config !== nothing
+    if rot_omega != 0.0 && (velocity_bc_code == 1 || velocity_bc_code == 2) &&
+       config !== nothing
         r_inner = T(domain.r[1, 4])
         inner_mode_values = zeros(T, length(config.l_values))
         for lm_idx in eachindex(config.l_values)
@@ -1280,7 +1288,8 @@ function build_solver_erk2_velocity_tor_bc(
         end
     end
 
-    return SolverERK2BoundarySpec{T}(inner, outer, inner_mode_values, nothing, nothing, nothing)
+    return SolverERK2BoundarySpec{T}(
+        inner, outer, inner_mode_values, nothing, nothing, nothing)
 end
 
 """
@@ -1288,7 +1297,7 @@ end
 
 Create ERK2 boundary descriptors for the velocity poloidal component.
 """
-function build_solver_erk2_velocity_pol_bc(::Type{T}, domain::RadialDomainType, velocity_bc_code::Int) where T
+function build_solver_erk2_velocity_pol_bc(::Type{T}, domain::RadialDomainType, velocity_bc_code::Int) where {T}
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
     d2 = build_radial_derivative_matrix(T, 2, domain)
@@ -1297,15 +1306,13 @@ function build_solver_erk2_velocity_pol_bc(::Type{T}, domain::RadialDomainType, 
     d2_inner = extract_dense_row(d2.data, d2.bandwidth, nr, 1)
     d2_outer = extract_dense_row(d2.data, d2.bandwidth, nr, nr)
 
-    inner =
-        velocity_bc_code == 1 || velocity_bc_code == 2 ?
-        solver_create_noslip_pol_bc(T, d1_inner) :
-        solver_create_stress_free_pol_bc(T, d2_inner)
+    inner = velocity_bc_code == 1 || velocity_bc_code == 2 ?
+            solver_create_noslip_pol_bc(T, d1_inner) :
+            solver_create_stress_free_pol_bc(T, d2_inner)
 
-    outer =
-        velocity_bc_code == 1 || velocity_bc_code == 3 ?
-        solver_create_noslip_pol_bc(T, d1_outer) :
-        solver_create_stress_free_pol_bc(T, d2_outer)
+    outer = velocity_bc_code == 1 || velocity_bc_code == 3 ?
+            solver_create_noslip_pol_bc(T, d1_outer) :
+            solver_create_stress_free_pol_bc(T, d2_outer)
 
     return SolverERK2BoundarySpec{T}(inner, outer)
 end
@@ -1315,10 +1322,10 @@ end
 
 Create homogeneous Dirichlet boundary descriptors for magnetic toroidal fields.
 """
-function build_solver_erk2_magnetic_tor_bc(::Type{T}, nr::Int) where T
+function build_solver_erk2_magnetic_tor_bc(::Type{T}, nr::Int) where {T}
     return SolverERK2BoundarySpec{T}(
         solver_create_dirichlet_bc(T, nr),
-        solver_create_dirichlet_bc(T, nr),
+        solver_create_dirichlet_bc(T, nr)
     )
 end
 
@@ -1327,7 +1334,7 @@ end
 
 Create insulating boundary descriptors for magnetic poloidal fields.
 """
-function build_solver_erk2_magnetic_pol_bc(::Type{T}, domain::RadialDomainType) where T
+function build_solver_erk2_magnetic_pol_bc(::Type{T}, domain::RadialDomainType) where {T}
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
     d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
@@ -1347,14 +1354,14 @@ Build Green-function influence operators used to correct velocity-poloidal
 endpoint constraints after ERK2 finalization.
 """
 function create_solver_velocity_poloidal_influence_matrices(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64,
-    velocity_bc_code::Int;
-    theta::Float64,
-) where T
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64,
+        velocity_bc_code::Int;
+        theta::Float64
+) where {T}
     l_values = unique(config.l_values)
     nr = domain.N
 
@@ -1409,25 +1416,21 @@ function create_solver_velocity_poloidal_influence_matrices(
 
         if velocity_bc_code == 1 || velocity_bc_code == 2
             @inbounds for j in 1:(1 + bandwidth)
-                physical_system_data[bandwidth + 1 + 1 - j, j] =
-                    first_derivative.data[bandwidth + 1 + 1 - j, j]
+                physical_system_data[bandwidth + 1 + 1 - j, j] = first_derivative.data[bandwidth + 1 + 1 - j, j]
             end
         else
             @inbounds for j in 1:(1 + bandwidth)
-                physical_system_data[bandwidth + 1 + 1 - j, j] =
-                    second_derivative.data[bandwidth + 1 + 1 - j, j]
+                physical_system_data[bandwidth + 1 + 1 - j, j] = second_derivative.data[bandwidth + 1 + 1 - j, j]
             end
         end
 
         if velocity_bc_code == 1 || velocity_bc_code == 3
             @inbounds for j in (nr - bandwidth):nr
-                physical_system_data[bandwidth + 1 + nr - j, j] =
-                    first_derivative.data[bandwidth + 1 + nr - j, j]
+                physical_system_data[bandwidth + 1 + nr - j, j] = first_derivative.data[bandwidth + 1 + nr - j, j]
             end
         else
             @inbounds for j in (nr - bandwidth):nr
-                physical_system_data[bandwidth + 1 + nr - j, j] =
-                    second_derivative.data[bandwidth + 1 + nr - j, j]
+                physical_system_data[bandwidth + 1 + nr - j, j] = second_derivative.data[bandwidth + 1 + nr - j, j]
             end
         end
 
@@ -1492,17 +1495,17 @@ Return the solver-owned temperature ERK2 cache, rebuilding it when timestep,
 grid, diffusivity, Krylov settings, or boundary conditions no longer match.
 """
 function get_solver_erk2_temperature_cache!(
-    caches::TimestepCaches{T},
-    diffusivity::Float64,
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    dt::Float64,
-    temperature_bc_code::Int;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-) where T
+        caches::TimestepCaches{T},
+        diffusivity::Float64,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        dt::Float64,
+        temperature_bc_code::Int;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
     caches.erk2_temperature = _get_or_build_erk2_scalar_cache(
         caches.erk2_temperature,
         "temperature",
@@ -1512,9 +1515,9 @@ function get_solver_erk2_temperature_cache!(
         domain,
         dt,
         temperature_bc_code;
-        use_krylov=use_krylov,
-        m=m,
-        tol=tol,
+        use_krylov = use_krylov,
+        m = m,
+        tol = tol
     )
     return caches.erk2_temperature::ERK2StageCache{T}
 end
@@ -1526,17 +1529,17 @@ Return the solver-owned composition ERK2 cache with the same compatibility
 checks used for the temperature scalar cache.
 """
 function get_solver_erk2_composition_cache!(
-    caches::TimestepCaches{T},
-    diffusivity::Float64,
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    dt::Float64,
-    composition_bc_code::Int;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-) where T
+        caches::TimestepCaches{T},
+        diffusivity::Float64,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        dt::Float64,
+        composition_bc_code::Int;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
     caches.erk2_composition = _get_or_build_erk2_scalar_cache(
         caches.erk2_composition,
         "composition",
@@ -1546,9 +1549,9 @@ function get_solver_erk2_composition_cache!(
         domain,
         dt,
         composition_bc_code;
-        use_krylov=use_krylov,
-        m=m,
-        tol=tol,
+        use_krylov = use_krylov,
+        m = m,
+        tol = tol
     )
     return caches.erk2_composition::ERK2StageCache{T}
 end
@@ -1562,18 +1565,18 @@ This concrete overload avoids runtime `Symbol` dispatch in the main solver
 step while still sharing the generic rebuild checks.
 """
 function get_solver_erk2_cache!(
-    caches::TimestepCaches{T},
-    ::Val{:velocity_toroidal},
-    diffusivity::Float64,
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-    bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing}=nothing,
-) where T
+        caches::TimestepCaches{T},
+        ::Val{:velocity_toroidal},
+        diffusivity::Float64,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8,
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing
+) where {T}
     caches.erk2_velocity_toroidal = _get_or_build_erk2_cache(
         caches.erk2_velocity_toroidal,
         "velocity_toroidal",
@@ -1582,10 +1585,10 @@ function get_solver_erk2_cache!(
         config,
         domain,
         dt;
-        use_krylov=use_krylov,
-        m=m,
-        tol=tol,
-        bc_spec=bc_spec,
+        use_krylov = use_krylov,
+        m = m,
+        tol = tol,
+        bc_spec = bc_spec
     )
     return caches.erk2_velocity_toroidal::ERK2StageCache{T}
 end
@@ -1596,18 +1599,18 @@ end
 Return the velocity-poloidal ERK2 cache from `TimestepCaches`.
 """
 function get_solver_erk2_cache!(
-    caches::TimestepCaches{T},
-    ::Val{:velocity_poloidal},
-    diffusivity::Float64,
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-    bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing}=nothing,
-) where T
+        caches::TimestepCaches{T},
+        ::Val{:velocity_poloidal},
+        diffusivity::Float64,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8,
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing
+) where {T}
     caches.erk2_velocity_poloidal = _get_or_build_erk2_cache(
         caches.erk2_velocity_poloidal,
         "velocity_poloidal",
@@ -1616,10 +1619,10 @@ function get_solver_erk2_cache!(
         config,
         domain,
         dt;
-        use_krylov=use_krylov,
-        m=m,
-        tol=tol,
-        bc_spec=bc_spec,
+        use_krylov = use_krylov,
+        m = m,
+        tol = tol,
+        bc_spec = bc_spec
     )
     return caches.erk2_velocity_poloidal::ERK2StageCache{T}
 end
@@ -1631,27 +1634,27 @@ Compatibility shim that dispatches legacy `Symbol` keys to the concrete
 velocity cache overloads.
 """
 function get_solver_erk2_cache!(
-    caches::TimestepCaches{T},
-    key::Symbol,
-    diffusivity::Float64,
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-    bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing}=nothing,
-) where T
+        caches::TimestepCaches{T},
+        key::Symbol,
+        diffusivity::Float64,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8,
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing
+) where {T}
     if key === :velocity_toroidal
         return get_solver_erk2_cache!(
             caches, Val(:velocity_toroidal), diffusivity, T, config, domain, dt;
-            use_krylov=use_krylov, m=m, tol=tol, bc_spec=bc_spec,
+            use_krylov = use_krylov, m = m, tol = tol, bc_spec = bc_spec
         )
     elseif key === :velocity_poloidal
         return get_solver_erk2_cache!(
             caches, Val(:velocity_poloidal), diffusivity, T, config, domain, dt;
-            use_krylov=use_krylov, m=m, tol=tol, bc_spec=bc_spec,
+            use_krylov = use_krylov, m = m, tol = tol, bc_spec = bc_spec
         )
     else
         error("get_solver_erk2_cache!: unsupported key $key for TimestepCaches")
@@ -1664,26 +1667,25 @@ end
 Return or rebuild the magnetic-toroidal ERK2 cache stored in `TimestepCaches`.
 """
 function get_solver_erk2_magnetic_toroidal_cache!(
-    caches::TimestepCaches{T},
-    diffusivity::Float64,
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-) where T
+        caches::TimestepCaches{T},
+        diffusivity::Float64,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
     nr = domain.N
     existing = caches.erk2_magnetic_toroidal
-    needs_rebuild =
-        existing === nothing ||
-        existing.diffusivity != diffusivity ||
-        existing.nr != nr ||
-        existing.dt != dt ||
-        existing.use_krylov != use_krylov ||
-        !existing.mpi_consistent ||
-        existing.l_values != config.l_values
+    needs_rebuild = existing === nothing ||
+                    existing.diffusivity != diffusivity ||
+                    existing.nr != nr ||
+                    existing.dt != dt ||
+                    existing.use_krylov != use_krylov ||
+                    !existing.mpi_consistent ||
+                    existing.l_values != config.l_values
 
     if needs_rebuild
         if mpi_rank() == 0
@@ -1697,7 +1699,7 @@ function get_solver_erk2_magnetic_toroidal_cache!(
             dt;
             use_krylov,
             m,
-            tol,
+            tol
         )
     end
 
@@ -1710,26 +1712,25 @@ end
 Return or rebuild the magnetic-poloidal ERK2 cache stored in `TimestepCaches`.
 """
 function get_solver_erk2_magnetic_poloidal_cache!(
-    caches::TimestepCaches{T},
-    diffusivity::Float64,
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    dt::Float64;
-    use_krylov::Bool=false,
-    m::Int=20,
-    tol::Float64=1e-8,
-) where T
+        caches::TimestepCaches{T},
+        diffusivity::Float64,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        dt::Float64;
+        use_krylov::Bool = false,
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
     nr = domain.N
     existing = caches.erk2_magnetic_poloidal
-    needs_rebuild =
-        existing === nothing ||
-        existing.diffusivity != diffusivity ||
-        existing.nr != nr ||
-        existing.dt != dt ||
-        existing.use_krylov != use_krylov ||
-        !existing.mpi_consistent ||
-        existing.l_values != config.l_values
+    needs_rebuild = existing === nothing ||
+                    existing.diffusivity != diffusivity ||
+                    existing.nr != nr ||
+                    existing.dt != dt ||
+                    existing.use_krylov != use_krylov ||
+                    !existing.mpi_consistent ||
+                    existing.l_values != config.l_values
 
     if needs_rebuild
         if mpi_rank() == 0
@@ -1743,7 +1744,7 @@ function get_solver_erk2_magnetic_poloidal_cache!(
             dt;
             use_krylov,
             m,
-            tol,
+            tol
         )
     end
 
@@ -1759,16 +1760,16 @@ Only `:velocity_poloidal` is valid here because the correction enforces the
 poloidal boundary constraints after the ERK2 field update.
 """
 function get_solver_erk2_influence_matrices!(
-    cache::TimestepCaches{T},
-    key::Symbol,
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64,
-    velocity_bc_code::Int;
-    theta::Float64,
-) where T
+        cache::TimestepCaches{T},
+        key::Symbol,
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64,
+        velocity_bc_code::Int;
+        theta::Float64
+) where {T}
     key === :velocity_poloidal || throw(ArgumentError(
         "get_solver_erk2_influence_matrices!: only :velocity_poloidal key supported for TimestepCaches; got $key"
     ))
@@ -1780,7 +1781,7 @@ function get_solver_erk2_influence_matrices!(
         diffusivity,
         dt,
         velocity_bc_code;
-        theta=theta,
+        theta = theta
     )
     return (cache.erk2_influence_velocity_poloidal::ERK2InfluenceCacheEntry{T}).matrices
 end
@@ -1792,11 +1793,11 @@ Project one dense radial profile back onto the requested endpoint constraints
 using a precomputed two-column influence operator.
 """
 function apply_solver_influence_matrix_correction!(
-    result::AbstractVector{T},
-    influence::ERK2InfluenceOp{T},
-    bc_inner_val::T=zero(T),
-    bc_outer_val::T=zero(T),
-) where T
+        result::AbstractVector{T},
+        influence::ERK2InfluenceOp{T},
+        bc_inner_val::T = zero(T),
+        bc_outer_val::T = zero(T)
+) where {T}
     nr = length(result)
     delta_inner = result[1] - bc_inner_val
     delta_outer = result[nr] - bc_outer_val
@@ -1818,11 +1819,11 @@ Apply the velocity-poloidal endpoint influence correction to all local spectral
 modes in a distributed field.
 """
 function apply_solver_velocity_poloidal_influence_correction!(
-    field::SpectralFieldType{T},
-    influence_matrices::Dict{Int, ERK2InfluenceOp{T}},
-    config::SHTnsConfigType;
-    work::Union{Vector{T}, Nothing}=nothing,
-) where T
+        field::SpectralFieldType{T},
+        influence_matrices::Dict{Int, ERK2InfluenceOp{T}},
+        config::SHTnsConfigType;
+        work::Union{Vector{T}, Nothing} = nothing
+) where {T}
     u_real = parent(field.data_real)
     u_imag = parent(field.data_imag)
     lm_range = local_spectral_mode_indices(config)
@@ -1864,55 +1865,61 @@ end
 
 Public wrapper for building velocity-poloidal influence correction operators.
 """
-GeoDynamo.create_velocity_poloidal_influence_matrices(
-    ::Type{T},
-    config::SHTnsConfigType,
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    dt::Float64,
-    velocity_bcs::BoundaryConditions;
-    theta::Float64=0.5,
-) where {T} = create_solver_velocity_poloidal_influence_matrices(
-    T,
-    config,
-    domain,
-    diffusivity,
-    dt,
-    _velocity_bc_code(velocity_bcs);
-    theta,
-)
+function GeoDynamo.create_velocity_poloidal_influence_matrices(
+        ::Type{T},
+        config::SHTnsConfigType,
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        dt::Float64,
+        velocity_bcs::BoundaryConditions;
+        theta::Float64 = 0.5
+) where {T}
+    create_solver_velocity_poloidal_influence_matrices(
+        T,
+        config,
+        domain,
+        diffusivity,
+        dt,
+        _velocity_bc_code(velocity_bcs);
+        theta
+    )
+end
 
 """
     GeoDynamo.apply_influence_matrix_correction!(result, influence, bc_inner_val=0, bc_outer_val=0)
 
 Public wrapper for applying a single radial-profile influence correction.
 """
-GeoDynamo.apply_influence_matrix_correction!(
-    result::AbstractVector{T},
-    influence::ERK2InfluenceOp{T},
-    bc_inner_val::T=zero(T),
-    bc_outer_val::T=zero(T),
-) where {T} = apply_solver_influence_matrix_correction!(
-    result,
-    influence,
-    bc_inner_val,
-    bc_outer_val,
-)
+function GeoDynamo.apply_influence_matrix_correction!(
+        result::AbstractVector{T},
+        influence::ERK2InfluenceOp{T},
+        bc_inner_val::T = zero(T),
+        bc_outer_val::T = zero(T)
+) where {T}
+    apply_solver_influence_matrix_correction!(
+        result,
+        influence,
+        bc_inner_val,
+        bc_outer_val
+    )
+end
 
 """
     GeoDynamo.apply_velocity_poloidal_influence_correction!(field, influence_matrices, config)
 
 Public wrapper for applying influence corrections to velocity-poloidal fields.
 """
-GeoDynamo.apply_velocity_poloidal_influence_correction!(
-    field::SpectralFieldType{T},
-    influence_matrices::Dict{Int, ERK2InfluenceOp{T}},
-    config::SHTnsConfigType,
-) where {T} = apply_solver_velocity_poloidal_influence_correction!(
-    field,
-    influence_matrices,
-    config,
-)
+function GeoDynamo.apply_velocity_poloidal_influence_correction!(
+        field::SpectralFieldType{T},
+        influence_matrices::Dict{Int, ERK2InfluenceOp{T}},
+        config::SHTnsConfigType
+) where {T}
+    apply_solver_velocity_poloidal_influence_correction!(
+        field,
+        influence_matrices,
+        config
+    )
+end
 
 """
     SolverERK2FieldBuffers(u, nl, cache)
@@ -1921,10 +1928,10 @@ Allocate ERK2 work buffers matching one spectral field, its nonlinear term, and
 the selected stage cache.
 """
 function SolverERK2FieldBuffers(
-    u::SpectralFieldType{T},
-    nl::SpectralFieldType{T},
-    cache::ERK2StageCache{T},
-) where T
+        u::SpectralFieldType{T},
+        nl::SpectralFieldType{T},
+        cache::ERK2StageCache{T}
+) where {T}
     isempty(cache.E_full) && error("ERK2 cache has no precomputed matrices")
     real_data = parent(u.data_real)
     imag_data = parent(u.data_imag)
@@ -1947,18 +1954,18 @@ function SolverERK2FieldBuffers(
         similar(nl_imag),
         cache_lookup,
         nr,
-        workspace,
+        workspace
     )
 end
 
 const ERK2FieldBuffers = SolverERK2FieldBuffers
 
 function erk2_field_buffers_match(
-    buffers::SolverERK2FieldBuffers{T},
-    u::SpectralFieldType{T},
-    nl::SpectralFieldType{T},
-    cache::ERK2StageCache{T},
-) where T
+        buffers::SolverERK2FieldBuffers{T},
+        u::SpectralFieldType{T},
+        nl::SpectralFieldType{T},
+        cache::ERK2StageCache{T}
+) where {T}
     size(buffers.linear_real) == size(parent(u.data_real)) || return false
     size(buffers.linear_imag) == size(parent(u.data_imag)) || return false
     size(buffers.n_current_real) == size(parent(nl.data_real)) || return false
@@ -1973,12 +1980,12 @@ function erk2_field_buffers_match(
 end
 
 function get_solver_erk2_field_buffers!(
-    caches::TimestepCaches{T},
-    key::Symbol,
-    u::SpectralFieldType{T},
-    nl::SpectralFieldType{T},
-    cache::ERK2StageCache{T},
-) where T
+        caches::TimestepCaches{T},
+        key::Symbol,
+        u::SpectralFieldType{T},
+        nl::SpectralFieldType{T},
+        cache::ERK2StageCache{T}
+) where {T}
     buffers = get(caches.erk2_field_buffers, key, nothing)
     if buffers === nothing || !erk2_field_buffers_match(buffers, u, nl, cache)
         buffers = SolverERK2FieldBuffers(u, nl, cache)
@@ -1996,15 +2003,16 @@ This computes the full-step linear term, the first nonlinear increment, and
 the half-step provisional state used for recomputing nonlinear terms.
 """
 function prepare_solver_erk2_field!(
-    buffers::SolverERK2FieldBuffers{T},
-    u::SpectralFieldType{T},
-    nl::SpectralFieldType{T},
-    cache::ERK2StageCache{T},
-    config::SHTnsConfigType,
-    dt::Float64;
-    bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing}=nothing,
-) where T
-    cache.use_krylov && error("Krylov-based ERK2 caches are not supported in staged integration")
+        buffers::SolverERK2FieldBuffers{T},
+        u::SpectralFieldType{T},
+        nl::SpectralFieldType{T},
+        cache::ERK2StageCache{T},
+        config::SHTnsConfigType,
+        dt::Float64;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing
+) where {T}
+    cache.use_krylov &&
+        error("Krylov-based ERK2 caches are not supported in staged integration")
 
     u_real = parent(u.data_real)
     u_imag = parent(u.data_imag)
@@ -2018,7 +2026,9 @@ function prepare_solver_erk2_field!(
 
     nr = buffers.nr
     ur, ui, nr_vec, ni_vec = buffers._ws[1], buffers._ws[2], buffers._ws[3], buffers._ws[4]
-    linear_tmp, k1_tmp, stage_tmp, stage_phi_tmp = buffers._ws[5], buffers._ws[6], buffers._ws[7], buffers._ws[8]
+    linear_tmp, k1_tmp,
+    stage_tmp,
+    stage_phi_tmp = buffers._ws[5], buffers._ws[6], buffers._ws[7], buffers._ws[8]
     half_dt = T(dt) / T(2)
 
     nlm_total = u.nlm
@@ -2060,7 +2070,7 @@ function prepare_solver_erk2_field!(
             buffers.n_current_real,
             buffers.n_current_imag,
             slot,
-            r_range,
+            r_range
         )
 
         # Real component
@@ -2077,8 +2087,10 @@ function prepare_solver_erk2_field!(
         if bc_spec !== nothing
             inner_val = boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
             outer_val = boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
-            solver_enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr; value_override=inner_val)
-            solver_enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr; value_override=outer_val)
+            solver_enforce_erk2_bc!(
+                stage_tmp, bc_spec.inner, 1, l, nr; value_override = inner_val)
+            solver_enforce_erk2_bc!(
+                stage_tmp, bc_spec.outer, nr, l, nr; value_override = outer_val)
         else
             stage_tmp[1] = zero(T)
             stage_tmp[nr] = zero(T)
@@ -2101,8 +2113,10 @@ function prepare_solver_erk2_field!(
         if bc_spec !== nothing
             inner_val_i = boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
             outer_val_i = boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
-            solver_enforce_erk2_bc!(stage_tmp, bc_spec.inner, 1, l, nr; value_override=inner_val_i)
-            solver_enforce_erk2_bc!(stage_tmp, bc_spec.outer, nr, l, nr; value_override=outer_val_i)
+            solver_enforce_erk2_bc!(
+                stage_tmp, bc_spec.inner, 1, l, nr; value_override = inner_val_i)
+            solver_enforce_erk2_bc!(
+                stage_tmp, bc_spec.outer, nr, l, nr; value_override = outer_val_i)
         else
             stage_tmp[1] = zero(T)
             stage_tmp[nr] = zero(T)
@@ -2121,13 +2135,13 @@ end
 Public wrapper for preparing the provisional ERK2 stage for one field.
 """
 function GeoDynamo.erk2_prepare_field!(
-    buffers::SolverERK2FieldBuffers{T},
-    u::SpectralFieldType{T},
-    nl::SpectralFieldType{T},
-    cache::GeoDynamo.ERK2Cache{T},
-    config::SHTnsConfigType,
-    dt::Float64;
-    bc_spec::Union{Nothing, GeoDynamo.ERK2BoundarySpec{T}}=nothing,
+        buffers::SolverERK2FieldBuffers{T},
+        u::SpectralFieldType{T},
+        nl::SpectralFieldType{T},
+        cache::GeoDynamo.ERK2Cache{T},
+        config::SHTnsConfigType,
+        dt::Float64;
+        bc_spec::Union{Nothing, GeoDynamo.ERK2BoundarySpec{T}} = nothing
 ) where {T}
     return prepare_solver_erk2_field!(
         buffers,
@@ -2136,7 +2150,7 @@ function GeoDynamo.erk2_prepare_field!(
         cache,
         config,
         dt;
-        bc_spec,
+        bc_spec
     )
 end
 
@@ -2146,9 +2160,9 @@ end
 Overwrite `u` with the provisional half-step ERK2 stage stored in `buffers`.
 """
 function apply_solver_erk2_stage!(
-    buffers::SolverERK2FieldBuffers{T},
-    u::SpectralFieldType{T},
-) where T
+        buffers::SolverERK2FieldBuffers{T},
+        u::SpectralFieldType{T}
+) where {T}
     parent(u.data_real) .= buffers.stage_real
     parent(u.data_imag) .= buffers.stage_imag
     return u
@@ -2159,10 +2173,12 @@ end
 
 Public wrapper that writes the provisional ERK2 stage into a field.
 """
-GeoDynamo.erk2_apply_stage!(
-    buffers::SolverERK2FieldBuffers{T},
-    u::SpectralFieldType{T},
-) where {T} = apply_solver_erk2_stage!(buffers, u)
+function GeoDynamo.erk2_apply_stage!(
+        buffers::SolverERK2FieldBuffers{T},
+        u::SpectralFieldType{T}
+) where {T}
+    apply_solver_erk2_stage!(buffers, u)
+end
 
 """
     store_solver_erk2_stage_nonlinear!(buffers, nl)
@@ -2170,9 +2186,9 @@ GeoDynamo.erk2_apply_stage!(
 Store nonlinear terms evaluated at the provisional ERK2 stage.
 """
 function store_solver_erk2_stage_nonlinear!(
-    buffers::SolverERK2FieldBuffers{T},
-    nl::SpectralFieldType{T},
-) where T
+        buffers::SolverERK2FieldBuffers{T},
+        nl::SpectralFieldType{T}
+) where {T}
     copyto!(buffers.stage_nl_real, parent(nl.data_real))
     copyto!(buffers.stage_nl_imag, parent(nl.data_imag))
     return buffers
@@ -2183,10 +2199,12 @@ end
 
 Public wrapper for storing nonlinear terms evaluated at the ERK2 stage.
 """
-GeoDynamo.erk2_store_stage_nonlinear!(
-    buffers::SolverERK2FieldBuffers{T},
-    nl::SpectralFieldType{T},
-) where {T} = store_solver_erk2_stage_nonlinear!(buffers, nl)
+function GeoDynamo.erk2_store_stage_nonlinear!(
+        buffers::SolverERK2FieldBuffers{T},
+        nl::SpectralFieldType{T}
+) where {T}
+    store_solver_erk2_stage_nonlinear!(buffers, nl)
+end
 
 """
     finalize_solver_erk2_field!(buffers, u, cache, config, dt; bc_spec=nothing)
@@ -2197,22 +2215,26 @@ The final state combines the full-step linear propagation, the first nonlinear
 increment, and the `phi2` correction from the staged nonlinear residual.
 """
 function finalize_solver_erk2_field!(
-    buffers::SolverERK2FieldBuffers{T},
-    u::SpectralFieldType{T},
-    cache::ERK2StageCache{T},
-    config::SHTnsConfigType,
-    dt::Float64;
-    bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing}=nothing,
-) where T
-    cache.use_krylov && error("Krylov-based ERK2 caches are not supported in staged integration")
+        buffers::SolverERK2FieldBuffers{T},
+        u::SpectralFieldType{T},
+        cache::ERK2StageCache{T},
+        config::SHTnsConfigType,
+        dt::Float64;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing
+) where {T}
+    cache.use_krylov &&
+        error("Krylov-based ERK2 caches are not supported in staged integration")
 
     u_real = parent(u.data_real)
     u_imag = parent(u.data_imag)
     r_range = local_range(u.pencil, 3)
 
     nr = buffers.nr
-    tmp_linear, tmp_k1, tmp_Nn, tmp_stage = buffers._ws[1], buffers._ws[2], buffers._ws[3], buffers._ws[4]
-    delta, correction, result, result_real_profile = buffers._ws[5], buffers._ws[6], buffers._ws[7], buffers._ws[8]
+    tmp_linear, tmp_k1,
+    tmp_Nn, tmp_stage = buffers._ws[1], buffers._ws[2], buffers._ws[3], buffers._ws[4]
+    delta, correction,
+    result,
+    result_real_profile = buffers._ws[5], buffers._ws[6], buffers._ws[7], buffers._ws[8]
 
     nlm_total = u.nlm
 
@@ -2231,10 +2253,14 @@ function finalize_solver_erk2_field!(
         phi2 = cache.phi2_full[cache_idx]
 
         # Real component
-        fill!(tmp_linear, zero(T)); fill!(tmp_k1, zero(T))
-        fill!(tmp_Nn, zero(T)); fill!(tmp_stage, zero(T))
-        gather_local_radial_profile!(tmp_linear, tmp_k1, buffers.linear_real, buffers.k1_real, slot, r_range)
-        gather_local_radial_profile!(tmp_Nn, tmp_stage, buffers.n_current_real, buffers.stage_nl_real, slot, r_range)
+        fill!(tmp_linear, zero(T));
+        fill!(tmp_k1, zero(T))
+        fill!(tmp_Nn, zero(T));
+        fill!(tmp_stage, zero(T))
+        gather_local_radial_profile!(
+            tmp_linear, tmp_k1, buffers.linear_real, buffers.k1_real, slot, r_range)
+        gather_local_radial_profile!(
+            tmp_Nn, tmp_stage, buffers.n_current_real, buffers.stage_nl_real, slot, r_range)
 
         delta .= tmp_stage
         @. delta = delta - tmp_Nn
@@ -2243,8 +2269,10 @@ function finalize_solver_erk2_field!(
         if bc_spec !== nothing
             inner_val = boundary_mode_value(bc_spec.inner_mode_values, lm_idx)
             outer_val = boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
-            solver_enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr; value_override=inner_val)
-            solver_enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr; value_override=outer_val)
+            solver_enforce_erk2_bc!(
+                result, bc_spec.inner, 1, l, nr; value_override = inner_val)
+            solver_enforce_erk2_bc!(
+                result, bc_spec.outer, nr, l, nr; value_override = outer_val)
         else
             result[1] = zero(T)
             result[nr] = zero(T)
@@ -2252,10 +2280,14 @@ function finalize_solver_erk2_field!(
         copy!(result_real_profile, result)
 
         # Imag component
-        fill!(tmp_linear, zero(T)); fill!(tmp_k1, zero(T))
-        fill!(tmp_Nn, zero(T)); fill!(tmp_stage, zero(T))
-        gather_local_radial_profile!(tmp_linear, tmp_k1, buffers.linear_imag, buffers.k1_imag, slot, r_range)
-        gather_local_radial_profile!(tmp_Nn, tmp_stage, buffers.n_current_imag, buffers.stage_nl_imag, slot, r_range)
+        fill!(tmp_linear, zero(T));
+        fill!(tmp_k1, zero(T))
+        fill!(tmp_Nn, zero(T));
+        fill!(tmp_stage, zero(T))
+        gather_local_radial_profile!(
+            tmp_linear, tmp_k1, buffers.linear_imag, buffers.k1_imag, slot, r_range)
+        gather_local_radial_profile!(
+            tmp_Nn, tmp_stage, buffers.n_current_imag, buffers.stage_nl_imag, slot, r_range)
 
         delta .= tmp_stage
         @. delta = delta - tmp_Nn
@@ -2264,14 +2296,17 @@ function finalize_solver_erk2_field!(
         if bc_spec !== nothing
             inner_val_i = boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
             outer_val_i = boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
-            solver_enforce_erk2_bc!(result, bc_spec.inner, 1, l, nr; value_override=inner_val_i)
-            solver_enforce_erk2_bc!(result, bc_spec.outer, nr, l, nr; value_override=outer_val_i)
+            solver_enforce_erk2_bc!(
+                result, bc_spec.inner, 1, l, nr; value_override = inner_val_i)
+            solver_enforce_erk2_bc!(
+                result, bc_spec.outer, nr, l, nr; value_override = outer_val_i)
         else
             result[1] = zero(T)
             result[nr] = zero(T)
         end
 
-        scatter_local_radial_profile!(u_real, u_imag, result_real_profile, result, slot, r_range)
+        scatter_local_radial_profile!(
+            u_real, u_imag, result_real_profile, result, slot, r_range)
     end
 
     solver_synchronize_pencil_transforms!(u)
@@ -2284,12 +2319,12 @@ end
 Public wrapper for writing the accepted ERK2 update back into a field.
 """
 function GeoDynamo.erk2_finalize_field!(
-    buffers::SolverERK2FieldBuffers{T},
-    u::SpectralFieldType{T},
-    cache::GeoDynamo.ERK2Cache{T},
-    config::SHTnsConfigType,
-    dt::Float64;
-    bc_spec::Union{Nothing, GeoDynamo.ERK2BoundarySpec{T}}=nothing,
+        buffers::SolverERK2FieldBuffers{T},
+        u::SpectralFieldType{T},
+        cache::GeoDynamo.ERK2Cache{T},
+        config::SHTnsConfigType,
+        dt::Float64;
+        bc_spec::Union{Nothing, GeoDynamo.ERK2BoundarySpec{T}} = nothing
 ) where {T}
     return finalize_solver_erk2_field!(
         buffers,
@@ -2297,7 +2332,7 @@ function GeoDynamo.erk2_finalize_field!(
         cache,
         config,
         dt;
-        bc_spec,
+        bc_spec
     )
 end
 
@@ -2306,7 +2341,7 @@ end
 
 Return global max and L2 norms of the staged nonlinear residual.
 """
-function solver_erk2_stage_residual_stats(buffers::SolverERK2FieldBuffers{T}) where T
+function solver_erk2_stage_residual_stats(buffers::SolverERK2FieldBuffers{T}) where {T}
     stage_real = buffers.stage_nl_real
     stage_imag = buffers.stage_nl_imag
     base_real = buffers.n_current_real
@@ -2338,7 +2373,7 @@ function solver_erk2_stage_residual_stats(buffers::SolverERK2FieldBuffers{T}) wh
         global_sum = local_sum
     end
 
-    return (max=global_max, l2=sqrt(global_sum))
+    return (max = global_max, l2 = sqrt(global_sum))
 end
 
 """
@@ -2346,8 +2381,9 @@ end
 
 Public wrapper returning global max and L2 ERK2 stage-residual norms.
 """
-GeoDynamo.erk2_stage_residual_stats(buffers::SolverERK2FieldBuffers{T}) where {T} =
+function GeoDynamo.erk2_stage_residual_stats(buffers::SolverERK2FieldBuffers{T}) where {T}
     solver_erk2_stage_residual_stats(buffers)
+end
 
 """
     maybe_log_solver_erk2_stage_residual!(label, buffers, step)
@@ -2356,9 +2392,9 @@ Log ERK2 stage residual diagnostics when diagnostics are enabled and `step`
 matches the configured interval.
 """
 function maybe_log_solver_erk2_stage_residual!(
-    label::Symbol,
-    buffers::SolverERK2FieldBuffers,
-    step::Int,
+        label::Symbol,
+        buffers::SolverERK2FieldBuffers,
+        step::Int
 )
     SOLVER_ERK2_DIAGNOSTICS_ENABLED[] || return nothing
     interval = SOLVER_ERK2_DIAGNOSTICS_INTERVAL[]
@@ -2375,11 +2411,13 @@ end
 
 Public wrapper for conditional ERK2 stage-residual logging.
 """
-GeoDynamo.maybe_log_erk2_stage_residual!(
-    label::Symbol,
-    buffers::SolverERK2FieldBuffers,
-    step::Int,
-) = maybe_log_solver_erk2_stage_residual!(label, buffers, step)
+function GeoDynamo.maybe_log_erk2_stage_residual!(
+        label::Symbol,
+        buffers::SolverERK2FieldBuffers,
+        step::Int
+)
+    maybe_log_solver_erk2_stage_residual!(label, buffers, step)
+end
 
 """
     GeoDynamo.save_erk2_cache_bundle(path, caches; metadata=Dict())
@@ -2387,9 +2425,9 @@ GeoDynamo.maybe_log_erk2_stage_residual!(
 Persist compatible ERK2 stage caches and metadata to a JLD2 file.
 """
 function GeoDynamo.save_erk2_cache_bundle(
-    path::AbstractString,
-    caches::AbstractDict{Symbol, <:Any};
-    metadata::Dict{String, Any}=Dict{String, Any}(),
+        path::AbstractString,
+        caches::AbstractDict{Symbol, <:Any};
+        metadata::Dict{String, Any} = Dict{String, Any}()
 )
     bundle = Dict{Symbol, Any}()
     for (key, value) in caches
@@ -2417,7 +2455,8 @@ function GeoDynamo.load_erk2_cache_bundle(path::AbstractString)
     metadata = Dict{String, Any}()
     GeoDynamo.jldopen(path, "r") do file
         caches = Dict{Symbol, Any}(file["caches"])
-        metadata = haskey(file, "metadata") ? Dict{String, Any}(file["metadata"]) : Dict{String, Any}()
+        metadata = haskey(file, "metadata") ? Dict{String, Any}(file["metadata"]) :
+                   Dict{String, Any}()
     end
     return caches, metadata
 end
@@ -2428,8 +2467,8 @@ end
 Install cache entries from a loaded bundle into a target cache dictionary.
 """
 function GeoDynamo.install_erk2_cache_bundle!(
-    target::Dict{Symbol, Any},
-    bundle::AbstractDict{Symbol, <:Any},
+        target::Dict{Symbol, Any},
+        bundle::AbstractDict{Symbol, <:Any}
 )
     for (key, value) in bundle
         cache = compat_normalize_old_erk2_cache_entry(value)
@@ -2445,8 +2484,8 @@ end
 Typed cache-bundle installer used by solver-local cache dictionaries.
 """
 function GeoDynamo.install_erk2_cache_bundle!(
-    target::Dict{Symbol, ERK2StageCache{T}},
-    bundle::AbstractDict{Symbol, <:Any},
+        target::Dict{Symbol, ERK2StageCache{T}},
+        bundle::AbstractDict{Symbol, <:Any}
 ) where {T}
     for (key, value) in bundle
         cache = compat_normalize_old_erk2_cache_entry(value)
@@ -2462,11 +2501,11 @@ end
 Load a cache bundle from disk, install it into `target`, and return metadata.
 """
 function GeoDynamo.load_erk2_cache_bundle!(
-    target::Union{
-        Dict{Symbol, Any},
-        Dict{Symbol, ERK2StageCache{T}},
-    },
-    path::AbstractString,
+        target::Union{
+            Dict{Symbol, Any},
+            Dict{Symbol, ERK2StageCache{T}}
+        },
+        path::AbstractString
 ) where {T}
     bundle, metadata = GeoDynamo.load_erk2_cache_bundle(path)
     GeoDynamo.install_erk2_cache_bundle!(target, bundle)
@@ -2482,13 +2521,13 @@ The staged nonlinear evaluation temporarily overwrites solver nonlinear fields;
 this restores the accepted-step histories expected by the rest of the solver.
 """
 function restore_solver_erk2_nonlinear_terms!(
-    state::SolverState,
-    temp_buffers,
-    vel_tor_buffers,
-    vel_pol_buffers,
-    mag_tor_buffers,
-    mag_pol_buffers,
-    comp_buffers,
+        state::SolverState,
+        temp_buffers,
+        vel_tor_buffers,
+        vel_pol_buffers,
+        mag_tor_buffers,
+        mag_pol_buffers,
+        comp_buffers
 )
     copyto!(parent(state.fields.temperature.nonlinear.data_real), temp_buffers.n_current_real)
     copyto!(parent(state.fields.temperature.nonlinear.data_imag), temp_buffers.n_current_imag)
@@ -2519,11 +2558,11 @@ end
 # Per-step endpoint values are attached separately via
 # `with_boundary_mode_values`, so the cached base spec is never mutated.
 function _get_or_build_erk2_boundary_spec!(
-    caches::TimestepCaches{T},
-    role::Symbol,
-    bc_code::Int,
-    builder::F,
-) where {T,F}
+        caches::TimestepCaches{T},
+        role::Symbol,
+        bc_code::Int,
+        builder::F
+) where {T, F}
     specs = caches.erk2_boundary_specs
     key = (role, bc_code)
     cached = get(specs, key, nothing)
@@ -2542,7 +2581,8 @@ The routine builds/reuses field caches, prepares provisional stages, recomputes
 nonlinear terms at those stages, finalizes each field, applies the
 velocity-poloidal influence correction, and restores nonlinear histories.
 """
-function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture}) where T
+function integrate_solver_erk2_step!(state::SolverState{
+        T, <:AbstractArchitecture}) where {T}
     params = state.parameters
     runtime = state.runtime
     domain = state.backend.outer_core_domain
@@ -2556,7 +2596,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     # march can stay uniform across temperature, velocity, magnetic, and composition.
     temp_bc = _get_or_build_erk2_boundary_spec!(
         state.timestep_caches, :temperature, temperature_bc_code,
-        () -> build_solver_erk2_scalar_bc(T, domain, temperature_bc_code),
+        () -> build_solver_erk2_scalar_bc(T, domain, temperature_bc_code)
     )
     temp_bc_values = get_bc_vectors(state.fields.temperature)
     temp_bc = with_boundary_mode_values(
@@ -2564,7 +2604,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         temp_bc_values.inner_real,
         temp_bc_values.outer_real,
         temp_bc_values.inner_imag,
-        temp_bc_values.outer_imag,
+        temp_bc_values.outer_imag
     )
     vel_tor_bc = _get_or_build_erk2_boundary_spec!(
         state.timestep_caches, :velocity_tor, velocity_bc_code,
@@ -2572,13 +2612,13 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             T,
             domain,
             velocity_bc_code;
-            config=runtime.shtns_config,
-            rot_omega=0.0,
-        ),
+            config = runtime.shtns_config,
+            rot_omega = 0.0
+        )
     )
     vel_pol_bc = _get_or_build_erk2_boundary_spec!(
         state.timestep_caches, :velocity_pol, velocity_bc_code,
-        () -> build_solver_erk2_velocity_pol_bc(T, domain, velocity_bc_code),
+        () -> build_solver_erk2_velocity_pol_bc(T, domain, velocity_bc_code)
     )
 
     # Velocity poloidal evolution needs an influence operator so the accepted
@@ -2592,7 +2632,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         params.Ek,
         params.timestep,
         velocity_bc_code;
-        theta=theta,
+        theta = theta
     )
 
     temp_cache = get_solver_erk2_temperature_cache!(
@@ -2603,14 +2643,14 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         runtime.𝒟ᵒᶜ,
         params.timestep,
         temperature_bc_code;
-        use_krylov=false,
+        use_krylov = false
     )
     temp_buffers = get_solver_erk2_field_buffers!(
         state.timestep_caches,
         :temperature,
         state.fields.temperature.spectral,
         state.fields.temperature.nonlinear,
-        temp_cache,
+        temp_cache
     )
     prepare_solver_erk2_field!(
         temp_buffers,
@@ -2619,7 +2659,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         temp_cache,
         runtime.shtns_config,
         params.timestep;
-        bc_spec=temp_bc,
+        bc_spec = temp_bc
     )
 
     vel_tor_cache = get_solver_erk2_cache!(
@@ -2630,15 +2670,15 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         runtime.shtns_config,
         runtime.𝒟ᵒᶜ,
         params.timestep;
-        use_krylov=false,
-        bc_spec=vel_tor_bc,
+        use_krylov = false,
+        bc_spec = vel_tor_bc
     )
     vel_tor_buffers = get_solver_erk2_field_buffers!(
         state.timestep_caches,
         :velocity_toroidal,
         state.fields.velocity.𝒯,
         state.fields.velocity.nlᵀ,
-        vel_tor_cache,
+        vel_tor_cache
     )
     prepare_solver_erk2_field!(
         vel_tor_buffers,
@@ -2647,7 +2687,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         vel_tor_cache,
         runtime.shtns_config,
         params.timestep;
-        bc_spec=vel_tor_bc,
+        bc_spec = vel_tor_bc
     )
 
     vel_pol_cache = get_solver_erk2_cache!(
@@ -2658,15 +2698,15 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         runtime.shtns_config,
         runtime.𝒟ᵒᶜ,
         params.timestep;
-        use_krylov=false,
-        bc_spec=vel_pol_bc,
+        use_krylov = false,
+        bc_spec = vel_pol_bc
     )
     vel_pol_buffers = get_solver_erk2_field_buffers!(
         state.timestep_caches,
         :velocity_poloidal,
         state.fields.velocity.𝒫,
         state.fields.velocity.nlᴾ,
-        vel_pol_cache,
+        vel_pol_cache
     )
     prepare_solver_erk2_field!(
         vel_pol_buffers,
@@ -2675,7 +2715,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         vel_pol_cache,
         runtime.shtns_config,
         params.timestep;
-        bc_spec=vel_pol_bc,
+        bc_spec = vel_pol_bc
     )
 
     mag_tor_buffers = nothing
@@ -2687,11 +2727,11 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     if params.include_magnetic_field && state.fields.magnetic !== nothing
         mag_tor_bc = _get_or_build_erk2_boundary_spec!(
             state.timestep_caches, :magnetic_tor, 0,
-            () -> build_solver_erk2_magnetic_tor_bc(T, nr),
+            () -> build_solver_erk2_magnetic_tor_bc(T, nr)
         )
         mag_pol_bc = _get_or_build_erk2_boundary_spec!(
             state.timestep_caches, :magnetic_pol, 0,
-            () -> build_solver_erk2_magnetic_pol_bc(T, domain),
+            () -> build_solver_erk2_magnetic_pol_bc(T, domain)
         )
 
         mag_tor_cache = get_solver_erk2_magnetic_toroidal_cache!(
@@ -2701,14 +2741,14 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             runtime.shtns_config,
             runtime.𝒟ᵒᶜ,
             params.timestep;
-            use_krylov=false,
+            use_krylov = false
         )
         mag_tor_buffers = get_solver_erk2_field_buffers!(
             state.timestep_caches,
             :magnetic_toroidal,
             state.fields.magnetic.𝒯,
             state.fields.magnetic.nlᵀ,
-            mag_tor_cache,
+            mag_tor_cache
         )
         prepare_solver_erk2_field!(
             mag_tor_buffers,
@@ -2717,7 +2757,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             mag_tor_cache,
             runtime.shtns_config,
             params.timestep;
-            bc_spec=mag_tor_bc,
+            bc_spec = mag_tor_bc
         )
 
         mag_pol_cache = get_solver_erk2_magnetic_poloidal_cache!(
@@ -2727,14 +2767,14 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             runtime.shtns_config,
             runtime.𝒟ᵒᶜ,
             params.timestep;
-            use_krylov=false,
+            use_krylov = false
         )
         mag_pol_buffers = get_solver_erk2_field_buffers!(
             state.timestep_caches,
             :magnetic_poloidal,
             state.fields.magnetic.𝒫,
             state.fields.magnetic.nlᴾ,
-            mag_pol_cache,
+            mag_pol_cache
         )
         prepare_solver_erk2_field!(
             mag_pol_buffers,
@@ -2743,7 +2783,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             mag_pol_cache,
             runtime.shtns_config,
             params.timestep;
-            bc_spec=mag_pol_bc,
+            bc_spec = mag_pol_bc
         )
     end
 
@@ -2753,7 +2793,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     if state.fields.composition !== nothing
         comp_bc = _get_or_build_erk2_boundary_spec!(
             state.timestep_caches, :composition, composition_bc_code,
-            () -> build_solver_erk2_scalar_bc(T, domain, composition_bc_code),
+            () -> build_solver_erk2_scalar_bc(T, domain, composition_bc_code)
         )
         comp_bc_values = get_bc_vectors(state.fields.composition)
         comp_bc = with_boundary_mode_values(
@@ -2761,7 +2801,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             comp_bc_values.inner_real,
             comp_bc_values.outer_real,
             comp_bc_values.inner_imag,
-            comp_bc_values.outer_imag,
+            comp_bc_values.outer_imag
         )
         comp_cache = get_solver_erk2_composition_cache!(
             state.timestep_caches,
@@ -2771,14 +2811,14 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             runtime.𝒟ᵒᶜ,
             params.timestep,
             composition_bc_code;
-            use_krylov=false,
+            use_krylov = false
         )
         comp_buffers = get_solver_erk2_field_buffers!(
             state.timestep_caches,
             :composition,
             state.fields.composition.spectral,
             state.fields.composition.nonlinear,
-            comp_cache,
+            comp_cache
         )
         prepare_solver_erk2_field!(
             comp_buffers,
@@ -2787,7 +2827,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             comp_cache,
             runtime.shtns_config,
             params.timestep;
-            bc_spec=comp_bc,
+            bc_spec = comp_bc
         )
     end
 
@@ -2835,7 +2875,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         temp_cache,
         runtime.shtns_config,
         params.timestep;
-        bc_spec=temp_bc,
+        bc_spec = temp_bc
     )
     finalize_solver_erk2_field!(
         vel_tor_buffers,
@@ -2843,7 +2883,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         vel_tor_cache,
         runtime.shtns_config,
         params.timestep;
-        bc_spec=vel_tor_bc,
+        bc_spec = vel_tor_bc
     )
     finalize_solver_erk2_field!(
         vel_pol_buffers,
@@ -2851,12 +2891,12 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         vel_pol_cache,
         runtime.shtns_config,
         params.timestep;
-        bc_spec=vel_pol_bc,
+        bc_spec = vel_pol_bc
     )
     pol_nr = size(parent(state.fields.velocity.𝒫.data_real), 3)
     apply_solver_velocity_poloidal_influence_correction!(
         state.fields.velocity.𝒫, vel_pol_influence, runtime.shtns_config;
-        work=get_radial_work!(state.timestep_caches, :velocity_poloidal_influence, pol_nr).tmp_real,
+        work = get_radial_work!(state.timestep_caches, :velocity_poloidal_influence, pol_nr).tmp_real
     )
 
     if mag_tor_buffers !== nothing
@@ -2866,7 +2906,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             mag_tor_cache,
             runtime.shtns_config,
             params.timestep;
-            bc_spec=mag_tor_bc,
+            bc_spec = mag_tor_bc
         )
         finalize_solver_erk2_field!(
             mag_pol_buffers,
@@ -2874,7 +2914,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             mag_pol_cache,
             runtime.shtns_config,
             params.timestep;
-            bc_spec=mag_pol_bc,
+            bc_spec = mag_pol_bc
         )
     end
 
@@ -2885,12 +2925,12 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             comp_cache,
             runtime.shtns_config,
             params.timestep;
-            bc_spec=comp_bc,
+            bc_spec = comp_bc
         )
     end
 
-    report_solver_phi2_conditioning(runtime.timestep_state.step; interval=100)
-    run_diagnostics!(state; interval=100)
+    report_solver_phi2_conditioning(runtime.timestep_state.step; interval = 100)
+    run_diagnostics!(state; interval = 100)
 
     restore_solver_erk2_nonlinear_terms!(
         state,
@@ -2899,7 +2939,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         vel_pol_buffers,
         mag_tor_buffers,
         mag_pol_buffers,
-        comp_buffers,
+        comp_buffers
     )
 
     return state

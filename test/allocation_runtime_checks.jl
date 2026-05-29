@@ -20,7 +20,7 @@ const FINALIZE_MPI_ALLOC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
 # test locals would count call-site dynamic dispatch/boxing and mask the real
 # per-call allocation of `f`.
 _alloc_theta_grad(f, ws) = @allocated GeoDynamo.compute_theta_gradient_spectral!(f, ws)
-_alloc_phi_grad(f, ws)   = @allocated GeoDynamo.compute_phi_gradient_spectral!(f, ws)
+_alloc_phi_grad(f, ws) = @allocated GeoDynamo.compute_phi_gradient_spectral!(f, ws)
 _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
 
 @testset "Runtime allocation & inference guards" begin
@@ -45,7 +45,7 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         include_composition = true,
         timestepper = GeoDynamo.CNAB2(),
         topography_enabled = false,
-        stefan_enabled = false,
+        stefan_enabled = false
     )
     state = GeoDynamo.initialize_simulation(Float64, params)
     GeoDynamo.initialize_fields!(state)
@@ -107,11 +107,12 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         rebuilt = Ref(false)
         s1 = GeoDynamo._get_or_build_erk2_boundary_spec!(
             tc, :temperature, 1,
-            () -> GeoDynamo.build_solver_erk2_scalar_bc(Float64, domain, 1),
+            () -> GeoDynamo.build_solver_erk2_scalar_bc(Float64, domain, 1)
         )
         s2 = GeoDynamo._get_or_build_erk2_boundary_spec!(
             tc, :temperature, 1,
-            () -> (rebuilt[] = true; GeoDynamo.build_solver_erk2_scalar_bc(Float64, domain, 1)),
+            () -> (rebuilt[] = true;
+                GeoDynamo.build_solver_erk2_scalar_bc(Float64, domain, 1))
         )
         @test s1 === s2            # second lookup returns the cached object
         @test !rebuilt[]           # builder was not invoked again
@@ -125,7 +126,7 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         # A different BC code keys a distinct entry.
         s3 = GeoDynamo._get_or_build_erk2_boundary_spec!(
             tc, :temperature, 4,
-            () -> GeoDynamo.build_solver_erk2_scalar_bc(Float64, domain, 4),
+            () -> GeoDynamo.build_solver_erk2_scalar_bc(Float64, domain, 4)
         )
         @test s3 !== s1
         @test length(tc.erk2_boundary_specs) == 2
@@ -185,14 +186,15 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         @test !hasfield(typeof(cfg), :_buffer_cache)
         @test hasfield(typeof(state), :timestep_caches)
         @test fieldtype(typeof(state.timestep_caches), :erk2_boundary_specs) <:
-              Dict{Tuple{Symbol,Int}, <:GeoDynamo.SolverERK2BoundarySpec}
+              Dict{Tuple{Symbol, Int}, <:GeoDynamo.SolverERK2BoundarySpec}
     end
 
     @testset "hot calls are type-inferable" begin
         # NB: `mode_index` itself infers to Any (its cache-table local is a
         # Union) — but it is no longer on the gradient hot path (#1 precomputes
         # the (l±1,m) neighbours), so the gradient call below is what matters.
-        @test (@inferred GeoDynamo.compute_theta_gradient_spectral!(temp_field, grad_ws)) === grad_ws
+        @test (@inferred GeoDynamo.compute_theta_gradient_spectral!(temp_field, grad_ws)) ===
+              grad_ws
     end
 
     if MPI.Initialized() && FINALIZE_MPI_ALLOC && !MPI.Finalized()

@@ -10,7 +10,8 @@ const G = GeoDynamo
 function _physical_from_mean_coeff(cfg, dom, coeff::Float64)
     spec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     phys = G.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.phi)
-    fill!(parent(spec.data_real), 0.0); fill!(parent(spec.data_imag), 0.0)
+    fill!(parent(spec.data_real), 0.0);
+    fill!(parent(spec.data_imag), 0.0)
     m00 = G.get_mode_index(cfg, 0, 0)
     slot = G.local_spectral_storage_slot(cfg, m00)
     for r in 1:dom.N
@@ -29,17 +30,20 @@ end
             geometry = :shell, nr = 8, lmax = 4, mmax = 4, nlat = 10, nlon = 16,
             include_composition = true, include_magnetic_field = false,
             composition_bcs = G.BoundaryConditions(inner = G.FixedTemperature(0.8),
-                                                   outer = G.FixedTemperature(0.2)))
+                outer = G.FixedTemperature(0.2)))
         state = G.initialize_simulation(params)
         G.initialize_composition_field!(state)
         comp = state.fields.composition
-        cfg = comp.config; dom = state.backend.outer_core_domain; N = dom.N
-        m00 = G.get_mode_index(cfg, 0, 0); slot = G.local_spectral_storage_slot(cfg, m00)
+        cfg = comp.config;
+        dom = state.backend.outer_core_domain;
+        N = dom.N
+        m00 = G.get_mode_index(cfg, 0, 0);
+        slot = G.local_spectral_storage_slot(cfg, m00)
         sr = parent(comp.spectral.data_real)
         inner_c = G.local_spectral_value(sr, slot, 1)
         outer_c = G.local_spectral_value(sr, slot, N)
-        @test isapprox(_physical_from_mean_coeff(cfg, dom, inner_c), 0.8; atol=1e-9)
-        @test isapprox(_physical_from_mean_coeff(cfg, dom, outer_c), 0.2; atol=1e-9)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, inner_c), 0.8; atol = 1e-9)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, outer_c), 0.2; atol = 1e-9)
     end
 
     @testset "default 0/0 BC ⇒ background is 0 (no spurious 0.5)" begin
@@ -49,8 +53,10 @@ end
         state = G.initialize_simulation(params)
         G.initialize_composition_field!(state)
         comp = state.fields.composition
-        cfg = comp.config; N = state.backend.outer_core_domain.N
-        m00 = G.get_mode_index(cfg, 0, 0); slot = G.local_spectral_storage_slot(cfg, m00)
+        cfg = comp.config;
+        N = state.backend.outer_core_domain.N
+        m00 = G.get_mode_index(cfg, 0, 0);
+        slot = G.local_spectral_storage_slot(cfg, m00)
         sr = parent(comp.spectral.data_real)
         for r in 1:N
             @test G.local_spectral_value(sr, slot, r) == 0.0

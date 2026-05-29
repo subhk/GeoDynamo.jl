@@ -19,8 +19,9 @@ end
 
 Return `true` for timestep schemes that need previous nonlinear terms.
 """
-_solver_uses_two_step_history(timestepper) =
+function _solver_uses_two_step_history(timestepper)
     timestepper isa CNAB2 || timestepper isa EAB2 || timestepper isa ERK2
+end
 
 """
     _sync_solver_history!(previous, current)
@@ -45,8 +46,8 @@ Temperature and velocity are always present; magnetic and composition histories
 are updated only when those fields are enabled in the solver state.
 """
 function _sync_solver_nonlinear_histories!(
-    state::SolverState,
-    magnetic_enabled::Bool,
+        state::SolverState,
+        magnetic_enabled::Bool
 )
     _sync_solver_history!(state.fields.temperature.prev_nonlinear, state.fields.temperature.nonlinear)
     _sync_solver_history!(state.fields.velocity.prev_nlᵀ, state.fields.velocity.nlᵀ)
@@ -72,13 +73,14 @@ no true previous step, so the current nonlinear term is copied once to avoid a
 special-case branch in each update kernel.
 """
 function bootstrap_solver_history!(
-    state::SolverState,
-    timestepper,
-    magnetic_enabled::Bool,
+        state::SolverState,
+        timestepper,
+        magnetic_enabled::Bool
 )
     # Two-step schemes need a synthetic "previous" nonlinear state on their
     # first step so they can reuse AB2-style formulas without a special branch.
-    if _solver_uses_two_step_history(timestepper) && state.runtime.timestep_state.needs_ab2_bootstrap
+    if _solver_uses_two_step_history(timestepper) &&
+       state.runtime.timestep_state.needs_ab2_bootstrap
         _sync_solver_nonlinear_histories!(state, magnetic_enabled)
         state.runtime.timestep_state.needs_ab2_bootstrap = false
     end
@@ -92,9 +94,9 @@ end
 Advance previous nonlinear histories at the end of a completed timestep.
 """
 function roll_solver_histories!(
-    state::SolverState,
-    timestepper,
-    magnetic_enabled::Bool,
+        state::SolverState,
+        timestepper,
+        magnetic_enabled::Bool
 )
     _solver_uses_two_step_history(timestepper) || return state
     _sync_solver_nonlinear_histories!(state, magnetic_enabled)
@@ -108,7 +110,7 @@ Initialize all enabled field families and mark the solver state ready to step.
 
 This is the solver-local implementation behind `GeoDynamo.initialize_fields!`.
 """
-function initialize_solver_fields!(state::SolverState{T,<:AbstractArchitecture}) where T
+function initialize_solver_fields!(state::SolverState{T, <:AbstractArchitecture}) where {T}
     Random.seed!(42 + state.backend.rank)
 
     initialize_temperature_field!(state)
@@ -116,7 +118,7 @@ function initialize_solver_fields!(state::SolverState{T,<:AbstractArchitecture})
     initialize_magnetic_field!(state)
     initialize_composition_field!(state)
 
-    reset_solver_clock!(state; time=state.parameters.start_time, step=0)
+    reset_solver_clock!(state; time = state.parameters.start_time, step = 0)
     _synchronize_solver_views!(state)
     state.is_initialized = true
     return state
@@ -130,8 +132,10 @@ Public entry point for solver field initialization.
 This forwards to `initialize_solver_fields!` so external callers can initialize
 all enabled fields without depending on the solver-local helper name.
 """
-GeoDynamo.initialize_fields!(state::SolverState{T,<:AbstractArchitecture}) where {T} =
+function GeoDynamo.initialize_fields!(state::SolverState{
+        T, <:AbstractArchitecture}) where {T}
     initialize_solver_fields!(state)
+end
 
 """
     _solver_can_thread_implicit_updates(timestepper)
@@ -153,7 +157,8 @@ end
 
 Ensure all active EAB2 exponential-action caches match the current parameters.
 """
-function _prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitecture}) where T
+function _prepare_solver_eab2_caches!(state::SolverState{
+        T, <:AbstractArchitecture}) where {T}
     runtime = state.runtime
     params = state.parameters
 
@@ -162,21 +167,21 @@ function _prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitectur
         :etd_temperature,
         params.Pm / params.Pr,
         T,
-        runtime.𝒟ᵒᶜ,
+        runtime.𝒟ᵒᶜ
     )
     _ensure_etd_cache!(
         state.timestep_caches,
         :etd_velocity_toroidal,
         params.Ek,
         T,
-        runtime.𝒟ᵒᶜ,
+        runtime.𝒟ᵒᶜ
     )
     _ensure_etd_cache!(
         state.timestep_caches,
         :etd_velocity_poloidal,
         params.Ek,
         T,
-        runtime.𝒟ᵒᶜ,
+        runtime.𝒟ᵒᶜ
     )
 
     if state.fields.magnetic !== nothing
@@ -185,14 +190,14 @@ function _prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitectur
             :etd_magnetic_toroidal,
             1.0,
             T,
-            runtime.𝒟ᵒᶜ,
+            runtime.𝒟ᵒᶜ
         )
         _ensure_etd_cache!(
             state.timestep_caches,
             :etd_magnetic_poloidal,
             1.0,
             T,
-            runtime.𝒟ᵒᶜ,
+            runtime.𝒟ᵒᶜ
         )
     end
 
@@ -202,7 +207,7 @@ function _prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitectur
             :etd_composition,
             params.Pm / params.Sc,
             T,
-            runtime.𝒟ᵒᶜ,
+            runtime.𝒟ᵒᶜ
         )
     end
 
@@ -264,7 +269,8 @@ after a successful update.
 """
 function apply_solver_implicit_step!(state::SolverState)
     timestepper = state.parameters.timestepper
-    magnetic_enabled = state.parameters.include_magnetic_field && state.fields.magnetic !== nothing
+    magnetic_enabled = state.parameters.include_magnetic_field &&
+                       state.fields.magnetic !== nothing
 
     bootstrap_solver_history!(state, timestepper, magnetic_enabled)
 

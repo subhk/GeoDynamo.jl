@@ -29,9 +29,13 @@ end
     end
     MPI.Initialized() || MPI.Init()
 
-    lmax = 4; mmax = 4
-    nlat = max(lmax + 2, 10); nlon = max(2lmax + 1, 16); nr = 8
-    cfg = G.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    lmax = 4;
+    mmax = 4
+    nlat = max(lmax + 2, 10);
+    nlon = max(2lmax + 1, 16);
+    nr = 8
+    cfg = G.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = G.create_radial_domain(nr)
     m00 = G.get_mode_index(cfg, 0, 0)
     slot = G.local_spectral_storage_slot(cfg, m00)
@@ -39,23 +43,27 @@ end
     @testset ":stratified (0,0) reconstructs to physical bottom composition" begin
         comp = G.create_shtns_composition_field(Float64, cfg, dom)
         G.set_analytical_initial_conditions!(comp, :composition, :stratified,
-                                             bottom_composition=0.3, top_composition=0.1)
+            bottom_composition = 0.3, top_composition = 0.1)
         c_inner = G.local_spectral_value(parent(comp.spectral.data_real), slot, 1)  # r_frac=0 ⇒ 0.3
-        @test isapprox(_physical_from_mean_coeff(cfg, dom, c_inner), 0.3; atol=1e-9)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, c_inner), 0.3; atol = 1e-9)
     end
 
     @testset ":blob (0,0) reconstructs to the Gaussian-bump physical value" begin
-        bg = 0.1; blob_composition = 0.8; r_center = 0.3; blob_width = 0.2
+        bg = 0.1;
+        blob_composition = 0.8;
+        r_center = 0.3;
+        blob_width = 0.2
         comp = G.create_shtns_composition_field(Float64, cfg, dom)
         G.set_analytical_initial_conditions!(comp, :composition, :blob,
-                                             r_center=r_center, blob_width=blob_width,
-                                             blob_composition=blob_composition)
+            r_center = r_center, blob_width = blob_width,
+            blob_composition = blob_composition)
         # The :blob preset is a Gaussian bump with infinite tails (NOT compact):
         #   value(r_frac) = bg + (blob_composition - bg)·exp(-½((r_frac-r_center)/w)²)
         # At local_r=1 ⇒ r_frac=0 the tail is nonzero, so the (0,0) coefficient
         # reconstructs to this value — confirming the √(4π) normalization is applied.
-        expected = bg + (blob_composition - bg) * exp(-0.5 * ((0.0 - r_center) / blob_width)^2)
+        expected = bg +
+                   (blob_composition - bg) * exp(-0.5 * ((0.0 - r_center) / blob_width)^2)
         c_bg = G.local_spectral_value(parent(comp.spectral.data_real), slot, 1)
-        @test isapprox(_physical_from_mean_coeff(cfg, dom, c_bg), expected; atol=1e-9)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, c_bg), expected; atol = 1e-9)
     end
 end

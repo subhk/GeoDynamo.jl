@@ -51,9 +51,11 @@ Base.@kwdef struct SolverParameters
     impose_magnetic_field::Bool = false
     magnetic_inner_bc::Symbol = :insulating   # :insulating | :conducting_inner_core
 
-    velocity_bcs::BoundaryConditions = BoundaryConditions(inner=NoSlip(), outer=NoSlip())
-    temperature_bcs::BoundaryConditions = BoundaryConditions(inner=FixedTemperature(1.0), outer=FixedTemperature(0.0))
-    composition_bcs::BoundaryConditions = BoundaryConditions(inner=FixedTemperature(0.0), outer=FixedTemperature(0.0))
+    velocity_bcs::BoundaryConditions = BoundaryConditions(inner = NoSlip(), outer = NoSlip())
+    temperature_bcs::BoundaryConditions = BoundaryConditions(
+        inner = FixedTemperature(1.0), outer = FixedTemperature(0.0))
+    composition_bcs::BoundaryConditions = BoundaryConditions(
+        inner = FixedTemperature(0.0), outer = FixedTemperature(0.0))
     poloidal_stress_iterations::Int = 2
     temperature_bc_file::String = ""
     composition_bc_file::String = ""
@@ -100,36 +102,36 @@ function Base.show(io::IO, ::MIME"text/plain", params::SolverParameters)
 
     print_section(io, "Grid")
     for key in (:architecture, :geometry, :nr, :nr_inner, :lmax, :mmax, :nlat,
-                :nlon, :radial_bandwidth, :radius_ratio, :r_outer)
+        :nlon, :radial_bandwidth, :radius_ratio, :r_outer)
         print_entry(io, key, getfield(params, key))
     end
 
     print_section(io, "Physics")
     for key in (:Ek, :Ra, :RaC, :Pr, :Pm, :Sc, :include_magnetic_field,
-                :include_composition, :impose_magnetic_field)
+        :include_composition, :impose_magnetic_field)
         print_entry(io, key, getfield(params, key))
     end
 
     print_section(io, "Timestepping")
     for key in (:timestepper, :timestep, :start_time, :end_time,
-                :stop_iteration, :timestep_error, :courant)
+        :stop_iteration, :timestep_error, :courant)
         print_entry(io, key, getfield(params, key))
     end
 
     print_section(io, "Boundary Conditions")
     for key in (:velocity_bcs, :temperature_bcs, :composition_bcs,
-                :temperature_bc_file, :composition_bc_file,
-                :temperature_bc_format, :composition_bc_format)
+        :temperature_bc_file, :composition_bc_file,
+        :temperature_bc_format, :composition_bc_format)
         print_entry(io, key, getfield(params, key))
     end
 
     print_section(io, "Topography")
     for key in (:topography_enabled, :topography_epsilon, :topography_degree,
-                :include_topography_velocity, :include_topography_magnetic,
-                :include_topography_thermal, :include_topography_slope_terms,
-                :include_topography_shift_terms, :stefan_enabled,
-                :stefan_number, :inner_core_conductivity_ratio, :latent_heat,
-                :icb_topography_file, :ocb_topography_file)
+        :include_topography_velocity, :include_topography_magnetic,
+        :include_topography_thermal, :include_topography_slope_terms,
+        :include_topography_shift_terms, :stefan_enabled,
+        :stefan_number, :inner_core_conductivity_ratio, :latent_heat,
+        :icb_topography_file, :ocb_topography_file)
         print_entry(io, key, getfield(params, key))
     end
 end
@@ -153,7 +155,8 @@ function _parameter_errors_warnings(params::SolverParameters)
     end
 
     if !(params.magnetic_inner_bc in (:insulating, :conducting_inner_core))
-        push!(errors, "magnetic_inner_bc = $(params.magnetic_inner_bc) must be :insulating or :conducting_inner_core")
+        push!(errors,
+            "magnetic_inner_bc = $(params.magnetic_inner_bc) must be :insulating or :conducting_inner_core")
     end
     if params.magnetic_inner_bc === :conducting_inner_core && params.geometry !== :shell
         push!(errors, "magnetic_inner_bc=:conducting_inner_core requires geometry=:shell")
@@ -179,10 +182,12 @@ function _parameter_errors_warnings(params::SolverParameters)
         push!(errors, "geometry = $(params.geometry) must be :shell or :ball")
     elseif params.geometry === :shell
         if !(0.0 < params.radius_ratio < 1.0)
-            push!(errors, "radius_ratio = $(params.radius_ratio) must be in range (0, 1) for shell geometry")
+            push!(errors,
+                "radius_ratio = $(params.radius_ratio) must be in range (0, 1) for shell geometry")
         end
     elseif params.geometry === :ball && params.radius_ratio != 0.0
-        push!(errors, "geometry = :ball but radius_ratio = $(params.radius_ratio) != 0; use radius_ratio=0 for full ball")
+        push!(errors,
+            "geometry = :ball but radius_ratio = $(params.radius_ratio) != 0; use radius_ratio=0 for full ball")
     end
 
     if params.Ra <= 0.0
@@ -207,18 +212,21 @@ function _parameter_errors_warnings(params::SolverParameters)
         push!(warnings, "timestep = $(params.timestep) is very large; check CFL condition")
     end
 
-    params.stop_iteration >= 1 || push!(errors, "stop_iteration = $(params.stop_iteration) must be >= 1")
+    params.stop_iteration >= 1 ||
+        push!(errors, "stop_iteration = $(params.stop_iteration) must be >= 1")
 
     if params.end_time <= params.start_time
-        push!(errors, "end_time = $(params.end_time) must be greater than start_time = $(params.start_time)")
+        push!(errors,
+            "end_time = $(params.end_time) must be greater than start_time = $(params.start_time)")
     end
 
     max_diffusivity = max(1.0, params.Pm / params.Pr, params.Pm / params.Sc, params.Ek)
     cfl_limit = 0.1 / (params.lmax^2 * max_diffusivity)
     if params.timestep > cfl_limit
-        push!(warnings, "timestep = $(params.timestep) may violate CFL condition " *
-                        "(estimated limit: $(cfl_limit) for spectral stability with " *
-                        "max diffusivity = $(max_diffusivity))")
+        push!(warnings,
+            "timestep = $(params.timestep) may violate CFL condition " *
+            "(estimated limit: $(cfl_limit) for spectral stability with " *
+            "max diffusivity = $(max_diffusivity))")
     end
 
     if params.output_precision ∉ (:float32, :float64)
@@ -233,7 +241,7 @@ end
 
 Validate a `SolverParameters` object.
 """
-function validate_parameters(params::SolverParameters; strict::Bool=false)
+function validate_parameters(params::SolverParameters; strict::Bool = false)
     errors, warnings = _parameter_errors_warnings(params)
     is_valid = isempty(errors)
 
@@ -278,7 +286,8 @@ function find_package_root()
         if isfile(project_file)
             try
                 content = read(project_file, String)
-                if contains(content, "GeoDynamo") || contains(content, "name = \"GeoDynamo\"")
+                if contains(content, "GeoDynamo") ||
+                   contains(content, "name = \"GeoDynamo\"")
                     return current_dir
                 end
             catch
@@ -303,7 +312,7 @@ Parse a parameter value without `eval`.
 function safe_parse_value(value_str::AbstractString, param_dict::Dict{Symbol, Any})
     s = strip(value_str)
 
-    s == "true"  && return true
+    s == "true" && return true
     s == "false" && return false
     (s == "π" || s == "pi") && return π
 
@@ -312,7 +321,7 @@ function safe_parse_value(value_str::AbstractString, param_dict::Dict{Symbol, An
     end
 
     if startswith(s, '"') && endswith(s, '"')
-        return s[2:end-1]
+        return s[2:(end - 1)]
     end
 
     int_val = tryparse(Int, s)
@@ -338,14 +347,14 @@ const _SAFE_PARAMETER_CONSTRUCTORS = Dict{Symbol, Any}(
     :FixedFlux => FixedFlux,
     :InsulatingMagnetic => InsulatingMagnetic,
     :ConductingMagnetic => ConductingMagnetic,
-    :BoundaryConditions => BoundaryConditions,
+    :BoundaryConditions => BoundaryConditions
 )
 
 function safe_eval_expr(expr, param_dict::Dict{Symbol, Any})
     expr isa Number && return expr
 
     if expr isa Symbol
-        expr === :π  && return π
+        expr === :π && return π
         expr === :pi && return π
         haskey(param_dict, expr) && return param_dict[expr]
         throw(ArgumentError("Unknown parameter reference: $expr"))
@@ -384,7 +393,7 @@ function safe_eval_expr(expr, param_dict::Dict{Symbol, Any})
     end
 end
 
-const _LEGACY_PARAM_ALIASES = Dict{Symbol,Symbol}(:max_steps => :stop_iteration)
+const _LEGACY_PARAM_ALIASES = Dict{Symbol, Symbol}(:max_steps => :stop_iteration)
 
 function _parameter_assignments_from_file(config_file::String)
     param_dict = Dict{Symbol, Any}()
@@ -452,7 +461,7 @@ Load solver parameters from a file. With no file, loads
 function load_parameters(config_file::String = "")
     path = isempty(config_file) ? _default_parameter_file() : config_file
     params = load_parameters_from_file(path)
-    validate_parameters(params; strict=false)
+    validate_parameters(params; strict = false)
     return params
 end
 
@@ -505,9 +514,9 @@ end
 
 @inline active_parameters()::SolverParameters = get_parameters()
 
-function set_parameters!(params::SolverParameters; validate::Bool=true, strict::Bool=false)
+function set_parameters!(params::SolverParameters; validate::Bool = true, strict::Bool = false)
     if validate
-        is_valid, _, _ = validate_parameters(params; strict=strict)
+        is_valid, _, _ = validate_parameters(params; strict = strict)
         if !is_valid && _parameter_rank0()
             @warn "Setting parameters despite validation errors. Set strict=true to enforce validation."
         end
@@ -521,6 +530,6 @@ end
 
 function initialize_parameters(config_file::String = "")
     params = load_parameters(config_file)
-    set_parameters!(params; validate=false)
+    set_parameters!(params; validate = false)
     return params
 end

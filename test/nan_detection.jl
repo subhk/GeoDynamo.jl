@@ -12,7 +12,8 @@ using Test
     @testset "check_field_for_nan with clean data" begin
         config = GeoDynamo.NaNDetectionConfig(true, 1, false, false)
         data = rand(10, 10)
-        has_nan, has_inf, nan_count, inf_count = GeoDynamo.check_field_for_nan(data, "test_field", config, 1)
+        has_nan, has_inf,
+        nan_count, inf_count = GeoDynamo.check_field_for_nan(data, "test_field", config, 1)
         @test !has_nan
         @test !has_inf
         @test nan_count == 0
@@ -24,7 +25,8 @@ using Test
         data = rand(10, 10)
         data[3, 5] = NaN
         data[7, 2] = NaN
-        has_nan, has_inf, nan_count, inf_count = GeoDynamo.check_field_for_nan(data, "test_field", config, 1)
+        has_nan, has_inf,
+        nan_count, inf_count = GeoDynamo.check_field_for_nan(data, "test_field", config, 1)
         @test has_nan
         @test !has_inf
         @test nan_count == 2
@@ -36,7 +38,8 @@ using Test
         data = rand(10, 10)
         data[1, 1] = Inf
         data[5, 5] = -Inf
-        has_nan, has_inf, nan_count, inf_count = GeoDynamo.check_field_for_nan(data, "test_field", config, 1)
+        has_nan, has_inf,
+        nan_count, inf_count = GeoDynamo.check_field_for_nan(data, "test_field", config, 1)
         @test !has_nan
         @test has_inf
         @test nan_count == 0

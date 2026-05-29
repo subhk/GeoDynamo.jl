@@ -64,13 +64,13 @@ This ensures the implicit solve enforces BCs exactly rather than applying them
 as post-processing.
 """
 function create_velocity_toroidal_matrices(config::SHTnsKitConfig,
-                                            domain::RadialDomain,
-                                            diffusivity::Float64,
-                                            dt::Float64;
-                                            velocity_bc_code::Int,
-                                            theta::Float64=0.5,
-                                            mass_coeff::Float64=1.0,
-                                            T::Type{<:Number}=Float64)
+        domain::RadialDomain,
+        diffusivity::Float64,
+        dt::Float64;
+        velocity_bc_code::Int,
+        theta::Float64 = 0.5,
+        mass_coeff::Float64 = 1.0,
+        T::Type{<:Number} = Float64)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
     r_inv_sq = @views domain.r[1:domain.N, 2]
@@ -80,7 +80,7 @@ function create_velocity_toroidal_matrices(config::SHTnsKitConfig,
     linear_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
     factorizations = Vector{BandedLU{T}}(undef, length(unique_l))
     l_values = Vector{Int}(undef, length(unique_l))
-    lookup = Dict{Int,Int}()
+    lookup = Dict{Int, Int}()
 
     # Create first derivative matrix for stress-free BC
     d1_matrix = create_derivative_matrix(T, 1, domain)
@@ -153,7 +153,7 @@ function create_velocity_toroidal_matrices(config::SHTnsKitConfig,
     end
 
     return SHTnsImplicitMatrices{T}(system_matrices, factorizations,
-                                    linear_matrices, l_values, lookup, theta)
+        linear_matrices, l_values, lookup, theta)
 end
 
 """
@@ -168,13 +168,13 @@ The boundary rows of the system matrix are replaced with the BC equations:
 - Stress-free: second derivative row (∂²P/∂r² = value)
 """
 function create_velocity_poloidal_matrices(config::SHTnsKitConfig,
-                                            domain::RadialDomain,
-                                            diffusivity::Float64,
-                                            dt::Float64;
-                                            velocity_bc_code::Int,
-                                            theta::Float64=0.5,
-                                            mass_coeff::Float64=1.0,
-                                            T::Type{<:Number}=Float64)
+        domain::RadialDomain,
+        diffusivity::Float64,
+        dt::Float64;
+        velocity_bc_code::Int,
+        theta::Float64 = 0.5,
+        mass_coeff::Float64 = 1.0,
+        T::Type{<:Number} = Float64)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
     r_inv_sq = @views domain.r[1:domain.N, 2]
@@ -184,7 +184,7 @@ function create_velocity_poloidal_matrices(config::SHTnsKitConfig,
     linear_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
     factorizations = Vector{BandedLU{T}}(undef, length(unique_l))
     l_values = Vector{Int}(undef, length(unique_l))
-    lookup = Dict{Int,Int}()
+    lookup = Dict{Int, Int}()
 
     # Create derivative matrices for BCs
     d1_matrix = create_derivative_matrix(T, 1, domain)
@@ -258,7 +258,7 @@ function create_velocity_poloidal_matrices(config::SHTnsKitConfig,
     end
 
     return SHTnsImplicitMatrices{T}(system_matrices, factorizations,
-                                    linear_matrices, l_values, lookup, theta)
+        linear_matrices, l_values, lookup, theta)
 end
 
 """
@@ -269,10 +269,10 @@ Create Green's function matrices for the influence matrix method (poloidal press
 These use Dirichlet BCs (identity rows) at both boundaries, matching Fortran vel_bc_Gre.
 """
 function create_velocity_green_matrices(config::SHTnsKitConfig,
-                                         domain::RadialDomain,
-                                         diffusivity::Float64;
-                                         theta::Float64=0.5,
-                                         T::Type{<:Number}=Float64)
+        domain::RadialDomain,
+        diffusivity::Float64;
+        theta::Float64 = 0.5,
+        T::Type{<:Number} = Float64)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
     r_inv_sq = @views domain.r[1:domain.N, 2]
@@ -282,7 +282,7 @@ function create_velocity_green_matrices(config::SHTnsKitConfig,
     linear_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
     factorizations = Vector{BandedLU{T}}(undef, length(unique_l))
     l_values = Vector{Int}(undef, length(unique_l))
-    lookup = Dict{Int,Int}()
+    lookup = Dict{Int, Int}()
 
     bw = radial_bandwidth(domain)
     N = domain.N
@@ -325,7 +325,7 @@ function create_velocity_green_matrices(config::SHTnsKitConfig,
     end
 
     return SHTnsImplicitMatrices{T}(system_matrices, factorizations,
-                                    linear_matrices, l_values, lookup, theta)
+        linear_matrices, l_values, lookup, theta)
 end
 
 """
@@ -338,10 +338,11 @@ Matches Fortran vel_setbc_Tor: sets RHS boundary rows to zero (or prescribed val
 For no-slip: RHS boundary = 0 (or prescribed velocity, e.g., rotating inner core)
 For stress-free: RHS boundary = 0 (homogeneous condition ∂T/∂r - T/r = 0)
 """
-function set_velocity_rhs_bc_toroidal!(rhs_real::AbstractArray{T}, rhs_imag::AbstractArray{T},
-                                        slot::CartesianIndex{2}, nr::Int;
-                                        inner_value::T=zero(T),
-                                        outer_value::T=zero(T)) where T
+function set_velocity_rhs_bc_toroidal!(
+        rhs_real::AbstractArray{T}, rhs_imag::AbstractArray{T},
+        slot::CartesianIndex{2}, nr::Int;
+        inner_value::T = zero(T),
+        outer_value::T = zero(T)) where {T}
     # Set boundary rows of RHS to prescribed values
     # Inner boundary (radial index 1)
     set_local_spectral_value!(rhs_real, slot, 1, inner_value)
@@ -361,10 +362,11 @@ Matches Fortran: sets RHS boundary rows to zero for homogeneous BCs.
 For no-slip: RHS boundary = 0 (∂P/∂r = 0)
 For stress-free: RHS boundary = 0 (∂²P/∂r² = 0)
 """
-function set_velocity_rhs_bc_poloidal!(rhs_real::AbstractArray{T}, rhs_imag::AbstractArray{T},
-                                        slot::CartesianIndex{2}, nr::Int;
-                                        inner_value::T=zero(T),
-                                        outer_value::T=zero(T)) where T
+function set_velocity_rhs_bc_poloidal!(
+        rhs_real::AbstractArray{T}, rhs_imag::AbstractArray{T},
+        slot::CartesianIndex{2}, nr::Int;
+        inner_value::T = zero(T),
+        outer_value::T = zero(T)) where {T}
     # Set boundary rows of RHS to prescribed values
     set_local_spectral_value!(rhs_real, slot, 1, inner_value)
     set_local_spectral_value!(rhs_imag, slot, 1, zero(T))
@@ -398,13 +400,13 @@ for its subset of (l,m) modes:
 - `current_field`: Current velocity field (for incremental form of rotating IC BC)
 """
 function solve_velocity_implicit_step!(solution::SHTnsSpecField{T},
-                                        rhs::SHTnsSpecField{T},
-                                        matrices::SHTnsImplicitMatrices{T},
-                                        component::Symbol;
-                                        velocity_bc_code::Int=1,
-                                        domain::Union{RadialDomain,Nothing}=nothing,
-                                        rot_omega::Float64=0.0,
-                                        current_field::Union{SHTnsSpecField{T},Nothing}=nothing) where T
+        rhs::SHTnsSpecField{T},
+        matrices::SHTnsImplicitMatrices{T},
+        component::Symbol;
+        velocity_bc_code::Int = 1,
+        domain::Union{RadialDomain, Nothing} = nothing,
+        rot_omega::Float64 = 0.0,
+        current_field::Union{SHTnsSpecField{T}, Nothing} = nothing) where {T}
     sol_real = parent(solution.data_real)
     sol_imag = parent(solution.data_imag)
     rhs_real = parent(rhs.data_real)
@@ -440,7 +442,8 @@ function solve_velocity_implicit_step!(solution::SHTnsSpecField{T},
 
             # For no-slip inner (velocity_bc_code ≤ 2) with rotating IC:
             # T(l=1,m=0) at inner boundary = rot_omega * r[1]
-            if (velocity_bc_code == 1 || velocity_bc_code == 2) && l == 1 && m == 0 && domain !== nothing
+            if (velocity_bc_code == 1 || velocity_bc_code == 2) && l == 1 && m == 0 &&
+               domain !== nothing
                 inner_val = T(rot_omega * domain.r[1, 4])
                 # If not first step, subtract current field value (incremental form)
                 if current_field !== nothing

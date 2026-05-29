@@ -23,7 +23,8 @@ export create_shell_radial_domain
 export create_shell_spectral_field, create_shell_physical_field, create_shell_vector_field
 export create_shell_velocity_fields, create_shell_temperature_field
 export create_shell_composition_field, create_shell_magnetic_fields
-export create_shell_hybrid_temperature_boundaries, create_shell_hybrid_composition_boundaries
+export create_shell_hybrid_temperature_boundaries,
+       create_shell_hybrid_composition_boundaries
 export apply_shell_temperature_boundaries!, apply_shell_composition_boundaries!
 
 const BC = GeoDynamo.bcs
@@ -34,34 +35,42 @@ const BC = GeoDynamo.bcs
 Create a radial domain suitable for a spherical shell.
 This is a thin wrapper over `GeoDynamo.create_radial_domain`.
 """
-function create_shell_radial_domain(nr::Int; radius_ratio::Real=0.35, radial_bandwidth::Int=4)
-    return GeoDynamo.create_radial_domain(nr; radius_ratio=radius_ratio, radial_bandwidth=radial_bandwidth)
+function create_shell_radial_domain(nr::Int; radius_ratio::Real = 0.35, radial_bandwidth::Int = 4)
+    return GeoDynamo.create_radial_domain(nr; radius_ratio = radius_ratio, radial_bandwidth = radial_bandwidth)
 end
 
 """
     create_shell_spectral_field(T, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencil)
 """
-create_shell_spectral_field(::Type{T}, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencil) where {T} =
+function create_shell_spectral_field(
+        ::Type{T}, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencil) where {T}
     GeoDynamo.create_shtns_spectral_field(T, cfg, domain, pencil)
+end
 
 """
     create_shell_physical_field(T, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencil)
 """
-create_shell_physical_field(::Type{T}, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencil) where {T} =
+function create_shell_physical_field(
+        ::Type{T}, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencil) where {T}
     GeoDynamo.create_shtns_physical_field(T, cfg, domain, pencil)
+end
 
 """
     create_shell_vector_field(T, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencils)
 """
-create_shell_vector_field(::Type{T}, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencils) where {T} =
+function create_shell_vector_field(
+        ::Type{T}, cfg::ShellConfig, domain::GeoDynamo.RadialDomain, pencils) where {T}
     GeoDynamo.create_shtns_vector_field(T, cfg, domain, pencils)
+end
 
 """
     create_shell_pencils(cfg::ShellConfig; optimize=true)
 
 Create a shell-oriented pencil decomposition using the core topology helper.
 """
-create_shell_pencils(cfg::ShellConfig; nr::Int, optimize::Bool=true) = GeoDynamo.create_pencil_topology(cfg; nr, optimize)
+function create_shell_pencils(cfg::ShellConfig; nr::Int, optimize::Bool = true)
+    GeoDynamo.create_pencil_topology(cfg; nr, optimize)
+end
 
 """
     create_shell_velocity_fields(T, cfg::ShellConfig; nr)
@@ -94,7 +103,7 @@ end
 function create_shell_magnetic_fields(::Type{T}, cfg::ShellConfig; nr_oc::Int, nr_ic::Int) where {T}
     𝒟ᵒᶜ = create_shell_radial_domain(nr_oc)
     𝒟ⁱᶜ = create_shell_radial_domain(nr_ic)
-    pencils = create_shell_pencils(cfg; nr=nr_oc)
+    pencils = create_shell_pencils(cfg; nr = nr_oc)
     return GeoDynamo.create_shtns_magnetic_fields(T, cfg, 𝒟ᵒᶜ, 𝒟ⁱᶜ, pencils, pencils.spec)
 end
 
@@ -106,19 +115,27 @@ Create temperature boundaries for shell geometry. Dispatches to appropriate func
 - String + Tuple: hybrid (one from file, one programmatic)
 - Both String: both from files
 """
-function create_shell_hybrid_temperature_boundaries(inner_spec::Tuple, outer_spec::Tuple, cfg::ShellConfig; precision::Type{T}=Float64) where {T}
+function create_shell_hybrid_temperature_boundaries(
+        inner_spec::Tuple, outer_spec::Tuple, cfg::ShellConfig;
+        precision::Type{T} = Float64) where {T}
     return BC.create_programmatic_temperature_boundaries(inner_spec, outer_spec, cfg)
 end
 
-function create_shell_hybrid_temperature_boundaries(inner_spec::String, outer_spec::Tuple, cfg::ShellConfig; precision::Type{T}=Float64) where {T}
-    return BC.create_hybrid_temperature_boundaries(inner_spec, outer_spec, cfg; swap_boundaries=false)
+function create_shell_hybrid_temperature_boundaries(
+        inner_spec::String, outer_spec::Tuple, cfg::ShellConfig;
+        precision::Type{T} = Float64) where {T}
+    return BC.create_hybrid_temperature_boundaries(inner_spec, outer_spec, cfg; swap_boundaries = false)
 end
 
-function create_shell_hybrid_temperature_boundaries(inner_spec::Tuple, outer_spec::String, cfg::ShellConfig; precision::Type{T}=Float64) where {T}
-    return BC.create_hybrid_temperature_boundaries(outer_spec, inner_spec, cfg; swap_boundaries=true)
+function create_shell_hybrid_temperature_boundaries(
+        inner_spec::Tuple, outer_spec::String, cfg::ShellConfig;
+        precision::Type{T} = Float64) where {T}
+    return BC.create_hybrid_temperature_boundaries(outer_spec, inner_spec, cfg; swap_boundaries = true)
 end
 
-function create_shell_hybrid_temperature_boundaries(inner_spec::String, outer_spec::String, cfg::ShellConfig; precision::Type{T}=Float64) where {T}
+function create_shell_hybrid_temperature_boundaries(
+        inner_spec::String, outer_spec::String, cfg::ShellConfig;
+        precision::Type{T} = Float64) where {T}
     return BC.load_temperature_boundaries_from_files(inner_spec, outer_spec, cfg)
 end
 
@@ -130,19 +147,27 @@ Create composition boundaries for shell geometry. Dispatches to appropriate func
 - String + Tuple: hybrid (one from file, one programmatic)
 - Both String: both from files
 """
-function create_shell_hybrid_composition_boundaries(inner_spec::Tuple, outer_spec::Tuple, cfg::ShellConfig; precision::Type{T}=Float64) where {T}
+function create_shell_hybrid_composition_boundaries(
+        inner_spec::Tuple, outer_spec::Tuple, cfg::ShellConfig;
+        precision::Type{T} = Float64) where {T}
     return BC.create_programmatic_composition_boundaries(inner_spec, outer_spec, cfg)
 end
 
-function create_shell_hybrid_composition_boundaries(inner_spec::String, outer_spec::Tuple, cfg::ShellConfig; precision::Type{T}=Float64) where {T}
-    return BC.create_hybrid_composition_boundaries(inner_spec, outer_spec, cfg; swap_boundaries=false)
+function create_shell_hybrid_composition_boundaries(
+        inner_spec::String, outer_spec::Tuple, cfg::ShellConfig;
+        precision::Type{T} = Float64) where {T}
+    return BC.create_hybrid_composition_boundaries(inner_spec, outer_spec, cfg; swap_boundaries = false)
 end
 
-function create_shell_hybrid_composition_boundaries(inner_spec::Tuple, outer_spec::String, cfg::ShellConfig; precision::Type{T}=Float64) where {T}
-    return BC.create_hybrid_composition_boundaries(outer_spec, inner_spec, cfg; swap_boundaries=true)
+function create_shell_hybrid_composition_boundaries(
+        inner_spec::Tuple, outer_spec::String, cfg::ShellConfig;
+        precision::Type{T} = Float64) where {T}
+    return BC.create_hybrid_composition_boundaries(outer_spec, inner_spec, cfg; swap_boundaries = true)
 end
 
-function create_shell_hybrid_composition_boundaries(inner_spec::String, outer_spec::String, cfg::ShellConfig; precision::Type{T}=Float64) where {T}
+function create_shell_hybrid_composition_boundaries(
+        inner_spec::String, outer_spec::String, cfg::ShellConfig;
+        precision::Type{T} = Float64) where {T}
     return BC.load_composition_boundaries_from_files(inner_spec, outer_spec, cfg)
 end
 
@@ -151,13 +176,15 @@ end
 
 Wrapper around core boundary application for shell geometry.
 """
-apply_shell_temperature_boundaries!(temp_field, boundary_set; time=0.0) =
-    BC.apply_temperature_boundaries!(temp_field, boundary_set; time=time)
+function apply_shell_temperature_boundaries!(temp_field, boundary_set; time = 0.0)
+    BC.apply_temperature_boundaries!(temp_field, boundary_set; time = time)
+end
 
 """
     apply_shell_composition_boundaries!(comp_field, boundary_set; time=0)
 """
-apply_shell_composition_boundaries!(comp_field, boundary_set; time=0.0) =
-    BC.apply_composition_boundaries!(comp_field, boundary_set; time=time)
+function apply_shell_composition_boundaries!(comp_field, boundary_set; time = 0.0)
+    BC.apply_composition_boundaries!(comp_field, boundary_set; time = time)
+end
 
 end # module

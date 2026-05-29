@@ -3,26 +3,25 @@ const SOLVER_OUTER_BOUNDARY = getproperty(GeoDynamo, :OUTER_BOUNDARY)
 
 function create_solver_topography_config(params::SolverParameters)
     return TopographyAPI.TopographyCouplingConfig(
-        enabled=params.topography_enabled,
-        velocity_coupling=params.include_topography_velocity,
-        magnetic_coupling=params.include_topography_magnetic,
-        thermal_coupling=params.include_topography_thermal,
-        stefan_enabled=params.stefan_enabled,
-        include_shift_terms=params.include_topography_shift_terms,
-        include_slope_terms=params.include_topography_slope_terms,
-        epsilon=params.topography_epsilon,
-        lmax_topo=params.topography_degree,
+        enabled = params.topography_enabled,
+        velocity_coupling = params.include_topography_velocity,
+        magnetic_coupling = params.include_topography_magnetic,
+        thermal_coupling = params.include_topography_thermal,
+        stefan_enabled = params.stefan_enabled,
+        include_shift_terms = params.include_topography_shift_terms,
+        include_slope_terms = params.include_topography_slope_terms,
+        epsilon = params.topography_epsilon,
+        lmax_topo = params.topography_degree
     )
 end
 
-function load_solver_topography_data(::Type{T}, params::SolverParameters) where T
+function load_solver_topography_data(::Type{T}, params::SolverParameters) where {T}
     # Topography files may still matter when explicit coupling is off, because
     # Stefan evolution and diagnostics can consume the same loaded surfaces.
-    needs_topography =
-        params.topography_enabled ||
-        !isempty(params.icb_topography_file) ||
-        !isempty(params.ocb_topography_file) ||
-        params.stefan_enabled
+    needs_topography = params.topography_enabled ||
+                       !isempty(params.icb_topography_file) ||
+                       !isempty(params.ocb_topography_file) ||
+                       params.stefan_enabled
 
     needs_topography || return nothing
 
@@ -34,7 +33,7 @@ function load_solver_topography_data(::Type{T}, params::SolverParameters) where 
         data.icb = TopographyAPI.load_topography_from_file(
             params.icb_topography_file,
             SOLVER_INNER_BOUNDARY;
-            radius=params.radius_ratio,
+            radius = params.radius_ratio
         )
     end
 
@@ -42,32 +41,32 @@ function load_solver_topography_data(::Type{T}, params::SolverParameters) where 
         data.cmb = TopographyAPI.load_topography_from_file(
             params.ocb_topography_file,
             SOLVER_OUTER_BOUNDARY;
-            radius=1.0,
+            radius = 1.0
         )
     end
 
     if params.topography_enabled && (data.icb !== nothing || data.cmb !== nothing)
         lmax_topo = params.topography_degree > 0 ? params.topography_degree : params.lmax
         data.gaunt_cache = TopographyAPI.GauntTensorCache{T}(params.lmax, lmax_topo)
-        TopographyAPI.precompute_gaunt_tensors!(data.gaunt_cache; verbose=false, use_wigner=true)
+        TopographyAPI.precompute_gaunt_tensors!(data.gaunt_cache; verbose = false, use_wigner = true)
     end
 
     return data
 end
 
-function create_solver_topography_state(::Type{T}, params::SolverParameters) where T
+function create_solver_topography_state(::Type{T}, params::SolverParameters) where {T}
     config = create_solver_topography_config(params)
     data = load_solver_topography_data(T, params)
 
     stefan = nothing
     if params.stefan_enabled
         stefan = TopographyAPI.StefanState{T}(
-            lmax=params.lmax,
-            ri=T(params.radius_ratio),
-            k_ic=T(params.inner_core_conductivity_ratio),
-            k_oc=one(T),
-            rho=one(T),
-            L=T(params.latent_heat),
+            lmax = params.lmax,
+            ri = T(params.radius_ratio),
+            k_ic = T(params.inner_core_conductivity_ratio),
+            k_oc = one(T),
+            rho = one(T),
+            L = T(params.latent_heat)
         )
         stefan.Stefan = T(params.stefan_number)
         if data !== nothing && data.icb !== nothing
@@ -93,7 +92,7 @@ function apply_solver_topography!(state::SolverState)
     TopographyAPI.apply_all_topography_corrections!(
         state.fields,
         topo_data;
-        config=state.topography.config,
+        config = state.topography.config
     )
 
     return state

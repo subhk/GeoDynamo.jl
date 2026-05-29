@@ -77,7 +77,7 @@ Return the default `OutputConfig` used by GeoDynamo’s NetCDF writer.
 The positional `default_config(T)` form is kept as a convenience alias for
 call sites that already pass a floating-point type.
 """
-function default_config(; precision::Type{<:AbstractFloat}=Float64)
+function default_config(; precision::Type{<:AbstractFloat} = Float64)
     return OutputConfig(
         MIXED_FIELDS,       # spectral for velocity/magnetic, physical for temperature
         "./output",         # output directory
@@ -95,7 +95,7 @@ function default_config(; precision::Type{<:AbstractFloat}=Float64)
     )
 end
 
-default_config(T::Type{<:AbstractFloat}) = default_config(; precision=T)
+default_config(T::Type{<:AbstractFloat}) = default_config(; precision = T)
 
 """
     resolve_output_precision(sym)
@@ -118,9 +118,9 @@ end
 Create an `OutputConfig` using simulation parameters as the source of truth for
 runtime-controlled output settings.
 """
-function output_config_from_parameters(; base_config::OutputConfig=default_config(),
-                                         output_precision::Symbol=:float32,
-                                         output_interval::Float64=1.0)
+function output_config_from_parameters(; base_config::OutputConfig = default_config(),
+        output_precision::Symbol = :float32,
+        output_interval::Float64 = 1.0)
     precision = resolve_output_precision(output_precision)
 
     return OutputConfig(
@@ -147,7 +147,7 @@ Return a copy of `config` that writes field and scalar output with precision `T`
 
 All scheduling, metadata, directory, and layout settings are preserved.
 """
-function with_output_precision(config::OutputConfig, ::Type{T}) where {T<:AbstractFloat}
+function with_output_precision(config::OutputConfig, ::Type{T}) where {T <: AbstractFloat}
     return OutputConfig(
         config.output_space,
         config.output_dir,
@@ -233,7 +233,7 @@ Pass the actual write decisions so history and restart cadence can advance
 independently when only one output type was produced.
 """
 function update_tracker!(tracker::TimeTracker, current_time::Float64,
-                        config::OutputConfig, did_output::Bool, did_restart::Bool)
+        config::OutputConfig, did_output::Bool, did_restart::Bool)
     if did_output
         tracker.last_output_time = current_time
         tracker.output_count += 1
@@ -289,7 +289,7 @@ const ENERGY_TRACKER = EnergyTracker(
     Float64[],
     Float64[],
     Int[],
-    true,
+    true
 )
 
 """
@@ -297,7 +297,7 @@ const ENERGY_TRACKER = EnergyTracker(
 
 Compute L2 energy of a 3D scalar field.
 """
-function compute_field_energy(field_data::Array{T, 3}) where T
+function compute_field_energy(field_data::Array{T, 3}) where {T}
     local_energy = 0.5 * sum(abs2, field_data)
     if MPI.Initialized()
         return MPI.Allreduce(local_energy, +, get_comm())
@@ -311,10 +311,10 @@ end
 Compute kinetic or magnetic energy from three physical-space vector components.
 """
 function compute_vector_energy(
-    v_r::Array{T, 3},
-    v_theta::Array{T, 3},
-    v_phi::Array{T, 3},
-) where T
+        v_r::Array{T, 3},
+        v_theta::Array{T, 3},
+        v_phi::Array{T, 3}
+) where {T}
     local_energy = 0.5 * (sum(abs2, v_r) + sum(abs2, v_theta) + sum(abs2, v_phi))
     if MPI.Initialized()
         return MPI.Allreduce(local_energy, +, get_comm())

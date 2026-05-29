@@ -17,9 +17,9 @@ end
 
         mktempdir() do tmp
             cd(tmp) do
-                mod.create_sample_temperature_boundaries(nlat=8, nlon=16, time_dependent=false)
-                mod.create_sample_temperature_boundaries(nlat=8, nlon=16, time_dependent=true)
-                mod.create_sample_composition_boundaries(nlat=8, nlon=16)
+                mod.create_sample_temperature_boundaries(nlat = 8, nlon = 16, time_dependent = false)
+                mod.create_sample_temperature_boundaries(nlat = 8, nlon = 16, time_dependent = true)
+                mod.create_sample_composition_boundaries(nlat = 8, nlon = 16)
 
                 @test isfile("cmb_temp.nc")
                 @test isfile("surface_temp.nc")
@@ -43,7 +43,8 @@ end
         netcdf_demo.demo_interpolation(temp_boundaries)
         netcdf_demo.demo_time_dependent_file()
 
-        demo_cfg = GeoDynamo.create_shtnskit_config(lmax=8, mmax=8, nlat=16, nlon=32, nr=8)
+        demo_cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 8, mmax = 8, nlat = 16, nlon = 32, nr = 8)
         hybrid_demo.ensure_sample_files!()
         hybrid_demo.demo_hybrid_sets(demo_cfg)
         hybrid_demo.demo_spherical_harmonic_patterns(demo_cfg)
@@ -55,8 +56,8 @@ end
         transforms_demo = load_example_module("shtnskit_integration_demo.jl")
         ic_demo = load_example_module("initial_conditions_example.jl")
 
-        transforms_demo.main(lmax=8, mmax=8, nlat=16, nlon=32, nr=8)
-        ic_demo.main(lmax=8, mmax=8, nlat=16, nlon=32, nr=8)
+        transforms_demo.main(lmax = 8, mmax = 8, nlat = 16, nlon = 32, nr = 8)
+        ic_demo.main(lmax = 8, mmax = 8, nlat = 16, nlon = 32, nr = 8)
         @test true
     end
 
@@ -66,30 +67,30 @@ end
         topography_demo = load_example_module("topography_example.jl")
 
         ball_state = ball_demo.main(
-            run=false,
-            nr=16,
-            lmax=4,
-            mmax=4,
-            nlat=12,
-            nlon=16,
-            stop_iteration=1,
+            run = false,
+            nr = 16,
+            lmax = 4,
+            mmax = 4,
+            nlat = 12,
+            nlon = 16,
+            stop_iteration = 1
         )
         @test ball_state.parameters.geometry === :ball
 
         shell_state = shell_demo.main(
-            run=false,
-            nr=16,
-            nr_inner=4,
-            lmax=4,
-            mmax=4,
-            nlat=12,
-            nlon=16,
-            stop_iteration=1,
+            run = false,
+            nr = 16,
+            nr_inner = 4,
+            lmax = 4,
+            mmax = 4,
+            nlat = 12,
+            nlon = 16,
+            stop_iteration = 1
         )
         @test shell_state.parameters.geometry === :shell
 
         topo_model = topography_demo.setup_topography_model(
-            nr=16, nr_inner=4, lmax=4, mmax=4, nlat=12, nlon=16,
+            nr = 16, nr_inner = 4, lmax = 4, mmax = 4, nlat = 12, nlon = 16
         )
         topo = topography_demo.create_topography_examples()
         stefan = topography_demo.setup_stefan_evolution(0.35, 8)

@@ -1,4 +1,5 @@
-function initialize_composition_field!(state::SolverState{T,<:AbstractArchitecture}) where T
+function initialize_composition_field!(state::SolverState{
+        T, <:AbstractArchitecture}) where {T}
     composition = state.fields.composition
     composition === nothing && return state
 
@@ -35,21 +36,21 @@ function initialize_composition_field!(state::SolverState{T,<:AbstractArchitectu
                 r = domain.r[r_idx, 4]
                 frac = ro > ri ? (r - ri) / (ro - ri) : zero(T)
                 set_local_spectral_value!(spec_real, slot, r_idx,
-                                          inner_bv + (outer_bv - inner_bv) * T(frac))
+                    inner_bv + (outer_bv - inner_bv) * T(frac))
             elseif 1 <= l <= 3
                 amplitude = T(1e-4)
                 set_local_spectral_value!(
                     spec_real,
                     slot,
                     r_idx,
-                    amplitude * (rand(T) - T(0.5)),
+                    amplitude * (rand(T) - T(0.5))
                 )
                 if m > 0
                     set_local_spectral_value!(
                         spec_imag,
                         slot,
                         r_idx,
-                        amplitude * (rand(T) - T(0.5)),
+                        amplitude * (rand(T) - T(0.5))
                     )
                 end
             end
@@ -60,12 +61,11 @@ function initialize_composition_field!(state::SolverState{T,<:AbstractArchitectu
 end
 
 function solver_compute_composition_nonlinear!(
-    𝔽::CompositionFieldType{T},
-    vel_fields,
-    𝒟ᵒᶜ::RadialDomainType,
-    ws::SolverGradientWorkspace{T};
-    geometry::Symbol=solver_default_geometry(), ) where T
-
+        𝔽::CompositionFieldType{T},
+        vel_fields,
+        𝒟ᵒᶜ::RadialDomainType,
+        ws::SolverGradientWorkspace{T};
+        geometry::Symbol = solver_default_geometry()) where {T}
     t_start = timing_enabled() ? mpi_wtime() : 0.0
 
     solver_zero_scalar_work_arrays!(𝔽)
@@ -100,7 +100,7 @@ function solver_compute_composition_nonlinear!(
     scalar_nonlinear_to_spectral!(
         𝔽.advection_physical,
         𝔽.nonlinear,
-        geometry,
+        geometry
     )
     if timing_enabled()
         𝔽.transform_time[] += mpi_wtime() - t_transform
@@ -109,7 +109,8 @@ function solver_compute_composition_nonlinear!(
     return 𝔽
 end
 
-function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchitecture}) where T
+function apply_composition_implicit_update!(state::SolverState{
+        T, <:AbstractArchitecture}) where {T}
     composition = state.fields.composition
     composition === nothing && return state
 
@@ -126,7 +127,7 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
         radial_work = get_radial_work!(
             state.timestep_caches,
             :composition,
-            matrices.system_matrices[1].size,
+            matrices.system_matrices[1].size
         )
         solver_build_rhs_cnab2!(
             composition.work_spectral,
@@ -135,24 +136,24 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
             composition.prev_nonlinear,
             dt,
             matrices;
-            work=radial_work,
+            work = radial_work
         )
         solver_solve_composition_implicit_step!(
             composition.spectral,
             composition.work_spectral,
             matrices;
-            bc_inner=bc.inner_real,
-            bc_outer=bc.outer_real,
-            bc_inner_imag=bc.inner_imag,
-            bc_outer_imag=bc.outer_imag,
-            work=radial_work,
+            bc_inner = bc.inner_real,
+            bc_outer = bc.outer_real,
+            bc_inner_imag = bc.inner_imag,
+            bc_outer_imag = bc.outer_imag,
+            work = radial_work
         )
     elseif timestepper isa EAB2
         alu_map = (state.timestep_caches.etd_composition::EAB2CacheEntry{T}).map
         radial_work = get_radial_work!(
             state.timestep_caches,
             :composition,
-            runtime.𝒟ᵒᶜ.N,
+            runtime.𝒟ᵒᶜ.N
         )
         composition_bc_code = _composition_bc_code(state.parameters.composition_bcs)
         scalar_bc = build_solver_erk2_scalar_bc(T, runtime.𝒟ᵒᶜ, composition_bc_code)
@@ -161,7 +162,7 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
             bc.inner_real,
             bc.outer_real,
             bc.inner_imag,
-            bc.outer_imag,
+            bc.outer_imag
         )
         solver_eab2_update_krylov_cached!(
             composition.spectral,
@@ -172,27 +173,27 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
             diffusivity,
             runtime.shtns_config,
             dt;
-            m=_timestepper_krylov_dimension(timestepper, state.parameters),
-            tol=_timestepper_krylov_tolerance(timestepper, state.parameters),
-            bc_spec=bc_spec,
-            krylov_work=radial_work,
+            m = _timestepper_krylov_dimension(timestepper, state.parameters),
+            tol = _timestepper_krylov_tolerance(timestepper, state.parameters),
+            bc_spec = bc_spec,
+            krylov_work = radial_work
         )
     else
         matrices = state.implicit_matrices[:composition]
         radial_work = get_radial_work!(
             state.timestep_caches,
             :composition,
-            matrices.system_matrices[1].size,
+            matrices.system_matrices[1].size
         )
         solver_solve_composition_implicit_step!(
             composition.spectral,
             composition.nonlinear,
             matrices;
-            bc_inner=bc.inner_real,
-            bc_outer=bc.outer_real,
-            bc_inner_imag=bc.inner_imag,
-            bc_outer_imag=bc.outer_imag,
-            work=radial_work,
+            bc_inner = bc.inner_real,
+            bc_outer = bc.outer_real,
+            bc_inner_imag = bc.inner_imag,
+            bc_outer_imag = bc.outer_imag,
+            work = radial_work
         )
     end
 
@@ -200,9 +201,9 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
 end
 
 function queue_composition_implicit_update!(
-    operations::Vector{Function},
-    state::SolverState{T,<:AbstractArchitecture},
-) where T
+        operations::Vector{Function},
+        state::SolverState{T, <:AbstractArchitecture}
+) where {T}
     state.fields.composition === nothing && return operations
     push!(operations, () -> apply_composition_implicit_update!(state))
     return operations

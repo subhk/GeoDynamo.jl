@@ -12,25 +12,25 @@
 
 using GeoDynamo
 using GeoDynamo.bcs:
-    INNER_BOUNDARY,
-    OUTER_BOUNDARY,
-    GauntTensorCache,
-    StefanState,
-    apply_all_topography_corrections!,
-    enable_topography!,
-    get_topography_config,
-    is_topography_enabled,
-    precompute_gaunt_tensors!,
-    update_icb_topography!
+                     INNER_BOUNDARY,
+                     OUTER_BOUNDARY,
+                     GauntTensorCache,
+                     StefanState,
+                     apply_all_topography_corrections!,
+                     enable_topography!,
+                     get_topography_config,
+                     is_topography_enabled,
+                     precompute_gaunt_tensors!,
+                     update_icb_topography!
 using GeoDynamo.bcs.topography:
-    create_random_topography,
-    create_spherical_harmonic_topography,
-    create_topography_data,
-    create_uniform_topography,
-    get_stefan_diagnostics,
-    get_topography_coefficients,
-    initialize_gaunt_cache!,
-    print_topography_summary
+                                create_random_topography,
+                                create_spherical_harmonic_topography,
+                                create_topography_data,
+                                create_uniform_topography,
+                                get_stefan_diagnostics,
+                                get_topography_coefficients,
+                                initialize_gaunt_cache!,
+                                print_topography_summary
 
 # ================================================================================
 # QUICK START: Enable topography in your simulation
@@ -38,41 +38,41 @@ using GeoDynamo.bcs.topography:
 
 # Method 1: Set topography directly on the high-level model.
 function setup_topography_model(;
-    nr=64,
-    nr_inner=16,
-    lmax=32,
-    mmax=32,
-    nlat=64,
-    nlon=128,
-    radius_ratio=0.35,
-    topography_epsilon=0.01,
-    kwargs...,
+        nr = 64,
+        nr_inner = 16,
+        lmax = 32,
+        mmax = 32,
+        nlat = 64,
+        nlon = 128,
+        radius_ratio = 0.35,
+        topography_epsilon = 0.01,
+        kwargs...
 )
     grid = SphericalShellGrid(
-        lmax=lmax,
-        mmax=mmax,
-        nlat=nlat,
-        nlon=nlon,
-        nr=nr,
-        nr_inner=nr_inner,
-        r_inner=radius_ratio,
+        lmax = lmax,
+        mmax = mmax,
+        nlat = nlat,
+        nlon = nlon,
+        nr = nr,
+        nr_inner = nr_inner,
+        r_inner = radius_ratio
     )
 
     return GeodynamoModel(
         grid;
-        topography_enabled=true,
-        topography_epsilon=topography_epsilon,
-        topography_degree=lmax,
-        include_topography_velocity=true,
-        include_topography_magnetic=true,
-        include_topography_thermal=true,
-        include_topography_slope_terms=true,
-        include_topography_shift_terms=true,
-        stefan_enabled=false,
-        stefan_number=1.0,
-        ocb_topography_file="",
-        icb_topography_file="",
-        kwargs...,
+        topography_enabled = true,
+        topography_epsilon = topography_epsilon,
+        topography_degree = lmax,
+        include_topography_velocity = true,
+        include_topography_magnetic = true,
+        include_topography_thermal = true,
+        include_topography_slope_terms = true,
+        include_topography_shift_terms = true,
+        stefan_enabled = false,
+        stefan_number = 1.0,
+        ocb_topography_file = "",
+        icb_topography_file = "",
+        kwargs...
     )
 end
 
@@ -162,7 +162,7 @@ function setup_gaunt_tensors(lmax_field::Int, lmax_topo::Int)
     # Precompute all non-zero Gaunt integrals
     # This is expensive but only needs to be done once!
     println("Precomputing Gaunt tensors (this may take a while for large lmax)...")
-    @time precompute_gaunt_tensors!(gaunt_cache; verbose=true)
+    @time precompute_gaunt_tensors!(gaunt_cache; verbose = true)
 
     return gaunt_cache
 end
@@ -182,8 +182,8 @@ function apply_topography_in_timestep(sim_state, topo_data, gaunt_cache)
     # Option 1: Apply all corrections at once
     apply_all_topography_corrections!(
         (velocity = sim_state.velocity,
-         magnetic = sim_state.magnetic,
-         temperature = sim_state.temperature),
+            magnetic = sim_state.magnetic,
+            temperature = sim_state.temperature),
         topo_data
     )
 
@@ -212,7 +212,8 @@ function setup_stefan_evolution(ri::Float64, lmax::Int)
     return stefan
 end
 
-function evolve_icb_topography!(stefan, dt, velocity, T_ic, T_oc; topo_data=nothing, gaunt=nothing, config=nothing)
+function evolve_icb_topography!(stefan, dt, velocity, T_ic, T_oc; topo_data = nothing,
+        gaunt = nothing, config = nothing)
     # Update ICB topography based on Stefan condition:
     # ε ∂_t h = u_n + (k_ic ∂_n T_ic - k ∂_n T) / (ρ L)
 
@@ -233,14 +234,14 @@ end
 # Complete Example: Setting up a simulation with topography
 # ================================================================================
 
-function example_simulation_with_topography(; run=false)
+function example_simulation_with_topography(; run = false)
     println("="^60)
     println("TOPOGRAPHY COUPLING EXAMPLE")
     println("="^60)
 
     # 1. Create a model with topography enabled
     model = setup_topography_model()
-    simulation = Simulation(model; dt=1e-4, stop_iteration=10)
+    simulation = Simulation(model; dt = 1e-4, stop_iteration = 10)
     params = model.state.parameters
 
     println("\n1. Model configured with topography:")
@@ -259,7 +260,7 @@ function example_simulation_with_topography(; run=false)
 
     # Add Y_2^0 topography manually
     cmb_field = create_spherical_harmonic_topography(
-        2, 0, 0.1, 1.0, OUTER_BOUNDARY; lmax=params.lmax
+        2, 0, 0.1, 1.0, OUTER_BOUNDARY; lmax = params.lmax
     )
     topo.cmb = cmb_field
 
@@ -267,7 +268,7 @@ function example_simulation_with_topography(; run=false)
 
     # 3. Initialize Gaunt tensors
     println("\n3. Initializing Gaunt tensor cache...")
-    initialize_gaunt_cache!(topo, params.lmax; precompute=true)
+    initialize_gaunt_cache!(topo, params.lmax; precompute = true)
 
     # 4. Print summary
     println("\n4. Topography summary:")

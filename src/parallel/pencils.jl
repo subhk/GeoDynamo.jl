@@ -6,7 +6,6 @@ using PencilArrays
 using PencilArrays: Pencil, PencilArray
 using Statistics: std
 
-
 # ================================
 # Optimized Process Topology
 # ================================
@@ -17,27 +16,27 @@ Find optimal 2D process grid for given number of processes and problem dimension
 Minimizes communication volume.
 """
 function optimize_process_topology(nprocs::Int,
-                                   dims::Tuple{Int,Int,Int},
-                                   spectral_dims::Union{Nothing,Tuple{Int,Int,Int}}=nothing)
+        dims::Tuple{Int, Int, Int},
+        spectral_dims::Union{Nothing, Tuple{Int, Int, Int}} = nothing)
     nlat, nlon, nr = dims
-    
+
     # Find all valid 2D decompositions
-    decompositions = Tuple{Int,Int}[]
+    decompositions = Tuple{Int, Int}[]
     for p1 in 1:nprocs
         if nprocs % p1 == 0
             p2 = nprocs ÷ p1
             push!(decompositions, (p1, p2))
         end
     end
-    
+
     # Score each decomposition based on communication patterns
     best_score = Inf
     best_decomp = (nprocs, 1)
-    
+
     for (p1, p2) in decompositions
         # Estimate communication volume for different pencil orientations
         # Prefer decompositions that balance load and minimize surface/volume ratio
-        
+
         # Check if decomposition is valid for physical and spectral storage.
         if nlat ÷ p1 < 2 || nlon ÷ p2 < 2
             continue
@@ -46,28 +45,29 @@ function optimize_process_topology(nprocs::Int,
            (spectral_dims[1] ÷ p1 < 1 || spectral_dims[2] ÷ p2 < 1)
             continue
         end
-        
+
         # Score based on:
         # 1. Load balance (prefer square-ish decompositions)
         # 2. Communication volume (proportional to surface area)
         # 3. Cache efficiency (prefer contiguous dimensions)
-        
+
         aspect_ratio = max(p1/p2, p2/p1)
         comm_volume = (nlat/p1 + nlon/p2) * nr  # Simplified communication estimate
         cache_penalty = abs(p1 - p2)  # Penalty for non-square decomposition
-        
+
         score = comm_volume * aspect_ratio * (1.0 + 0.1 * cache_penalty)
-        
+
         if score < best_score
             best_score = score
             best_decomp = (p1, p2)
         end
     end
-    
+
     # Validate that the best decomposition satisfies the minimum grid-per-process constraint
     p1, p2 = best_decomp
     if nlat ÷ p1 < 2 || nlon ÷ p2 < 2 ||
-       (spectral_dims !== nothing && (spectral_dims[1] ÷ p1 < 1 || spectral_dims[2] ÷ p2 < 1))
+       (spectral_dims !== nothing &&
+        (spectral_dims[1] ÷ p1 < 1 || spectral_dims[2] ÷ p2 < 1))
         @warn "No valid 2D pencil decomposition found for nlat=$nlat, nlon=$nlon with $nprocs processes. " *
               "Best candidate ($p1, $p2) gives $(nlat÷p1) × $(nlon÷p2) points per process " *
               "(minimum 2×2 physical and 1×1 spectral required). Consider reducing the number of MPI processes or increasing resolution."
@@ -75,7 +75,6 @@ function optimize_process_topology(nprocs::Int,
 
     return best_decomp
 end
-
 
 @inline spectral_mode_grid_dims(lmax::Int, mmax::Int, nr::Int) = (lmax + 1, mmax + 1, nr)
 @inline spectral_mode_grid_dims(config, nr::Int) = spectral_mode_grid_dims(config.lmax, config.mmax, nr)
@@ -94,7 +93,6 @@ function create_inner_core_spectral_pencil(config, reference_spec_pencil, nr_inn
     return Pencil(topology(reference_spec_pencil), spec_dims, (1, 2))
 end
 
-
 """
     create_pencil_topology(shtns_config; nr, optimize=true)
 
@@ -103,7 +101,7 @@ Chooses the best shared 2D process grid for the physical and spectral pencil
 layouts. Accepts an object with fields `nlat`, `nlon`, `nlm`, `lmax`, and
 `mmax` (e.g., `SHTnsKitConfig`).
 """
-function create_pencil_topology(shtns_config; nr::Int, optimize::Bool=true)
+function create_pencil_topology(shtns_config; nr::Int, optimize::Bool = true)
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
@@ -113,7 +111,7 @@ function create_pencil_topology(shtns_config; nr::Int, optimize::Bool=true)
     nlon = shtns_config.nlon
     dims = (nlat, nlon, nr)
     spectral_dims = spectral_mode_grid_dims(shtns_config, nr)
-    
+
     # Choose the process grid before constructing any pencils so every later
     # pencil/orientation shares the same MPI topology. Spectral space uses a
     # real (l, m, r) grid, so both process-grid dimensions are valid.
@@ -123,12 +121,12 @@ function create_pencil_topology(shtns_config; nr::Int, optimize::Bool=true)
         # Default to 1D decomposition
         proc_dims = (nprocs, 1)
     end
-    
+
     # Create PencilArrays topology
     # Construct MPI-aware topology (modern PencilArrays exports MPITopology)
     TopoCtor = getproperty(PencilArrays, Symbol("MPITopology"))
     topology = TopoCtor(comm, proc_dims)
-    
+
     if rank == 0
         println("═══════════════════════════════════════════════════════")
         println(" Pencil Decomposition Setup")
@@ -141,45 +139,43 @@ function create_pencil_topology(shtns_config; nr::Int, optimize::Bool=true)
         println("   Spectral modes:   $(shtns_config.nlm)")
         println("═══════════════════════════════════════════════════════")
     end
-    
+
     # Create pencils for different computational stages
     pencils = create_computation_pencils(topology, dims, shtns_config)
-    
+
     return pencils
 end
-
 
 """
     create_computation_pencils(topology, dims, config)
     
 Create specialized pencils for different stages of computation.
 """
-function create_computation_pencils(topology, dims::Tuple{Int,Int,Int}, config)
+function create_computation_pencils(topology, dims::Tuple{Int, Int, Int}, config)
     nlat, nlon, nr = dims
-    
+
     # Each pencil keeps one axis local and distributes the other two. The
     # selected local axis matches the operation that should run without MPI
     # communication in that orientation.
     pencil_θ = Pencil(topology, dims, (2, 3))  # Contiguous in θ (latitude)
     pencil_φ = Pencil(topology, dims, (1, 3))  # Contiguous in φ (longitude)
     pencil_r = Pencil(topology, dims, (1, 2))  # Contiguous in r (radius)
-    
+
     # Spectral space is represented as a rectangular (l, m, r) grid rather than
     # the compact SHTns `nlm` list. Distributing l and m while keeping r local
     # gives each owned mode a complete radial profile for banded radial solves.
     spec_dims = spectral_mode_grid_dims(config, nr)
     pencil_spec = Pencil(topology, spec_dims, (1, 2))
-    
+
     # Compatibility alias for older call sites. Mixed spectral storage must obey
     # the same rectangular (l, m, r) ownership contract as the spectral pencil.
-    
-    return (θ = pencil_θ, 
-            φ = pencil_φ, 
-            r = pencil_r,
-            spec = pencil_spec,
-            mixed = pencil_spec)
-end
 
+    return (θ = pencil_θ,
+        φ = pencil_φ,
+        r = pencil_r,
+        spec = pencil_spec,
+        mixed = pencil_spec)
+end
 
 # ===============================
 # Load Balancing Analysis
@@ -194,7 +190,7 @@ function analyze_load_balance(pencil::Pencil)::Float64
     rank = get_rank()
     nprocs = get_nprocs()
 
-    local_size::Tuple{Int,Int,Int} = size_local(pencil)
+    local_size::Tuple{Int, Int, Int} = size_local(pencil)
     local_elements::Int = prod(local_size)
 
     min_size = MPI.Allreduce(local_elements, MPI.MIN, comm)
@@ -204,7 +200,7 @@ function analyze_load_balance(pencil::Pencil)::Float64
     imbalance = (max_size - min_size) / avg_size * 100
 
     if rank == 0
-        all_sizes = MPI.Gather(local_elements, comm; root=0)
+        all_sizes = MPI.Gather(local_elements, comm; root = 0)
         std_size = std(all_sizes)
 
         println("\nLoad Balance Analysis:")
@@ -233,19 +229,19 @@ Estimate memory usage for given pencil configuration.
 function estimate_memory_usage(pencils, field_count::Int, precision::Type)
     bytes_per_element = sizeof(precision)
     total_bytes = 0
-    
+
     # Calculate memory for each pencil orientation
     for (name, pencil) in pairs(pencils)
         local_size = size_local(pencil)
         local_bytes = prod(local_size) * bytes_per_element * field_count
         total_bytes += local_bytes
     end
-    
+
     # Add overhead for transpose buffers (typically 2x largest pencil)
     max_pencil_size = maximum([prod(size_local(p)) for p in pencils])
     buffer_bytes = 2 * max_pencil_size * bytes_per_element
     total_bytes += buffer_bytes
-    
+
     # Convert to human-readable format
     if total_bytes < 1024^2
         memory_str = "$(round(total_bytes/1024, digits=1)) KB"
@@ -254,10 +250,9 @@ function estimate_memory_usage(pencils, field_count::Int, precision::Type)
     else
         memory_str = "$(round(total_bytes/1024^3, digits=2)) GB"
     end
-    
+
     return total_bytes, memory_str
 end
-
 
 # =============================
 # Pencil Array Utilities
@@ -267,9 +262,9 @@ end
     
 Create a PencilArray with specified initialization.
 """
-function create_pencil_array(::Type{T}, pencil::Pencil; init=:zero) where T
+function create_pencil_array(::Type{T}, pencil::Pencil; init = :zero) where {T}
     arr = PencilArray{T}(undef, pencil)
-    
+
     if init == :zero
         fill!(parent(arr), zero(T))
     elseif init == :random
@@ -281,7 +276,6 @@ function create_pencil_array(::Type{T}, pencil::Pencil; init=:zero) where T
     return arr
 end
 
-
 # ===========================
 # Diagnostic Functions
 # ===========================
@@ -292,26 +286,26 @@ Print detailed information about pencil decomposition.
 """
 function print_pencil_info(pencils)
     rank = get_rank()
-    
+
     if rank == 0
         println("\n═══════════════════════════════════════════════════════")
         println(" Pencil Decomposition Information")
         println("═══════════════════════════════════════════════════════")
     end
-    
+
     for (name, pencil) in pairs(pencils)
         global_size = size_global(pencil)
         local_size = size_local(pencil)
         local_range = range_local(pencil)
-        
+
         # Gather info from all ranks
-        all_local_sizes = MPI.Gather(prod(local_size), get_comm(); root=0)
-        
+        all_local_sizes = MPI.Gather(prod(local_size), get_comm(); root = 0)
+
         if rank == 0
             println("\n Pencil: $name")
             println("   Global size:  $(global_size)")
             println("   Decomposed:   $(decomposition(pencil))")
-            
+
             if get_nprocs() > 1
                 min_local = minimum(all_local_sizes)
                 max_local = maximum(all_local_sizes)
@@ -320,12 +314,11 @@ function print_pencil_info(pencils)
             end
         end
     end
-    
+
     if rank == 0
         println("═══════════════════════════════════════════════════════")
     end
 end
-
 
 """
     print_pencil_axes(pencils)
@@ -380,7 +373,7 @@ validate_radial_distribution(pencils)
 validate_radial_distribution(pencils; strict=false)
 ```
 """
-function validate_radial_distribution(pencils; warn_uneven::Bool=true, strict::Bool=true)
+function validate_radial_distribution(pencils; warn_uneven::Bool = true, strict::Bool = true)
     comm = get_comm()
     rank = get_rank()
     nprocs = get_nprocs()
@@ -392,7 +385,7 @@ function validate_radial_distribution(pencils; warn_uneven::Bool=true, strict::B
     # Check radial distribution for each pencil type
     valid = true
     problematic_pencils = Symbol[]
-    distribution_info = Dict{Symbol, Tuple{Int,Int}}()
+    distribution_info = Dict{Symbol, Tuple{Int, Int}}()
 
     for (name, pencil) in pairs(pencils)
         # Use range_local accessor for version compatibility
@@ -446,7 +439,7 @@ end
 
 Verify that the SHTnsKit transform configuration is safe for parallel execution.
 """
-function check_transform_synchronization(config; strict::Bool=false)
+function check_transform_synchronization(config; strict::Bool = false)
     nprocs = get_nprocs()
 
     if nprocs == 1
@@ -461,7 +454,8 @@ function check_transform_synchronization(config; strict::Bool=false)
         nothing
     end
 
-    if pencils !== nothing && !validate_radial_distribution(pencils; warn_uneven=true, strict=strict)
+    if pencils !== nothing &&
+       !validate_radial_distribution(pencils; warn_uneven = true, strict = strict)
         return false
     end
 

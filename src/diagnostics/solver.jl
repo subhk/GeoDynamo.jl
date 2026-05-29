@@ -1,24 +1,28 @@
 const SOLVER_MAX_TRACKER_HISTORY = 10_000
 const SOLVER_DEFAULT_NAN_CONFIG = getproperty(GeoDynamo, :DEFAULT_NAN_CONFIG)
 
-create_solver_energy_tracker() = SolverEnergyTracker(
-    Float64[],
-    Float64[],
-    Float64[],
-    Float64[],
-    Float64[],
-    Int[],
-    true,)
+function create_solver_energy_tracker()
+    SolverEnergyTracker(
+        Float64[],
+        Float64[],
+        Float64[],
+        Float64[],
+        Float64[],
+        Int[],
+        true)
+end
 
-create_solver_solenoidal_monitor() = SolverSolenoidalMonitor(
-    Float64[],
-    Float64[],
-    Float64[],
-    Float64[],
-    Int[],
-    true,)
+function create_solver_solenoidal_monitor()
+    SolverSolenoidalMonitor(
+        Float64[],
+        Float64[],
+        Float64[],
+        Float64[],
+        Int[],
+        true)
+end
 
-function field_energy(field_data::Array{T, 3}) where T
+function field_energy(field_data::Array{T, 3}) where {T}
     local_energy = 0.5 * sum(abs2, field_data)
     if mpi_initialized()
         return allreduce_sum(local_energy, mpi_comm())
@@ -27,9 +31,9 @@ function field_energy(field_data::Array{T, 3}) where T
 end
 
 function vector_energy(
-    v_r::Array{T, 3},
-    v_theta::Array{T, 3},
-    v_phi::Array{T, 3},) where T
+        v_r::Array{T, 3},
+        v_theta::Array{T, 3},
+        v_phi::Array{T, 3}) where {T}
     local_energy = 0.5 * (sum(abs2, v_r) + sum(abs2, v_theta) + sum(abs2, v_phi))
     if mpi_initialized()
         return allreduce_sum(local_energy, mpi_comm())
@@ -51,7 +55,7 @@ function trim_energy_tracker!(tracker::SolverEnergyTracker)
     return tracker
 end
 
-function compute_total_energy!(state::SolverState{T,<:AbstractArchitecture}) where T
+function compute_total_energy!(state::SolverState{T, <:AbstractArchitecture}) where {T}
     tracker = state.energy_tracker
     tracker.enable_tracking || return nothing
 
@@ -61,9 +65,9 @@ function compute_total_energy!(state::SolverState{T,<:AbstractArchitecture}) whe
     composition = state.fields.composition
     domain = state.backend.outer_core_domain
 
-    vector_spectral_to_physical!(velocity.𝒯, velocity.𝒫, velocity.velocity; domain=domain)
+    vector_spectral_to_physical!(velocity.𝒯, velocity.𝒫, velocity.velocity; domain = domain)
     if magnetic !== nothing
-        vector_spectral_to_physical!(magnetic.𝒯, magnetic.𝒫, magnetic.magnetic; domain=domain)
+        vector_spectral_to_physical!(magnetic.𝒯, magnetic.𝒫, magnetic.magnetic; domain = domain)
     end
 
     scalar_spectral_to_physical!(temperature.spectral, temperature.temperature)
@@ -75,7 +79,7 @@ function compute_total_energy!(state::SolverState{T,<:AbstractArchitecture}) whe
     kinetic_e = vector_energy(
         parent(velocity.velocity.r_component.data),
         parent(velocity.velocity.θ_component.data),
-        parent(velocity.velocity.φ_component.data),
+        parent(velocity.velocity.φ_component.data)
     )
 
     magnetic_e = 0.0
@@ -83,7 +87,7 @@ function compute_total_energy!(state::SolverState{T,<:AbstractArchitecture}) whe
         magnetic_e = vector_energy(
             parent(magnetic.magnetic.r_component.data),
             parent(magnetic.magnetic.θ_component.data),
-            parent(magnetic.magnetic.φ_component.data),
+            parent(magnetic.magnetic.φ_component.data)
         )
     end
 
@@ -110,10 +114,9 @@ function compute_total_energy!(state::SolverState{T,<:AbstractArchitecture}) whe
 end
 
 function report_energy_conservation(
-    state::SolverState,
-    step::Int;
-    interval::Int=100,)
-
+        state::SolverState,
+        step::Int;
+        interval::Int = 100)
     tracker = state.energy_tracker
     tracker.enable_tracking || return nothing
 
@@ -158,10 +161,12 @@ function report_energy_conservation(
     return nothing
 end
 
-compute_divergence_spectral(
-    tor_spec::SpectralFieldType{T},
-    pol_spec::SpectralFieldType{T},
-    domain::RadialDomainType,) where {T} = (0.0, 0.0)
+function compute_divergence_spectral(
+        tor_spec::SpectralFieldType{T},
+        pol_spec::SpectralFieldType{T},
+        domain::RadialDomainType) where {T}
+    (0.0, 0.0)
+end
 
 function trim_solenoidal_monitor!(monitor::SolverSolenoidalMonitor)
     n = length(monitor.velocity_div_l2)
@@ -180,18 +185,20 @@ function check_solenoidal_constraint!(state::SolverState)
     monitor = state.solenoidal_monitor
     monitor.enable_monitoring || return nothing
 
-    vel_l2, vel_linf = compute_divergence_spectral(
+    vel_l2,
+    vel_linf = compute_divergence_spectral(
         state.fields.velocity.𝒯,
         state.fields.velocity.𝒫,
-        state.backend.outer_core_domain,
+        state.backend.outer_core_domain
     )
 
     mag_l2, mag_linf = 0.0, 0.0
     if state.fields.magnetic !== nothing
-        mag_l2, mag_linf = compute_divergence_spectral(
+        mag_l2,
+        mag_linf = compute_divergence_spectral(
             state.fields.magnetic.𝒯,
             state.fields.magnetic.𝒫,
-            state.backend.outer_core_domain,
+            state.backend.outer_core_domain
         )
     end
 
@@ -206,9 +213,9 @@ function check_solenoidal_constraint!(state::SolverState)
 end
 
 function report_solenoidal_constraint(
-    state::SolverState,
-    step::Int;
-    interval::Int=100,
+        state::SolverState,
+        step::Int;
+        interval::Int = 100
 )
     monitor = state.solenoidal_monitor
     monitor.enable_monitoring || return nothing
@@ -248,8 +255,8 @@ function report_solenoidal_constraint(
 end
 
 function check_runtime_for_nan(
-    state::SolverState;
-    config::NaNConfigType=SOLVER_DEFAULT_NAN_CONFIG,
+        state::SolverState;
+        config::NaNConfigType = SOLVER_DEFAULT_NAN_CONFIG
 )
     step = state.runtime.timestep_state.step
     if !config.enabled || step % config.check_every_n_steps != 0
@@ -258,54 +265,66 @@ function check_runtime_for_nan(
 
     any_issue = false
 
-    has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+    has_nan, has_inf,
+    _,
+    _ = check_spectral_field_for_nan(
         state.fields.velocity.𝒯,
         "velocity_toroidal",
         config,
-        step,
+        step
     )
     any_issue |= (has_nan || has_inf)
 
-    has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+    has_nan, has_inf,
+    _,
+    _ = check_spectral_field_for_nan(
         state.fields.velocity.𝒫,
         "velocity_poloidal",
         config,
-        step,
+        step
     )
     any_issue |= (has_nan || has_inf)
 
     if state.fields.magnetic !== nothing
-        has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+        has_nan, has_inf,
+        _,
+        _ = check_spectral_field_for_nan(
             state.fields.magnetic.𝒯,
             "magnetic_toroidal",
             config,
-            step,
+            step
         )
         any_issue |= (has_nan || has_inf)
 
-        has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+        has_nan, has_inf,
+        _,
+        _ = check_spectral_field_for_nan(
             state.fields.magnetic.𝒫,
             "magnetic_poloidal",
             config,
-            step,
+            step
         )
         any_issue |= (has_nan || has_inf)
     end
 
-    has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+    has_nan, has_inf,
+    _,
+    _ = check_spectral_field_for_nan(
         state.fields.temperature.spectral,
         "temperature",
         config,
-        step,
+        step
     )
     any_issue |= (has_nan || has_inf)
 
     if state.fields.composition !== nothing
-        has_nan, has_inf, _, _ = check_spectral_field_for_nan(
+        has_nan, has_inf,
+        _,
+        _ = check_spectral_field_for_nan(
             state.fields.composition.spectral,
             "composition",
             config,
-            step,
+            step
         )
         any_issue |= (has_nan || has_inf)
     end
@@ -327,7 +346,7 @@ function check_runtime_for_nan(
     return any_issue
 end
 
-function run_diagnostics!(state::SolverState; interval::Int=100)
+function run_diagnostics!(state::SolverState; interval::Int = 100)
     step = state.runtime.timestep_state.step
     if step % interval == 0
         compute_total_energy!(state)

@@ -13,9 +13,9 @@ function check_parallel_netcdf_support(comm)
     # path for the collective NCDataset open, otherwise it will deadlock.
     rank = MPI.Comm_rank(comm)
     tmpfile = rank == 0 ? tempname() * ".nc" : ""
-    tmpfile = MPI.bcast(tmpfile, comm; root=0)
+    tmpfile = MPI.bcast(tmpfile, comm; root = 0)
     try
-        ds = NCDataset(comm, tmpfile, "c"; info=MPI.Info())
+        ds = NCDataset(comm, tmpfile, "c"; info = MPI.Info())
         close(ds)
     catch e
         error("Parallel NetCDF (MPI-IO) is required but not available. " *
@@ -25,7 +25,7 @@ function check_parallel_netcdf_support(comm)
     finally
         # Only rank 0 cleans up to avoid filesystem races
         if rank == 0 && isfile(tmpfile)
-            rm(tmpfile; force=true)
+            rm(tmpfile; force = true)
         end
         MPI.Barrier(comm)
     end
@@ -44,8 +44,8 @@ Files are numbered by writer counters rather than by `time` or `step`, which
 keeps names stable across floating-point time representations.
 """
 function generate_filename(config::OutputConfig, time::Float64, step::Int,
-                            file_type::String = "output", output_number::Int = 1;
-                            geometry::Symbol = :shell)
+        file_type::String = "output", output_number::Int = 1;
+        geometry::Symbol = :shell)
     geom = string(geometry)
 
     filename = if file_type == "output"
@@ -70,8 +70,8 @@ Open a new NetCDF file in parallel mode. All ranks call this collectively.
 Defines global dimensions and variables based on field_info.
 """
 function create_parallel_netcdf(filename::String, config::OutputConfig,
-                                field_info::FieldInfo, metadata::Dict{String,Any}, comm;
-                                geometry::Symbol = :shell)
+        field_info::FieldInfo, metadata::Dict{String, Any}, comm;
+        geometry::Symbol = :shell)
     rank = MPI.Comm_rank(comm)
     nprocs = MPI.Comm_size(comm)
 
@@ -80,7 +80,7 @@ function create_parallel_netcdf(filename::String, config::OutputConfig,
     end
     MPI.Barrier(comm)
 
-    ds = NCDataset(comm, filename, "c"; info=MPI.Info())
+    ds = NCDataset(comm, filename, "c"; info = MPI.Info())
 
     # Global attributes
     ds.attrib["title"] = "GeoDynamo Simulation Output"
@@ -145,11 +145,15 @@ function setup_dimensions!(ds, field_info::FieldInfo, config::OutputConfig)
     end
 end
 
-@inline should_define_physical_field_variables(config::OutputConfig) =
-    config.output_space == MIXED_FIELDS || config.output_space == PHYSICAL_ONLY
+@inline should_define_physical_field_variables(config::OutputConfig) = config.output_space ==
+                                                                       MIXED_FIELDS ||
+                                                                       config.output_space ==
+                                                                       PHYSICAL_ONLY
 
-@inline should_define_spectral_field_variables(config::OutputConfig) =
-    config.output_space == MIXED_FIELDS || config.output_space == SPECTRAL_ONLY
+@inline should_define_spectral_field_variables(config::OutputConfig) = config.output_space ==
+                                                                       MIXED_FIELDS ||
+                                                                       config.output_space ==
+                                                                       SPECTRAL_ONLY
 
 """
     setup_variables!(ds, field_info, config, available_fields)
@@ -160,39 +164,48 @@ The writer defines field variables according to `config.output_space`: physical
 scalar fields, spectral coefficient fields, or the mixed layout used by default.
 """
 function setup_variables!(ds, field_info::FieldInfo, config::OutputConfig,
-                          available_fields::Vector{String})
+        available_fields::Vector{String})
     T = config.output_precision
 
     # Time and step variables
-    defVar(ds, "time", T, ("time",); attrib=Dict(
-        "long_name" => "simulation_time", "units" => "dimensionless"))
-    defVar(ds, "step", Int32, ("time",); attrib=Dict(
+    defVar(ds, "time", T, ("time",);
+        attrib = Dict(
+            "long_name" => "simulation_time", "units" => "dimensionless"))
+    defVar(ds, "step", Int32, ("time",); attrib = Dict(
         "long_name" => "simulation_step"))
 
     # Coordinate variables
     if field_info.nr > 0
-        defVar(ds, "r", T, ("r",); attrib=Dict(
-            "long_name" => "radial_coordinate", "units" => "dimensionless"))
+        defVar(ds, "r", T, ("r",);
+            attrib = Dict(
+                "long_name" => "radial_coordinate", "units" => "dimensionless"))
     end
 
     if config.output_space == MIXED_FIELDS || config.output_space == PHYSICAL_ONLY
         if field_info.nlat > 0
-            defVar(ds, "theta", T, ("theta",); attrib=Dict(
-                "long_name" => "latitude", "units" => "radians",
-                "description" => "Latitude (Gauss-Legendre nodes, -pi/2 to pi/2)"))
+            defVar(ds,
+                "theta",
+                T,
+                ("theta",);
+                attrib = Dict(
+                    "long_name" => "latitude", "units" => "radians",
+                    "description" => "Latitude (Gauss-Legendre nodes, -pi/2 to pi/2)"))
         end
         if field_info.nlon > 0
-            defVar(ds, "phi", T, ("phi",); attrib=Dict(
-                "long_name" => "azimuthal_angle", "units" => "radians"))
+            defVar(ds, "phi", T, ("phi",);
+                attrib = Dict(
+                    "long_name" => "azimuthal_angle", "units" => "radians"))
         end
     end
 
     if config.output_space == MIXED_FIELDS || config.output_space == SPECTRAL_ONLY
         if field_info.nlm > 0
-            defVar(ds, "l_values", Int32, ("spectral_mode",); attrib=Dict(
-                "long_name" => "spherical_harmonic_degree"))
-            defVar(ds, "m_values", Int32, ("spectral_mode",); attrib=Dict(
-                "long_name" => "spherical_harmonic_order"))
+            defVar(ds, "l_values", Int32, ("spectral_mode",);
+                attrib = Dict(
+                    "long_name" => "spherical_harmonic_degree"))
+            defVar(ds, "m_values", Int32, ("spectral_mode",);
+                attrib = Dict(
+                    "long_name" => "spherical_harmonic_order"))
         end
     end
 
@@ -200,31 +213,48 @@ function setup_variables!(ds, field_info::FieldInfo, config::OutputConfig,
     if should_define_physical_field_variables(config)
         if "temperature" in available_fields &&
            field_info.nlat > 0 && field_info.nlon > 0 && field_info.nr > 0
-            defVar(ds, "temperature", T, ("theta", "phi", "r"); attrib=Dict(
-                "long_name" => "temperature", "units" => "dimensionless",
-                "representation" => "physical_space"))
+            defVar(ds,
+                "temperature",
+                T,
+                ("theta", "phi", "r");
+                attrib = Dict(
+                    "long_name" => "temperature", "units" => "dimensionless",
+                    "representation" => "physical_space"))
         end
 
         if "composition" in available_fields &&
            field_info.nlat > 0 && field_info.nlon > 0 && field_info.nr > 0
-            defVar(ds, "composition", T, ("theta", "phi", "r"); attrib=Dict(
-                "long_name" => "composition", "units" => "dimensionless",
-                "representation" => "physical_space"))
+            defVar(ds,
+                "composition",
+                T,
+                ("theta", "phi", "r");
+                attrib = Dict(
+                    "long_name" => "composition", "units" => "dimensionless",
+                    "representation" => "physical_space"))
         end
     end
 
     # Spectral field variables (spectral_mode, r)
-    if should_define_spectral_field_variables(config) && field_info.nlm > 0 && field_info.nr > 0
+    if should_define_spectral_field_variables(config) && field_info.nlm > 0 &&
+       field_info.nr > 0
         for component in ["velocity_toroidal", "velocity_poloidal",
-                          "magnetic_toroidal", "magnetic_poloidal",
-                          "temperature_spectral", "composition_spectral"]
+            "magnetic_toroidal", "magnetic_poloidal",
+            "temperature_spectral", "composition_spectral"]
             if component in available_fields
-                defVar(ds, "$(component)_real", T, ("spectral_mode", "r"); attrib=Dict(
-                    "long_name" => "$(component)_real_coefficients",
-                    "representation" => "spectral_space"))
-                defVar(ds, "$(component)_imag", T, ("spectral_mode", "r"); attrib=Dict(
-                    "long_name" => "$(component)_imaginary_coefficients",
-                    "representation" => "spectral_space"))
+                defVar(ds,
+                    "$(component)_real",
+                    T,
+                    ("spectral_mode", "r");
+                    attrib = Dict(
+                        "long_name" => "$(component)_real_coefficients",
+                        "representation" => "spectral_space"))
+                defVar(ds,
+                    "$(component)_imag",
+                    T,
+                    ("spectral_mode", "r");
+                    attrib = Dict(
+                        "long_name" => "$(component)_imaginary_coefficients",
+                        "representation" => "spectral_space"))
             end
         end
     end
@@ -238,7 +268,7 @@ Create scalar diagnostic variables for the diagnostics dictionary.
 No variables are created when diagnostics are disabled or the dictionary is
 empty.
 """
-function setup_diagnostic_variables!(ds, diagnostics::Dict{String,Float64}, config::OutputConfig)
+function setup_diagnostic_variables!(ds, diagnostics::Dict{String, Float64}, config::OutputConfig)
     if !config.include_diagnostics || isempty(diagnostics)
         return
     end
@@ -248,8 +278,9 @@ function setup_diagnostic_variables!(ds, diagnostics::Dict{String,Float64}, conf
     end
 
     for (name, _) in diagnostics
-        defVar(ds, "diag_$(name)", config.output_precision, ("scalar",); attrib=Dict(
-            "long_name" => replace(name, "_" => " ")))
+        defVar(ds, "diag_$(name)", config.output_precision, ("scalar",);
+            attrib = Dict(
+                "long_name" => replace(name, "_" => " ")))
     end
 end
 
@@ -305,8 +336,8 @@ end
     end
 end
 
-@inline local_spectral_io_ranges(config::SHTnsKitConfig) =
-    local_spectral_mode_indices(config), range_local(config.pencils.spec, 3)
+@inline local_spectral_io_ranges(config::SHTnsKitConfig) = local_spectral_mode_indices(config),
+range_local(config.pencils.spec, 3)
 
 function _mode_row_lookup(mode_indices, nlm::Int)
     rows = zeros(Int, nlm)
@@ -351,8 +382,8 @@ Mapped local storage keeps the 2D spectral-pencil layout localized to this
 packing step instead of leaking slot-axis assumptions into I/O code.
 """
 function pack_local_spectral_coefficients(real_data::AbstractArray,
-                                          imag_data::AbstractArray,
-                                          field_info::FieldInfo)
+        imag_data::AbstractArray,
+        field_info::FieldInfo)
     if ndims(real_data) == 2 && ndims(imag_data) == 2
         return real_data, imag_data
     elseif ndims(real_data) == 3 && ndims(imag_data) == 3
@@ -399,8 +430,8 @@ Rebuild local spectral storage from a NetCDF `(spectral_mode, r)` slab using
 the configured local spectral-slot mapping.
 """
 function unpack_local_spectral_coefficients(real_data::AbstractMatrix,
-                                            imag_data::AbstractMatrix,
-                                            config::SHTnsKitConfig)
+        imag_data::AbstractMatrix,
+        config::SHTnsKitConfig)
     spec_pencil = config.pencils.spec
     local_shape = size_local(spec_pencil)
     unpacked_real = zeros(eltype(real_data), local_shape[1], local_shape[2], local_shape[3])
@@ -432,8 +463,8 @@ end
 Write field data using parallel offset writes. Each rank writes its local pencil
 slice at the correct global position.
 """
-function write_field_data!(ds, fields::Dict{String,Any}, config::OutputConfig,
-                          field_info::FieldInfo)
+function write_field_data!(ds, fields::Dict{String, Any}, config::OutputConfig,
+        field_info::FieldInfo)
     T = config.output_precision
     pencils = field_info.has_pencils ? field_info.pencils : nothing
 
@@ -463,8 +494,8 @@ function write_field_data!(ds, fields::Dict{String,Any}, config::OutputConfig,
 
     # Spectral fields: spec-pencil (lm and r distributed)
     for component in ["velocity_toroidal", "velocity_poloidal",
-                      "magnetic_toroidal", "magnetic_poloidal",
-                      "temperature_spectral", "composition_spectral"]
+        "magnetic_toroidal", "magnetic_poloidal",
+        "temperature_spectral", "composition_spectral"]
         if haskey(fields, component)
             field_data = fields[component]
             if haskey(field_data, "real") && haskey(field_data, "imag")
@@ -474,7 +505,8 @@ function write_field_data!(ds, fields::Dict{String,Any}, config::OutputConfig,
                 if haskey(ds, real_name) && haskey(ds, imag_name)
                     real_data = field_data["real"]
                     imag_data = field_data["imag"]
-                    real_data, imag_data = pack_local_spectral_coefficients(real_data, imag_data, field_info)
+                    real_data,
+                    imag_data = pack_local_spectral_coefficients(real_data, imag_data, field_info)
 
                     real_out = T.(real_data)
                     imag_out = T.(imag_data)
@@ -517,7 +549,7 @@ Write scalar diagnostics into `diag_*` variables when diagnostics are enabled.
 
 The values are expected to be already globally reduced by `compute_diagnostics`.
 """
-function write_diagnostics!(ds, diagnostics::Dict{String,Float64}, config::OutputConfig)
+function write_diagnostics!(ds, diagnostics::Dict{String, Float64}, config::OutputConfig)
     if !config.include_diagnostics
         return
     end
@@ -543,9 +575,9 @@ Write a separate grid file containing coordinate and grid information.
 Written only once by rank 0 at the start of the simulation.
 """
 function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
-                         shtns_config::Union{SHTnsKitConfig,Nothing},
-                         metadata::Dict{String,Any};
-                         geometry::Symbol = :shell)
+        shtns_config::Union{SHTnsKitConfig, Nothing},
+        metadata::Dict{String, Any};
+        geometry::Symbol = :shell)
     rank = MPI.Comm_rank(output_comm())
 
     if rank != 0
@@ -554,7 +586,7 @@ function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
 
     geom = string(geometry)
     grid_filename = joinpath(config.output_dir,
-                            "$(config.filename_prefix)_$(geom)_grid.nc")
+        "$(config.filename_prefix)_$(geom)_grid.nc")
 
     if config.overwrite_files && isfile(grid_filename)
         rm(grid_filename)
@@ -584,31 +616,45 @@ function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
         # Define dimensions and coordinate variables
         if field_info.nr > 0
             defDim(ds, "r", field_info.nr)
-            defVar(ds, "r", T, ("r",); attrib=Dict(
-                "long_name" => "radial_coordinate", "units" => "dimensionless",
-                "description" => "Radial collocation nodes (Chebyshev-clustered shell grid)"))
+            defVar(ds,
+                "r",
+                T,
+                ("r",);
+                attrib = Dict(
+                    "long_name" => "radial_coordinate", "units" => "dimensionless",
+                    "description" => "Radial collocation nodes (Chebyshev-clustered shell grid)"))
         end
 
         if field_info.nlat > 0
             defDim(ds, "theta", field_info.nlat)
-            defVar(ds, "theta", T, ("theta",); attrib=Dict(
-                "long_name" => "latitude", "units" => "radians",
-                "description" => "Latitude from equator (Gauss-Legendre nodes, -pi/2 to pi/2)"))
+            defVar(ds,
+                "theta",
+                T,
+                ("theta",);
+                attrib = Dict(
+                    "long_name" => "latitude", "units" => "radians",
+                    "description" => "Latitude from equator (Gauss-Legendre nodes, -pi/2 to pi/2)"))
         end
 
         if field_info.nlon > 0
             defDim(ds, "phi", field_info.nlon)
-            defVar(ds, "phi", T, ("phi",); attrib=Dict(
-                "long_name" => "azimuthal_angle", "units" => "radians",
-                "description" => "Longitude angle (0 to 2pi)"))
+            defVar(ds,
+                "phi",
+                T,
+                ("phi",);
+                attrib = Dict(
+                    "long_name" => "azimuthal_angle", "units" => "radians",
+                    "description" => "Longitude angle (0 to 2pi)"))
         end
 
         if field_info.nlm > 0
             defDim(ds, "spectral_mode", field_info.nlm)
-            defVar(ds, "l_values", Int32, ("spectral_mode",); attrib=Dict(
-                "long_name" => "spherical_harmonic_degree"))
-            defVar(ds, "m_values", Int32, ("spectral_mode",); attrib=Dict(
-                "long_name" => "spherical_harmonic_order"))
+            defVar(ds, "l_values", Int32, ("spectral_mode",);
+                attrib = Dict(
+                    "long_name" => "spherical_harmonic_degree"))
+            defVar(ds, "m_values", Int32, ("spectral_mode",);
+                attrib = Dict(
+                    "long_name" => "spherical_harmonic_order"))
         end
 
         # Add SHTns-specific info
@@ -622,8 +668,9 @@ function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
             ds.attrib["grid_type_phi"] = "equispaced"
 
             if !isempty(shtns_config.gauss_weights) && field_info.nlat > 0
-                defVar(ds, "gauss_weights", T, ("theta",); attrib=Dict(
-                    "long_name" => "gaussian_quadrature_weights"))
+                defVar(ds, "gauss_weights", T, ("theta",);
+                    attrib = Dict(
+                        "long_name" => "gaussian_quadrature_weights"))
             end
         end
 
@@ -641,7 +688,8 @@ function write_grid_file!(config::OutputConfig, field_info::FieldInfo,
             ds["l_values"][:] = Int32.(field_info.l_values)
             ds["m_values"][:] = Int32.(field_info.m_values)
         end
-        if shtns_config !== nothing && !isempty(shtns_config.gauss_weights) && haskey(ds, "gauss_weights")
+        if shtns_config !== nothing && !isempty(shtns_config.gauss_weights) &&
+           haskey(ds, "gauss_weights")
             ds["gauss_weights"][:] = T.(shtns_config.gauss_weights)
         end
     end

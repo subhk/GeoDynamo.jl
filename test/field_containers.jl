@@ -12,12 +12,14 @@ const FINALIZE_MPI_FIELDS = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
         MPI.Init()
     end
 
-    lmax = 4; mmax = 4
+    lmax = 4;
+    mmax = 4
     nlat = max(lmax + 2, 10)
     nlon = max(2lmax + 1, 16)
     nr = 6
 
-    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = GeoDynamo.create_radial_domain(nr)
 
     @testset "SHTnsKitConfig properties" begin

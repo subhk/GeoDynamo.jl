@@ -23,7 +23,7 @@ const FINALIZE_MPI_DERIV = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         df_exact = 2.0 .* r
 
         # Interior points should be accurate; boundary stencils may have larger error
-        interior = 3:nr-2
+        interior = 3:(nr - 2)
         @test df[interior] ≈ df_exact[interior] atol=1e-8
     end
 
@@ -33,7 +33,7 @@ const FINALIZE_MPI_DERIV = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         df = D1 * f
         df_exact = 3.0 .* r .^ 2
 
-        interior = 3:nr-2
+        interior = 3:(nr - 2)
         @test df[interior] ≈ df_exact[interior] atol=1e-6
     end
 
@@ -43,7 +43,7 @@ const FINALIZE_MPI_DERIV = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         d2f = D2 * f
         d2f_exact = 6.0 .* r
 
-        interior = 3:nr-2
+        interior = 3:(nr - 2)
         @test d2f[interior] ≈ d2f_exact[interior] atol=1e-4
     end
 
@@ -62,7 +62,7 @@ const FINALIZE_MPI_DERIV = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         f = r .^ 2
         lapf = lap * f
 
-        interior = 3:nr-2
+        interior = 3:(nr - 2)
         @test lapf[interior] ≈ fill(6.0, length(interior)) atol=1e-6
     end
 

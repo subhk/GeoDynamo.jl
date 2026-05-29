@@ -34,15 +34,15 @@ const FINALIZE_MPI_INTEG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         include_composition = false,
         timestepper = GeoDynamo.CNAB2(),
         topography_enabled = false,
-        stefan_enabled = false,
+        stefan_enabled = false
     )
     cfl_limit = 0.1 / (
         tiny_params.lmax^2 * max(
-            1.0,
-            tiny_params.Pm / tiny_params.Pr,
-            tiny_params.Pm / tiny_params.Sc,
-            tiny_params.Ek,
-        )
+        1.0,
+        tiny_params.Pm / tiny_params.Pr,
+        tiny_params.Pm / tiny_params.Sc,
+        tiny_params.Ek
+    )
     )
     @test tiny_params.timestep < cfl_limit
 
@@ -138,7 +138,8 @@ const FINALIZE_MPI_INTEG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         @test !haskey(fields, "composition_spectral")  # composition disabled
 
         # Verify the extracted data matches the state
-        @test fields["temperature_spectral"]["real"] ≈ parent(state.fields.temperature.spectral.data_real)
+        @test fields["temperature_spectral"]["real"] ≈
+              parent(state.fields.temperature.spectral.data_real)
     end
 
     if MPI.Initialized()

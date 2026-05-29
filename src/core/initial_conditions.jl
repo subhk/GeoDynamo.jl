@@ -23,11 +23,11 @@ import ..local_spectral_value
 
 const GEODYNAMO_PARENT = parentmodule(@__MODULE__)
 
-@inline apply_ball_scalar_regularity!(field) =
-    getproperty(GEODYNAMO_PARENT, :apply_ball_temperature_regularity!)(field)
+@inline apply_ball_scalar_regularity!(field) = getproperty(
+    GEODYNAMO_PARENT, :apply_ball_temperature_regularity!)(field)
 
-@inline apply_ball_vector_regularity!(field) =
-    getproperty(GEODYNAMO_PARENT, :enforce_ball_vector_regularity!)(field.𝒯, field.𝒫)
+@inline apply_ball_vector_regularity!(field) = getproperty(GEODYNAMO_PARENT, :enforce_ball_vector_regularity!)(
+    field.𝒯, field.𝒫)
 
 export load_initial_conditions!, generate_random_initial_conditions!
 export set_analytical_initial_conditions!, save_initial_conditions
@@ -53,12 +53,12 @@ end
 Populate a scalar spectral field (temperature/composition) with random perturbations up to degree `lmax`.
 If a radial `domain` is provided and includes r=0, ball regularity is enforced.
 """
-function randomize_scalar_field!(field; amplitude::Real, lmax::Int, domain=nothing)
+function randomize_scalar_field!(field; amplitude::Real, lmax::Int, domain = nothing)
     spectral = getproperty(field, :spectral)
     real = parent(spectral.data_real)
     imag = parent(spectral.data_imag)
     lm_range = get_local_range(spectral.pencil, 1)
-    r_range  = get_local_range(spectral.pencil, 3)
+    r_range = get_local_range(spectral.pencil, 3)
     l_values = spectral.config.l_values
     fill!(real, zero(eltype(real)))
     fill!(imag, zero(eltype(imag)))
@@ -91,7 +91,7 @@ end
 
 Populate velocity-like toroidal/poloidal fields with random perturbations up to degree `lmax`.
 """
-function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain=nothing)
+function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain = nothing)
     amp = Float64(amplitude)
     for spectral in (field.𝒯, field.𝒫)
         real = parent(spectral.data_real)
@@ -99,7 +99,7 @@ function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain=nothi
         fill!(real, zero(eltype(real)))
         fill!(imag, zero(eltype(imag)))
         lm_range = get_local_range(spectral.pencil, 1)
-        r_range  = get_local_range(spectral.pencil, 3)
+        r_range = get_local_range(spectral.pencil, 3)
         l_values = spectral.config.l_values
         for (local_idx, global_idx) in enumerate(lm_range)
             if global_idx <= length(l_values)
@@ -108,7 +108,8 @@ function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain=nothi
                     for r in r_range
                         lr = r - first(r_range) + 1
                         if lr <= size(real, 3)
-                            real[local_idx, 1, lr] = convert(eltype(real), amp * (rand() - 0.5))
+                            real[local_idx, 1, lr] = convert(eltype(real), amp *
+                                                                           (rand() - 0.5))
                             imag[local_idx, 1, lr] = zero(eltype(imag))
                         end
                     end
@@ -130,7 +131,7 @@ end
 
 Populate magnetic toroidal/poloidal fields with random perturbations.
 """
-function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain=nothing)
+function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain = nothing)
     amp = Float64(amplitude)
     for spectral in (field.𝒯, field.𝒫)
         real = parent(spectral.data_real)
@@ -138,7 +139,7 @@ function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain=not
         fill!(real, zero(eltype(real)))
         fill!(imag, zero(eltype(imag)))
         lm_range = get_local_range(spectral.pencil, 1)
-        r_range  = get_local_range(spectral.pencil, 3)
+        r_range = get_local_range(spectral.pencil, 3)
         l_values = spectral.config.l_values
         for (local_idx, global_idx) in enumerate(lm_range)
             if global_idx <= length(l_values)
@@ -147,7 +148,8 @@ function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain=not
                     for r in r_range
                         lr = r - first(r_range) + 1
                         if lr <= size(real, 3)
-                            real[local_idx, 1, lr] = convert(eltype(real), amp * (rand() - 0.5))
+                            real[local_idx, 1, lr] = convert(eltype(real), amp *
+                                                                           (rand() - 0.5))
                             imag[local_idx, 1, lr] = zero(eltype(imag))
                         end
                     end
@@ -185,7 +187,6 @@ NetCDF files should contain:
 - Coordinate arrays: lm indices, radial grid
 """
 function load_initial_conditions!(field, field_type::Symbol, file_path::String)
-
     if !isfile(file_path)
         throw(ArgumentError("Initial conditions file not found: $file_path"))
     end
@@ -304,10 +305,9 @@ generate_random_initial_conditions!(mag_field, :magnetic,
 ```
 """
 function generate_random_initial_conditions!(field, field_type::Symbol;
-                                           amplitude::Real=1.0,
-                                           modes_range=1:10,
-                                           seed::Union{Int, Nothing}=nothing)
-
+        amplitude::Real = 1.0,
+        modes_range = 1:10,
+        seed::Union{Int, Nothing} = nothing)
     if seed !== nothing
         Random.seed!(seed)
     end
@@ -374,12 +374,13 @@ function generate_random_temperature!(temp_field, amplitude, modes_range)
                         # Orthonormal SH (Y_0^0 = 1/√(4π)): store physical mean ×√(4π).
                         base_temp = T(1.0 - 0.8 * r_frac)
                         set_local_spectral_value!(real_data, slot, local_r,
-                                                  sqrt(4 * T(π)) * (base_temp + T(amplitude * 0.1 * (rand() - 0.5))))
+                            sqrt(4 * T(π)) *
+                            (base_temp + T(amplitude * 0.1 * (rand() - 0.5))))
                     elseif l in modes_range
                         # Random perturbations with radial dependence
                         radial_factor = sin(π * r_frac)
                         set_local_spectral_value!(real_data, slot, local_r,
-                                                  T(amplitude * radial_factor * (rand() - 0.5)))
+                            T(amplitude * radial_factor * (rand() - 0.5)))
                     end
                     # Imaginary part is zero for real-valued fields
                     set_local_spectral_value!(imag_data, slot, local_r, zero(T))
@@ -430,10 +431,10 @@ function generate_random_magnetic!(mag_field, amplitude, modes_range)
                         if l in modes_range && l >= 1  # l=0 not valid for vector fields
                             if is_poloidal && l == 1  # Dipole mode - stronger
                                 set_local_spectral_value!(real_data, slot, local_r,
-                                                          T(5.0 * amplitude * radial_factor))
+                                    T(5.0 * amplitude * radial_factor))
                             else
                                 set_local_spectral_value!(real_data, slot, local_r,
-                                                          T(amplitude * radial_factor * (rand() - 0.5)))
+                                    T(amplitude * radial_factor * (rand() - 0.5)))
                             end
                         end
                         set_local_spectral_value!(imag_data, slot, local_r, zero(T))
@@ -484,7 +485,7 @@ function generate_random_velocity!(vel_field, amplitude, modes_range)
 
                         if l in modes_range && l >= 1  # l=0 not valid for vector fields
                             set_local_spectral_value!(real_data, slot, local_r,
-                                                      T(amplitude * radial_factor * (rand() - 0.5)))
+                                T(amplitude * radial_factor * (rand() - 0.5)))
                         end
                         set_local_spectral_value!(imag_data, slot, local_r, zero(T))
                     end
@@ -534,11 +535,11 @@ function generate_random_composition!(comp_field, amplitude, modes_range)
                     if l == 0  # l=0, m=0 mode - base stratified profile
                         base_comp = T(0.1 + 0.2 * r_frac)  # 0.1 to 0.3
                         set_local_spectral_value!(real_data, slot, local_r,
-                                                  base_comp + T(amplitude * 0.05 * (rand() - 0.5)))
+                            base_comp + T(amplitude * 0.05 * (rand() - 0.5)))
                     elseif l in modes_range
                         radial_factor = sin(π * r_frac)
                         set_local_spectral_value!(real_data, slot, local_r,
-                                                  T(amplitude * 0.1 * radial_factor * (rand() - 0.5)))
+                            T(amplitude * 0.1 * radial_factor * (rand() - 0.5)))
                     end
                     set_local_spectral_value!(imag_data, slot, local_r, zero(T))
                 end
@@ -576,8 +577,7 @@ set_analytical_initial_conditions!(mag_field, :magnetic, :dipole, amplitude=1.0)
 ```
 """
 function set_analytical_initial_conditions!(field, field_type::Symbol, pattern::Symbol;
-                                          amplitude::Real=1.0, parameters...)
-
+        amplitude::Real = 1.0, parameters...)
     println("Setting analytical initial conditions:")
     println("  Field: $field_type")
     println("  Pattern: $pattern")
@@ -635,7 +635,7 @@ function set_analytical_temperature!(temp_field, pattern::Symbol, amplitude; par
                         r_frac = (global_r - 1) / max(nr - 1, 1)
                         # Orthonormal SH (Y_0^0 = 1/√(4π)): store physical mean ×√(4π).
                         set_local_spectral_value!(real_data, slot, local_r,
-                                                  sqrt(4 * T(π)) * T(amplitude * (1.0 - r_frac)))
+                            sqrt(4 * T(π)) * T(amplitude * (1.0 - r_frac)))
                     end
                 end
             end
@@ -771,7 +771,7 @@ function set_analytical_velocity!(vel_field, pattern::Symbol, amplitude; paramet
                                 r_frac = (global_r - 1) / max(nr - 1, 1)
                                 radial_factor = sin(π * r_frac)
                                 set_local_spectral_value!(real_data, slot, local_r,
-                                                          T(amplitude * radial_factor * 0.1))
+                                    T(amplitude * radial_factor * 0.1))
                             end
                         end
                     end
@@ -828,7 +828,8 @@ function set_analytical_composition!(comp_field, pattern::Symbol, amplitude; par
                         r_frac = (global_r - 1) / max(nr - 1, 1)
                         # Orthonormal SH (Y_0^0 = 1/√(4π)): store physical mean ×√(4π).
                         set_local_spectral_value!(real_data, slot, local_r,
-                                                  sqrt(4 * T(π)) * T(bottom_comp + (top_comp - bottom_comp) * r_frac))
+                            sqrt(4 * T(π)) *
+                            T(bottom_comp + (top_comp - bottom_comp) * r_frac))
                     end
                 end
             end
@@ -880,7 +881,6 @@ This function is useful for saving generated or computed initial conditions
 for later use in simulations.
 """
 function save_initial_conditions(field, field_type::Symbol, file_path::String)
-
     println("Saving initial conditions to $file_path...")
 
     # Placeholder for NetCDF saving

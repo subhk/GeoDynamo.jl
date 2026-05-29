@@ -7,8 +7,8 @@ This synchronizes the public `SolverParameters` into the shared backend layer,
 builds the backend/runtime objects, activates topography, and prepares the
 field views and timestep caches used by the main loop.
 """
-function initialize_solver_state(::Type{T}=Float64; 
-                                params::SolverParameters=create_solver_parameters()) where T
+function initialize_solver_state(::Type{T} = Float64;
+        params::SolverParameters = create_solver_parameters()) where {T}
 
     # Keep the package-level parameter view in sync while the new solver stack
     # still shares a few kernels and file-loading paths with the older runtime.
@@ -18,8 +18,8 @@ function initialize_solver_state(::Type{T}=Float64;
     runtime = create_solver_runtime(
         T,
         backend;
-        auto_optimize=false,
-        adaptive_threading=false,
+        auto_optimize = false,
+        adaptive_threading = false
     )
 
     # Topography state stays separate from the core runtime so coupling can be
@@ -41,7 +41,7 @@ function initialize_solver_state(::Type{T}=Float64;
         magnetic_ic_admittance,
         params.start_time,
         0,
-        false,
+        false
     )
 end
 
@@ -51,16 +51,18 @@ end
 Public entry point for creating a rewritten solver state with numeric element
 type `T`.
 """
-GeoDynamo.initialize_simulation(::Type{T}, params::SolverParameters) where {T} =
-    initialize_solver_state(T; params=params)
+function GeoDynamo.initialize_simulation(::Type{T}, params::SolverParameters) where {T}
+    initialize_solver_state(T; params = params)
+end
 
 """
     initialize_simulation(params::SolverParameters)
 
 Convenience wrapper for `initialize_simulation(Float64, params)`.
 """
-GeoDynamo.initialize_simulation(params::SolverParameters) =
-    initialize_solver_state(Float64; params=params)
+function GeoDynamo.initialize_simulation(params::SolverParameters)
+    initialize_solver_state(Float64; params = params)
+end
 
 """
     advance_solver_step!(state)
@@ -74,7 +76,7 @@ The step order is:
 3. apply the IMEX/ERK2 timestep update
 4. finalize time/step bookkeeping and diagnostics
 """
-function advance_solver_step!(state::SolverState{T,<:AbstractArchitecture}) where T
+function advance_solver_step!(state::SolverState{T, <:AbstractArchitecture}) where {T}
     state.is_initialized || initialize_solver_fields!(state)
 
     next_step = state.step + 1
@@ -105,12 +107,15 @@ The implicit operators bake `dt` in at factorization time, so changing the
 timestep requires re-factorization. Reuses the backend's grid/config and all
 non-timestep physical parameters; only `dt` changes.
 """
-function rebuild_solver_implicit_matrices!(state::SolverState{T,<:AbstractArchitecture}, dt::Real) where {T}
+function rebuild_solver_implicit_matrices!(
+        state::SolverState{
+            T, <:AbstractArchitecture}, dt::Real) where {T}
     backend = state.backend
     # NOTE: backend.parameters.timestep is frozen at construction and intentionally
     # ignored here — `dt` is authoritative. Only non-timestep params are read.
     # The conducting-inner-core ICB admittance also depends on dt, so refresh it too.
-    matrices, magnetic_ic_admittance = _build_implicit_matrices_dict(
+    matrices,
+    magnetic_ic_admittance = _build_implicit_matrices_dict(
         T, backend.shtns_config, backend.outer_core_domain,
         backend.inner_core_domain, backend.parameters, Float64(dt))
     state.implicit_matrices = create_solver_implicit_matrix_store(matrices)
@@ -124,10 +129,11 @@ end
 Run the rewritten solver until `state.parameters.end_time` or
 `state.parameters.stop_iteration` is reached.
 """
-function run_solver!(state::SolverState{T,<:AbstractArchitecture}) where T
+function run_solver!(state::SolverState{T, <:AbstractArchitecture}) where {T}
     state.is_initialized || initialize_solver_fields!(state)
 
-    while state.time < state.parameters.end_time && state.step < state.parameters.stop_iteration
+    while state.time < state.parameters.end_time &&
+        state.step < state.parameters.stop_iteration
         advance_solver_step!(state)
     end
 
@@ -144,10 +150,10 @@ path, because restart handling is configured directly on the new state/runtime
 objects before calling `run_solver!`.
 """
 function GeoDynamo.run_simulation!(
-    state::SolverState{T,<:AbstractArchitecture};
-    restart_file::String="",
-    restart_dir::String="",
-    restart_time::Float64=0.0,
+        state::SolverState{T, <:AbstractArchitecture};
+        restart_file::String = "",
+        restart_dir::String = "",
+        restart_time::Float64 = 0.0
 ) where {T}
     if !isempty(restart_file) || !isempty(restart_dir) || restart_time != 0.0
         throw(ArgumentError(

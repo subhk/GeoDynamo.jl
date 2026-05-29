@@ -59,7 +59,8 @@ end
     topo_data = Topo.TopographyData{Float64}(topo, nothing, nothing, eps, false)
 
     # Stefan state with distinct conductivities
-    state = Topo.StefanState(lmax=lmax, ri=ri, k_ic=2.0, k_oc=1.0, rho=1.0, L=1.0)
+    state = Topo.StefanState(
+        lmax = lmax, ri = ri, k_ic = 2.0, k_oc = 1.0, rho = 1.0, L = 1.0)
     state.topography = topo
     state.heat_flux_ic .= 0.0
     state.heat_flux_oc .= 0.0
@@ -104,15 +105,15 @@ end
     mp = 0
     L = 1
     M = 0
-    G = Topo.gaunt_on_the_fly(l, m, lp, mp, L, M; use_wigner=true)
+    G = Topo.gaunt_on_the_fly(l, m, lp, mp, L, M; use_wigner = true)
     gaunt.G[(l, m, lp, mp, L, M)] = G
 
     config = Topo.TopographyCouplingConfig(
-        enabled=true,
-        stefan_enabled=true,
-        include_slope_terms=false,
-        include_shift_terms=true,
-        epsilon=eps
+        enabled = true,
+        stefan_enabled = true,
+        include_slope_terms = false,
+        include_shift_terms = true,
+        epsilon = eps
     )
 
     flux = Topo.compute_stefan_flux_with_topography(
@@ -121,5 +122,5 @@ end
 
     expected = eps * h_amp * G * (state.k_ic * val_ic - state.k_oc * val_oc)
     idx_flux = Topo.lm_to_index(l, 0, lmax)
-    @test flux[idx_flux] ≈ expected atol=1e-12 rtol=1e-12
+    @test flux[idx_flux]≈expected atol=1e-12 rtol=1e-12
 end

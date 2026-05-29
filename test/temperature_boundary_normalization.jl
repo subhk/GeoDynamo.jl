@@ -41,9 +41,13 @@ end
     end
     MPI.Initialized() || MPI.Init()
 
-    lmax = 6; mmax = 6
-    nlat = max(lmax + 2, 12); nlon = max(2lmax + 1, 24); nr = 6
-    cfg = G.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    lmax = 6;
+    mmax = 6
+    nlat = max(lmax + 2, 12);
+    nlon = max(2lmax + 1, 24);
+    nr = 6
+    cfg = G.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = G.create_radial_domain(nr)
 
     temp = G.create_shtns_temperature_field(Float64, cfg, dom)
@@ -51,21 +55,21 @@ end
 
     @testset "FixedTemperature(v) ⇒ physical boundary value v" begin
         G.apply_scalar_boundary_parameters!(temp,
-            G.BoundaryConditions(inner=G.FixedTemperature(1.0),
-                                 outer=G.FixedTemperature(0.0)))
+            G.BoundaryConditions(inner = G.FixedTemperature(1.0),
+                outer = G.FixedTemperature(0.0)))
         phys_inner = _physical_from_mean_coeff(cfg, dom, temp.boundary_values[1, m00])
         phys_outer = _physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00])
-        @test isapprox(phys_inner, 1.0; atol=1e-10)
-        @test isapprox(phys_outer, 0.0; atol=1e-10)
+        @test isapprox(phys_inner, 1.0; atol = 1e-10)
+        @test isapprox(phys_outer, 0.0; atol = 1e-10)
     end
 
     @testset "FixedTemperature ⇒ physical ΔT across shell preserved" begin
         G.apply_scalar_boundary_parameters!(temp,
-            G.BoundaryConditions(inner=G.FixedTemperature(2.5),
-                                 outer=G.FixedTemperature(0.5)))
+            G.BoundaryConditions(inner = G.FixedTemperature(2.5),
+                outer = G.FixedTemperature(0.5)))
         phys_inner = _physical_from_mean_coeff(cfg, dom, temp.boundary_values[1, m00])
         phys_outer = _physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00])
-        @test isapprox(phys_inner - phys_outer, 2.0; atol=1e-10)
+        @test isapprox(phys_inner - phys_outer, 2.0; atol = 1e-10)
     end
 
     @testset "FixedFlux(q) ⇒ physical mean gradient q (same √4π scaling)" begin
@@ -74,9 +78,9 @@ end
         # prescribed physical gradient q must be stored as q·√(4π), identical to
         # the Dirichlet case. Verify the stored value reconstructs to q.
         G.apply_scalar_boundary_parameters!(temp,
-            G.BoundaryConditions(inner=G.FixedFlux(-1.0),
-                                 outer=G.FixedFlux(0.5)))
-        @test isapprox(_physical_from_mean_coeff(cfg, dom, temp.boundary_values[1, m00]), -1.0; atol=1e-10)
-        @test isapprox(_physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00]), 0.5; atol=1e-10)
+            G.BoundaryConditions(inner = G.FixedFlux(-1.0),
+                outer = G.FixedFlux(0.5)))
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, temp.boundary_values[1, m00]), -1.0; atol = 1e-10)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, temp.boundary_values[2, m00]), 0.5; atol = 1e-10)
     end
 end

@@ -31,7 +31,7 @@ struct FieldInfo
     has_pencils::Bool
     pencils::NamedTuple
     has_config::Bool
-    config::Union{SHTnsKitConfig,Nothing}
+    config::Union{SHTnsKitConfig, Nothing}
 
     # Local axis range information
     local_ranges::Dict{Symbol, UnitRange{Int}}
@@ -48,8 +48,8 @@ dimensions later.
 """
 function FieldInfo()
     return FieldInfo(0, 0, 0, 0, Float64[], Float64[], Float64[],
-                     Int[], Int[], false, NamedTuple(), false, nothing,
-                     Dict{Symbol, UnitRange{Int}}(), Int[])
+        Int[], Int[], false, NamedTuple(), false, nothing,
+        Dict{Symbol, UnitRange{Int}}(), Int[])
 end
 
 """
@@ -59,13 +59,13 @@ Construct a fully populated `FieldInfo` when both SHTns configuration and pencil
 decomposition metadata are available.
 """
 function FieldInfo(nlat::Int, nlon::Int, nr::Int, nlm::Int,
-                   theta::Vector{Float64}, phi::Vector{Float64}, r::Vector{Float64},
-                   l_values::Vector{Int}, m_values::Vector{Int},
-                   pencils::NamedTuple, config::SHTnsKitConfig,
-                   local_ranges::Dict{Symbol, UnitRange{Int}},
-                   local_spectral_modes::Vector{Int})
+        theta::Vector{Float64}, phi::Vector{Float64}, r::Vector{Float64},
+        l_values::Vector{Int}, m_values::Vector{Int},
+        pencils::NamedTuple, config::SHTnsKitConfig,
+        local_ranges::Dict{Symbol, UnitRange{Int}},
+        local_spectral_modes::Vector{Int})
     return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values,
-                     true, pencils, true, config, local_ranges, local_spectral_modes)
+        true, pencils, true, config, local_ranges, local_spectral_modes)
 end
 
 """
@@ -76,10 +76,11 @@ Infer a `FieldInfo` description from a dictionary-style field snapshot.
 This bridges the simulation-side field containers and the output writer’s more
 uniform metadata needs.
 """
-function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConfig,Nothing}=nothing,
-                           pencils::Union{NamedTuple,Nothing}=nothing;
-                           radius_ratio::Float64=0.35,
-                           radial_grid::Union{AbstractVector{<:Real},Nothing}=nothing)
+function extract_field_info(
+        fields::Dict{String, Any}, config::Union{SHTnsKitConfig, Nothing} = nothing,
+        pencils::Union{NamedTuple, Nothing} = nothing;
+        radius_ratio::Float64 = 0.35,
+        radial_grid::Union{AbstractVector{<:Real}, Nothing} = nothing)
     nlat = 0
     nlon = 0
     nr = 0
@@ -104,19 +105,22 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConf
         if nr == 0
             nr = spec_dims[end]
         end
-    elseif haskey(fields, "magnetic_toroidal") && haskey(fields["magnetic_toroidal"], "real")
+    elseif haskey(fields, "magnetic_toroidal") &&
+           haskey(fields["magnetic_toroidal"], "real")
         spec_dims = size(fields["magnetic_toroidal"]["real"])
         nlm = spec_dims[1]
         if nr == 0
             nr = spec_dims[end]
         end
-    elseif haskey(fields, "temperature_spectral") && haskey(fields["temperature_spectral"], "real")
+    elseif haskey(fields, "temperature_spectral") &&
+           haskey(fields["temperature_spectral"], "real")
         spec_dims = size(fields["temperature_spectral"]["real"])
         nlm = spec_dims[1]
         if nr == 0
             nr = spec_dims[end]
         end
-    elseif haskey(fields, "composition_spectral") && haskey(fields["composition_spectral"], "real")
+    elseif haskey(fields, "composition_spectral") &&
+           haskey(fields["composition_spectral"], "real")
         spec_dims = size(fields["composition_spectral"]["real"])
         nlm = spec_dims[1]
         if nr == 0
@@ -125,9 +129,9 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConf
     end
 
     # Create coordinate arrays
-    theta = nlat > 0 ? collect(range(0, π, length=nlat)) : Float64[]
-    phi = nlon > 0 ? collect(range(0, 2π, length=nlon)) : Float64[]
-    r = nr > 0 ? collect(range(radius_ratio, 1.0, length=nr)) : Float64[]
+    theta = nlat > 0 ? collect(range(0, π, length = nlat)) : Float64[]
+    phi = nlon > 0 ? collect(range(0, 2π, length = nlon)) : Float64[]
+    r = nr > 0 ? collect(range(radius_ratio, 1.0, length = nr)) : Float64[]
 
     # Create l,m values for spectral modes
     l_values = Int[]
@@ -190,13 +194,13 @@ function extract_field_info(fields::Dict{String,Any}, config::Union{SHTnsKitConf
     # Create FieldInfo with type-stable constructor
     if pencils !== nothing && config !== nothing
         return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values,
-                         pencils, config, local_ranges, local_spectral_modes)
+            pencils, config, local_ranges, local_spectral_modes)
     else
         dummy_pencils = NamedTuple()
 
         return FieldInfo(nlat, nlon, nr, nlm, theta, phi, r, l_values, m_values,
-                         pencils !== nothing, pencils !== nothing ? pencils : dummy_pencils,
-                         config !== nothing, config,
-                         local_ranges, local_spectral_modes)
+            pencils !== nothing, pencils !== nothing ? pencils : dummy_pencils,
+            config !== nothing, config,
+            local_ranges, local_spectral_modes)
     end
 end

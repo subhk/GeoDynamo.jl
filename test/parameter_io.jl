@@ -3,14 +3,14 @@ using Test
 @testset "Parameter I/O" begin
     @testset "save_parameters roundtrip" begin
         params = GeoDynamo.SolverParameters(
-            nr=128, lmax=64, mmax=64, nlat=128, nlon=256,
-            Ra=1e8, Ek=1e-5, Pr=0.5, Pm=2.0,
-            timestep=5e-5, timestepper=GeoDynamo.ERK2(),
-            geometry=:shell, radius_ratio=0.35,
-            velocity_bcs=GeoDynamo.BoundaryConditions(
-                inner=GeoDynamo.NoSlip(),
-                outer=GeoDynamo.StressFree(),
-            ),
+            nr = 128, lmax = 64, mmax = 64, nlat = 128, nlon = 256,
+            Ra = 1e8, Ek = 1e-5, Pr = 0.5, Pm = 2.0,
+            timestep = 5e-5, timestepper = GeoDynamo.ERK2(),
+            geometry = :shell, radius_ratio = 0.35,
+            velocity_bcs = GeoDynamo.BoundaryConditions(
+                inner = GeoDynamo.NoSlip(),
+                outer = GeoDynamo.StressFree()
+            )
         )
 
         tmpfile = tempname() * ".jl"
@@ -32,7 +32,7 @@ using Test
             @test loaded.geometry == params.geometry
             @test loaded.radius_ratio == params.radius_ratio
         finally
-            rm(tmpfile, force=true)
+            rm(tmpfile, force = true)
         end
     end
 

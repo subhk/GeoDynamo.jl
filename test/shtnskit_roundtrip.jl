@@ -12,7 +12,7 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 # so they must not be seeded if a roundtrip is expected to be the identity.
 # Uses the config's own (l,m)->global-mode map, so it is correct for any pencil
 # layout (1D nlm or 2D l/m).
-function sanitize_spectral_modes!(field, cfg; zero_l0::Bool=false)
+function sanitize_spectral_modes!(field, cfg; zero_l0::Bool = false)
     sr = parent(field.data_real)
     si = parent(field.data_imag)
     lm_map = GeoDynamo.local_spectral_lm_map(cfg)
@@ -45,19 +45,21 @@ end
     comm = GeoDynamo.get_comm()
     rank = GeoDynamo.get_rank()
 
-    lmax = 6; mmax = 6
+    lmax = 6;
+    mmax = 6
     nlat = max(lmax + 2, 12)
     nlon = max(2lmax + 1, 24)
-    nr   = 6
+    nr = 6
 
-    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = GeoDynamo.create_radial_domain(nr)
 
     # Scalar roundtrip
     # Spectral fields use spec pencil (nlm×1×nr), physical fields use physical pencils (nlat×nlon×nr)
     spec1 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     spec2 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    phys  = GeoDynamo.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.phi)
+    phys = GeoDynamo.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.phi)
 
     Random.seed!(1234 + rank)
     randn!(parent(spec1.data_real))
@@ -73,7 +75,12 @@ end
     e_i = parent(spec2.data_imag) .- parent(spec1.data_imag)
     local_err = sum(abs2, e_r) + sum(abs2, e_i)
     err = MPI.Allreduce(local_err, MPI.SUM, comm)
-    @test err / max(MPI.Allreduce(sum(abs2, parent(spec1.data_real)) + sum(abs2, parent(spec1.data_imag)), MPI.SUM, comm), eps()) < 1e-7
+    @test err / max(
+        MPI.Allreduce(
+            sum(abs2, parent(spec1.data_real)) +
+            sum(abs2, parent(spec1.data_imag)),
+            MPI.SUM, comm),
+        eps()) < 1e-7
 
     # Vector roundtrip
     # Spectral fields (toroidal/poloidal) use spec pencil, vector components use physical pencils
@@ -81,7 +88,8 @@ end
     pol1 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     tor2 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     pol2 = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    vec  = GeoDynamo.create_shtns_vector_field(Float64, cfg, dom, (cfg.pencils.phi, cfg.pencils.phi, cfg.pencils.phi))
+    vec = GeoDynamo.create_shtns_vector_field(
+        Float64, cfg, dom, (cfg.pencils.phi, cfg.pencils.phi, cfg.pencils.phi))
 
     randn!(parent(tor1.data_real))
     randn!(parent(tor1.data_imag))
@@ -90,8 +98,8 @@ end
 
     # Keep only valid SH modes; for the spheroidal-toroidal vector decomposition
     # l=0 is also invalid, so drop it too.
-    sanitize_spectral_modes!(tor1, cfg; zero_l0=true)
-    sanitize_spectral_modes!(pol1, cfg; zero_l0=true)
+    sanitize_spectral_modes!(tor1, cfg; zero_l0 = true)
+    sanitize_spectral_modes!(pol1, cfg; zero_l0 = true)
 
     GeoDynamo.shtnskit_vector_synthesis!(tor1, pol1, vec)
     GeoDynamo.shtnskit_vector_analysis!(vec, tor2, pol2)

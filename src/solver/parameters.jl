@@ -15,22 +15,25 @@ create_solver_parameters(params::SolverParameters) = params
 Record `params` as the active solver parameter set used by shared helpers.
 """
 function apply_solver_parameters!(params::SolverParameters)
-    set_parameters!(params; validate=false)
+    set_parameters!(params; validate = false)
     set_timing_enabled!(solver_shared_timing_enabled())
     set_erk2_diagnostics!(
         solver_shared_erk2_diagnostics_enabled(),
-        solver_shared_erk2_diagnostics_interval(),
+        solver_shared_erk2_diagnostics_interval()
     )
     return params
 end
 
-save_solver_parameters(params::SolverParameters, filename::String) =
+function save_solver_parameters(params::SolverParameters, filename::String)
     save_parameters(params, filename)
+end
 
-create_solver_parameter_template(filename::String="solver_parameters.jl") =
+function create_solver_parameter_template(filename::String = "solver_parameters.jl")
     create_parameter_template(filename)
+end
 
-load_solver_parameters_file(config_file::String="") =
+function load_solver_parameters_file(config_file::String = "")
     isempty(config_file) ? _solver_current_params() : load_parameters(config_file)
+end
 
-load_solver_parameters(config_file::String="") = load_solver_parameters_file(config_file)
+load_solver_parameters(config_file::String = "") = load_solver_parameters_file(config_file)

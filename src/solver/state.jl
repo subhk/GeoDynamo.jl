@@ -10,10 +10,10 @@ compositional physics are disabled.
 """
 struct SolverFields{
     T,
-    V<:VelocityFieldsType{T},
-    Temp<:TemperatureFieldType{T},
-    M<:Union{MagneticFieldsType{T}, Nothing},
-    Comp<:Union{CompositionFieldType{T}, Nothing},
+    V <: VelocityFieldsType{T},
+    Temp <: TemperatureFieldType{T},
+    M <: Union{MagneticFieldsType{T}, Nothing},
+    Comp <: Union{CompositionFieldType{T}, Nothing}
 }
     velocity::V
     temperature::Temp
@@ -128,17 +128,19 @@ mutable struct SolverKrylovWork{T}
     c::Vector{T}
 end
 
-SolverKrylovWork{T}() where T = SolverKrylovWork{T}(
-    Matrix{T}(undef, 0, 0),
-    Matrix{T}(undef, 0, 0),
-    Matrix{T}(undef, 0, 0),
-    Vector{T}(undef, 0),
-    Vector{T}(undef, 0),
-    Vector{T}(undef, 0),
-    Vector{T}(undef, 0),
-)
+function SolverKrylovWork{T}() where {T}
+    SolverKrylovWork{T}(
+        Matrix{T}(undef, 0, 0),
+        Matrix{T}(undef, 0, 0),
+        Matrix{T}(undef, 0, 0),
+        Vector{T}(undef, 0),
+        Vector{T}(undef, 0),
+        Vector{T}(undef, 0),
+        Vector{T}(undef, 0)
+    )
+end
 
-function ensure_krylov_work!(work::SolverKrylovWork{T}, n::Int, m::Int) where T
+function ensure_krylov_work!(work::SolverKrylovWork{T}, n::Int, m::Int) where {T}
     if size(work.V, 1) != n || size(work.V, 2) < m
         work.V = Matrix{T}(undef, n, m)
     end
@@ -168,15 +170,17 @@ end
 # Reusable radial profiles for one field/operator family. The vectors are
 # global in radius because each implicit or exponential radial solve is posed
 # on the full radial stencil even when a rank owns only a local pencil slab.
-SolverRadialWork{T}(nr::Int) where T = SolverRadialWork{T}(
-    zeros(T, nr),
-    zeros(T, nr),
-    zeros(T, nr),
-    zeros(T, nr),
-    Vector{T}(undef, nr),
-    Vector{T}(undef, nr),
-    SolverKrylovWork{T}(),
-)
+function SolverRadialWork{T}(nr::Int) where {T}
+    SolverRadialWork{T}(
+        zeros(T, nr),
+        zeros(T, nr),
+        zeros(T, nr),
+        zeros(T, nr),
+        Vector{T}(undef, nr),
+        Vector{T}(undef, nr),
+        SolverKrylovWork{T}()
+    )
+end
 
 """
     SolverERK2BoundarySide{T}
@@ -222,29 +226,29 @@ end
 Construct a boundary pair with no mode-dependent endpoint overrides.
 """
 function SolverERK2BoundarySpec{T}(
-    inner::SolverERK2BoundarySide{T},
-    outer::SolverERK2BoundarySide{T},
-) where T
+        inner::SolverERK2BoundarySide{T},
+        outer::SolverERK2BoundarySide{T}
+) where {T}
     return SolverERK2BoundarySpec{T}(inner, outer, nothing, nothing, nothing, nothing)
 end
 
 mutable struct TimestepCaches{T}
     # EAB2 exponential integrator caches.
-    etd_velocity_toroidal   :: Union{EAB2CacheEntry{T}, Nothing}
-    etd_velocity_poloidal   :: Union{EAB2CacheEntry{T}, Nothing}
-    etd_magnetic_toroidal   :: Union{EAB2CacheEntry{T}, Nothing}
-    etd_magnetic_poloidal   :: Union{EAB2CacheEntry{T}, Nothing}
-    etd_temperature         :: Union{EAB2CacheEntry{T}, Nothing}
-    etd_composition         :: Union{EAB2CacheEntry{T}, Nothing}
+    etd_velocity_toroidal::Union{EAB2CacheEntry{T}, Nothing}
+    etd_velocity_poloidal::Union{EAB2CacheEntry{T}, Nothing}
+    etd_magnetic_toroidal::Union{EAB2CacheEntry{T}, Nothing}
+    etd_magnetic_poloidal::Union{EAB2CacheEntry{T}, Nothing}
+    etd_temperature::Union{EAB2CacheEntry{T}, Nothing}
+    etd_composition::Union{EAB2CacheEntry{T}, Nothing}
     # ERK2 stage caches used by explicit and CNAB2 updates.
-    erk2_velocity_toroidal  :: Union{ERK2StageCache{T}, Nothing}
-    erk2_velocity_poloidal  :: Union{ERK2StageCache{T}, Nothing}
-    erk2_magnetic_toroidal  :: Union{ERK2StageCache{T}, Nothing}
-    erk2_magnetic_poloidal  :: Union{ERK2StageCache{T}, Nothing}
-    erk2_temperature        :: Union{ERK2StageCache{T}, Nothing}
-    erk2_composition        :: Union{ERK2StageCache{T}, Nothing}
+    erk2_velocity_toroidal::Union{ERK2StageCache{T}, Nothing}
+    erk2_velocity_poloidal::Union{ERK2StageCache{T}, Nothing}
+    erk2_magnetic_toroidal::Union{ERK2StageCache{T}, Nothing}
+    erk2_magnetic_poloidal::Union{ERK2StageCache{T}, Nothing}
+    erk2_temperature::Union{ERK2StageCache{T}, Nothing}
+    erk2_composition::Union{ERK2StageCache{T}, Nothing}
     # ERK2 velocity-poloidal influence matrices
-    erk2_influence_velocity_poloidal :: Union{ERK2InfluenceCacheEntry{T}, Nothing}
+    erk2_influence_velocity_poloidal::Union{ERK2InfluenceCacheEntry{T}, Nothing}
     # Field-keyed scratch profiles shared by CNAB2/EAB2 solves. Keeping them in
     # the timestep cache avoids reallocating full radial work vectors every step.
     radial_work::Dict{Symbol, SolverRadialWork{T}}
@@ -255,17 +259,19 @@ mutable struct TimestepCaches{T}
     # stencils they carry depend only on the domain and BC code, so they are
     # built once instead of every timestep; per-step endpoint values are still
     # attached separately via `with_boundary_mode_values`.
-    erk2_boundary_specs::Dict{Tuple{Symbol,Int}, SolverERK2BoundarySpec{T}}
+    erk2_boundary_specs::Dict{Tuple{Symbol, Int}, SolverERK2BoundarySpec{T}}
 end
 
-TimestepCaches{T}() where T = TimestepCaches{T}(
-    nothing, nothing, nothing, nothing, nothing, nothing,
-    nothing, nothing, nothing, nothing, nothing, nothing,
-    nothing,
-    Dict{Symbol, SolverRadialWork{T}}(),
-    Dict{Symbol, SolverERK2FieldBuffers{T}}(),
-    Dict{Tuple{Symbol,Int}, SolverERK2BoundarySpec{T}}(),
-)
+function TimestepCaches{T}() where {T}
+    TimestepCaches{T}(
+        nothing, nothing, nothing, nothing, nothing, nothing,
+        nothing, nothing, nothing, nothing, nothing, nothing,
+        nothing,
+        Dict{Symbol, SolverRadialWork{T}}(),
+        Dict{Symbol, SolverERK2FieldBuffers{T}}(),
+        Dict{Tuple{Symbol, Int}, SolverERK2BoundarySpec{T}}()
+    )
+end
 
 struct ImplicitMatrixSet{T}
     system_matrices::Vector{BandedOperator{T}}
@@ -302,11 +308,11 @@ path.
 """
 mutable struct SolverState{
     T,
-    A<:AbstractArchitecture,
-    C<:SHTnsConfigType,
-    B<:SolverBackend{A,C},
-    F<:SolverFields{T},
-    R<:SolverRuntime{T,A,C},
+    A <: AbstractArchitecture,
+    C <: SHTnsConfigType,
+    B <: SolverBackend{A, C},
+    F <: SolverFields{T},
+    R <: SolverRuntime{T, A, C}
 }
     parameters::SolverParameters
     backend::B
@@ -345,11 +351,13 @@ function Base.show(io::IO, ::MIME"text/plain", state::SolverState)
     _solver_print_row(io, "Stefan ICB", isnothing(state.topography.stefan) ? "no" : "yes")
 end
 
-BandedOperator(A::OldBandedMatrix{T}) where {T} =
+function BandedOperator(A::OldBandedMatrix{T}) where {T}
     BandedOperator{T}(copy(A.data), A.bandwidth, A.size)
+end
 
-BandedFactorization(A::OldBandedLU{T}) where {T} =
+function BandedFactorization(A::OldBandedLU{T}) where {T}
     BandedFactorization{T}(copy(A.lu), A.bandwidth, A.size)
+end
 
 function ImplicitMatrixSet(matrices::OldImplicitMatrices{T}) where {T}
     return ImplicitMatrixSet{T}(
@@ -358,12 +366,12 @@ function ImplicitMatrixSet(matrices::OldImplicitMatrices{T}) where {T}
         BandedOperator.(matrices.linear_matrices),
         copy(matrices.l_values),
         Dict{Int, Int}(matrices.lookup),
-        matrices.theta,
+        matrices.theta
     )
 end
 
 function create_solver_implicit_matrix_store(
-    matrices_by_name::Dict{Symbol, OldImplicitMatrices{T}},
+        matrices_by_name::Dict{Symbol, OldImplicitMatrices{T}},
 ) where {T}
     store = Dict{Symbol, ImplicitMatrixSet{T}}()
     for (name, matrices) in matrices_by_name
@@ -372,7 +380,8 @@ function create_solver_implicit_matrix_store(
     return store
 end
 
-function _collect_solver_fields(runtime::SolverRuntime{T,<:AbstractArchitecture}, params::SolverParameters) where T
+function _collect_solver_fields(runtime::SolverRuntime{T, <:AbstractArchitecture},
+        params::SolverParameters) where {T}
     magnetic = params.include_magnetic_field ? runtime.magnetic : nothing
     composition = params.include_composition ? runtime.composition : nothing
 
@@ -383,23 +392,24 @@ function _collect_solver_fields(runtime::SolverRuntime{T,<:AbstractArchitecture}
     return SolverFields(runtime.velocity, runtime.temperature, magnetic, composition)
 end
 
-function _synchronize_solver_views!(state::SolverState{T,<:AbstractArchitecture}) where T
+function _synchronize_solver_views!(state::SolverState{T, <:AbstractArchitecture}) where {T}
     state.fields = _collect_solver_fields(state.runtime, state.parameters)
     state.time = state.runtime.timestep_state.time
     state.step = state.runtime.timestep_state.step
     return state
 end
 
-function sync_output_physical_scalars!(state::SolverState{T,<:AbstractArchitecture}) where T
+function sync_output_physical_scalars!(state::SolverState{
+        T, <:AbstractArchitecture}) where {T}
     scalar_spectral_to_physical!(
         state.fields.temperature.spectral,
-        state.fields.temperature.temperature,
+        state.fields.temperature.temperature
     )
 
     if state.fields.composition !== nothing
         scalar_spectral_to_physical!(
             state.fields.composition.spectral,
-            state.fields.composition.composition,
+            state.fields.composition.composition
         )
     end
 
@@ -414,53 +424,54 @@ Return a copy-based dictionary snapshot of the main solver fields.
 This is primarily used by restart/output tooling and tests that need a stable
 container representation independent of the in-memory field types.
 """
-function GeoDynamo.extract_all_fields(state::SolverState{T,<:AbstractArchitecture}) where {T}
+function GeoDynamo.extract_all_fields(state::SolverState{
+        T, <:AbstractArchitecture}) where {T}
     sync_output_physical_scalars!(state)
 
     fields = Dict{String, Any}()
 
     fields["velocity_toroidal"] = Dict(
         "real" => copy(parent(state.fields.velocity.𝒯.data_real)),
-        "imag" => copy(parent(state.fields.velocity.𝒯.data_imag)),
+        "imag" => copy(parent(state.fields.velocity.𝒯.data_imag))
     )
 
     fields["velocity_poloidal"] = Dict(
         "real" => copy(parent(state.fields.velocity.𝒫.data_real)),
-        "imag" => copy(parent(state.fields.velocity.𝒫.data_imag)),
+        "imag" => copy(parent(state.fields.velocity.𝒫.data_imag))
     )
 
     magnetic = state.fields.magnetic
     if magnetic !== nothing
         fields["magnetic_toroidal"] = Dict(
             "real" => copy(parent(magnetic.𝒯.data_real)),
-            "imag" => copy(parent(magnetic.𝒯.data_imag)),
+            "imag" => copy(parent(magnetic.𝒯.data_imag))
         )
         fields["magnetic_poloidal"] = Dict(
             "real" => copy(parent(magnetic.𝒫.data_real)),
-            "imag" => copy(parent(magnetic.𝒫.data_imag)),
+            "imag" => copy(parent(magnetic.𝒫.data_imag))
         )
     else
         fields["magnetic_toroidal"] = Dict(
             "real" => copy(parent(state.runtime.magnetic.𝒯.data_real)),
-            "imag" => copy(parent(state.runtime.magnetic.𝒯.data_imag)),
+            "imag" => copy(parent(state.runtime.magnetic.𝒯.data_imag))
         )
         fields["magnetic_poloidal"] = Dict(
             "real" => copy(parent(state.runtime.magnetic.𝒫.data_real)),
-            "imag" => copy(parent(state.runtime.magnetic.𝒫.data_imag)),
+            "imag" => copy(parent(state.runtime.magnetic.𝒫.data_imag))
         )
     end
 
     fields["temperature"] = copy(parent(state.fields.temperature.temperature.data))
     fields["temperature_spectral"] = Dict(
         "real" => copy(parent(state.fields.temperature.spectral.data_real)),
-        "imag" => copy(parent(state.fields.temperature.spectral.data_imag)),
+        "imag" => copy(parent(state.fields.temperature.spectral.data_imag))
     )
 
     if state.fields.composition !== nothing
         fields["composition"] = copy(parent(state.fields.composition.composition.data))
         fields["composition_spectral"] = Dict(
             "real" => copy(parent(state.fields.composition.spectral.data_real)),
-            "imag" => copy(parent(state.fields.composition.spectral.data_imag)),
+            "imag" => copy(parent(state.fields.composition.spectral.data_imag))
         )
     end
 
@@ -485,37 +496,38 @@ function _restore_restart_spectral_pair!(field, data, name::AbstractString)
 end
 
 function restore_fields_from_restart!(
-    state::SolverState{T,<:AbstractArchitecture},
-    restart_data::Dict{String,Any},
-) where T
+        state::SolverState{T, <:AbstractArchitecture},
+        restart_data::Dict{String, Any}
+) where {T}
     if haskey(restart_data, "velocity_toroidal")
         _restore_restart_spectral_pair!(
             state.fields.velocity.𝒯,
             restart_data["velocity_toroidal"],
-            "velocity_toroidal",
+            "velocity_toroidal"
         )
     end
     if haskey(restart_data, "velocity_poloidal")
         _restore_restart_spectral_pair!(
             state.fields.velocity.𝒫,
             restart_data["velocity_poloidal"],
-            "velocity_poloidal",
+            "velocity_poloidal"
         )
     end
 
-    magnetic = state.fields.magnetic === nothing ? state.runtime.magnetic : state.fields.magnetic
+    magnetic = state.fields.magnetic === nothing ? state.runtime.magnetic :
+               state.fields.magnetic
     if haskey(restart_data, "magnetic_toroidal")
         _restore_restart_spectral_pair!(
             magnetic.𝒯,
             restart_data["magnetic_toroidal"],
-            "magnetic_toroidal",
+            "magnetic_toroidal"
         )
     end
     if haskey(restart_data, "magnetic_poloidal")
         _restore_restart_spectral_pair!(
             magnetic.𝒫,
             restart_data["magnetic_poloidal"],
-            "magnetic_poloidal",
+            "magnetic_poloidal"
         )
     end
 
@@ -523,14 +535,14 @@ function restore_fields_from_restart!(
         _copy_restart_array!(
             parent(state.fields.temperature.temperature.data),
             restart_data["temperature"],
-            "temperature",
+            "temperature"
         )
     end
     if haskey(restart_data, "temperature_spectral")
         _restore_restart_spectral_pair!(
             state.fields.temperature.spectral,
             restart_data["temperature_spectral"],
-            "temperature_spectral",
+            "temperature_spectral"
         )
     end
 
@@ -539,14 +551,14 @@ function restore_fields_from_restart!(
             _copy_restart_array!(
                 parent(state.fields.composition.composition.data),
                 restart_data["composition"],
-                "composition",
+                "composition"
             )
         end
         if haskey(restart_data, "composition_spectral")
             _restore_restart_spectral_pair!(
                 state.fields.composition.spectral,
                 restart_data["composition_spectral"],
-                "composition_spectral",
+                "composition_spectral"
             )
         end
     end
@@ -562,8 +574,10 @@ end
 Create lightweight metadata describing a solver snapshot for outputs and
 restart-style tooling.
 """
-GeoDynamo.create_enhanced_metadata(state::SolverState, time, step) = Dict(
-    "current_time" => time,
-    "current_step" => step,
-    "geometry" => state.parameters.geometry,
-)
+function GeoDynamo.create_enhanced_metadata(state::SolverState, time, step)
+    Dict(
+        "current_time" => time,
+        "current_step" => step,
+        "geometry" => state.parameters.geometry
+    )
+end

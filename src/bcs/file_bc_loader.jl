@@ -30,7 +30,7 @@ Row 1 = inner boundary, Row 2 = outer boundary (matching Fortran convention).
 - `source_file::String`: Path to the source file
 - `source_format::Symbol`: Format used to load (:physical or :spectral)
 """
-struct SpectralBoundaryCoefficients{T<:AbstractFloat}
+struct SpectralBoundaryCoefficients{T <: AbstractFloat}
     bc_real::Matrix{T}   # [2, nlm] - row 1=inner, row 2=outer
     bc_imag::Matrix{T}   # [2, nlm] - row 1=inner, row 2=outer
     nlm::Int
@@ -45,7 +45,7 @@ Typed storage for spectral boundary condition coefficients owned by a field.
 The string-key accessors keep legacy boundary helper code working, while hot
 solver paths can read the concrete matrix fields directly.
 """
-mutable struct BoundaryInterpolationCache{T<:AbstractFloat}
+mutable struct BoundaryInterpolationCache{T <: AbstractFloat}
     bc_real::Union{Matrix{T}, Nothing}
     bc_imag::Union{Matrix{T}, Nothing}
     bc_loaded::Bool
@@ -55,8 +55,10 @@ mutable struct BoundaryInterpolationCache{T<:AbstractFloat}
     metadata::Dict{String, Any}
 end
 
-BoundaryInterpolationCache(::Type{T}=Float64) where {T<:AbstractFloat} =
-    BoundaryInterpolationCache{T}(nothing, nothing, false, "", :unknown, 0, Dict{String, Any}())
+function BoundaryInterpolationCache(::Type{T} = Float64) where {T <: AbstractFloat}
+    BoundaryInterpolationCache{T}(
+        nothing, nothing, false, "", :unknown, 0, Dict{String, Any}())
+end
 
 function Base.empty!(cache::BoundaryInterpolationCache)
     cache.bc_real = nothing
@@ -105,7 +107,7 @@ function Base.getindex(cache::BoundaryInterpolationCache, key::AbstractString)
     return cache.metadata[String(key)]
 end
 
-function Base.setindex!(cache::BoundaryInterpolationCache{T}, value, key::AbstractString) where T
+function Base.setindex!(cache::BoundaryInterpolationCache{T}, value, key::AbstractString) where {T}
     if key == "bc_real"
         cache.bc_real = value isa Matrix{T} ? value : T.(value)
     elseif key == "bc_imag"
@@ -124,8 +126,9 @@ function Base.setindex!(cache::BoundaryInterpolationCache{T}, value, key::Abstra
     return cache
 end
 
-Base.get(cache::BoundaryInterpolationCache, key::AbstractString, default) =
+function Base.get(cache::BoundaryInterpolationCache, key::AbstractString, default)
     haskey(cache, key) ? cache[key] : default
+end
 
 function _boundary_cache_pairs(cache::BoundaryInterpolationCache)
     pairs = Pair{String, Any}[]
@@ -133,7 +136,8 @@ function _boundary_cache_pairs(cache::BoundaryInterpolationCache)
     cache.bc_imag === nothing || push!(pairs, "bc_imag" => cache.bc_imag)
     cache.bc_loaded && push!(pairs, "bc_loaded" => true)
     isempty(cache.bc_source_file) || push!(pairs, "bc_source_file" => cache.bc_source_file)
-    cache.bc_source_format === :unknown || push!(pairs, "bc_source_format" => cache.bc_source_format)
+    cache.bc_source_format === :unknown ||
+        push!(pairs, "bc_source_format" => cache.bc_source_format)
     cache.bc_nlm == 0 || push!(pairs, "bc_nlm" => cache.bc_nlm)
     append!(pairs, cache.metadata)
     return pairs
@@ -142,7 +146,9 @@ end
 Base.length(cache::BoundaryInterpolationCache) = length(_boundary_cache_pairs(cache))
 Base.isempty(cache::BoundaryInterpolationCache) = length(cache) == 0
 Base.iterate(cache::BoundaryInterpolationCache) = iterate(_boundary_cache_pairs(cache))
-Base.iterate(cache::BoundaryInterpolationCache, state) = iterate(_boundary_cache_pairs(cache), state)
+function Base.iterate(cache::BoundaryInterpolationCache, state)
+    iterate(_boundary_cache_pairs(cache), state)
+end
 
 """
     load_spectral_bc_from_file(filename::String, config; format::Symbol=:physical, T::Type=Float64)
@@ -170,8 +176,8 @@ Load boundary conditions from a NetCDF file and return spectral coefficients.
 - `SpectralBoundaryCoefficients{T}` with spectral BC data
 """
 function load_spectral_bc_from_file(filename::String, config;
-                                     format::Symbol=:physical,
-                                     T::Type{<:AbstractFloat}=Float64)
+        format::Symbol = :physical,
+        T::Type{<:AbstractFloat} = Float64)
     isfile(filename) || throw(ArgumentError("BC file not found: $filename"))
     nlm = config.nlm
 
@@ -187,7 +193,8 @@ end
 """
 Load physical-space boundary data from NetCDF, transform to spectral via SHTnsKit.
 """
-function _load_physical_format(filename::String, config, ::Type{T}) where T<:AbstractFloat
+function _load_physical_format(filename::String, config, ::Type{T}) where {T <:
+                                                                           AbstractFloat}
     nlm = config.nlm
     bc_real = zeros(T, 2, nlm)
     bc_imag = zeros(T, 2, nlm)
@@ -197,7 +204,7 @@ function _load_physical_format(filename::String, config, ::Type{T}) where T<:Abs
         if haskey(ds, "inner") || haskey(ds, "outer")
             if haskey(ds, "inner")
                 inner_phys = T.(Array(ds["inner"]))
-                coeffs = shtns_physical_to_spectral(inner_phys, config; return_complex=true)
+                coeffs = shtns_physical_to_spectral(inner_phys, config; return_complex = true)
                 for i in 1:min(length(coeffs), nlm)
                     bc_real[1, i] = T(real(coeffs[i]))
                     bc_imag[1, i] = T(imag(coeffs[i]))
@@ -205,7 +212,7 @@ function _load_physical_format(filename::String, config, ::Type{T}) where T<:Abs
             end
             if haskey(ds, "outer")
                 outer_phys = T.(Array(ds["outer"]))
-                coeffs = shtns_physical_to_spectral(outer_phys, config; return_complex=true)
+                coeffs = shtns_physical_to_spectral(outer_phys, config; return_complex = true)
                 for i in 1:min(length(coeffs), nlm)
                     bc_real[2, i] = T(real(coeffs[i]))
                     bc_imag[2, i] = T(imag(coeffs[i]))
@@ -216,13 +223,13 @@ function _load_physical_format(filename::String, config, ::Type{T}) where T<:Abs
             data = T.(Array(ds["temperature"]))
             if ndims(data) == 3 && size(data, 3) >= 2
                 inner_phys = data[:, :, 1]
-                coeffs = shtns_physical_to_spectral(inner_phys, config; return_complex=true)
+                coeffs = shtns_physical_to_spectral(inner_phys, config; return_complex = true)
                 for i in 1:min(length(coeffs), nlm)
                     bc_real[1, i] = T(real(coeffs[i]))
                     bc_imag[1, i] = T(imag(coeffs[i]))
                 end
                 outer_phys = data[:, :, 2]
-                coeffs = shtns_physical_to_spectral(outer_phys, config; return_complex=true)
+                coeffs = shtns_physical_to_spectral(outer_phys, config; return_complex = true)
                 for i in 1:min(length(coeffs), nlm)
                     bc_real[2, i] = T(real(coeffs[i]))
                     bc_imag[2, i] = T(imag(coeffs[i]))
@@ -235,13 +242,13 @@ function _load_physical_format(filename::String, config, ::Type{T}) where T<:Abs
             data = T.(Array(ds["composition"]))
             if ndims(data) == 3 && size(data, 3) >= 2
                 inner_phys = data[:, :, 1]
-                coeffs = shtns_physical_to_spectral(inner_phys, config; return_complex=true)
+                coeffs = shtns_physical_to_spectral(inner_phys, config; return_complex = true)
                 for i in 1:min(length(coeffs), nlm)
                     bc_real[1, i] = T(real(coeffs[i]))
                     bc_imag[1, i] = T(imag(coeffs[i]))
                 end
                 outer_phys = data[:, :, 2]
-                coeffs = shtns_physical_to_spectral(outer_phys, config; return_complex=true)
+                coeffs = shtns_physical_to_spectral(outer_phys, config; return_complex = true)
                 for i in 1:min(length(coeffs), nlm)
                     bc_real[2, i] = T(real(coeffs[i]))
                     bc_imag[2, i] = T(imag(coeffs[i]))
@@ -261,7 +268,8 @@ end
 """
 Load pre-computed spectral boundary coefficients from NetCDF (Fortran-compatible format).
 """
-function _load_spectral_format(filename::String, nlm::Int, ::Type{T}) where T<:AbstractFloat
+function _load_spectral_format(filename::String, nlm::Int, ::Type{T}) where {T <:
+                                                                             AbstractFloat}
     bc_real = zeros(T, 2, nlm)
     bc_imag = zeros(T, 2, nlm)
 
@@ -301,16 +309,16 @@ The field must have a `boundary_interpolation_cache` attribute.
 
 After calling this, `get_bc_vectors_from_field(field)` will return the stored vectors.
 """
-function store_bc_in_field!(field, bc_coeffs::SpectralBoundaryCoefficients{T}) where T
+function store_bc_in_field!(field, bc_coeffs::SpectralBoundaryCoefficients{T}) where {T}
     cache = field.boundary_interpolation_cache
     _store_bc_in_cache!(cache, bc_coeffs)
     return field
 end
 
 function _store_bc_in_cache!(
-    cache::BoundaryInterpolationCache{T},
-    bc_coeffs::SpectralBoundaryCoefficients{S},
-) where {T,S}
+        cache::BoundaryInterpolationCache{T},
+        bc_coeffs::SpectralBoundaryCoefficients{S}
+) where {T, S}
     cache.bc_real = T === S ? bc_coeffs.bc_real : T.(bc_coeffs.bc_real)
     cache.bc_imag = T === S ? bc_coeffs.bc_imag : T.(bc_coeffs.bc_imag)
     cache.bc_loaded = true
@@ -348,26 +356,26 @@ function _get_bc_vectors_from_cache(cache::BoundaryInterpolationCache)
     bc_real = cache.bc_real
     bc_imag = cache.bc_imag
     if !cache.bc_loaded || bc_real === nothing || bc_imag === nothing
-        return (inner_real=nothing, outer_real=nothing,
-                inner_imag=nothing, outer_imag=nothing)
+        return (inner_real = nothing, outer_real = nothing,
+            inner_imag = nothing, outer_imag = nothing)
     end
 
-    return (inner_real=view(bc_real, 1, :), outer_real=view(bc_real, 2, :),
-            inner_imag=view(bc_imag, 1, :), outer_imag=view(bc_imag, 2, :))
+    return (inner_real = view(bc_real, 1, :), outer_real = view(bc_real, 2, :),
+        inner_imag = view(bc_imag, 1, :), outer_imag = view(bc_imag, 2, :))
 end
 
 function _get_bc_vectors_from_cache(cache)
     if !get(cache, "bc_loaded", false)
-        return (inner_real=nothing, outer_real=nothing,
-                inner_imag=nothing, outer_imag=nothing)
+        return (inner_real = nothing, outer_real = nothing,
+            inner_imag = nothing, outer_imag = nothing)
     end
 
     bc_real = cache["bc_real"]::Matrix
     bc_imag = cache["bc_imag"]::Matrix
 
     # Return views into the stored matrices to avoid per-call allocations
-    return (inner_real=view(bc_real, 1, :), outer_real=view(bc_real, 2, :),
-            inner_imag=view(bc_imag, 1, :), outer_imag=view(bc_imag, 2, :))
+    return (inner_real = view(bc_real, 1, :), outer_real = view(bc_real, 2, :),
+        inner_imag = view(bc_imag, 1, :), outer_imag = view(bc_imag, 2, :))
 end
 
 # Export from bcs module

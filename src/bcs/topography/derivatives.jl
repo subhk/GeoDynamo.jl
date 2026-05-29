@@ -10,7 +10,7 @@
 
 Local banded-matrix apply for derivative operators.
 """
-function __apply_∂r!(output::Vector{T}, matrix, input::Vector{T}) where T
+function __apply_∂r!(output::Vector{T}, matrix, input::Vector{T}) where {T}
     N = matrix.size
     bandwidth = matrix.bandwidth
 
@@ -35,7 +35,7 @@ Cache of boundary values and radial derivatives for a spectral field.
 All values are stored for m >= 0 (SHTnsKit triangular indexing) and
 are expanded to negative m using conjugate symmetry.
 """
-struct BoundaryDerivativeCache{T<:AbstractFloat}
+struct BoundaryDerivativeCache{T <: AbstractFloat}
     lmax::Int
     mmax::Int
     nlm::Int
@@ -55,9 +55,9 @@ full radial profile (MPI-safe). This is expensive but avoids per-mode
 Allreduce inside tight coupling loops.
 """
 function compute_boundary_derivative_cache(field,
-                                           ∂r,
-                                           ∂²r,
-                                           domain)
+        ∂r,
+        ∂²r,
+        domain)
     nlm = field.config.nlm
     lmax = field.config.lmax
     mmax = field.config.mmax
@@ -96,7 +96,7 @@ function compute_boundary_derivative_cache(field,
         if lm_idx in lm_range
             slot = local_spectral_storage_slot(field.config, lm_idx)
             slot !== nothing && gather_local_radial_profile!(profile_real, profile_imag,
-                                                             data_real, data_imag, slot, r_range)
+                data_real, data_imag, slot, r_range)
         end
 
         MPI.Allreduce!(profile_real, gathered_real, MPI.SUM, comm)
@@ -119,9 +119,9 @@ function compute_boundary_derivative_cache(field,
     end
 
     return BoundaryDerivativeCache{T}(lmax, mmax, nlm,
-                                      values_inner, values_outer,
-                                      d1_inner, d1_outer,
-                                      d2_inner, d2_outer)
+        values_inner, values_outer,
+        d1_inner, d1_outer,
+        d2_inner, d2_outer)
 end
 
 function _cache_index(cache::BoundaryDerivativeCache, l::Int, m::Int)
@@ -131,7 +131,7 @@ function _cache_index(cache::BoundaryDerivativeCache, l::Int, m::Int)
     return lm_to_index(l, abs(m), cache.lmax)
 end
 
-function _apply_m_conjugate(val::Complex{T}, m::Int) where T
+function _apply_m_conjugate(val::Complex{T}, m::Int) where {T}
     if m >= 0
         return val
     end
@@ -140,8 +140,8 @@ function _apply_m_conjugate(val::Complex{T}, m::Int) where T
 end
 
 function get_cache_value(cache::BoundaryDerivativeCache{T},
-                         l::Int, m::Int,
-                         location::BoundaryLocation) where T
+        l::Int, m::Int,
+        location::BoundaryLocation) where {T}
     idx = _cache_index(cache, l, m)
     if idx <= 0 || idx > cache.nlm
         return zero(Complex{T})
@@ -151,8 +151,8 @@ function get_cache_value(cache::BoundaryDerivativeCache{T},
 end
 
 function get_cache_d1(cache::BoundaryDerivativeCache{T},
-                      l::Int, m::Int,
-                      location::BoundaryLocation) where T
+        l::Int, m::Int,
+        location::BoundaryLocation) where {T}
     idx = _cache_index(cache, l, m)
     if idx <= 0 || idx > cache.nlm
         return zero(Complex{T})
@@ -162,8 +162,8 @@ function get_cache_d1(cache::BoundaryDerivativeCache{T},
 end
 
 function get_cache_d2(cache::BoundaryDerivativeCache{T},
-                      l::Int, m::Int,
-                      location::BoundaryLocation) where T
+        l::Int, m::Int,
+        location::BoundaryLocation) where {T}
     cache.d2_inner === nothing && return zero(Complex{T})
     idx = _cache_index(cache, l, m)
     if idx <= 0 || idx > cache.nlm

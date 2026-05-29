@@ -7,7 +7,8 @@ using LinearAlgebra
     # With nr=3, index 2 is an interior point that retains its value.
     nr = 3
     dom = GeoDynamo.create_radial_domain(nr)
-    cfg = GeoDynamo.create_shtnskit_config(lmax=0, mmax=0, nlat=2, nlon=2, nr=dom.N, optimize_decomp=false)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = 0, mmax = 0, nlat = 2, nlon = 2, nr = dom.N, optimize_decomp = false)
 
     u_field = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     nl_field = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
@@ -59,7 +60,7 @@ using LinearAlgebra
         false,
         20,
         1e-8,
-        true,
+        true
     )
 
     buffers = GeoDynamo.ERK2FieldBuffers(u_field, nl_field, cache)

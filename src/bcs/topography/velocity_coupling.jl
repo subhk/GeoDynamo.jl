@@ -19,7 +19,7 @@
 # ================================================================================
 
 # Local helper for banded matrix multiplication (avoids import cycle)
-function _apply_banded_matrix!(output::Vector{T}, matrix, input::Vector{T}) where T
+function _apply_banded_matrix!(output::Vector{T}, matrix, input::Vector{T}) where {T}
     N = size(matrix.data, 2)
     bandwidth = (size(matrix.data, 1) - 1) ÷ 2
 
@@ -56,7 +56,7 @@ components to account for topographic coupling.
 - `config`: TopographyCouplingConfig with coupling parameters
 """
 function apply_velocity_topography_correction!(velocity_field, topography::TopographyData,
-                                               config::TopographyCouplingConfig)
+        config::TopographyCouplingConfig)
     if !config.velocity_coupling || !config.enabled
         return nothing
     end
@@ -87,13 +87,13 @@ function apply_velocity_topography_correction!(velocity_field, topography::Topog
     # correction focused on mode coupling rather than repeated radial algebra.
     # Precompute boundary value/derivative caches once for this field
     p_cache = compute_boundary_derivative_cache(poloidal,
-                                                velocity_field.∂r,
-                                                velocity_field.∂²r,
-                                                velocity_field.domain)
+        velocity_field.∂r,
+        velocity_field.∂²r,
+        velocity_field.domain)
     t_cache = compute_boundary_derivative_cache(toroidal,
-                                                velocity_field.∂r,
-                                                velocity_field.∂²r,
-                                                velocity_field.domain)
+        velocity_field.∂r,
+        velocity_field.∂²r,
+        velocity_field.domain)
 
     # Apply corrections at ICB if topography defined
     if topography.icb !== nothing
@@ -125,14 +125,14 @@ end
 Apply velocity topography corrections at a specific boundary.
 """
 function apply_velocity_correction_at_boundary!(poloidal,
-                                                toroidal,
-                                                p_cache::BoundaryDerivativeCache{T},
-                                                t_cache::BoundaryDerivativeCache{T},
-                                                topo_field::TopographyField{T},
-                                                gaunt::GauntTensorCache{T},
-                                                ε::T,
-                                                config::TopographyCouplingConfig,
-                                                location::BoundaryLocation) where T
+        toroidal,
+        p_cache::BoundaryDerivativeCache{T},
+        t_cache::BoundaryDerivativeCache{T},
+        topo_field::TopographyField{T},
+        gaunt::GauntTensorCache{T},
+        ε::T,
+        config::TopographyCouplingConfig,
+        location::BoundaryLocation) where {T}
     rb = topo_field.radius
     lmax = min(poloidal.config.lmax, gaunt.lmax)
     mmax = min(poloidal.config.mmax, gaunt.lmax)
@@ -177,7 +177,8 @@ function apply_velocity_correction_at_boundary!(poloidal,
             end
 
             if is_no_slip_boundary(toroidal, location)
-                _, ns_t = compute_noslip_correction(
+                _,
+                ns_t = compute_noslip_correction(
                     l, m, p_cache, t_cache, topo_field, gaunt, rb, location, config
                 )
                 if lm_idx > 0 && lm_idx <= size(T_bv, 2)
@@ -213,13 +214,13 @@ l(l+1)/r² P_{lm} + ε Σ_{LM,l'm'} h_{LM} [
 ] = 0
 """
 function compute_impermeability_correction(l::Int, m::Int,
-                                           p_cache::BoundaryDerivativeCache{T},
-                                           t_cache::BoundaryDerivativeCache{T},
-                                           topo::TopographyField{T},
-                                           gaunt::GauntTensorCache{T},
-                                           rb::T,
-                                           location::BoundaryLocation,
-                                           config::TopographyCouplingConfig) where T
+        p_cache::BoundaryDerivativeCache{T},
+        t_cache::BoundaryDerivativeCache{T},
+        topo::TopographyField{T},
+        gaunt::GauntTensorCache{T},
+        rb::T,
+        location::BoundaryLocation,
+        config::TopographyCouplingConfig) where {T}
     correction = zero(Complex{T})
 
     lmax = min(p_cache.lmax, gaunt.lmax)
@@ -302,13 +303,13 @@ uₜ + εh ∂_r uₜ = U_{b,t}
 Returns (poloidal_correction, toroidal_correction).
 """
 function compute_noslip_correction(l::Int, m::Int,
-                                   p_cache::BoundaryDerivativeCache{T},
-                                   t_cache::BoundaryDerivativeCache{T},
-                                   topo::TopographyField{T},
-                                   gaunt::GauntTensorCache{T},
-                                   rb::T,
-                                   location::BoundaryLocation,
-                                   config::TopographyCouplingConfig) where T
+        p_cache::BoundaryDerivativeCache{T},
+        t_cache::BoundaryDerivativeCache{T},
+        topo::TopographyField{T},
+        gaunt::GauntTensorCache{T},
+        rb::T,
+        location::BoundaryLocation,
+        config::TopographyCouplingConfig) where {T}
     P_corr = zero(Complex{T})
     T_corr = zero(Complex{T})
 
@@ -369,12 +370,12 @@ With topography:
 The RHS involves the slope of topography coupling with radial velocity gradient.
 """
 function compute_stressfree_correction(l::Int, m::Int,
-                                       p_cache::BoundaryDerivativeCache{T},
-                                       topo::TopographyField{T},
-                                       gaunt::GauntTensorCache{T},
-                                       rb::T,
-                                       location::BoundaryLocation,
-                                       config::TopographyCouplingConfig) where T
+        p_cache::BoundaryDerivativeCache{T},
+        topo::TopographyField{T},
+        gaunt::GauntTensorCache{T},
+        rb::T,
+        location::BoundaryLocation,
+        config::TopographyCouplingConfig) where {T}
     correction = zero(Complex{T})
 
     if !config.include_slope_terms
@@ -444,7 +445,7 @@ end
 Get the boundary value of spectral coefficient (l, m).
 """
 function get_spectral_boundary_value(field, l::Int, m::Int,
-                                     location::BoundaryLocation=OUTER_BOUNDARY)
+        location::BoundaryLocation = OUTER_BOUNDARY)
     idx = lm_to_spectral_index(l, abs(m), field.config)
     T = eltype(field.boundary_values)
     if idx <= 0 || idx > field.nlm
@@ -474,8 +475,8 @@ Compute the radial derivative of spectral coefficient (l, m) at a boundary.
 Requires access to the radial derivative matrix and domain.
 """
 function get_spectral_radial_derivative(field, l::Int, m::Int, r,
-                                        location::BoundaryLocation=OUTER_BOUNDARY;
-                                        ∂r=nothing, domain=nothing)
+        location::BoundaryLocation = OUTER_BOUNDARY;
+        ∂r = nothing, domain = nothing)
     if ∂r === nothing || domain === nothing
         throw(ArgumentError("get_spectral_radial_derivative requires ∂r and domain; use compute_boundary_derivative_cache and get_cache_d1"))
     end
@@ -499,7 +500,7 @@ function get_spectral_radial_derivative(field, l::Int, m::Int, r,
     if idx in lm_range
         slot = local_spectral_storage_slot(field.config, idx)
         slot !== nothing && gather_local_radial_profile!(profile_real, profile_imag,
-                                                         data_real, data_imag, slot, r_range)
+            data_real, data_imag, slot, r_range)
     end
 
     comm = get_comm()
@@ -569,9 +570,9 @@ Returns a sparse representation of coupling coefficients to other modes.
 - `bc_type`: :impermeability, :noslip, or :stressfree
 """
 function assemble_velocity_boundary_operator(l::Int, topo::TopographyField{T},
-                                             gaunt::GauntTensorCache{T},
-                                             config::TopographyCouplingConfig,
-                                             bc_type::Symbol) where T
+        gaunt::GauntTensorCache{T},
+        config::TopographyCouplingConfig,
+        bc_type::Symbol) where {T}
     rb = topo.radius
     ε = config.epsilon
     lmax = gaunt.lmax

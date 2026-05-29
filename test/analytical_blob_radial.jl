@@ -40,8 +40,13 @@ end
     MPI.Finalized() && (@warn "MPI finalized; skipping"; return)
     MPI.Initialized() || MPI.Init()
 
-    lmax = 4; mmax = 4; nlat = 10; nlon = 16; nr = 8
-    cfg = G.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    lmax = 4;
+    mmax = 4;
+    nlat = 10;
+    nlon = 16;
+    nr = 8
+    cfg = G.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = G.create_radial_domain(nr)
     m00 = G.get_mode_index(cfg, 0, 0)
     slot00 = G.local_spectral_storage_slot(cfg, m00)
@@ -49,21 +54,21 @@ end
     @testset "temp :hot_blob — pure l=0, Gaussian-bump physical profile" begin
         temp = G.create_shtns_temperature_field(Float64, cfg, dom)
         G.set_analytical_initial_conditions!(temp, :temperature, :hot_blob,
-                                             amplitude=1.0, r_center=0.5, blob_width=0.2)
+            amplitude = 1.0, r_center = 0.5, blob_width = 0.2)
         _assert_no_lgt0(temp)
         c1 = G.local_spectral_value(parent(temp.spectral.data_real), slot00, 1)  # r_frac=0
         expected = 0.5 * (1.0 - 0.0) + 1.0 * exp(-0.5 * ((0.0 - 0.5) / 0.2)^2)
-        @test isapprox(_physical_from_mean_coeff(cfg, dom, c1), expected; atol=1e-9)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, c1), expected; atol = 1e-9)
     end
 
     @testset "comp :blob — pure l=0, Gaussian-bump physical profile" begin
         comp = G.create_shtns_composition_field(Float64, cfg, dom)
         G.set_analytical_initial_conditions!(comp, :composition, :blob,
-                                             r_center=0.3, blob_width=0.2, blob_composition=0.8)
+            r_center = 0.3, blob_width = 0.2, blob_composition = 0.8)
         _assert_no_lgt0(comp)
         slot = G.local_spectral_storage_slot(comp.config, m00)
         c1 = G.local_spectral_value(parent(comp.spectral.data_real), slot, 1)  # r_frac=0
         expected = 0.1 + (0.8 - 0.1) * exp(-0.5 * ((0.0 - 0.3) / 0.2)^2)
-        @test isapprox(_physical_from_mean_coeff(cfg, dom, c1), expected; atol=1e-9)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, c1), expected; atol = 1e-9)
     end
 end

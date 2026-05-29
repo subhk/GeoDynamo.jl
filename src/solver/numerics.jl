@@ -19,11 +19,11 @@ end
         config.mmax,
         config.nlm,
         hash(config.l_values),
-        hash(config.m_values),
+        hash(config.m_values)
     )
 end
 
-const SOLVER_MODE_INDEX_CACHE = Dict{SolverModeIndexCacheKey, Dict{Tuple{Int,Int}, Int}}()
+const SOLVER_MODE_INDEX_CACHE = Dict{SolverModeIndexCacheKey, Dict{Tuple{Int, Int}, Int}}()
 const SOLVER_MODE_INDEX_CACHE_LOCK = ReentrantLock()
 
 @inline local_range(pencil, dim::Int) = pencil.axes_local[dim]
@@ -31,9 +31,9 @@ const SOLVER_MODE_INDEX_CACHE_LOCK = ReentrantLock()
     backend_ensure_mpi!()
     return SOLVER_BACKEND_MPI.COMM_WORLD
 end
-@inline mpi_rank(comm=mpi_comm()) = SolverMPI.Comm_rank(comm)
+@inline mpi_rank(comm = mpi_comm()) = SolverMPI.Comm_rank(comm)
 @inline mpi_initialized() = SolverMPI.Initialized()
-@inline mpi_comm_size(comm=mpi_comm()) = SolverMPI.Comm_size(comm)
+@inline mpi_comm_size(comm = mpi_comm()) = SolverMPI.Comm_size(comm)
 @inline mpi_wtime() = SolverMPI.Wtime()
 @inline timing_enabled() = SOLVER_ENABLE_TIMING[]
 @inline solver_buffer_cache_lock() = SOLVER_SHARED_BUFFER_CACHE_LOCK
@@ -50,7 +50,7 @@ end
 end
 
 function build_mode_index_table(config)
-    table = Dict{Tuple{Int,Int}, Int}()
+    table = Dict{Tuple{Int, Int}, Int}()
     sizehint!(table, config.nlm)
     @inbounds for idx in 1:config.nlm
         table[(config.l_values[idx], config.m_values[idx])] = idx
@@ -77,7 +77,8 @@ end
 # These macros centralize the pencil-ownership guard used in many spectral
 # loops: a rank iterates candidate global mode ids, maps owned modes to its
 # local storage slot, and skips modes outside the rank's rectangular pencil.
-macro solver_local_spectral_modes(lm_var, slot_var, lm_range, config, limit_data, storage_data, body)
+macro solver_local_spectral_modes(
+        lm_var, slot_var, lm_range, config, limit_data, storage_data, body)
     lm = esc(lm_var)
     slot = esc(slot_var)
     return quote
@@ -96,7 +97,8 @@ macro solver_local_spectral_modes(lm_var, slot_var, lm_range, config, limit_data
     end
 end
 
-macro solver_threaded_local_spectral_modes(lm_var, slot_var, lm_range, config, limit_data, storage_data, body)
+macro solver_threaded_local_spectral_modes(
+        lm_var, slot_var, lm_range, config, limit_data, storage_data, body)
     lm = esc(lm_var)
     slot = esc(slot_var)
     return quote
@@ -131,52 +133,52 @@ function get_bc_vectors(field)
         bc_imag = cache.bc_imag
         if cache.bc_loaded && bc_real !== nothing && bc_imag !== nothing
             return (
-                inner_real=view(bc_real, 1, :),
-                outer_real=view(bc_real, 2, :),
-                inner_imag=view(bc_imag, 1, :),
-                outer_imag=view(bc_imag, 2, :),
+                inner_real = view(bc_real, 1, :),
+                outer_real = view(bc_real, 2, :),
+                inner_imag = view(bc_imag, 1, :),
+                outer_imag = view(bc_imag, 2, :)
             )
         end
     end
 
     if hasfield(typeof(field), :boundary_values)
         return (
-            inner_real=view(field.boundary_values, 1, :),
-            outer_real=view(field.boundary_values, 2, :),
-            inner_imag=nothing,
-            outer_imag=nothing,
+            inner_real = view(field.boundary_values, 1, :),
+            outer_real = view(field.boundary_values, 2, :),
+            inner_imag = nothing,
+            outer_imag = nothing
         )
     end
 
     return (
-        inner_real=nothing,
-        outer_real=nothing,
-        inner_imag=nothing,
-        outer_imag=nothing,
+        inner_real = nothing,
+        outer_real = nothing,
+        inner_imag = nothing,
+        outer_imag = nothing
     )
 end
 
-@inline function mpi_barrier!(comm=mpi_comm())
+@inline function mpi_barrier!(comm = mpi_comm())
     MPI.Barrier(comm)
     return nothing
 end
 
-@inline function allreduce_sum_in_place!(buffer, comm=mpi_comm())
+@inline function allreduce_sum_in_place!(buffer, comm = mpi_comm())
     MPI.Allreduce!(buffer, MPI.SUM, comm)
     return buffer
 end
 
-@inline function allreduce_sum_buffers!(sendbuf, recvbuf, comm=mpi_comm())
+@inline function allreduce_sum_buffers!(sendbuf, recvbuf, comm = mpi_comm())
     sendbuf === recvbuf || copyto!(recvbuf, sendbuf)
     MPI.Allreduce!(recvbuf, MPI.SUM, comm)
     return recvbuf
 end
 
-@inline function allreduce_sum(value, comm=mpi_comm())
+@inline function allreduce_sum(value, comm = mpi_comm())
     return MPI.Allreduce(value, +, comm)
 end
 
-@inline function allreduce_max(value, comm=mpi_comm())
+@inline function allreduce_max(value, comm = mpi_comm())
     return MPI.Allreduce(value, MPI.MAX, comm)
 end
 
@@ -190,9 +192,9 @@ end
 end
 
 function build_radial_derivative_matrix(
-    ::Type{T},
-    order::Int,
-    domain::RadialDomainType,
+        ::Type{T},
+        order::Int,
+        domain::RadialDomainType
 ) where {T}
     N = domain.N
     bandwidth = domain_bandwidth(domain)
@@ -243,10 +245,10 @@ function build_radial_derivative_matrix(
     return BandedOperator{T}(data, bandwidth, N)
 end
 
-@inline build_radial_derivative_matrix(order::Int, domain::RadialDomainType) =
-    build_radial_derivative_matrix(eltype(domain.r), order, domain)
+@inline build_radial_derivative_matrix(order::Int,
+    domain::RadialDomainType) = build_radial_derivative_matrix(eltype(domain.r), order, domain)
 
-function extract_dense_row(data::AbstractMatrix{T}, bandwidth::Int, nr::Int, row::Int) where T
+function extract_dense_row(data::AbstractMatrix{T}, bandwidth::Int, nr::Int, row::Int) where {T}
     result = zeros(T, nr)
     @inbounds for j in max(1, row - bandwidth):min(nr, row + bandwidth)
         band_idx = bandwidth + 1 + row - j
@@ -274,16 +276,15 @@ function build_radial_laplacian(::Type{T}, domain::RadialDomainType) where {T}
     return BandedOperator{T}(laplacian_data, bandwidth, domain.N)
 end
 
-@inline build_radial_laplacian(domain::RadialDomainType) =
-    build_radial_laplacian(eltype(domain.r), domain)
+@inline build_radial_laplacian(domain::RadialDomainType) = build_radial_laplacian(eltype(domain.r), domain)
 
 function krylov_exp_action(
-    Aop!,
-    v::Vector{T},
-    dt::Float64;
-    m::Int=20,
-    tol::Float64=1e-8,
-) where T
+        Aop!,
+        v::Vector{T},
+        dt::Float64;
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
     n = length(v)
 
     if n == 0 || !all(isfinite, v)
@@ -390,14 +391,14 @@ function krylov_exp_action(
 end
 
 function krylov_exp_action!(
-    dest::Vector{T},
-    Aop!,
-    v::Vector{T},
-    dt::Float64,
-    work::SolverKrylovWork{T};
-    m::Int=20,
-    tol::Float64=1e-8,
-) where T
+        dest::Vector{T},
+        Aop!,
+        v::Vector{T},
+        dt::Float64,
+        work::SolverKrylovWork{T};
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
     n = length(v)
     ensure_krylov_work!(work, n, m)
 
@@ -509,19 +510,19 @@ end
     return buffers.anal_out::Union{Matrix{ComplexF64}, Nothing}
 end
 
-@inline function get_vt_out(buffers::SHTnsBuffers, ::Type{T}) where {T<:AbstractFloat}
+@inline function get_vt_out(buffers::SHTnsBuffers, ::Type{T}) where {T <: AbstractFloat}
     return buffers.vt_out::Union{Matrix{Float64}, Nothing}
 end
 
-@inline function get_vp_out(buffers::SHTnsBuffers, ::Type{T}) where {T<:AbstractFloat}
+@inline function get_vp_out(buffers::SHTnsBuffers, ::Type{T}) where {T <: AbstractFloat}
     return buffers.vp_out::Union{Matrix{Float64}, Nothing}
 end
 
-@inline function get_slm_out(buffers::SHTnsBuffers, ::Type{T}) where {T<:AbstractFloat}
+@inline function get_slm_out(buffers::SHTnsBuffers, ::Type{T}) where {T <: AbstractFloat}
     return buffers.slm_out::Union{Matrix{ComplexF64}, Nothing}
 end
 
-@inline function get_tlm_out(buffers::SHTnsBuffers, ::Type{T}) where {T<:AbstractFloat}
+@inline function get_tlm_out(buffers::SHTnsBuffers, ::Type{T}) where {T <: AbstractFloat}
     return buffers.tlm_out::Union{Matrix{ComplexF64}, Nothing}
 end
 
@@ -534,7 +535,7 @@ end
 @inline uses_gpu(config) = !(transform_arch(config) isa CPU)
 
 @inline function sht_synthesis!(plan, synth_out, coeffs_matrix)
-    SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output=true)
+    SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output = true)
     return synth_out
 end
 
@@ -544,13 +545,13 @@ end
             return SHTnsKit.gpu_synthesis_safe(
                 config.sht_config,
                 coeffs_matrix;
-                device=SHTnsKit.CUDA_DEVICE,
-                real_output=true,
+                device = SHTnsKit.CUDA_DEVICE,
+                real_output = true
             )
         end
-        return solver_gpu_scalar_synthesis(config.sht_config, coeffs_matrix; real_output=true)
+        return solver_gpu_scalar_synthesis(config.sht_config, coeffs_matrix; real_output = true)
     end
-    return SHTnsKit.synthesis(config.sht_config, coeffs_matrix; real_output=true)
+    return SHTnsKit.synthesis(config.sht_config, coeffs_matrix; real_output = true)
 end
 
 @inline function sht_analysis!(plan, anal_out, phys_slice)
@@ -564,23 +565,24 @@ end
             return SHTnsKit.gpu_analysis_safe(
                 config.sht_config,
                 phys_slice;
-                device=SHTnsKit.CUDA_DEVICE,
-                real_output=true,
+                device = SHTnsKit.CUDA_DEVICE,
+                real_output = true
             )
         end
-        return solver_gpu_scalar_analysis(config.sht_config, phys_slice; real_output=true)
+        return solver_gpu_scalar_analysis(config.sht_config, phys_slice; real_output = true)
     end
     return SHTnsKit.analysis(config.sht_config, phys_slice)
 end
 
 @inline function sht_vector_synthesis!(
-    plan,
-    vt_out,
-    vp_out,
-    pol_coeffs,
-    tor_coeffs,
+        plan,
+        vt_out,
+        vp_out,
+        pol_coeffs,
+        tor_coeffs
 )
-    SHTnsKit.synthesis_sphtor!(plan, vt_out, vp_out, pol_coeffs, tor_coeffs; real_output=true)
+    SHTnsKit.synthesis_sphtor!(
+        plan, vt_out, vp_out, pol_coeffs, tor_coeffs; real_output = true)
     return vt_out, vp_out
 end
 
@@ -591,26 +593,26 @@ end
                 config.sht_config,
                 pol_coeffs,
                 tor_coeffs;
-                device=SHTnsKit.CUDA_DEVICE,
-                real_output=true,
+                device = SHTnsKit.CUDA_DEVICE,
+                real_output = true
             )
         end
         return solver_gpu_vector_synthesis(
             config.sht_config,
             pol_coeffs,
             tor_coeffs;
-            real_output=true,
+            real_output = true
         )
     end
-    return SHTnsKit.synthesis_sphtor(config.sht_config, pol_coeffs, tor_coeffs; real_output=true)
+    return SHTnsKit.synthesis_sphtor(config.sht_config, pol_coeffs, tor_coeffs; real_output = true)
 end
 
 @inline function sht_vector_analysis!(
-    plan,
-    slm_out,
-    tlm_out,
-    vt_field,
-    vp_field,
+        plan,
+        slm_out,
+        tlm_out,
+        vt_field,
+        vp_field
 )
     SHTnsKit.analysis_sphtor!(plan, slm_out, tlm_out, vt_field, vp_field)
     return slm_out, tlm_out
@@ -623,7 +625,7 @@ end
                 config.sht_config,
                 vt_field,
                 vp_field;
-                device=SHTnsKit.CUDA_DEVICE,
+                device = SHTnsKit.CUDA_DEVICE
             )
         end
         return solver_gpu_vector_analysis(config.sht_config, vt_field, vp_field)
@@ -632,12 +634,12 @@ end
 end
 
 function collect_vector_coefficients(
-    spec1_real,
-    spec1_imag,
-    spec2_real,
-    spec2_imag,
-    r_local,
-    config,
+        spec1_real,
+        spec1_imag,
+        spec2_real,
+        spec2_imag,
+        r_local,
+        config
 )
     lmax, mmax = config.lmax, config.mmax
 
@@ -651,10 +653,12 @@ function collect_vector_coefficients(
     fill_vector_coeff_buffer!(coeffs_buffer1, spec1_real, spec1_imag, r_local, config)
     fill_vector_coeff_buffer!(coeffs_buffer2, spec2_real, spec2_imag, r_local, config)
 
-    coeffs_gathered1 = solver_get_cached_buffer!(config, :solver_vector_coeffs_gathered_1) do
+    coeffs_gathered1 = solver_get_cached_buffer!(
+        config, :solver_vector_coeffs_gathered_1) do
         workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
     end::Matrix{ComplexF64}
-    coeffs_gathered2 = solver_get_cached_buffer!(config, :solver_vector_coeffs_gathered_2) do
+    coeffs_gathered2 = solver_get_cached_buffer!(
+        config, :solver_vector_coeffs_gathered_2) do
         workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
     end::Matrix{ComplexF64}
 
@@ -671,7 +675,7 @@ function fill_vector_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local,
             spec_real,
             spec_imag,
             r_local,
-            config,
+            config
         )
     end
     return cpu_fill_vector_coeff_buffer!(
@@ -679,12 +683,14 @@ function fill_vector_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local,
         spec_real,
         spec_imag,
         r_local,
-        config,
+        config
     )
 end
 
-@inline function cpu_fill_vector_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local, config)
-    return cpu_fill_scalar_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local, config)
+@inline function cpu_fill_vector_coeff_buffer!(
+        coeffs_buffer, spec_real, spec_imag, r_local, config)
+    return cpu_fill_scalar_coeff_buffer!(
+        coeffs_buffer, spec_real, spec_imag, r_local, config)
 end
 
 function store_vector_coefficients!(spec_real, spec_imag, coeffs_matrix, r_local, config)
@@ -694,7 +700,7 @@ function store_vector_coefficients!(spec_real, spec_imag, coeffs_matrix, r_local
             spec_imag,
             coeffs_matrix,
             r_local,
-            config,
+            config
         )
     end
     return cpu_store_vector_coefficients!(
@@ -702,11 +708,12 @@ function store_vector_coefficients!(spec_real, spec_imag, coeffs_matrix, r_local
         spec_imag,
         coeffs_matrix,
         r_local,
-        config,
+        config
     )
 end
 
-function cpu_store_vector_coefficients!(spec_real, spec_imag, coeffs_matrix, r_local, config)
+function cpu_store_vector_coefficients!(
+        spec_real, spec_imag, coeffs_matrix, r_local, config)
     matrix_lmax = size(coeffs_matrix, 1) - 1
     matrix_mmax = size(coeffs_matrix, 2) - 1
 
@@ -721,7 +728,8 @@ function cpu_store_vector_coefficients!(spec_real, spec_imag, coeffs_matrix, r_l
             if l <= matrix_lmax && m <= matrix_mmax
                 coeff = coeffs_matrix[l + 1, m + 1]
                 set_local_spectral_value!(spec_real, slot, r_local, real(coeff))
-                set_local_spectral_value!(spec_imag, slot, r_local, m == 0 ? 0.0 : imag(coeff))
+                set_local_spectral_value!(spec_imag, slot, r_local, m == 0 ? 0.0 :
+                                                                    imag(coeff))
             else
                 set_local_spectral_value!(spec_real, slot, r_local, 0.0)
                 set_local_spectral_value!(spec_imag, slot, r_local, 0.0)
@@ -733,19 +741,19 @@ function cpu_store_vector_coefficients!(spec_real, spec_imag, coeffs_matrix, r_l
 end
 
 function extract_vector_component!(
-    component_buffer::Matrix{T},
-    v_data,
-    r_local,
-    config;
-    axes_local::Union{Nothing,Tuple}=nothing,
-) where T
+        component_buffer::Matrix{T},
+        v_data,
+        r_local,
+        config;
+        axes_local::Union{Nothing, Tuple} = nothing
+) where {T}
     if uses_gpu(config) && solver_gpu_device() !== :cuda
         return solver_gpu_extract_vector_component(
             component_buffer,
             v_data,
             r_local,
             config;
-            axes_local=axes_local,
+            axes_local = axes_local
         )
     end
     return cpu_extract_vector_component!(
@@ -753,17 +761,17 @@ function extract_vector_component!(
         v_data,
         r_local,
         config;
-        axes_local=axes_local,
+        axes_local = axes_local
     )
 end
 
 function cpu_extract_vector_component!(
-    component_buffer::Matrix{T},
-    v_data,
-    r_local,
-    config;
-    axes_local::Union{Nothing,Tuple}=nothing,
-) where T
+        component_buffer::Matrix{T},
+        v_data,
+        r_local,
+        config;
+        axes_local::Union{Nothing, Tuple} = nothing
+) where {T}
     nlat, nlon = config.nlat, config.nlon
     fill!(component_buffer, zero(T))
     has_local_data = r_local <= size(v_data, 3)
@@ -797,13 +805,13 @@ function cpu_extract_vector_component!(
 end
 
 function store_vector_components!(
-    v_theta,
-    v_phi,
-    vt_field,
-    vp_field,
-    r_local,
-    config;
-    axes_local::Union{Nothing,Tuple}=nothing,
+        v_theta,
+        v_phi,
+        vt_field,
+        vp_field,
+        r_local,
+        config;
+        axes_local::Union{Nothing, Tuple} = nothing
 )
     if uses_gpu(config) && solver_gpu_device() !== :cuda
         return solver_gpu_store_vector_components(
@@ -813,7 +821,7 @@ function store_vector_components!(
             vp_field,
             r_local,
             config;
-            axes_local=axes_local,
+            axes_local = axes_local
         )
     end
     return cpu_store_vector_components!(
@@ -823,18 +831,18 @@ function store_vector_components!(
         vp_field,
         r_local,
         config;
-        axes_local=axes_local,
+        axes_local = axes_local
     )
 end
 
 function cpu_store_vector_components!(
-    v_theta,
-    v_phi,
-    vt_field,
-    vp_field,
-    r_local,
-    config;
-    axes_local::Union{Nothing,Tuple}=nothing,
+        v_theta,
+        v_phi,
+        vt_field,
+        vp_field,
+        r_local,
+        config;
+        axes_local::Union{Nothing, Tuple} = nothing
 )
     if r_local > size(v_theta, 3) || r_local > size(v_phi, 3)
         return v_theta, v_phi
@@ -866,11 +874,11 @@ function cpu_store_vector_components!(
 end
 
 function store_scalar_component!(
-    v_component,
-    field,
-    r_local,
-    config;
-    axes_local::Union{Nothing,Tuple}=nothing,
+        v_component,
+        field,
+        r_local,
+        config;
+        axes_local::Union{Nothing, Tuple} = nothing
 )
     if r_local > size(v_component, 3)
         return v_component
@@ -914,11 +922,11 @@ function store_zero_component!(v_component, r_local, config)
 end
 
 function vector_spectral_to_physical!(
-    toroidal::SpectralFieldType{T},
-    poloidal::SpectralFieldType{T},
-    vector_field::VectorFieldType{T};
-    domain::Union{RadialDomainType,Nothing}=nothing,
-) where T
+        toroidal::SpectralFieldType{T},
+        poloidal::SpectralFieldType{T},
+        vector_field::VectorFieldType{T};
+        domain::Union{RadialDomainType, Nothing} = nothing
+) where {T}
     config = toroidal.config
 
     tor_real = parent(toroidal.data_real)
@@ -941,13 +949,14 @@ function vector_spectral_to_physical!(
     phys_axes_local = vector_field.r_component.pencil.axes_local
 
     for r_local in axes(tor_real, 3)
-        tor_coeffs, pol_coeffs = collect_vector_coefficients(
+        tor_coeffs,
+        pol_coeffs = collect_vector_coefficients(
             tor_real,
             tor_imag,
             pol_real,
             pol_imag,
             r_local,
-            config,
+            config
         )
 
         if plan !== nothing && vt_out !== nothing && vp_out !== nothing
@@ -959,7 +968,7 @@ function vector_spectral_to_physical!(
                 vp_out,
                 r_local,
                 config;
-                axes_local=phys_axes_local,
+                axes_local = phys_axes_local
             )
         else
             vt_field, vp_field = sht_vector_synthesis(config, pol_coeffs, tor_coeffs)
@@ -970,7 +979,7 @@ function vector_spectral_to_physical!(
                 vp_field,
                 r_local,
                 config;
-                axes_local=phys_axes_local,
+                axes_local = phys_axes_local
             )
         end
 
@@ -980,15 +989,18 @@ function vector_spectral_to_physical!(
                 r_val = domain.r[r_idx_global, 4]
                 if r_val > eps(Float64) * domain.r[domain.N, 4]
                     lmax, mmax = config.lmax, config.mmax
-                    pol_rad_coeffs = solver_get_cached_buffer!(config, :solver_pol_rad_coeffs_buffer) do
-                        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
+                    pol_rad_coeffs = solver_get_cached_buffer!(
+                        config, :solver_pol_rad_coeffs_buffer) do
+                        workspace_zeros(config, ComplexF64, lmax + 1, mmax +
+                                                                      1)
                     end::Matrix{ComplexF64}
                     fill!(pol_rad_coeffs, zero(ComplexF64))
 
                     for l in 0:lmax
                         l_factor = l * (l + 1) / r_val
                         for m in 0:min(l, mmax)
-                            pol_rad_coeffs[l + 1, m + 1] = pol_coeffs[l + 1, m + 1] * l_factor
+                            pol_rad_coeffs[l + 1, m + 1] = pol_coeffs[l + 1, m + 1] *
+                                                           l_factor
                         end
                     end
 
@@ -999,7 +1011,7 @@ function vector_spectral_to_physical!(
                             synth_out,
                             r_local,
                             config;
-                            axes_local=phys_axes_local,
+                            axes_local = phys_axes_local
                         )
                     else
                         vr_field = sht_synthesis(config, pol_rad_coeffs)
@@ -1008,7 +1020,7 @@ function vector_spectral_to_physical!(
                             vr_field,
                             r_local,
                             config;
-                            axes_local=phys_axes_local,
+                            axes_local = phys_axes_local
                         )
                     end
                 else
@@ -1024,12 +1036,12 @@ function vector_spectral_to_physical!(
 end
 
 function vector_physical_to_spectral!(
-    vector_field::VectorFieldType{T},
-    toroidal::SpectralFieldType{T},
-    poloidal::SpectralFieldType{T};
-    domain::Union{RadialDomainType,Nothing}=nothing,
-    verify_solenoidal::Bool=false,
-) where T
+        vector_field::VectorFieldType{T},
+        toroidal::SpectralFieldType{T},
+        poloidal::SpectralFieldType{T};
+        domain::Union{RadialDomainType, Nothing} = nothing,
+        verify_solenoidal::Bool = false
+) where {T}
     config = toroidal.config
 
     v_theta = parent(vector_field.θ_component.data)
@@ -1058,14 +1070,14 @@ function vector_physical_to_spectral!(
             v_theta,
             r_local,
             config;
-            axes_local=phys_axes_local,
+            axes_local = phys_axes_local
         )
         vp_field = extract_vector_component!(
             vp_buffer,
             v_phi,
             r_local,
             config;
-            axes_local=phys_axes_local,
+            axes_local = phys_axes_local
         )
 
         if plan !== nothing && slm_out !== nothing && tlm_out !== nothing
@@ -1107,7 +1119,7 @@ function refresh_velocity_physical_fields!(velocity_fields, domain)
         velocity_fields.𝒯,
         velocity_fields.𝒫,
         velocity_fields.velocity;
-        domain,
+        domain
     )
     return velocity_fields.velocity
 end
@@ -1118,18 +1130,18 @@ function refresh_vorticity_physical_fields!(velocity_fields, domain)
         velocity_fields.ζᵀ,
         velocity_fields.ζᴾ,
         velocity_fields.vorticity;
-        domain,
+        domain
     )
     return velocity_fields.vorticity
 end
 
 function solver_extract_local_radial_profile!(
-    profile::Vector{T},
-    data::AbstractArray{T,3},
-    slot::CartesianIndex{2},
-    nr::Int,
-    r_range,
-) where T
+        profile::Vector{T},
+        data::AbstractArray{T, 3},
+        slot::CartesianIndex{2},
+        nr::Int,
+        r_range
+) where {T}
     fill!(profile, zero(T))
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1
@@ -1141,10 +1153,10 @@ function solver_extract_local_radial_profile!(
 end
 
 function apply_radial_derivative!(
-    output::Vector{T},
-    matrix,
-    input::Vector{T},
-) where T
+        output::Vector{T},
+        matrix,
+        input::Vector{T}
+) where {T}
     N = matrix.size
     bandwidth = matrix.bandwidth
     fill!(output, zero(T))
@@ -1162,9 +1174,9 @@ function apply_radial_derivative!(
 end
 
 function compute_vorticity_spectral!(
-    velocity_fields::VelocityFieldsType{T},
-    domain,
-) where T
+        velocity_fields::VelocityFieldsType{T},
+        domain
+) where {T}
     u_tor_real = parent(velocity_fields.𝒯.data_real)
     u_tor_imag = parent(velocity_fields.𝒯.data_imag)
     u_pol_real = parent(velocity_fields.𝒫.data_real)
@@ -1210,10 +1222,14 @@ function compute_vorticity_spectral!(
         d2pol_dr2_real = d2pol_dr2_real_bufs[tid]
         d2pol_dr2_imag = d2pol_dr2_imag_bufs[tid]
 
-        solver_extract_local_radial_profile!(pol_profile_real, u_pol_real, slot, nr, r_range)
-        solver_extract_local_radial_profile!(pol_profile_imag, u_pol_imag, slot, nr, r_range)
-        solver_extract_local_radial_profile!(tor_profile_real, u_tor_real, slot, nr, r_range)
-        solver_extract_local_radial_profile!(tor_profile_imag, u_tor_imag, slot, nr, r_range)
+        solver_extract_local_radial_profile!(
+            pol_profile_real, u_pol_real, slot, nr, r_range)
+        solver_extract_local_radial_profile!(
+            pol_profile_imag, u_pol_imag, slot, nr, r_range)
+        solver_extract_local_radial_profile!(
+            tor_profile_real, u_tor_real, slot, nr, r_range)
+        solver_extract_local_radial_profile!(
+            tor_profile_imag, u_tor_imag, slot, nr, r_range)
 
         apply_radial_derivative!(dpol_dr_real, velocity_fields.∂r, pol_profile_real)
         apply_radial_derivative!(dpol_dr_imag, velocity_fields.∂r, pol_profile_imag)
@@ -1238,20 +1254,30 @@ function compute_vorticity_spectral!(
                 else
                     r_inv = domain.r[r_idx, 3]
                     r_inv2 = domain.r[r_idx, 2]
-                    set_local_spectral_value!(ζ_tor_real, slot, local_r, (
-                        l_factor * r_inv2 * pol_profile_real[r_idx]
-                        - d2pol_dr2_real[r_idx]
-                        - 2.0 * r_inv * dpol_dr_real[r_idx]
-                    ))
-                    set_local_spectral_value!(ζ_tor_imag, slot, local_r, (
-                        l_factor * r_inv2 * pol_profile_imag[r_idx]
-                        - d2pol_dr2_imag[r_idx]
-                        - 2.0 * r_inv * dpol_dr_imag[r_idx]
-                    ))
+                    set_local_spectral_value!(ζ_tor_real,
+                        slot,
+                        local_r,
+                        (
+                            l_factor * r_inv2 * pol_profile_real[r_idx]
+                            -
+                            d2pol_dr2_real[r_idx]
+                            -
+                            2.0 * r_inv * dpol_dr_real[r_idx]
+                        ))
+                    set_local_spectral_value!(ζ_tor_imag,
+                        slot,
+                        local_r,
+                        (
+                            l_factor * r_inv2 * pol_profile_imag[r_idx]
+                            -
+                            d2pol_dr2_imag[r_idx]
+                            -
+                            2.0 * r_inv * dpol_dr_imag[r_idx]
+                        ))
                     set_local_spectral_value!(ζ_pol_real, slot, local_r,
-                                              -l_factor * r_inv2 * tor_profile_real[r_idx])
+                        -l_factor * r_inv2 * tor_profile_real[r_idx])
                     set_local_spectral_value!(ζ_pol_imag, slot, local_r,
-                                              -l_factor * r_inv2 * tor_profile_imag[r_idx])
+                        -l_factor * r_inv2 * tor_profile_imag[r_idx])
                 end
             end
         end
@@ -1261,13 +1287,13 @@ function compute_vorticity_spectral!(
 end
 
 function compute_velocity_body_forces!(
-    velocity_fields::VelocityFieldsType{T},
-    temperature_field,
-    composition_field,
-    magnetic_field,
-    domain,
-    params::SolverParameters,
-) where T
+        velocity_fields::VelocityFieldsType{T},
+        temperature_field,
+        composition_field,
+        magnetic_field,
+        domain,
+        params::SolverParameters
+) where {T}
     E = params.Ek
     Pm = params.Pm
     Pr = params.Pr
@@ -1306,7 +1332,8 @@ function compute_velocity_body_forces!(
                 theta_idx_global = θ_range[i]
                 sin_theta = velocity_fields.coriolis_factors[1, theta_idx_global]
                 cos_theta = velocity_fields.coriolis_factors[2, theta_idx_global]
-                linear_idx = i + (j - 1) * local_size[1] + (k - 1) * local_size[1] * local_size[2]
+                linear_idx = i + (j - 1) * local_size[1] +
+                             (k - 1) * local_size[1] * local_size[2]
 
                 if linear_idx <= length(v_r)
                     u_r = v_r[linear_idx]
@@ -1363,11 +1390,11 @@ function scalar_field_data_and_config(field)
 end
 
 function solver_add_thermal_buoyancy_force!(
-    force_r::AbstractArray{T,3},
-    scalar_field,
-    factor::Float64,
-    domain,
-) where T
+        force_r::AbstractArray{T, 3},
+        scalar_field,
+        factor::Float64,
+        domain
+) where {T}
     iszero(factor) && return force_r
     scalar_data, config = scalar_field_data_and_config(scalar_field)
     r_range = local_range(config.pencils.r, 3)
@@ -1379,7 +1406,8 @@ function solver_add_thermal_buoyancy_force!(
         factor_r = factor * r
         for j in 1:local_size[2]
             @simd for i in 1:local_size[1]
-                linear_idx = i + (j - 1) * local_size[1] + (k - 1) * local_size[1] * local_size[2]
+                linear_idx = i + (j - 1) * local_size[1] +
+                             (k - 1) * local_size[1] * local_size[2]
                 if linear_idx <= length(scalar_data)
                     force_r[linear_idx] += factor_r * scalar_data[linear_idx]
                 end
@@ -1391,11 +1419,11 @@ function solver_add_thermal_buoyancy_force!(
 end
 
 function add_compositional_buoyancy_force!(
-    force_r::AbstractArray{T,3},
-    composition_field,
-    factor::Float64,
-    domain,
-) where T
+        force_r::AbstractArray{T, 3},
+        composition_field,
+        factor::Float64,
+        domain
+) where {T}
     iszero(factor) && return force_r
     composition_data, config = scalar_field_data_and_config(composition_field)
     r_range = local_range(config.pencils.r, 3)
@@ -1407,7 +1435,8 @@ function add_compositional_buoyancy_force!(
         factor_r = factor * r
         for j in 1:local_size[2]
             @simd for i in 1:local_size[1]
-                linear_idx = i + (j - 1) * local_size[1] + (k - 1) * local_size[1] * local_size[2]
+                linear_idx = i + (j - 1) * local_size[1] +
+                             (k - 1) * local_size[1] * local_size[2]
                 if linear_idx <= length(composition_data)
                     force_r[linear_idx] += factor_r * composition_data[linear_idx]
                 end
@@ -1464,7 +1493,7 @@ function refresh_magnetic_physical_fields!(magnetic_fields, outer_domain)
         magnetic_fields.𝒯,
         magnetic_fields.𝒫,
         magnetic_fields.magnetic;
-        domain=outer_domain,
+        domain = outer_domain
     )
     return magnetic_fields.magnetic
 end
@@ -1475,34 +1504,35 @@ function refresh_current_physical_fields!(magnetic_fields, outer_domain)
         magnetic_fields.work_tor,
         magnetic_fields.work_pol,
         magnetic_fields.current;
-        domain=outer_domain,
+        domain = outer_domain
     )
     return magnetic_fields.current
 end
 
 function spectral_curl_torpol!(
-    dst_tor_r,
-    dst_tor_i,
-    dst_pol_r,
-    dst_pol_i,
-    src_tor_r,
-    src_tor_i,
-    src_pol_r,
-    src_pol_i,
-    l_factors,
-    d1_matrix,
-    d²_matrix,
-    domain::RadialDomainType,
-    config::SHTnsConfigType,
-    ::Type{T};
-    _work::Union{Nothing,NTuple{6,Vector{T}}}=nothing,
-) where T
+        dst_tor_r,
+        dst_tor_i,
+        dst_pol_r,
+        dst_pol_i,
+        src_tor_r,
+        src_tor_i,
+        src_pol_r,
+        src_pol_i,
+        l_factors,
+        d1_matrix,
+        d²_matrix,
+        domain::RadialDomainType,
+        config::SHTnsConfigType,
+        ::Type{T};
+        _work::Union{Nothing, NTuple{6, Vector{T}}} = nothing
+) where {T}
     lm_range = local_spectral_mode_indices(config)
     r_range = local_range(config.pencils.spec, 3)
     nr = domain.N
 
     if _work !== nothing
-        Pᴾ_profile_real, Pᴾ_profile_imag, dᴾ_dr_real, dᴾ_dr_imag, d²ᴾ_dr²_real, d²ᴾ_dr²_imag = _work
+        Pᴾ_profile_real, Pᴾ_profile_imag, dᴾ_dr_real, dᴾ_dr_imag, d²ᴾ_dr²_real,
+        d²ᴾ_dr²_imag = _work
     else
         Pᴾ_profile_real = zeros(T, nr)
         Pᴾ_profile_imag = zeros(T, nr)
@@ -1518,7 +1548,7 @@ function spectral_curl_torpol!(
         fill!(Pᴾ_profile_real, zero(T))
         fill!(Pᴾ_profile_imag, zero(T))
         gather_local_radial_profile!(Pᴾ_profile_real, Pᴾ_profile_imag,
-                                     src_pol_r, src_pol_i, slot, r_range)
+            src_pol_r, src_pol_i, slot, r_range)
 
         apply_radial_derivative!(dᴾ_dr_real, d1_matrix, Pᴾ_profile_real)
         apply_radial_derivative!(dᴾ_dr_imag, d1_matrix, Pᴾ_profile_imag)
@@ -1541,20 +1571,26 @@ function spectral_curl_torpol!(
                 else
                     r⁻¹ = domain.r[r_idx, 3]
                     r⁻² = domain.r[r_idx, 2]
-                    set_local_spectral_value!(dst_tor_r, slot, local_r, (
-                        l_factor * r⁻² * Pᴾ_profile_real[r_idx] -
-                        d²ᴾ_dr²_real[r_idx] -
-                        2.0 * r⁻¹ * dᴾ_dr_real[r_idx]
-                    ))
-                    set_local_spectral_value!(dst_tor_i, slot, local_r, (
-                        l_factor * r⁻² * Pᴾ_profile_imag[r_idx] -
-                        d²ᴾ_dr²_imag[r_idx] -
-                        2.0 * r⁻¹ * dᴾ_dr_imag[r_idx]
-                    ))
+                    set_local_spectral_value!(dst_tor_r,
+                        slot,
+                        local_r,
+                        (
+                            l_factor * r⁻² * Pᴾ_profile_real[r_idx] -
+                            d²ᴾ_dr²_real[r_idx] -
+                            2.0 * r⁻¹ * dᴾ_dr_real[r_idx]
+                        ))
+                    set_local_spectral_value!(dst_tor_i,
+                        slot,
+                        local_r,
+                        (
+                            l_factor * r⁻² * Pᴾ_profile_imag[r_idx] -
+                            d²ᴾ_dr²_imag[r_idx] -
+                            2.0 * r⁻¹ * dᴾ_dr_imag[r_idx]
+                        ))
                     set_local_spectral_value!(dst_pol_r, slot, local_r,
-                                              -l_factor * r⁻² * local_spectral_value(src_tor_r, slot, local_r))
+                        -l_factor * r⁻² * local_spectral_value(src_tor_r, slot, local_r))
                     set_local_spectral_value!(dst_pol_i, slot, local_r,
-                                              -l_factor * r⁻² * local_spectral_value(src_tor_i, slot, local_r))
+                        -l_factor * r⁻² * local_spectral_value(src_tor_i, slot, local_r))
                 end
             end
         end
@@ -1576,28 +1612,28 @@ function solver_compute_current_density_spectral!(magnetic_fields, outer_domain)
         outer_domain,
         magnetic_fields.𝒯.config,
         T;
-        _work=magnetic_fields.curl_work,
+        _work = magnetic_fields.curl_work
     )
     return magnetic_fields
 end
 
 function apply_induction_nonlinear!(
-    magnetic_fields,
-    velocity_fields;
-    geometry::Symbol,
+        magnetic_fields,
+        velocity_fields;
+        geometry::Symbol
 )
     solver_compute_velocity_cross_magnetic!(magnetic_fields, velocity_fields)
     if geometry === :ball
         solver_ball_vector_analysis!(
             magnetic_fields.induction_physical,
             magnetic_fields.work_tor,
-            magnetic_fields.work_pol,
+            magnetic_fields.work_pol
         )
     else
         vector_physical_to_spectral!(
             magnetic_fields.induction_physical,
             magnetic_fields.work_tor,
-            magnetic_fields.work_pol,
+            magnetic_fields.work_pol
         )
     end
     solver_compute_curl_of_induction!(magnetic_fields)
@@ -1631,22 +1667,22 @@ function apply_inner_core_rotation!(magnetic_fields, rotation_rate)
                     set_local_spectral_value!(
                         nl_tor_real, slot, local_r,
                         local_spectral_value(nl_tor_real, slot, local_r) +
-                        coupling_factor * local_spectral_value(ic_pol_imag, slot, local_r),
+                        coupling_factor * local_spectral_value(ic_pol_imag, slot, local_r)
                     )
                     set_local_spectral_value!(
                         nl_tor_imag, slot, local_r,
                         local_spectral_value(nl_tor_imag, slot, local_r) -
-                        coupling_factor * local_spectral_value(ic_pol_real, slot, local_r),
+                        coupling_factor * local_spectral_value(ic_pol_real, slot, local_r)
                     )
                     set_local_spectral_value!(
                         nl_pol_real, slot, local_r,
                         local_spectral_value(nl_pol_real, slot, local_r) -
-                        coupling_factor * local_spectral_value(ic_tor_imag, slot, local_r),
+                        coupling_factor * local_spectral_value(ic_tor_imag, slot, local_r)
                     )
                     set_local_spectral_value!(
                         nl_pol_imag, slot, local_r,
                         local_spectral_value(nl_pol_imag, slot, local_r) +
-                        coupling_factor * local_spectral_value(ic_tor_real, slot, local_r),
+                        coupling_factor * local_spectral_value(ic_tor_real, slot, local_r)
                     )
                 end
             end
@@ -1690,14 +1726,14 @@ function solver_compute_curl_of_induction!(magnetic_fields)
         magnetic_fields.outer_domain,
         magnetic_fields.𝒯.config,
         T;
-        _work=magnetic_fields.curl_work,
+        _work = magnetic_fields.curl_work
     )
     return magnetic_fields
 end
 
 function solver_enforce_ball_vector_regularity!(
-    tor_spec::SpectralFieldType,
-    pol_spec::SpectralFieldType,
+        tor_spec::SpectralFieldType,
+        pol_spec::SpectralFieldType
 )
     cfg = tor_spec.config
     lm_range = local_spectral_mode_indices(cfg)
@@ -1743,8 +1779,8 @@ end
 @inline solver_band_row(i::Int, j::Int, bw::Int) = bw + 1 + i - j
 
 function solver_banded_to_dense(
-    matrix::Union{OldBandedMatrix{T}, BandedOperator{T}},
-) where T
+        matrix::Union{OldBandedMatrix{T}, BandedOperator{T}},
+) where {T}
     n = matrix.size
     bandwidth = matrix.bandwidth
     dense = zeros(T, n, n)
@@ -1759,12 +1795,12 @@ function solver_banded_to_dense(
     return dense
 end
 
-function solver_factorize_banded(A::BandedOperator{T}) where T
+function solver_factorize_banded(A::BandedOperator{T}) where {T}
     n = A.size
     bw = A.bandwidth
     lu = copy(A.data)
 
-    @inbounds for k in 1:n-1
+    @inbounds for k in 1:(n - 1)
         piv_row = solver_band_row(k, k, bw)
         if !(1 <= piv_row <= 2 * bw + 1)
             continue
@@ -1779,13 +1815,13 @@ function solver_factorize_banded(A::BandedOperator{T}) where T
         end
 
         i_max = min(n, k + bw)
-        for i in k+1:i_max
+        for i in (k + 1):i_max
             row = solver_band_row(i, k, bw)
             if 1 <= row <= 2 * bw + 1
                 L = lu[row, k] / piv
                 lu[row, k] = L
                 j_max = min(n, k + bw)
-                for j in k+1:j_max
+                for j in (k + 1):j_max
                     col = solver_band_row(i, j, bw)
                     if 1 <= col <= 2 * bw + 1
                         urow = solver_band_row(k, j, bw)
@@ -1802,17 +1838,17 @@ function solver_factorize_banded(A::BandedOperator{T}) where T
 end
 
 function solve_banded!(
-    x::Vector{T},
-    lu::Union{OldBandedLU{T}, BandedFactorization{T}},
-    b::Vector{T},
-) where T
+        x::Vector{T},
+        lu::Union{OldBandedLU{T}, BandedFactorization{T}},
+        b::Vector{T}
+) where {T}
     n = lu.size
     bw = lu.bandwidth
 
     @inbounds for i in 1:n
         s = zero(T)
         j_min = max(1, i - bw)
-        for j in j_min:i-1
+        for j in j_min:(i - 1)
             row = solver_band_row(i, j, bw)
             if 1 <= row <= 2 * bw + 1
                 s += lu.lu[row, j] * x[j]
@@ -1824,7 +1860,7 @@ function solve_banded!(
     @inbounds for i in n:-1:1
         s = zero(T)
         j_max = min(n, i + bw)
-        for j in i+1:j_max
+        for j in (i + 1):j_max
             row = solver_band_row(i, j, bw)
             if 1 <= row <= 2 * bw + 1
                 s += lu.lu[row, j] * x[j]
@@ -1856,9 +1892,9 @@ end
     low-level public API.
     """
     function apply_banded_full!(
-        out::Vector{T},
-        B::Union{$(OldBandedMatrix){T}, $(BandedOperator){T}},
-        v::AbstractVector{T},
+            out::Vector{T},
+            B::Union{$(OldBandedMatrix){T}, $(BandedOperator){T}},
+            v::AbstractVector{T}
     ) where {T}
         fill!(out, zero(T))
         n = B.size
@@ -1876,11 +1912,11 @@ end
 end
 
 function solver_build_banded_A(
-    ::Type{T},
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    l::Int,
-) where T
+        ::Type{T},
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        l::Int
+) where {T}
     lap = build_radial_laplacian(domain)
     data = diffusivity .* lap.data
     nr = domain.N
@@ -1894,13 +1930,13 @@ function solver_build_banded_A(
 end
 
 function solver_phi1_action_krylov(
-    Aop!,
-    A_lu::Union{OldBandedLU{T}, BandedFactorization{T}},
-    v::Vector{T},
-    dt::Float64;
-    m::Int=20,
-    tol::Float64=1e-8,
-) where T
+        Aop!,
+        A_lu::Union{OldBandedLU{T}, BandedFactorization{T}},
+        v::Vector{T},
+        dt::Float64;
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
     if LA.norm(v) < series_tol(T)
         return zeros(T, length(v))
     end
@@ -1937,15 +1973,15 @@ function solver_phi1_action_krylov(
 end
 
 function phi1_action_krylov!(
-    dest::Vector{T},
-    Aop!,
-    A_lu::Union{OldBandedLU{T}, BandedFactorization{T}},
-    v::Vector{T},
-    dt::Float64;
-    m::Int=20,
-    tol::Float64=1e-8,
-    work::Union{SolverKrylovWork{T}, Nothing}=nothing,
-) where T
+        dest::Vector{T},
+        Aop!,
+        A_lu::Union{OldBandedLU{T}, BandedFactorization{T}},
+        v::Vector{T},
+        dt::Float64;
+        m::Int = 20,
+        tol::Float64 = 1e-8,
+        work::Union{SolverKrylovWork{T}, Nothing} = nothing
+) where {T}
     if work === nothing
         copyto!(dest, solver_phi1_action_krylov(Aop!, A_lu, v, dt; m, tol))
         return dest
@@ -1998,18 +2034,18 @@ end
     but this root-level entry point remains available as a reusable numerical
     utility.
     """
-    function exp_action_krylov(Aop!, v, dt; m::Int=20, tol::Float64=1e-8)
+    function exp_action_krylov(Aop!, v, dt; m::Int = 20, tol::Float64 = 1e-8)
         return krylov_exp_action(Aop!, v, dt; m, tol)
     end
 
     function exp_action_krylov!(
-        dest::Vector{T},
-        Aop!,
-        v::Vector{T},
-        dt;
-        m::Int=20,
-        tol::Float64=1e-8,
-        work::Union{SolverKrylovWork{T}, Nothing}=nothing,
+            dest::Vector{T},
+            Aop!,
+            v::Vector{T},
+            dt;
+            m::Int = 20,
+            tol::Float64 = 1e-8,
+            work::Union{SolverKrylovWork{T}, Nothing} = nothing
     ) where {T}
         if work === nothing
             copyto!(dest, krylov_exp_action(Aop!, v, dt; m, tol))
@@ -2020,12 +2056,12 @@ end
     end
 end
 
-solver_synchronize_pencil_transforms!(field::SpectralFieldType{T}) where {T} = begin
+function solver_synchronize_pencil_transforms!(field::SpectralFieldType{T}) where {T}
     mpi_barrier!()
     field
 end
 
-function rcond_estimate(lu_A, A::Matrix{T}) where T
+function rcond_estimate(lu_A, A::Matrix{T}) where {T}
     anorm = LA.opnorm(A, 1)
     if anorm == zero(T)
         return one(T)
@@ -2038,7 +2074,7 @@ function rcond_estimate(lu_A, A::Matrix{T}) where T
     end
 end
 
-function phi1_series(A::Matrix{T}) where T
+function phi1_series(A::Matrix{T}) where {T}
     nr = size(A, 1)
     result = Matrix{T}(LA.I, nr, nr)
     A_power = copy(result)
@@ -2053,7 +2089,7 @@ function phi1_series(A::Matrix{T}) where T
     return result
 end
 
-function phi2_series(A::Matrix{T}) where T
+function phi2_series(A::Matrix{T}) where {T}
     nr = size(A, 1)
     result = Matrix{T}(LA.I, nr, nr) / 2
     A_power = copy(A)
@@ -2073,7 +2109,7 @@ function phi2_series(A::Matrix{T}) where T
     return result
 end
 
-function solver_compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where T
+function solver_compute_phi1_function(A::Matrix{T}, expA::Matrix{T}) where {T}
     nr = size(A, 1)
     I_mat = Matrix{T}(LA.I, nr, nr)
 
@@ -2134,7 +2170,7 @@ function reset_solver_phi2_monitor!()
     return nothing
 end
 
-function report_solver_phi2_conditioning(step::Int; interval::Int=100)
+function report_solver_phi2_conditioning(step::Int; interval::Int = 100)
     SOLVER_PHI2_MONITOR.enable_monitoring || return nothing
 
     if step - SOLVER_PHI2_MONITOR.last_report_step >= interval
@@ -2158,7 +2194,7 @@ function report_solver_phi2_conditioning(step::Int; interval::Int=100)
     return nothing
 end
 
-function solver_compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) where T
+function solver_compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int = 0) where {T}
     nr = size(A, 1)
     I_mat = Matrix{T}(LA.I, nr, nr)
 
@@ -2176,7 +2212,8 @@ function solver_compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int=0) w
     try
         lu_A = LA.lu(A)
         rcond_val = rcond_estimate(lu_A, A)
-        if SOLVER_PHI2_MONITOR.enable_monitoring && rcond_val < SOLVER_PHI2_MONITOR.worst_rcond
+        if SOLVER_PHI2_MONITOR.enable_monitoring &&
+           rcond_val < SOLVER_PHI2_MONITOR.worst_rcond
             SOLVER_PHI2_MONITOR.worst_rcond = rcond_val
             SOLVER_PHI2_MONITOR.worst_l = l
         end

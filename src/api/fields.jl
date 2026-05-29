@@ -6,10 +6,10 @@ Return a `NamedTuple` of all model fields:
 """
 function fields(model::GeodynamoModel)
     f = model.state.fields
-    return (velocity    = f.velocity,
-            temperature = f.temperature,
-            magnetic    = f.magnetic,
-            composition = f.composition)
+    return (velocity = f.velocity,
+        temperature = f.temperature,
+        magnetic = f.magnetic,
+        composition = f.composition)
 end
 
 """

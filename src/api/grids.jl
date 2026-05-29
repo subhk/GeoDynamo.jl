@@ -23,43 +23,44 @@ grid = SphericalShellGrid(lmax = 31, nr = 64)
 ```
 """
 struct SphericalShellGrid
-    arch    :: AbstractArchitecture
-    lmax    :: Int
-    mmax    :: Int
-    nlat    :: Int
-    nlon    :: Int
-    nr      :: Int
-    nr_inner :: Int
-    r_inner :: Float64
-    r_outer :: Float64
+    arch::AbstractArchitecture
+    lmax::Int
+    mmax::Int
+    nlat::Int
+    nlon::Int
+    nr::Int
+    nr_inner::Int
+    r_inner::Float64
+    r_outer::Float64
 end
 
 function SphericalShellGrid(arch::AbstractArchitecture;
-        lmax    :: Int,
-        mmax    :: Int     = lmax,
-        nlat    :: Int     = 3 * lmax ÷ 2,
-        nlon    :: Int     = 2 * nlat,
-        nr      :: Int,
-        nr_inner :: Int    = max(2, nr ÷ 4),
-        r_inner :: Float64 = 0.35,
-        r_outer :: Float64 = 1.0)
+        lmax::Int,
+        mmax::Int = lmax,
+        nlat::Int = 3 * lmax ÷ 2,
+        nlon::Int = 2 * nlat,
+        nr::Int,
+        nr_inner::Int = max(2, nr ÷ 4),
+        r_inner::Float64 = 0.35,
+        r_outer::Float64 = 1.0)
     nlat > 0 || throw(ArgumentError("nlat must be > 0"))
     nlon > 0 || throw(ArgumentError("nlon must be > 0"))
-    nr   > 0 || throw(ArgumentError("nr must be > 0"))
+    nr > 0 || throw(ArgumentError("nr must be > 0"))
     nr_inner > 1 || throw(ArgumentError("nr_inner must be > 1"))
     0.0 < r_inner < r_outer || throw(ArgumentError("need 0 < r_inner < r_outer"))
     return SphericalShellGrid(arch, lmax, mmax, nlat, nlon, nr, nr_inner, r_inner, r_outer)
 end
 
-SphericalShellGrid(; arch::AbstractArchitecture=CPU(), kwargs...) =
+function SphericalShellGrid(; arch::AbstractArchitecture = CPU(), kwargs...)
     SphericalShellGrid(arch; kwargs...)
+end
 
 function Base.show(io::IO, ::MIME"text/plain", g::SphericalShellGrid)
     arch = g.arch isa CPU ? "CPU" : "GPU"
     println(io, "SphericalShellGrid($arch)")
     println(io, "  lmax=$(g.lmax), mmax=$(g.mmax)")
     println(io, "  nlat=$(g.nlat), nlon=$(g.nlon), nr=$(g.nr), nr_inner=$(g.nr_inner)")
-    print(io,   "  r_inner=$(g.r_inner), r_outer=$(g.r_outer)")
+    print(io, "  r_inner=$(g.r_inner), r_outer=$(g.r_outer)")
 end
 
 """
@@ -86,32 +87,33 @@ grid = SphericalBallGrid(lmax = 31, nr = 48)
 ```
 """
 struct SphericalBallGrid
-    arch :: AbstractArchitecture
-    lmax :: Int
-    mmax :: Int
-    nlat :: Int
-    nlon :: Int
-    nr   :: Int
+    arch::AbstractArchitecture
+    lmax::Int
+    mmax::Int
+    nlat::Int
+    nlon::Int
+    nr::Int
 end
 
 function SphericalBallGrid(arch::AbstractArchitecture;
-        lmax :: Int,
-        mmax :: Int = lmax,
-        nlat :: Int = 3 * lmax ÷ 2,
-        nlon :: Int = 2 * nlat,
-        nr   :: Int)
+        lmax::Int,
+        mmax::Int = lmax,
+        nlat::Int = 3 * lmax ÷ 2,
+        nlon::Int = 2 * nlat,
+        nr::Int)
     nlat > 0 || throw(ArgumentError("nlat must be > 0"))
     nlon > 0 || throw(ArgumentError("nlon must be > 0"))
-    nr   > 0 || throw(ArgumentError("nr must be > 0"))
+    nr > 0 || throw(ArgumentError("nr must be > 0"))
     return SphericalBallGrid(arch, lmax, mmax, nlat, nlon, nr)
 end
 
-SphericalBallGrid(; arch::AbstractArchitecture=CPU(), kwargs...) =
+function SphericalBallGrid(; arch::AbstractArchitecture = CPU(), kwargs...)
     SphericalBallGrid(arch; kwargs...)
+end
 
 function Base.show(io::IO, ::MIME"text/plain", g::SphericalBallGrid)
     arch = g.arch isa CPU ? "CPU" : "GPU"
     println(io, "SphericalBallGrid($arch)")
     println(io, "  lmax=$(g.lmax), mmax=$(g.mmax)")
-    print(io,   "  nlat=$(g.nlat), nlon=$(g.nlon), nr=$(g.nr)")
+    print(io, "  nlat=$(g.nlat), nlon=$(g.nlon), nr=$(g.nr)")
 end

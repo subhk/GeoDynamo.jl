@@ -33,8 +33,9 @@ function summarize_vector(label, field)
     println("  total energy : $(round(sum(abs2, tor) + sum(abs2, pol), sigdigits=4))")
 end
 
-function main(; lmax=24, mmax=24, nlat=48, nlon=96, nr=32)
-    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+function main(; lmax = 24, mmax = 24, nlat = 48, nlon = 96, nr = 32)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     domain = create_shell_radial_domain(nr)
 
     temp_field = create_shtns_temperature_field(Float64, cfg, domain)
@@ -44,10 +45,14 @@ function main(; lmax=24, mmax=24, nlat=48, nlon=96, nr=32)
 
     println("=== Random initial conditions ===")
     Random.seed!(42)
-    generate_random_initial_conditions!(temp_field, :temperature; amplitude=0.1, modes_range=1:10, seed=42)
-    generate_random_initial_conditions!(magnetic_field, :magnetic; amplitude=0.01, modes_range=1:8, seed=7)
-    generate_random_initial_conditions!(velocity_field, :velocity; amplitude=0.001, modes_range=1:12, seed=9)
-    generate_random_initial_conditions!(composition_field, :composition; amplitude=0.05, modes_range=1:6, seed=11)
+    generate_random_initial_conditions!(
+        temp_field, :temperature; amplitude = 0.1, modes_range = 1:10, seed = 42)
+    generate_random_initial_conditions!(
+        magnetic_field, :magnetic; amplitude = 0.01, modes_range = 1:8, seed = 7)
+    generate_random_initial_conditions!(
+        velocity_field, :velocity; amplitude = 0.001, modes_range = 1:12, seed = 9)
+    generate_random_initial_conditions!(
+        composition_field, :composition; amplitude = 0.05, modes_range = 1:6, seed = 11)
 
     summarize_scalar("Temperature random state", temp_field)
     summarize_vector("Magnetic random state", magnetic_field)
@@ -55,10 +60,11 @@ function main(; lmax=24, mmax=24, nlat=48, nlon=96, nr=32)
     summarize_scalar("Composition random state", composition_field)
 
     println("\n=== Analytical initial conditions ===")
-    set_analytical_initial_conditions!(temp_field, :temperature, :conductive; amplitude=1.0)
-    set_analytical_initial_conditions!(magnetic_field, :magnetic, :dipole; amplitude=1.0)
-    set_analytical_initial_conditions!(velocity_field, :velocity, :convective; amplitude=0.01)
-    set_analytical_initial_conditions!(composition_field, :composition, :stratified; bottom_composition=0.3, top_composition=0.1)
+    set_analytical_initial_conditions!(temp_field, :temperature, :conductive; amplitude = 1.0)
+    set_analytical_initial_conditions!(magnetic_field, :magnetic, :dipole; amplitude = 1.0)
+    set_analytical_initial_conditions!(velocity_field, :velocity, :convective; amplitude = 0.01)
+    set_analytical_initial_conditions!(composition_field, :composition, :stratified;
+        bottom_composition = 0.3, top_composition = 0.1)
 
     summarize_scalar("Temperature conductive profile", temp_field)
     summarize_vector("Magnetic dipole state", magnetic_field)

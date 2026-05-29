@@ -37,7 +37,7 @@ Uses a cosine-stretched grid similar to the shell for compatibility,
 but sets the inner radius to zero and adjusts the coordinate columns
 to match expectations of downstream operators.
 """
-function create_ball_radial_domain(nr::Int; radial_bandwidth::Int=4)
+function create_ball_radial_domain(nr::Int; radial_bandwidth::Int = 4)
     N = nr
     if N < 2
         error("Ball radial domain requires nr >= 2, got nr=$N")
@@ -70,11 +70,12 @@ function create_ball_radial_domain(nr::Int; radial_bandwidth::Int=4)
         end
     end
 
-    dr_matrices         = [zeros(2*radial_bandwidth+1, N) for _ in 1:3]
-    radial_laplacian    = zeros(2*radial_bandwidth+1, N)
+    dr_matrices = [zeros(2*radial_bandwidth+1, N) for _ in 1:3]
+    radial_laplacian = zeros(2*radial_bandwidth+1, N)
     integration_weights = zeros(Float64, N)
 
-    domain = GeoDynamo.RadialDomain(N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)
+    domain = GeoDynamo.RadialDomain(
+        N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)
     GeoDynamo._populate_radial_operators!(domain)
     return domain
 end
@@ -82,25 +83,32 @@ end
 """
     create_ball_spectral_field(T, cfg::BallConfig, domain::GeoDynamo.RadialDomain, pencil)
 """
-create_ball_spectral_field(::Type{T}, cfg::BallConfig, domain::GeoDynamo.RadialDomain, pencil) where {T} =
+function create_ball_spectral_field(
+        ::Type{T}, cfg::BallConfig, domain::GeoDynamo.RadialDomain, pencil) where {T}
     GeoDynamo.create_shtns_spectral_field(T, cfg, domain, pencil)
+end
 
 """
     create_ball_physical_field(T, cfg::BallConfig, domain::GeoDynamo.RadialDomain, pencil)
 """
-create_ball_physical_field(::Type{T}, cfg::BallConfig, domain::GeoDynamo.RadialDomain, pencil) where {T} =
+function create_ball_physical_field(
+        ::Type{T}, cfg::BallConfig, domain::GeoDynamo.RadialDomain, pencil) where {T}
     GeoDynamo.create_shtns_physical_field(T, cfg, domain, pencil)
+end
 
 """
     create_ball_vector_field(T, cfg::BallConfig, domain::GeoDynamo.RadialDomain, pencils)
 """
-create_ball_vector_field(::Type{T}, cfg::BallConfig, domain::GeoDynamo.RadialDomain, pencils) where {T} =
+function create_ball_vector_field(::Type{T}, cfg::BallConfig, domain::GeoDynamo.RadialDomain, pencils) where {T}
     GeoDynamo.create_shtns_vector_field(T, cfg, domain, pencils)
+end
 
 """
     create_ball_pencils(cfg::BallConfig; optimize=true)
 """
-create_ball_pencils(cfg::BallConfig; nr::Int, optimize::Bool=true) = GeoDynamo.create_pencil_topology(cfg; nr, optimize)
+function create_ball_pencils(cfg::BallConfig; nr::Int, optimize::Bool = true)
+    GeoDynamo.create_pencil_topology(cfg; nr, optimize)
+end
 
 """
     create_ball_velocity_fields(T, cfg::BallConfig; nr)
@@ -137,34 +145,51 @@ core implementation.
 function create_ball_magnetic_fields(::Type{T}, cfg::BallConfig; nr::Int) where {T}
     domain = create_ball_radial_domain(nr)
     pencils = create_ball_pencils(cfg; nr)
-    return GeoDynamo.create_shtns_magnetic_fields(T, cfg, domain, domain, pencils, pencils.spec)
+    return GeoDynamo.create_shtns_magnetic_fields(
+        T, cfg, domain, domain, pencils, pencils.spec)
 end
 
 const BC_Ball = GeoDynamo.bcs
 
-function create_ball_hybrid_temperature_boundaries(inner_spec::Tuple, outer_spec::Tuple, cfg::BallConfig; precision::Type{T}=Float64) where {T}
+function create_ball_hybrid_temperature_boundaries(
+        inner_spec::Tuple, outer_spec::Tuple, cfg::BallConfig;
+        precision::Type{T} = Float64) where {T}
     return BC_Ball.create_programmatic_temperature_boundaries(inner_spec, outer_spec, cfg)
 end
-function create_ball_hybrid_temperature_boundaries(inner_spec::String, outer_spec::Tuple, cfg::BallConfig; precision::Type{T}=Float64) where {T}
-    return BC_Ball.create_hybrid_temperature_boundaries(inner_spec, outer_spec, cfg; swap_boundaries=false)
+function create_ball_hybrid_temperature_boundaries(
+        inner_spec::String, outer_spec::Tuple, cfg::BallConfig;
+        precision::Type{T} = Float64) where {T}
+    return BC_Ball.create_hybrid_temperature_boundaries(inner_spec, outer_spec, cfg; swap_boundaries = false)
 end
-function create_ball_hybrid_temperature_boundaries(inner_spec::Tuple, outer_spec::String, cfg::BallConfig; precision::Type{T}=Float64) where {T}
-    return BC_Ball.create_hybrid_temperature_boundaries(outer_spec, inner_spec, cfg; swap_boundaries=true)
+function create_ball_hybrid_temperature_boundaries(
+        inner_spec::Tuple, outer_spec::String, cfg::BallConfig;
+        precision::Type{T} = Float64) where {T}
+    return BC_Ball.create_hybrid_temperature_boundaries(outer_spec, inner_spec, cfg; swap_boundaries = true)
 end
-function create_ball_hybrid_temperature_boundaries(inner_spec::String, outer_spec::String, cfg::BallConfig; precision::Type{T}=Float64) where {T}
+function create_ball_hybrid_temperature_boundaries(
+        inner_spec::String, outer_spec::String, cfg::BallConfig;
+        precision::Type{T} = Float64) where {T}
     return BC_Ball.load_temperature_boundaries_from_files(inner_spec, outer_spec, cfg)
 end
 
-function create_ball_hybrid_composition_boundaries(inner_spec::Tuple, outer_spec::Tuple, cfg::BallConfig; precision::Type{T}=Float64) where {T}
+function create_ball_hybrid_composition_boundaries(
+        inner_spec::Tuple, outer_spec::Tuple, cfg::BallConfig;
+        precision::Type{T} = Float64) where {T}
     return BC_Ball.create_programmatic_composition_boundaries(inner_spec, outer_spec, cfg)
 end
-function create_ball_hybrid_composition_boundaries(inner_spec::String, outer_spec::Tuple, cfg::BallConfig; precision::Type{T}=Float64) where {T}
-    return BC_Ball.create_hybrid_composition_boundaries(inner_spec, outer_spec, cfg; swap_boundaries=false)
+function create_ball_hybrid_composition_boundaries(
+        inner_spec::String, outer_spec::Tuple, cfg::BallConfig;
+        precision::Type{T} = Float64) where {T}
+    return BC_Ball.create_hybrid_composition_boundaries(inner_spec, outer_spec, cfg; swap_boundaries = false)
 end
-function create_ball_hybrid_composition_boundaries(inner_spec::Tuple, outer_spec::String, cfg::BallConfig; precision::Type{T}=Float64) where {T}
-    return BC_Ball.create_hybrid_composition_boundaries(outer_spec, inner_spec, cfg; swap_boundaries=true)
+function create_ball_hybrid_composition_boundaries(
+        inner_spec::Tuple, outer_spec::String, cfg::BallConfig;
+        precision::Type{T} = Float64) where {T}
+    return BC_Ball.create_hybrid_composition_boundaries(outer_spec, inner_spec, cfg; swap_boundaries = true)
 end
-function create_ball_hybrid_composition_boundaries(inner_spec::String, outer_spec::String, cfg::BallConfig; precision::Type{T}=Float64) where {T}
+function create_ball_hybrid_composition_boundaries(
+        inner_spec::String, outer_spec::String, cfg::BallConfig;
+        precision::Type{T} = Float64) where {T}
     return BC_Ball.load_composition_boundaries_from_files(inner_spec, outer_spec, cfg)
 end
 
@@ -216,7 +241,7 @@ fields, both toroidal and poloidal potentials behave like r^{l+1}, so
 they vanish at r=0 for all l ≥ 1. Zeros the inner radial plane for l≥1.
 """
 function enforce_ball_vector_regularity!(tor_spec::GeoDynamo.SHTnsSpecField,
-                                         pol_spec::GeoDynamo.SHTnsSpecField)
+        pol_spec::GeoDynamo.SHTnsSpecField)
     cfg = tor_spec.config
 
     lm_range = GeoDynamo.local_spectral_mode_indices(cfg)
@@ -275,7 +300,7 @@ Wrapper for transforms in a solid sphere that enforces scalar regularity at r=0
 after analysis. Use this for scalar fields (temperature, composition, etc.).
 """
 function ball_physical_to_spectral!(phys::GeoDynamo.SHTnsPhysField{T},
-                                    spec::GeoDynamo.SHTnsSpecField{T}) where {T}
+        spec::GeoDynamo.SHTnsSpecField{T}) where {T}
     GeoDynamo.shtnskit_physical_to_spectral!(phys, spec)
     enforce_ball_scalar_regularity!(spec)
     return spec
@@ -290,8 +315,8 @@ Wrapper for vector analysis in a solid sphere; enforces vector regularity at r=0
 after transforming to spectral toroidal/poloidal.
 """
 function ball_vector_analysis!(vec::GeoDynamo.SHTnsVectorField{T},
-                               tor::GeoDynamo.SHTnsSpecField{T},
-                               pol::GeoDynamo.SHTnsSpecField{T}) where {T}
+        tor::GeoDynamo.SHTnsSpecField{T},
+        pol::GeoDynamo.SHTnsSpecField{T}) where {T}
     GeoDynamo.shtnskit_vector_analysis!(vec, tor, pol)
     enforce_ball_vector_regularity!(tor, pol)
     return tor, pol

@@ -7,15 +7,15 @@ as a self-contained algorithm instead of reaching back into the legacy
 timestep entry points.
 """
 function solver_build_rhs_cnab2!(
-    rhs::SpectralFieldType{T},
-    uₙ::SpectralFieldType{T},
-    nₙ::SpectralFieldType{T},
-    nₙ₋₁::SpectralFieldType{T},
-    dt::Float64,
-    matrices::ImplicitMatrixSet{T};
-    mass_coeff::Float64=1.0,
-    work::Union{SolverRadialWork{T}, Nothing}=nothing,
-) where T
+        rhs::SpectralFieldType{T},
+        uₙ::SpectralFieldType{T},
+        nₙ::SpectralFieldType{T},
+        nₙ₋₁::SpectralFieldType{T},
+        dt::Float64,
+        matrices::ImplicitMatrixSet{T};
+        mass_coeff::Float64 = 1.0,
+        work::Union{SolverRadialWork{T}, Nothing} = nothing
+) where {T}
     rhs_real = parent(rhs.data_real)
     rhs_imag = parent(rhs.data_imag)
     u_real = parent(uₙ.data_real)
@@ -60,7 +60,8 @@ function solver_build_rhs_cnab2!(
             matrix_idx === nothing && error("Missing implicit matrix for l=$l")
             fill!(u_real_global, zero(T))
             fill!(u_imag_global, zero(T))
-            gather_local_radial_profile!(u_real_global, u_imag_global, u_real, u_imag, slot, r_range)
+            gather_local_radial_profile!(
+                u_real_global, u_imag_global, u_real, u_imag, slot, r_range)
             fill!(linear_real, zero(T))
             fill!(linear_imag, zero(T))
             apply_banded_full!(linear_real, matrices.linear_matrices[matrix_idx], u_real_global)
@@ -74,14 +75,12 @@ function solver_build_rhs_cnab2!(
             local_r = r_idx - first(r_range) + 1
             local_r <= size(rhs_real, 3) || continue
 
-            rhs_value_real =
-                inv_dt * local_spectral_value(u_real, slot, local_r) +
-                three_halves * local_spectral_value(n_real, slot, local_r) -
-                one_half * local_spectral_value(p_real, slot, local_r)
-            rhs_value_imag =
-                inv_dt * local_spectral_value(u_imag, slot, local_r) +
-                three_halves * local_spectral_value(n_imag, slot, local_r) -
-                one_half * local_spectral_value(p_imag, slot, local_r)
+            rhs_value_real = inv_dt * local_spectral_value(u_real, slot, local_r) +
+                             three_halves * local_spectral_value(n_real, slot, local_r) -
+                             one_half * local_spectral_value(p_real, slot, local_r)
+            rhs_value_imag = inv_dt * local_spectral_value(u_imag, slot, local_r) +
+                             three_halves * local_spectral_value(n_imag, slot, local_r) -
+                             one_half * local_spectral_value(p_imag, slot, local_r)
 
             if add_linear
                 rhs_value_real += linear_weight * linear_real[r_idx]
@@ -97,10 +96,10 @@ function solver_build_rhs_cnab2!(
 end
 
 function get_radial_work!(
-    caches::TimestepCaches{T},
-    key::Symbol,
-    nr::Int,
-) where T
+        caches::TimestepCaches{T},
+        key::Symbol,
+        nr::Int
+) where {T}
     # Each field/update family gets one scratch bundle sized for its radial
     # operator. Recreate it only when resolution or operator size changes.
     work = get(caches.radial_work, key, nothing)
@@ -112,14 +111,15 @@ function get_radial_work!(
 end
 
 @inline function boundary_mode_value(mode_values, lm_idx::Int)
-    return mode_values !== nothing && lm_idx <= length(mode_values) ? mode_values[lm_idx] : nothing
+    return mode_values !== nothing && lm_idx <= length(mode_values) ? mode_values[lm_idx] :
+           nothing
 end
 
 struct SolverBandedAction{T}
     operator::BandedOperator{T}
 end
 
-@inline function (action::SolverBandedAction{T})(out::Vector{T}, v::AbstractVector{T}) where T
+@inline function (action::SolverBandedAction{T})(out::Vector{T}, v::AbstractVector{T}) where {T}
     apply_banded_full!(out, action.operator, v)
     return nothing
 end
@@ -130,19 +130,19 @@ end
 Typed EAB2 cache lookup for the new solver path.
 """
 function solver_get_eab2_alu_cache!(
-    caches::Dict{Symbol, EAB2CacheEntry{T}},
-    key::Symbol,
-    ν::Float64,
-    ::Type{T},
-    domain::RadialDomainType,
-) where T
+        caches::Dict{Symbol, EAB2CacheEntry{T}},
+        key::Symbol,
+        ν::Float64,
+        ::Type{T},
+        domain::RadialDomainType
+) where {T}
     entry = get(caches, key, nothing)
     nr = domain.N
     if entry === nothing || entry.ν != ν || entry.nr != nr
         entry = EAB2CacheEntry{T}(
             ν,
             nr,
-            Dict{Int, Tuple{BandedOperator{T}, BandedFactorization{T}}}(),
+            Dict{Int, Tuple{BandedOperator{T}, BandedFactorization{T}}}()
         )
         caches[key] = entry
     end
@@ -158,19 +158,19 @@ The cache is rebuilt when diffusivity or radial resolution changes; otherwise
 the existing per-degree operator/factorization map is reused.
 """
 function _ensure_etd_cache!(
-    caches::TimestepCaches{T},
-    field::Symbol,
-    ν::Float64,
-    ::Type{T},
-    domain::RadialDomainType,
-) where T
+        caches::TimestepCaches{T},
+        field::Symbol,
+        ν::Float64,
+        ::Type{T},
+        domain::RadialDomainType
+) where {T}
     entry = getfield(caches, field)
     nr = domain.N
     if entry === nothing || entry.ν != ν || entry.nr != nr
         entry = EAB2CacheEntry{T}(
             ν,
             nr,
-            Dict{Int, Tuple{BandedOperator{T}, BandedFactorization{T}}}(),
+            Dict{Int, Tuple{BandedOperator{T}, BandedFactorization{T}}}()
         )
         setfield!(caches, field, entry)
     end
@@ -188,20 +188,20 @@ exponential linear action plus the phi1 nonlinear correction, then re-applies
 any endpoint BCs before scattering back to the local pencil storage.
 """
 function solver_eab2_update_krylov_cached!(
-    u::SpectralFieldType{T},
-    nₙ::SpectralFieldType{T},
-    nₙ₋₁::SpectralFieldType{T},
-    alu_map::Dict{Int, Tuple{BandedOperator{T}, BandedFactorization{T}}},
-    domain::RadialDomainType,
-    diffusivity::Float64,
-    config::SHTnsConfigType,
-    dt::Float64;
-    m::Int=20,
-    tol::Float64=1e-8,
-    mass_coeff::Float64=1.0,
-    bc_spec=nothing,
-    krylov_work::Union{SolverRadialWork{T}, Nothing}=nothing,
-) where T
+        u::SpectralFieldType{T},
+        nₙ::SpectralFieldType{T},
+        nₙ₋₁::SpectralFieldType{T},
+        alu_map::Dict{Int, Tuple{BandedOperator{T}, BandedFactorization{T}}},
+        domain::RadialDomainType,
+        diffusivity::Float64,
+        config::SHTnsConfigType,
+        dt::Float64;
+        m::Int = 20,
+        tol::Float64 = 1e-8,
+        mass_coeff::Float64 = 1.0,
+        bc_spec = nothing,
+        krylov_work::Union{SolverRadialWork{T}, Nothing} = nothing
+) where {T}
     u_real = parent(u.data_real)
     u_imag = parent(u.data_imag)
     n_real = parent(nₙ.data_real)
@@ -249,30 +249,33 @@ function solver_eab2_update_krylov_cached!(
         fill!(nl_real_global, zero(T))
         fill!(nl_imag_global, zero(T))
 
-        gather_local_radial_profile!(u_real_global, u_imag_global, u_real, u_imag, slot, r_range)
+        gather_local_radial_profile!(
+            u_real_global, u_imag_global, u_real, u_imag, slot, r_range)
         for r_idx in r_range
             local_r = r_idx - first(r_range) + 1
             local_r <= size(n_real, 3) || continue
-            nl_real_global[r_idx] =
-                inv_mass_coeff * (
-                    T(1.5) * local_spectral_value(n_real, slot, local_r) -
-                    T(0.5) * local_spectral_value(p_real, slot, local_r)
-                )
-            nl_imag_global[r_idx] =
-                inv_mass_coeff * (
-                    T(1.5) * local_spectral_value(n_imag, slot, local_r) -
-                    T(0.5) * local_spectral_value(p_imag, slot, local_r)
-                )
+            nl_real_global[r_idx] = inv_mass_coeff * (
+                T(1.5) * local_spectral_value(n_real, slot, local_r) -
+                T(0.5) * local_spectral_value(p_real, slot, local_r)
+            )
+            nl_imag_global[r_idx] = inv_mass_coeff * (
+                T(1.5) * local_spectral_value(n_imag, slot, local_r) -
+                T(0.5) * local_spectral_value(p_imag, slot, local_r)
+            )
         end
 
         # The exponential action advances the linear part, while phi₁(Adt)
         # applies the matching correction to the Adams-Bashforth nonlinear term.
         Aop = SolverBandedAction(operator_matrix)
 
-        exp_action_krylov!(u_real_next, Aop, u_real_global, dt; m, tol, work=krylov_action_work)
-        exp_action_krylov!(u_imag_next, Aop, u_imag_global, dt; m, tol, work=krylov_action_work)
-        phi1_action_krylov!(nl_real_global, Aop, operator_lu, nl_real_global, dt; m, tol, work=krylov_action_work)
-        phi1_action_krylov!(nl_imag_global, Aop, operator_lu, nl_imag_global, dt; m, tol, work=krylov_action_work)
+        exp_action_krylov!(
+            u_real_next, Aop, u_real_global, dt; m, tol, work = krylov_action_work)
+        exp_action_krylov!(
+            u_imag_next, Aop, u_imag_global, dt; m, tol, work = krylov_action_work)
+        phi1_action_krylov!(nl_real_global, Aop, operator_lu, nl_real_global,
+            dt; m, tol, work = krylov_action_work)
+        phi1_action_krylov!(nl_imag_global, Aop, operator_lu, nl_imag_global,
+            dt; m, tol, work = krylov_action_work)
         @. u_real_next = u_real_next + dt * nl_real_global
         @. u_imag_next = u_imag_next + dt * nl_imag_global
 
@@ -284,13 +287,18 @@ function solver_eab2_update_krylov_cached!(
             outer_val = boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
             inner_val_i = boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
             outer_val_i = boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
-            solver_enforce_erk2_bc!(u_real_next, bc_spec.inner, 1, l, nr; value_override=inner_val)
-            solver_enforce_erk2_bc!(u_real_next, bc_spec.outer, nr, l, nr; value_override=outer_val)
-            solver_enforce_erk2_bc!(u_imag_next, bc_spec.inner, 1, l, nr; value_override=inner_val_i)
-            solver_enforce_erk2_bc!(u_imag_next, bc_spec.outer, nr, l, nr; value_override=outer_val_i)
+            solver_enforce_erk2_bc!(
+                u_real_next, bc_spec.inner, 1, l, nr; value_override = inner_val)
+            solver_enforce_erk2_bc!(
+                u_real_next, bc_spec.outer, nr, l, nr; value_override = outer_val)
+            solver_enforce_erk2_bc!(
+                u_imag_next, bc_spec.inner, 1, l, nr; value_override = inner_val_i)
+            solver_enforce_erk2_bc!(
+                u_imag_next, bc_spec.outer, nr, l, nr; value_override = outer_val_i)
         end
 
-        scatter_local_radial_profile!(u_real, u_imag, u_real_next, u_imag_next, slot, r_range)
+        scatter_local_radial_profile!(
+            u_real, u_imag, u_real_next, u_imag_next, slot, r_range)
     end
 
     return u
@@ -305,15 +313,15 @@ Boundary vectors are mode-indexed global arrays. Missing boundary vectors
 default to homogeneous values for both real and imaginary parts.
 """
 function _solver_solve_scalar_implicit_step!(
-    solution::SpectralFieldType{T},
-    rhs::SpectralFieldType{T},
-    matrices::ImplicitMatrixSet{T};
-    bc_inner::Union{AbstractVector{T}, Nothing}=nothing,
-    bc_outer::Union{AbstractVector{T}, Nothing}=nothing,
-    bc_inner_imag::Union{AbstractVector{T}, Nothing}=nothing,
-    bc_outer_imag::Union{AbstractVector{T}, Nothing}=nothing,
-    work::Union{SolverRadialWork{T}, Nothing}=nothing,
-) where T
+        solution::SpectralFieldType{T},
+        rhs::SpectralFieldType{T},
+        matrices::ImplicitMatrixSet{T};
+        bc_inner::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_outer::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_inner_imag::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_outer_imag::Union{AbstractVector{T}, Nothing} = nothing,
+        work::Union{SolverRadialWork{T}, Nothing} = nothing
+) where {T}
     sol_real = parent(solution.data_real)
     sol_imag = parent(solution.data_imag)
     rhs_real = parent(rhs.data_real)
@@ -338,14 +346,14 @@ function _solver_solve_scalar_implicit_step!(
 
         # Boundary rows were embedded into `matrices`; these values are the RHS
         # targets for the inner/outer boundary equations for this spectral mode.
-        inner_real =
-            bc_inner !== nothing && lm_idx <= length(bc_inner) ? bc_inner[lm_idx] : zero(T)
-        outer_real =
-            bc_outer !== nothing && lm_idx <= length(bc_outer) ? bc_outer[lm_idx] : zero(T)
-        inner_imag =
-            bc_inner_imag !== nothing && lm_idx <= length(bc_inner_imag) ? bc_inner_imag[lm_idx] : zero(T)
-        outer_imag =
-            bc_outer_imag !== nothing && lm_idx <= length(bc_outer_imag) ? bc_outer_imag[lm_idx] : zero(T)
+        inner_real = bc_inner !== nothing && lm_idx <= length(bc_inner) ? bc_inner[lm_idx] :
+                     zero(T)
+        outer_real = bc_outer !== nothing && lm_idx <= length(bc_outer) ? bc_outer[lm_idx] :
+                     zero(T)
+        inner_imag = bc_inner_imag !== nothing && lm_idx <= length(bc_inner_imag) ?
+                     bc_inner_imag[lm_idx] : zero(T)
+        outer_imag = bc_outer_imag !== nothing && lm_idx <= length(bc_outer_imag) ?
+                     bc_outer_imag[lm_idx] : zero(T)
 
         tmp_real[1] = inner_real
         tmp_imag[1] = inner_imag
@@ -367,15 +375,15 @@ end
 Temperature-specific wrapper around the scalar implicit solve.
 """
 function solver_solve_temperature_implicit_step!(
-    solution::SpectralFieldType{T},
-    rhs::SpectralFieldType{T},
-    matrices::ImplicitMatrixSet{T};
-    bc_inner::Union{AbstractVector{T}, Nothing}=nothing,
-    bc_outer::Union{AbstractVector{T}, Nothing}=nothing,
-    bc_inner_imag::Union{AbstractVector{T}, Nothing}=nothing,
-    bc_outer_imag::Union{AbstractVector{T}, Nothing}=nothing,
-    work::Union{SolverRadialWork{T}, Nothing}=nothing,
-) where T
+        solution::SpectralFieldType{T},
+        rhs::SpectralFieldType{T},
+        matrices::ImplicitMatrixSet{T};
+        bc_inner::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_outer::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_inner_imag::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_outer_imag::Union{AbstractVector{T}, Nothing} = nothing,
+        work::Union{SolverRadialWork{T}, Nothing} = nothing
+) where {T}
     return _solver_solve_scalar_implicit_step!(
         solution,
         rhs,
@@ -384,7 +392,7 @@ function solver_solve_temperature_implicit_step!(
         bc_outer,
         bc_inner_imag,
         bc_outer_imag,
-        work,
+        work
     )
 end
 
@@ -394,15 +402,15 @@ end
 Composition-specific wrapper around the scalar implicit solve.
 """
 function solver_solve_composition_implicit_step!(
-    solution::SpectralFieldType{T},
-    rhs::SpectralFieldType{T},
-    matrices::ImplicitMatrixSet{T};
-    bc_inner::Union{AbstractVector{T}, Nothing}=nothing,
-    bc_outer::Union{AbstractVector{T}, Nothing}=nothing,
-    bc_inner_imag::Union{AbstractVector{T}, Nothing}=nothing,
-    bc_outer_imag::Union{AbstractVector{T}, Nothing}=nothing,
-    work::Union{SolverRadialWork{T}, Nothing}=nothing,
-) where T
+        solution::SpectralFieldType{T},
+        rhs::SpectralFieldType{T},
+        matrices::ImplicitMatrixSet{T};
+        bc_inner::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_outer::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_inner_imag::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_outer_imag::Union{AbstractVector{T}, Nothing} = nothing,
+        work::Union{SolverRadialWork{T}, Nothing} = nothing
+) where {T}
     return _solver_solve_scalar_implicit_step!(
         solution,
         rhs,
@@ -411,7 +419,7 @@ function solver_solve_composition_implicit_step!(
         bc_outer,
         bc_inner_imag,
         bc_outer_imag,
-        work,
+        work
     )
 end
 
@@ -426,16 +434,16 @@ Toroidal velocity handles the optional inner-core rotation correction for the
 is corrected later by the ERK2 influence operator when needed.
 """
 function solver_solve_velocity_implicit_step!(
-    solution::SpectralFieldType{T},
-    rhs::SpectralFieldType{T},
-    matrices::ImplicitMatrixSet{T},
-    component::Symbol;
-    velocity_bc_code::Int=1,
-    domain::Union{RadialDomainType, Nothing}=nothing,
-    rot_omega::Float64=0.0,
-    current_field::Union{SpectralFieldType{T}, Nothing}=nothing,
-    work::Union{SolverRadialWork{T}, Nothing}=nothing,
-) where T
+        solution::SpectralFieldType{T},
+        rhs::SpectralFieldType{T},
+        matrices::ImplicitMatrixSet{T},
+        component::Symbol;
+        velocity_bc_code::Int = 1,
+        domain::Union{RadialDomainType, Nothing} = nothing,
+        rot_omega::Float64 = 0.0,
+        current_field::Union{SpectralFieldType{T}, Nothing} = nothing,
+        work::Union{SolverRadialWork{T}, Nothing} = nothing
+) where {T}
     sol_real = parent(solution.data_real)
     sol_imag = parent(solution.data_imag)
     rhs_real = parent(rhs.data_real)
@@ -463,7 +471,8 @@ function solver_solve_velocity_implicit_step!(
             inner_real = zero(T)
             outer_real = zero(T)
 
-            if (velocity_bc_code == 1 || velocity_bc_code == 2) && l == 1 && m == 0 && domain !== nothing
+            if (velocity_bc_code == 1 || velocity_bc_code == 2) && l == 1 && m == 0 &&
+               domain !== nothing
                 inner_real = T(rot_omega * domain.r[1, 4])
                 if current_field !== nothing
                     current_real = parent(current_field.data_real)
@@ -501,16 +510,16 @@ For toroidal magnetic fields the optional inner boundary vector is interpreted
 as an imposed boundary increment relative to `prev_bc_inner`.
 """
 function solver_solve_magnetic_implicit_step!(
-    solution::SpectralFieldType{T},
-    rhs::SpectralFieldType{T},
-    matrices::ImplicitMatrixSet{T},
-    component::Symbol;
-    mag_bc_inner::Union{Vector{T}, Nothing}=nothing,
-    prev_bc_inner::Union{Vector{T}, Nothing}=nothing,
-    mag_bc_inner_imag::Union{Vector{T}, Nothing}=nothing,
-    prev_bc_inner_imag::Union{Vector{T}, Nothing}=nothing,
-    work::Union{SolverRadialWork{T}, Nothing}=nothing,
-) where T
+        solution::SpectralFieldType{T},
+        rhs::SpectralFieldType{T},
+        matrices::ImplicitMatrixSet{T},
+        component::Symbol;
+        mag_bc_inner::Union{Vector{T}, Nothing} = nothing,
+        prev_bc_inner::Union{Vector{T}, Nothing} = nothing,
+        mag_bc_inner_imag::Union{Vector{T}, Nothing} = nothing,
+        prev_bc_inner_imag::Union{Vector{T}, Nothing} = nothing,
+        work::Union{SolverRadialWork{T}, Nothing} = nothing
+) where {T}
     sol_real = parent(solution.data_real)
     sol_imag = parent(solution.data_imag)
     rhs_real = parent(rhs.data_real)

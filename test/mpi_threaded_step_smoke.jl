@@ -1,7 +1,8 @@
 using Test
 using MPI
 
-const FINALIZE_MPI_THREADED_SMOKE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
+const FINALIZE_MPI_THREADED_SMOKE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") ==
+                                    "true"
 
 # Regression guard for the multi-rank + multi-thread CNAB2 deadlock.
 #
@@ -37,7 +38,7 @@ const FINALIZE_MPI_THREADED_SMOKE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "tru
             timestep = 1e-6, timestepper = GeoDynamo.CNAB2(),
             Ra = 1e2, RaC = 1e2,
             include_magnetic_field = true,
-            include_composition = true,
+            include_composition = true
         )
         state = GeoDynamo.initialize_simulation(params)
         GeoDynamo.initialize_solver_fields!(state)

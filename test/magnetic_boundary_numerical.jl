@@ -47,18 +47,23 @@ end
     nlon = max(2lmax + 1, 16)
     nr = 24
 
-    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = GeoDynamo.create_radial_domain(nr)
     r = dom.r[:, 4]
 
     η = 1.0
     dt = 1.0e-3
-    pol = GeoDynamo.create_magnetic_poloidal_matrices(cfg, dom, η, dt; theta=0.5, T=Float64)
-    tor = GeoDynamo.create_magnetic_toroidal_matrices(cfg, dom, η, dt; theta=0.5, T=Float64)
+    pol = GeoDynamo.create_magnetic_poloidal_matrices(
+        cfg, dom, η, dt; theta = 0.5, T = Float64)
+    tor = GeoDynamo.create_magnetic_toroidal_matrices(
+        cfg, dom, η, dt; theta = 0.5, T = Float64)
 
     @testset "toroidal insulating rows are identity (BT = 0)" begin
-        e_inner = zeros(nr); e_inner[1] = 1.0
-        e_outer = zeros(nr); e_outer[nr] = 1.0
+        e_inner = zeros(nr);
+        e_inner[1] = 1.0
+        e_outer = zeros(nr);
+        e_outer[nr] = 1.0
         for (idx, l) in enumerate(tor.l_values)
             A = tor.system_matrices[idx]
             @test _magbc_banded_row(A, 1) ≈ e_inner atol = 1e-14

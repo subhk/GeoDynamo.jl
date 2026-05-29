@@ -33,9 +33,9 @@ const FINALIZE_MPI_NCWRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
     # here, so a regression in the open-call signature still fails the suite.
     parallel_ok = try
         probe = tempname() * ".nc"
-        ds0 = NCDataset(comm, probe, "c"; info=MPI.Info())
+        ds0 = NCDataset(comm, probe, "c"; info = MPI.Info())
         close(ds0)
-        isfile(probe) && rm(probe; force=true)
+        isfile(probe) && rm(probe; force = true)
         true
     catch err
         @warn "Parallel NetCDF unavailable; skipping write round-trip" error=err
@@ -49,7 +49,8 @@ const FINALIZE_MPI_NCWRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
         nlon = max(2lmax + 1, 16)
         nr = 8
 
-        cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
         dom = GeoDynamo.create_radial_domain(nr)
         radial_nodes = Float64.(dom.r[1:nr, 4])
 
@@ -58,18 +59,19 @@ const FINALIZE_MPI_NCWRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
         btor_real = randn(nlm, nr)
         btor_imag = randn(nlm, nr)
 
-        fields = Dict{String,Any}(
+        fields = Dict{String, Any}(
             "temperature" => copy(T_in),
-            "magnetic_toroidal" => Dict("real" => copy(btor_real), "imag" => copy(btor_imag)),
+            "magnetic_toroidal" =>
+                Dict("real" => copy(btor_real), "imag" => copy(btor_imag))
         )
 
-        out_cfg = GeoDynamo.output_config_from_parameters(output_precision=:float64)
+        out_cfg = GeoDynamo.output_config_from_parameters(output_precision = :float64)
         field_info = GeoDynamo.extract_field_info(fields, cfg, nothing;
-                                                   radius_ratio=0.35, radial_grid=radial_nodes)
+            radius_ratio = 0.35, radial_grid = radial_nodes)
 
         filename = tempname() * ".nc"
         ds = GeoDynamo.create_parallel_netcdf(filename, out_cfg, field_info,
-                                              Dict{String,Any}(), comm; geometry=:shell)
+            Dict{String, Any}(), comm; geometry = :shell)
         try
             GeoDynamo.setup_dimensions!(ds, field_info, out_cfg)
             GeoDynamo.setup_variables!(ds, field_info, out_cfg, collect(keys(fields)))
@@ -85,7 +87,7 @@ const FINALIZE_MPI_NCWRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
         NCDataset(filename, "r") do d
             # (2) radial coordinate matches the true Chebyshev nodes, not [0.35,1].
             @test Array(d["r"][:]) ≈ radial_nodes atol = 1e-12
-            @test !(Array(d["r"][:]) ≈ collect(range(0.35, 1.0, length=nr)))
+            @test !(Array(d["r"][:]) ≈ collect(range(0.35, 1.0, length = nr)))
 
             # (3a) latitude coordinate is labelled truthfully and matches config.
             @test d["theta"].attrib["long_name"] == "latitude"
@@ -97,13 +99,15 @@ const FINALIZE_MPI_NCWRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
             @test maximum(abs.(T_out .- T_in)) == 0.0
 
             # (3c) spectral coefficients and (l,m) indices round-trip exactly.
-            @test maximum(abs.(Array(d["magnetic_toroidal_real"][:, :]) .- btor_real)) == 0.0
-            @test maximum(abs.(Array(d["magnetic_toroidal_imag"][:, :]) .- btor_imag)) == 0.0
+            @test maximum(abs.(Array(d["magnetic_toroidal_real"][:, :]) .- btor_real)) ==
+                  0.0
+            @test maximum(abs.(Array(d["magnetic_toroidal_imag"][:, :]) .- btor_imag)) ==
+                  0.0
             @test Array(d["l_values"][:]) == Int32.(cfg.l_values[1:nlm])
             @test Array(d["m_values"][:]) == Int32.(cfg.m_values[1:nlm])
         end
 
-        isfile(filename) && rm(filename; force=true)
+        isfile(filename) && rm(filename; force = true)
     end
 
     if MPI.Initialized()

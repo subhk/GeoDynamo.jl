@@ -2,7 +2,8 @@ using Test
 
 @testset "Spectral Index Mapping" begin
     @testset "index_to_lm_shtnskit roundtrip" begin
-        lmax = 6; mmax = 6
+        lmax = 6;
+        mmax = 6
         idx = 0
         for m in 0:mmax
             for l in m:lmax
@@ -18,7 +19,8 @@ using Test
     end
 
     @testset "index_to_lm_shtnskit invalid indices" begin
-        lmax = 4; mmax = 4
+        lmax = 4;
+        mmax = 4
         l, m = GeoDynamo.index_to_lm_shtnskit(0, lmax, mmax)
         @test l == -1 && m == -1
 
@@ -40,7 +42,8 @@ using Test
     end
 
     @testset "m=0 modes are contiguous at start" begin
-        lmax = 6; mmax = 6
+        lmax = 6;
+        mmax = 6
         for l in 0:lmax
             l_out, m_out = GeoDynamo.index_to_lm_shtnskit(l + 1, lmax, mmax)
             @test l_out == l

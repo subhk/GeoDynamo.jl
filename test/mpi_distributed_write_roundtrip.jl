@@ -38,10 +38,14 @@ const FINALIZE_MPI_DIST_WRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
     encode_phys(gθ, gφ, gr) = gθ * 1.0 + gφ * 1_000.0 + gr * 1_000_000.0
     encode_spec(glm, gr) = glm * 1.0 + gr * 100_000.0
 
-    lmax = 4; mmax = 4
-    nlat = max(lmax + 2, 10); nlon = max(2lmax + 1, 16); nr = 8
+    lmax = 4;
+    mmax = 4
+    nlat = max(lmax + 2, 10);
+    nlon = max(2lmax + 1, 16);
+    nr = 8
 
-    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    cfg = GeoDynamo.create_shtnskit_config(
+        lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = GeoDynamo.create_radial_domain(nr)
     radial_nodes = Float64.(dom.r[1:nr, 4])
     nlm = cfg.nlm
@@ -52,19 +56,20 @@ const FINALIZE_MPI_DIST_WRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
     probe = rank == 0 ? tempname() * ".nc" : ""
     probe = MPI.bcast(probe, 0, comm)
     parallel_ok = try
-        ds0 = NCDataset(comm, probe, "c"; info=MPI.Info())
+        ds0 = NCDataset(comm, probe, "c"; info = MPI.Info())
         close(ds0)
         MPI.Barrier(comm)
-        rank == 0 && isfile(probe) && rm(probe; force=true)
+        rank == 0 && isfile(probe) && rm(probe; force = true)
         true
     catch err
-        rank == 0 && @warn "Parallel NetCDF unavailable; skipping distributed write test" error=err
+        rank == 0 &&
+            @warn "Parallel NetCDF unavailable; skipping distributed write test" error=err
         false
     end
 
     if parallel_ok
         # ---- physical temperature: r-pencil (θ,φ distributed, r local) ----
-        Tarr = GeoDynamo.create_pencil_array(Float64, cfg.pencils.r; init=:zero)
+        Tarr = GeoDynamo.create_pencil_array(Float64, cfg.pencils.r; init = :zero)
         Tp = parent(Tarr)
         θr = GeoDynamo.range_local(cfg.pencils.r, 1)
         φr = GeoDynamo.range_local(cfg.pencils.r, 2)
@@ -74,9 +79,10 @@ const FINALIZE_MPI_DIST_WRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
         end
 
         # ---- spectral magnetic_toroidal: spec-pencil (modes and r distributed) ----
-        specR = GeoDynamo.create_pencil_array(Float64, cfg.pencils.spec; init=:zero)
-        specI = GeoDynamo.create_pencil_array(Float64, cfg.pencils.spec; init=:zero)
-        Rp = parent(specR); Ip = parent(specI)
+        specR = GeoDynamo.create_pencil_array(Float64, cfg.pencils.spec; init = :zero)
+        specI = GeoDynamo.create_pencil_array(Float64, cfg.pencils.spec; init = :zero)
+        Rp = parent(specR);
+        Ip = parent(specI)
         lm_map = GeoDynamo.local_spectral_lm_map(cfg)
         spec_r = GeoDynamo.range_local(cfg.pencils.spec, 3)
         for slot in CartesianIndices(lm_map)
@@ -88,20 +94,20 @@ const FINALIZE_MPI_DIST_WRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
             end
         end
 
-        fields = Dict{String,Any}(
+        fields = Dict{String, Any}(
             "temperature" => copy(Tp),
-            "magnetic_toroidal" => Dict("real" => copy(Rp), "imag" => copy(Ip)),
+            "magnetic_toroidal" => Dict("real" => copy(Rp), "imag" => copy(Ip))
         )
 
-        out_cfg = GeoDynamo.output_config_from_parameters(output_precision=:float64)
+        out_cfg = GeoDynamo.output_config_from_parameters(output_precision = :float64)
         field_info = GeoDynamo.extract_field_info(fields, cfg, cfg.pencils;
-                                                   radius_ratio=0.35, radial_grid=radial_nodes)
+            radius_ratio = 0.35, radial_grid = radial_nodes)
 
         filename = rank == 0 ? tempname() * ".nc" : ""
         filename = MPI.bcast(filename, 0, comm)
 
         ds = GeoDynamo.create_parallel_netcdf(filename, out_cfg, field_info,
-                                              Dict{String,Any}(), comm; geometry=:shell)
+            Dict{String, Any}(), comm; geometry = :shell)
         try
             GeoDynamo.setup_dimensions!(ds, field_info, out_cfg)
             GeoDynamo.setup_variables!(ds, field_info, out_cfg, collect(keys(fields)))
@@ -130,6 +136,7 @@ const FINALIZE_MPI_DIST_WRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
                 @test size(Rg) == (nlm, nr)
                 spec_bad = 0
                 for gr in 1:nr, glm in 1:nlm
+
                     (Rg[glm, gr] == encode_spec(glm, gr) &&
                      Ig[glm, gr] == -encode_spec(glm, gr)) || (spec_bad += 1)
                 end
@@ -139,7 +146,7 @@ const FINALIZE_MPI_DIST_WRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
                 @test Array(d["m_values"][:]) == Int32.(cfg.m_values[1:nlm])
                 @test Array(d["r"][:]) ≈ radial_nodes atol = 1e-12
             end
-            isfile(filename) && rm(filename; force=true)
+            isfile(filename) && rm(filename; force = true)
             @info "Distributed write→read assembly verified" nranks physical_cells=nlat*nlon*nr spectral_coeffs=nlm*nr
         end
         MPI.Barrier(comm)

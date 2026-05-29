@@ -4,37 +4,37 @@ using Test
     @testset "get_parameters returns SolverParameters" begin
         original = GeoDynamo.get_parameters()
         try
-            GeoDynamo.set_parameters!(GeoDynamo.SolverParameters(); validate=false)
+            GeoDynamo.set_parameters!(GeoDynamo.SolverParameters(); validate = false)
             params = GeoDynamo.get_parameters()
             @test params isa GeoDynamo.SolverParameters
             @test params.nr >= 8
         finally
-            GeoDynamo.set_parameters!(original; validate=false)
+            GeoDynamo.set_parameters!(original; validate = false)
         end
     end
 
     @testset "set_parameters! and get_parameters roundtrip" begin
         original = GeoDynamo.get_parameters()
         try
-            custom = GeoDynamo.SolverParameters(nr=96, Ra=5e7, Ek=1e-3)
-            GeoDynamo.set_parameters!(custom; validate=true, strict=false)
+            custom = GeoDynamo.SolverParameters(nr = 96, Ra = 5e7, Ek = 1e-3)
+            GeoDynamo.set_parameters!(custom; validate = true, strict = false)
             retrieved = GeoDynamo.get_parameters()
             @test retrieved.nr == 96
             @test retrieved.Ra == 5e7
             @test retrieved.Ek == 1e-3
         finally
-            GeoDynamo.set_parameters!(original; validate=false)
+            GeoDynamo.set_parameters!(original; validate = false)
         end
     end
 
     @testset "set_parameters! with validate=false skips validation" begin
         original = GeoDynamo.get_parameters()
         try
-            bad = GeoDynamo.SolverParameters(Ek=-999.0)
-            GeoDynamo.set_parameters!(bad; validate=false)
+            bad = GeoDynamo.SolverParameters(Ek = -999.0)
+            GeoDynamo.set_parameters!(bad; validate = false)
             @test GeoDynamo.get_parameters().Ek == -999.0
         finally
-            GeoDynamo.set_parameters!(original; validate=false)
+            GeoDynamo.set_parameters!(original; validate = false)
         end
     end
 
@@ -54,7 +54,7 @@ using Test
             @test contains(content, "Ek")
             @test !contains(content, "i_N")
         finally
-            rm(tmpfile, force=true)
+            rm(tmpfile, force = true)
         end
     end
 

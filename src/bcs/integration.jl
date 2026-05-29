@@ -27,12 +27,13 @@ Note: The field struct must be a mutable struct since this function modifies its
 function initialize_boundary_conditions!(𝔽, field_type::FieldType)
     # Validate required boundary condition fields exist
     # Note: In Julia, struct fields cannot be added at runtime - they must be pre-defined
-    required_fields = [:boundary_condition_set, :boundary_interpolation_cache, :boundary_time_index]
+    required_fields = [
+        :boundary_condition_set, :boundary_interpolation_cache, :boundary_time_index]
 
     for field_name in required_fields
         if !hasfield(typeof(𝔽), field_name)
             throw(ArgumentError("Field structure missing required field: $field_name. " *
-                "Ensure your field struct includes boundary condition fields."))
+                                "Ensure your field struct includes boundary condition fields."))
         end
     end
 
@@ -111,7 +112,6 @@ function apply_boundary_conditions!(𝔽, field_type::FieldType, solver_state)
     current_time = get_current_simulation_time(solver_state)
     if 𝔽.boundary_condition_set.inner_boundary.is_time_dependent ||
        𝔽.boundary_condition_set.outer_boundary.is_time_dependent
-
         update_time_dependent_boundaries!(𝔽, field_type, current_time)
     end
 
@@ -184,19 +184,23 @@ function validate_field_boundary_compatibility(𝔽, field_type::FieldType, boun
         config = 𝔽.config
 
         if boundary_set.inner_boundary.nlat != config.nlat
-            push!(errors, "Grid size mismatch: inner boundary nlat=$(boundary_set.inner_boundary.nlat), config nlat=$(config.nlat)")
+            push!(errors,
+                "Grid size mismatch: inner boundary nlat=$(boundary_set.inner_boundary.nlat), config nlat=$(config.nlat)")
         end
 
         if boundary_set.inner_boundary.nlon != config.nlon
-            push!(errors, "Grid size mismatch: inner boundary nlon=$(boundary_set.inner_boundary.nlon), config nlon=$(config.nlon)")
+            push!(errors,
+                "Grid size mismatch: inner boundary nlon=$(boundary_set.inner_boundary.nlon), config nlon=$(config.nlon)")
         end
 
         if boundary_set.outer_boundary.nlat != config.nlat
-            push!(errors, "Grid size mismatch: outer boundary nlat=$(boundary_set.outer_boundary.nlat), config nlat=$(config.nlat)")
+            push!(errors,
+                "Grid size mismatch: outer boundary nlat=$(boundary_set.outer_boundary.nlat), config nlat=$(config.nlat)")
         end
 
         if boundary_set.outer_boundary.nlon != config.nlon
-            push!(errors, "Grid size mismatch: outer boundary nlon=$(boundary_set.outer_boundary.nlon), config nlon=$(config.nlon)")
+            push!(errors,
+                "Grid size mismatch: outer boundary nlon=$(boundary_set.outer_boundary.nlon), config nlon=$(config.nlon)")
         end
     end
 
@@ -212,12 +216,14 @@ function validate_field_boundary_compatibility(𝔽, field_type::FieldType, boun
 
         # Check vector component count
         if boundary_set.inner_boundary.ncomponents != 3
-            push!(errors, "Vector boundary conditions require 3 components, got $(boundary_set.inner_boundary.ncomponents)")
+            push!(errors,
+                "Vector boundary conditions require 3 components, got $(boundary_set.inner_boundary.ncomponents)")
         end
     elseif field_type == TEMPERATURE || field_type == COMPOSITION
         # Scalar fields
         if boundary_set.inner_boundary.ncomponents != 1
-            push!(errors, "Scalar boundary conditions require 1 component, got $(boundary_set.inner_boundary.ncomponents)")
+            push!(errors,
+                "Scalar boundary conditions require 1 component, got $(boundary_set.inner_boundary.ncomponents)")
         end
     end
 
@@ -357,7 +363,6 @@ end
 Get a summary of the current boundary condition state.
 """
 function get_boundary_condition_summary(𝔽, field_type::FieldType)
-
     summary = Dict{String, Any}()
 
     summary["field_type"] = string(field_type)
@@ -467,7 +472,7 @@ in the field's `boundary_values` matrix, along with setting BC types.
 - `pbs`: ProgrammaticBoundarySet containing boundary data and BC types
 - `time`: Current simulation time (for time-dependent boundaries)
 """
-function apply_temperature_boundaries!(temp_field, pbs::ProgrammaticBoundarySet; time=0.0)
+function apply_temperature_boundaries!(temp_field, pbs::ProgrammaticBoundarySet; time = 0.0)
     cfg = temp_field.config
 
     # Store the boundary condition set on the field
@@ -502,7 +507,7 @@ end
 Apply programmatic composition boundary conditions to a composition field.
 Same interface as `apply_temperature_boundaries!`.
 """
-function apply_composition_boundaries!(comp_field, pbs::ProgrammaticBoundarySet; time=0.0)
+function apply_composition_boundaries!(comp_field, pbs::ProgrammaticBoundarySet; time = 0.0)
     cfg = comp_field.config
 
     # Store the boundary condition set on the field

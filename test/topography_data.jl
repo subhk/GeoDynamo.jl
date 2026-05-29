@@ -146,7 +146,7 @@ const topo = GeoDynamo.bcs.topography
         coeffs = zeros(ComplexF64, nlm_lmax4)
         coeffs[1] = 1.0
         td = topo.create_topography_data(
-            cmb_coeffs=coeffs, cmb_radius=1.0, lmax=lmax, epsilon=0.05
+            cmb_coeffs = coeffs, cmb_radius = 1.0, lmax = lmax, epsilon = 0.05
         )
         @test td.cmb !== nothing
         @test td.icb === nothing
@@ -158,7 +158,7 @@ const topo = GeoDynamo.bcs.topography
     @testset "create_topography_data with ICB coefficients" begin
         coeffs = [1.0, 0.5, 0.3]
         td = topo.create_topography_data(
-            icb_coeffs=coeffs, icb_radius=0.35, lmax=4
+            icb_coeffs = coeffs, icb_radius = 0.35, lmax = 4
         )
         @test td.icb !== nothing
         @test td.cmb === nothing
@@ -167,7 +167,7 @@ const topo = GeoDynamo.bcs.topography
 
     # ─── create_uniform_topography ────────────────────────────────────────
     @testset "create_uniform_topography" begin
-        field = topo.create_uniform_topography(0.1, 1.0, GeoDynamo.OUTER_BOUNDARY; lmax=8)
+        field = topo.create_uniform_topography(0.1, 1.0, GeoDynamo.OUTER_BOUNDARY; lmax = 8)
         @test field.lmax == 8
         @test field.radius == 1.0
         @test field.coeffs_real[1] ≈ 0.1 * sqrt(4π)
@@ -177,7 +177,7 @@ const topo = GeoDynamo.bcs.topography
     # ─── create_spherical_harmonic_topography ─────────────────────────────
     @testset "create_spherical_harmonic_topography (l=2, m=0)" begin
         field = topo.create_spherical_harmonic_topography(
-            2, 0, 0.5, 1.0, GeoDynamo.OUTER_BOUNDARY; lmax=8
+            2, 0, 0.5, 1.0, GeoDynamo.OUTER_BOUNDARY; lmax = 8
         )
         idx = topo.lm_to_index(2, 0, 8)
         @test field.coeffs_real[idx] ≈ 0.5
@@ -186,7 +186,7 @@ const topo = GeoDynamo.bcs.topography
 
     @testset "create_spherical_harmonic_topography (l=3, m=2)" begin
         field = topo.create_spherical_harmonic_topography(
-            3, 2, 1.0, 0.35, GeoDynamo.INNER_BOUNDARY; lmax=8
+            3, 2, 1.0, 0.35, GeoDynamo.INNER_BOUNDARY; lmax = 8
         )
         idx = topo.lm_to_index(3, 2, 8)
         @test field.coeffs_real[idx] ≈ 1.0
@@ -195,7 +195,7 @@ const topo = GeoDynamo.bcs.topography
 
     @testset "create_spherical_harmonic_topography asserts on bad inputs" begin
         @test_throws AssertionError topo.create_spherical_harmonic_topography(
-            10, 0, 1.0, 1.0, GeoDynamo.OUTER_BOUNDARY; lmax=8
+            10, 0, 1.0, 1.0, GeoDynamo.OUTER_BOUNDARY; lmax = 8
         )
     end
 

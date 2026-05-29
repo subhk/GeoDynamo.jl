@@ -23,17 +23,17 @@ end
 @testset "Boundary File IO" begin
     @testset "NetCDF boundary roundtrip" begin
         mktempdir() do tmpdir
-            theta = collect(range(0.0, π; length=4))
-            phi = collect(range(0.0, 2π * (1 - 1 / 5); length=5))
+            theta = collect(range(0.0, π; length = 4))
+            phi = collect(range(0.0, 2π * (1 - 1 / 5); length = 5))
             values = reshape(collect(Float64, 1:20), 4, 5)
             boundary = BCS.create_boundary_data(
                 values,
                 "temperature";
-                theta=theta,
-                phi=phi,
-                units="K",
-                description="synthetic temperature boundary",
-                file_path="programmatic",
+                theta = theta,
+                phi = phi,
+                units = "K",
+                description = "synthetic temperature boundary",
+                file_path = "programmatic"
             )
 
             filename = joinpath(tmpdir, "temperature_boundary.nc")
@@ -93,7 +93,8 @@ end
     end
 
     @testset "Spectral BC loading supports both stored orientations" begin
-        cfg = GeoDynamo.create_shtnskit_config(lmax=2, mmax=2, nlat=8, nlon=16, nr=4)
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 2, mmax = 2, nlat = 8, nlon = 16, nr = 4)
         nlm = cfg.nlm
 
         mktempdir() do tmpdir
@@ -101,7 +102,7 @@ end
             bc_im = -bc_re
 
             filename = write_spectral_bc_file(joinpath(tmpdir, "spectral_bc.nc"), bc_re, bc_im)
-            coeffs = BCS.load_spectral_bc_from_file(filename, cfg; format=:spectral)
+            coeffs = BCS.load_spectral_bc_from_file(filename, cfg; format = :spectral)
             @test coeffs.nlm == nlm
             @test coeffs.source_format == :spectral
             @test coeffs.bc_real == bc_re
@@ -117,14 +118,15 @@ end
                 ds["Cbc_Im"][:, :] = permutedims(bc_im)
             end
 
-            transposed = BCS.load_spectral_bc_from_file(transposed_filename, cfg; format=:spectral)
+            transposed = BCS.load_spectral_bc_from_file(transposed_filename, cfg; format = :spectral)
             @test transposed.bc_real == bc_re
             @test transposed.bc_imag == bc_im
         end
     end
 
     @testset "Physical BC loading and field cache storage" begin
-        cfg = GeoDynamo.create_shtnskit_config(lmax=2, mmax=2, nlat=8, nlon=16, nr=4)
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 2, mmax = 2, nlat = 8, nlon = 16, nr = 4)
 
         mktempdir() do tmpdir
             filename = joinpath(tmpdir, "physical_bc.nc")
@@ -137,7 +139,7 @@ end
                 ds["outer"][:, :] = zeros(cfg.nlat, cfg.nlon)
             end
 
-            coeffs = BCS.load_spectral_bc_from_file(filename, cfg; format=:physical)
+            coeffs = BCS.load_spectral_bc_from_file(filename, cfg; format = :physical)
             @test coeffs.source_format == :physical
             @test all(iszero, coeffs.bc_real)
             @test all(iszero, coeffs.bc_imag)
