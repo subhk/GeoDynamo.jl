@@ -19,9 +19,9 @@
 #   ε ∂_t h_i = uₙ + (k_ic ∂_n T_ic - k ∂_n T) / (ρ L)
 #
 # In spectral form (Eq. 31):
-#   ε ∂_t h^i_{ℓm} = u_{n,ℓm} + (1/ρL) F_{ℓm}
+#   ε ∂_t h^i_{lm} = u_{n,lm} + (1/ρL) F_{lm}
 #
-# where F_{ℓm} collects the heat flux contributions.
+# where F_{lm} collects the heat flux contributions.
 #
 # ================================================================================
 
@@ -179,9 +179,9 @@ end
 """
     compute_stefan_flux(state::StefanState{T}) -> Vector{Complex{T}}
 
-Compute the Stefan flux contribution F_{ℓm} for topography evolution.
+Compute the Stefan flux contribution F_{lm} for topography evolution.
 
-F_{ℓm} = k_ic ∂_n Θ^{ic}_{ℓm} - k ∂_n Θ_{ℓm}
+F_{lm} = k_ic ∂_n Θ^{ic}_{lm} - k ∂_n Θ_{lm}
 
 Returns spectral coefficients of the net heat flux imbalance.
 """
@@ -560,7 +560,7 @@ end
 
 Compute spectral coefficients of normal (radial) velocity at a boundary.
 
-uₙ = uᵣ = ℓ(ℓ+1)/r² P at the boundary
+uₙ = uᵣ = l(l+1)/r² P at the boundary
 
 Returns vector of spectral coefficients for uᵣ.
 """
@@ -578,7 +578,7 @@ function compute_normal_velocity_spectral(velocity_field, r::T,
     nlm = poloidal.nlm
     un = zeros(Complex{T}, nlm)
 
-    # uᵣ = ℓ(ℓ+1)/r² P
+    # uᵣ = l(l+1)/r² P
     for lm_idx in 1:nlm
         l, m = index_to_lm(lm_idx, poloidal.config.lmax)
 

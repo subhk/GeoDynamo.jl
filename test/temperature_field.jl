@@ -27,10 +27,10 @@ const FINALIZE_MPI_THERM = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         @test all(parent(temp.temperature.data) .== 0.0)
     end
 
-    @testset "ℓ_factors type stability" begin
-        @test eltype(temp.ℓ_factors) == Float64
+    @testset "l_factors type stability" begin
+        @test eltype(temp.l_factors) == Float64
         temp32 = GeoDynamo.create_shtns_temperature_field(Float32, cfg, dom)
-        @test eltype(temp32.ℓ_factors) == Float32
+        @test eltype(temp32.l_factors) == Float32
     end
 
     @testset "Internal sources default to zero" begin

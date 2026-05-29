@@ -181,7 +181,7 @@ mutable struct SHTnsVelocityFields{
     advection_physical::VF
     
     # Pre-computed coefficients
-    ℓ_factors::Vector{T}                # l(l+1) values
+    l_factors::Vector{T}                # l(l+1) values
     coriolis_factors::Matrix{T}         # Pre-computed Coriolis terms
     
     # Radial derivative matrices
@@ -325,13 +325,13 @@ function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
     nr = domain.N
 
     # The expensive part is radial differentiation, so the loop is organized by
-    # spectral mode: gather one `(ℓ,m)` radial profile, differentiate it, then
+    # spectral mode: gather one `(l,m)` radial profile, differentiate it, then
     # write back the corresponding vorticity profile for that same mode.
     Threads.@threads for lm_idx in lm_range
-        if lm_idx <= length(𝒰.ℓ_factors)
+        if lm_idx <= length(𝒰.l_factors)
             slot = local_spectral_storage_slot(config, lm_idx)
             slot === nothing && continue
-            ℓ_factor = 𝒰.ℓ_factors[lm_idx]
+            l_factor = 𝒰.l_factors[lm_idx]
             tid = Threads.threadid()
 
             # Thread safety: ensure thread ID is within workspace bounds
@@ -379,17 +379,17 @@ function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
                         r⁻¹  = domain.r[r_idx, 3]
                         r⁻² = domain.r[r_idx, 2]
                         set_local_spectral_value!(ζᵀ_real, slot, local_r,
-                                                  ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx] -
+                                                  l_factor * r⁻² * Pᴾ_profile_real[r_idx] -
                                                   ∂ᵣᵣ𝒫_real[r_idx] -
                                                   2.0 * r⁻¹ * ∂ᵣ𝒫_real[r_idx])
                         set_local_spectral_value!(ζᵀ_imag, slot, local_r,
-                                                  ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx] -
+                                                  l_factor * r⁻² * Pᴾ_profile_imag[r_idx] -
                                                   ∂ᵣᵣ𝒫_imag[r_idx] -
                                                   2.0 * r⁻¹ * ∂ᵣ𝒫_imag[r_idx])
                         set_local_spectral_value!(ζᴾ_real, slot, local_r,
-                                                  -ℓ_factor * r⁻² * Tᵀ_profile_real[r_idx])
+                                                  -l_factor * r⁻² * Tᵀ_profile_real[r_idx])
                         set_local_spectral_value!(ζᴾ_imag, slot, local_r,
-                                                  -ℓ_factor * r⁻² * Tᵀ_profile_imag[r_idx])
+                                                  -l_factor * r⁻² * Tᵀ_profile_imag[r_idx])
                     end
                 end
             end
@@ -461,7 +461,7 @@ function create_shtns_velocity_fields(::Type{T}, config::C,
     advection_physical = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, pencils)
     
     # Pre-compute l(l+1) factors
-    ℓ_factors = T[l * (l + 1) for l in config.l_values]
+    l_factors = T[l * (l + 1) for l in config.l_values]
     
     # Pre-compute Coriolis factors (sin(θ) and cos(θ))
     coriolis_factors = zeros(T, 2, config.nlat)
@@ -488,7 +488,7 @@ function create_shtns_velocity_fields(::Type{T}, config::C,
                                nlᵀ, nlᴾ, prev_nlᵀ, prev_nlᴾ,
                                work_tor, work_pol, work_physical,
                                advection_physical,
-                               ℓ_factors, coriolis_factors,
+                               l_factors, coriolis_factors,
                                ∂r, ∂²r, laplacian_matrix,
                                config,
                                𝒟ᵒᶜ,
@@ -973,7 +973,7 @@ end
 
 
 # function solve_helmholtz_equation(laplacian::BandedMatrix{T}, source::Vector{T},
-#                                  ℓ_factor::Float64, domain::RadialDomain) where T
+#                                  l_factor::Float64, domain::RadialDomain) where T
 #     # Solve (∇²_r - l(l+1)/r²) u = source
 #     # This is a simplified solver - in practice would use more sophisticated methods
     
@@ -992,7 +992,7 @@ end
 #                 if i == j
 #                     # Add -l(l+1)/r² term to diagonal
 #                     r⁻² = 𝒟ᵒᶜ.r[i, 2]
-#                     operator[i, j] -= ℓ_factor * r⁻²
+#                     operator[i, j] -= l_factor * r⁻²
 #                 end
 #             end
 #         end
@@ -1037,10 +1037,10 @@ function compute_kinetic_energy(𝒰::SHTnsVelocityFields{T}, 𝒟ᵒᶜ::Radial
         if lm_idx <= 𝒰.𝒯.nlm
             slot = local_spectral_storage_slot(config, lm_idx)
             slot === nothing && continue
-            ℓ_factor = 𝒰.ℓ_factors[lm_idx]
+            l_factor = 𝒰.l_factors[lm_idx]
             
             # Spectral kinetic energy weight: l(l+1) for toroidal-poloidal decomposition
-            weight = Float64(ℓ_factor)
+            weight = Float64(l_factor)
 
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
@@ -1203,9 +1203,9 @@ function validate_velocity_configuration(𝒰::SHTnsVelocityFields{T}, config::C
         push!(errors, "Toroidal field local slot capacity is smaller than owned spectral mode count")
     end
 
-    # Check that ℓ_factors are consistent
-    if length(𝒰.ℓ_factors) != config.nlm
-        push!(errors, "ℓ_factors length mismatch with config.nlm")
+    # Check that l_factors are consistent
+    if length(𝒰.l_factors) != config.nlm
+        push!(errors, "l_factors length mismatch with config.nlm")
     end
     
     # Validate pencil topology consistency

@@ -13,13 +13,13 @@
 # In spectral form (from PDF equations 38-39):
 #
 # Dirichlet:
-#   Θ_{ℓm} + ε Σ h^b_{LM} G_{ℓm,ℓ'm',LM} ∂_r Θ_{ℓ'm'}
-#       = [T_b - T_cond(r_b)]_{ℓm} - ε Σ h^b_{LM} G_{ℓm,00,LM} ∂_r T_cond
+#   Θ_{lm} + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂_r Θ_{l'm'}
+#       = [T_b - T_cond(r_b)]_{lm} - ε Σ h^b_{LM} G_{lm,00,LM} ∂_r T_cond
 #
 # Neumann:
-#   ∂_r Θ_{ℓm} - ε Σ h^b_{LM} G^{(∇)}_{ℓm,ℓ'm',LM} Θ_{ℓ'm'}
-#              + ε Σ h^b_{LM} G_{ℓm,ℓ'm',LM} ∂_rr Θ_{ℓ'm'}
-#       = -q_{b,ℓm}/k - ∂_r T_cond δ_{ℓ0}δ_{m0} - ε Σ h^b_{LM} G_{ℓm,00,LM} ∂_rr T_cond
+#   ∂_r Θ_{lm} - ε Σ h^b_{LM} G^{(∇)}_{lm,l'm',LM} Θ_{l'm'}
+#              + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂_rr Θ_{l'm'}
+#       = -q_{b,lm}/k - ∂_r T_cond δ_{l0}δ_{m0} - ε Σ h^b_{LM} G_{lm,00,LM} ∂_rr T_cond
 #
 # ================================================================================
 
@@ -160,7 +160,7 @@ function apply_thermal_correction_at_boundary!(spectral,
     # As in the velocity path, each target boundary mode gathers contributions
     # from all compatible topography and field modes before one correction is
     # written back into the stored boundary row.
-    # Compute corrections for each (ℓ, m) mode
+    # Compute corrections for each (l, m) mode
     for l in 0:lmax
         for m in -l:l
             if abs(m) > mmax
@@ -204,8 +204,8 @@ end
 Compute topography correction to Dirichlet thermal BC for mode (l, m).
 
 From PDF equation 38:
-Θ_{ℓm} + ε Σ h^b_{LM} G_{ℓm,ℓ'm',LM} ∂_r Θ_{ℓ'm'}
-    = [T_b - T_cond(r_b)]_{ℓm} - ε Σ h^b_{LM} G_{ℓm,00,LM} ∂_r T_cond
+Θ_{lm} + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂_r Θ_{l'm'}
+    = [T_b - T_cond(r_b)]_{lm} - ε Σ h^b_{LM} G_{lm,00,LM} ∂_r T_cond
 
 The correction to the RHS involves:
 1. Shift term: h · ∂_r Θ (couples modes)
@@ -284,9 +284,9 @@ end
 Compute topography correction to Neumann thermal BC for mode (l, m).
 
 From PDF equation 39:
-∂_r Θ_{ℓm} - ε Σ h^b_{LM} G^{(∇)}_{ℓm,ℓ'm',LM} Θ_{ℓ'm'}
-           + ε Σ h^b_{LM} G_{ℓm,ℓ'm',LM} ∂_rr Θ_{ℓ'm'}
-    = -q_{b,ℓm}/k - ∂_r T_cond δ_{ℓ0}δ_{m0} - ε Σ h^b_{LM} G_{ℓm,00,LM} ∂_rr T_cond
+∂_r Θ_{lm} - ε Σ h^b_{LM} G^{(∇)}_{lm,l'm',LM} Θ_{l'm'}
+           + ε Σ h^b_{LM} G_{lm,l'm',LM} ∂_rr Θ_{l'm'}
+    = -q_{b,lm}/k - ∂_r T_cond δ_{l0}δ_{m0} - ε Σ h^b_{LM} G_{lm,00,LM} ∂_rr T_cond
 
 The correction involves:
 1. Slope term: -∇_H h · ∇_H Θ (gradient coupling)

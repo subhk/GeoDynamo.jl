@@ -6,15 +6,15 @@
 #
 # 1. CMB with insulating mantle:
 #    - Toroidal: T_b(r_o) + εh_o ∂_r T_b(r_o) = 0
-#    - Poloidal: ∂_r P_{b,ℓm} + (ℓ+1)/r_o P_{b,ℓm} + topography_couplings = 0
+#    - Poloidal: ∂_r P_{b,lm} + (l+1)/r_o P_{b,lm} + topography_couplings = 0
 #
 # 2. ICB with insulating inner core:
 #    - Toroidal: T_b(r_i) + εh_i ∂_r T_b(r_i) = 0
-#    - Poloidal: ∂_r P_{b,ℓm} - ℓ/r_i P_{b,ℓm} + topography_couplings = 0
+#    - Poloidal: ∂_r P_{b,lm} - l/r_i P_{b,lm} + topography_couplings = 0
 #
 # The flat-sphere magnetic BC conditions (insulating):
-#    CMB: ∂_r P + (ℓ+1)/r_o P = 0,  T = 0
-#    ICB: ∂_r P - ℓ/r_i P = 0,      T = 0
+#    CMB: ∂_r P + (l+1)/r_o P = 0,  T = 0
+#    ICB: ∂_r P - l/r_i P = 0,      T = 0
 #
 # ================================================================================
 
@@ -125,7 +125,7 @@ function apply_magnetic_correction_at_boundary!(poloidal,
     P_bv = poloidal.boundary_values
     T_bv = toroidal.boundary_values
 
-    # Compute corrections for each (ℓ, m) mode
+    # Compute corrections for each (l, m) mode
     for l in 1:lmax  # Start from l=1 (l=0 has no magnetic dipole)
         for m in -l:l
             if abs(m) > mmax
@@ -138,7 +138,7 @@ function apply_magnetic_correction_at_boundary!(poloidal,
             end
 
             if bc_type == :insulating_outer
-                # CMB insulating: ∂_r P + (ℓ+1)/r_o P = 0, T = 0
+                # CMB insulating: ∂_r P + (l+1)/r_o P = 0, T = 0
                 P_corr, T_corr = compute_cmb_insulating_correction(
                     l, m, p_cache, t_cache, topo_field, gaunt, rb, location, config
                 )
@@ -146,7 +146,7 @@ function apply_magnetic_correction_at_boundary!(poloidal,
                 T_bv[bc_row, lm_idx] -= ε * real(T_corr)
 
             elseif bc_type == :insulating_inner
-                # ICB insulating: ∂_r P - ℓ/r_i P = 0, T = 0
+                # ICB insulating: ∂_r P - l/r_i P = 0, T = 0
                 P_corr, T_corr = compute_icb_insulating_correction(
                     l, m, p_cache, t_cache, topo_field, gaunt, rb, location, config
                 )
@@ -170,11 +170,11 @@ end
 Compute topography correction to CMB insulating boundary condition.
 
 Flat-sphere conditions:
-- ∂_r P_{b,ℓm} + (ℓ+1)/r_o P_{b,ℓm} = 0
-- T_{b,ℓm} = 0
+- ∂_r P_{b,lm} + (l+1)/r_o P_{b,lm} = 0
+- T_{b,lm} = 0
 
 With topography, the poloidal condition becomes:
-[∂_r P + (ℓ+1)/r_o P]_{ℓm} + ε Σ h^o_{LM} (α^o ∂_r P + β^o T + γ^o P) = 0
+[∂_r P + (l+1)/r_o P]_{lm} + ε Σ h^o_{LM} (α^o ∂_r P + β^o T + γ^o P) = 0
 
 and toroidal:
 T + εh_o ∂_r T = 0
@@ -247,7 +247,7 @@ function compute_cmb_insulating_correction(l::Int, m::Int,
                 d2P_dr2 = get_cache_d2(p_cache, lp, mp, location)
 
                 if config.include_shift_terms && abs(G) > 1e-15
-                    # Shift term: h · ∂r(∂r P + (ℓ+1)P/r)
+                    # Shift term: h · ∂r(∂r P + (l+1)P/r)
                     shift_term = d2P_dr2 + (lp + 1) * dP_dr / ro - (lp + 1) * P_val / ro^2
                     P_correction += h_LM * G * shift_term
                 end
@@ -282,11 +282,11 @@ end
 Compute topography correction to ICB insulating boundary condition.
 
 Flat-sphere conditions:
-- ∂_r P_{b,ℓm} - ℓ/r_i P_{b,ℓm} = 0
-- T_{b,ℓm} = 0
+- ∂_r P_{b,lm} - l/r_i P_{b,lm} = 0
+- T_{b,lm} = 0
 
 With topography, the poloidal condition becomes:
-[∂_r P - ℓ/r_i P]_{ℓm} + ε Σ h^i_{LM} (α^i ∂_r P + β^i T + γ^i P) = 0
+[∂_r P - l/r_i P]_{lm} + ε Σ h^i_{LM} (α^i ∂_r P + β^i T + γ^i P) = 0
 """
 function compute_icb_insulating_correction(l::Int, m::Int,
                                            p_cache::BoundaryDerivativeCache{T},
@@ -353,7 +353,7 @@ function compute_icb_insulating_correction(l::Int, m::Int,
                 d2P_dr2 = get_cache_d2(p_cache, lp, mp, location)
 
                 if config.include_shift_terms && abs(G) > 1e-15
-                    # Shift term: h · ∂r(∂r P - ℓ P/r)
+                    # Shift term: h · ∂r(∂r P - l P/r)
                     shift_term = d2P_dr2 - lp * dP_dr / ri + lp * P_val / ri^2
                     P_correction += h_LM * G * shift_term
                 end
@@ -413,11 +413,11 @@ function assemble_magnetic_boundary_operator(l::Int, topo::TopographyField{T},
     # Flat-sphere contribution (diagonal)
     for m in -l:l
         if location == OUTER_BOUNDARY
-            # CMB: ∂_r P + (ℓ+1)/r_o P = 0
+            # CMB: ∂_r P + (l+1)/r_o P = 0
             operator[(l, m, :dP)] = one(Complex{T})
             operator[(l, m, :P)] = Complex{T}((l + 1) / rb)
         else
-            # ICB: ∂_r P - ℓ/r_i P = 0
+            # ICB: ∂_r P - l/r_i P = 0
             operator[(l, m, :dP)] = one(Complex{T})
             operator[(l, m, :P)] = Complex{T}(-l / rb)
         end
@@ -492,8 +492,8 @@ Compute the coefficients for matching the core magnetic field to an
 external potential field across a topographic boundary.
 
 For an insulating exterior, B = -∇Φ where:
-- Φ_ext = Σ a_{ℓm} r^{-(ℓ+1)} Y_ℓ^m  (exterior, r > r_o)
-- Φ_int = Σ b_{ℓm} r^ℓ Y_ℓ^m         (interior, r < r_i)
+- Φ_ext = Σ a_{lm} r^{-(l+1)} Y_l^m  (exterior, r > r_o)
+- Φ_int = Σ b_{lm} r^l Y_l^m         (interior, r < r_i)
 
 Continuity of B_t at the true surface introduces topography coupling.
 """
@@ -504,11 +504,11 @@ function compute_potential_matching_coefficients(l::Int, topo::TopographyField{T
     ε = one(T) * 0.01  # Default epsilon
     lmax_t = topo.lmax
 
-    # Matching coefficients for each (ℓ', m')
+    # Matching coefficients for each (l', m')
     coeffs = Dict{Tuple{Int, Int}, Complex{T}}()
 
     # The flat matching condition at CMB (exterior insulating):
-    # a_ℓm = P_ℓm / r_o^{ℓ+2}  (relates to poloidal field)
+    # a_lm = P_lm / r_o^{l+2}  (relates to poloidal field)
 
     # With topography, modes couple through Gaunt tensors
     for L in 0:lmax_t

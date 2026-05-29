@@ -1,0 +1,33 @@
+{
+  "planPath": "docs/superpowers/plans/2026-04-26-gpu-architecture.md",
+  "tasks": [
+    {
+      "id": 26,
+      "subject": "Task 1: Define AbstractArchitecture, CPU, GPU{B} in src/core/architecture.jl",
+      "status": "completed",
+      "description": "**Goal:** Create the foundation architecture type hierarchy with allocation and array-movement primitives; export them from the module.\n\n**Files:**\n- Create: `src/core/architecture.jl`\n- Modify: `src/GeoDynamo.jl`\n- Modify: `src/api/grids.jl`\n- Test: `test/gpu_backend.jl`\n\n```json:metadata\n{\"files\": [\"src/core/architecture.jl\", \"src/GeoDynamo.jl\", \"src/api/grids.jl\", \"test/gpu_backend.jl\"], \"verifyCommand\": \"julia --project -e 'using GeoDynamo; @assert CPU() isa AbstractArchitecture; @assert arch_zeros(CPU(), Float64, 2) == zeros(Float64, 2); println(\\\"ok\\\")'\", \"acceptanceCriteria\": [\"CPU <: AbstractArchitecture is defined\", \"GPU{B} <: AbstractArchitecture is defined with a backend::B field\", \"arch_zeros(CPU(), Float64, 2, 3) == zeros(Float64, 2, 3)\", \"on_architecture(CPU(), [1,2,3]) isa Array\", \"get_backend(CPU()) isa KernelAbstractions.CPU\", \"GPU, CPU, AbstractArchitecture, arch_zeros, on_architecture, get_backend are exported from GeoDynamo\"]}\n```"
+    },
+    {
+      "id": 27,
+      "subject": "Task 2: Parameterize SolverBackend{A}, TransformWorkspace{T,A}, SolverRuntime{T,A}, SolverState{T,A}",
+      "status": "pending",
+      "blockedBy": [26],
+      "description": "**Goal:** Thread the architecture type parameter through the four key solver structs so Julia can specialize solver dispatch on architecture at compile time.\n\n```json:metadata\n{\"files\": [\"src/solver/backend.jl\", \"src/solver/state.jl\", \"src/solver/mainloop.jl\"], \"verifyCommand\": \"grep -n \\\"architecture === :gpu\\\\|solver_gpu_device\\\\|device::Symbol\\\" src/solver/backend.jl\", \"acceptanceCriteria\": [\"SolverBackend{CPU} constructs and has field architecture::CPU\", \"TransformWorkspace{Float64, CPU} constructs and has field arch::CPU (not device::Symbol)\", \"SolverRuntime{Float64, CPU} constructs\", \"SolverState{Float64, CPU} constructs\", \"solver_create_shtns_config dispatches on arch type\", \"create_transform_workspace takes arch directly\"]}\n```"
+    },
+    {
+      "id": 28,
+      "subject": "Task 3: Replace SHT dispatch + delete old GPU system",
+      "status": "pending",
+      "blockedBy": [27],
+      "description": "**Goal:** Replace all 8 if uses_gpu branches with arch-dispatched overloads; delete GPUBackendState, _GPU_BACKEND, and all interop wrappers.\n\n```json:metadata\n{\"files\": [\"src/solver/numerics.jl\", \"src/solver/interop.jl\", \"src/GeoDynamo.jl\", \"src/physics/nonlinear.jl\"], \"verifyCommand\": \"grep -rn \\\"_GPU_BACKEND\\\\|GPUBackendState\\\\|register_gpu_backend\\\\|uses_gpu\\\\b\\\\|solver_gpu_device\\\\b\\\" src/\", \"acceptanceCriteria\": [\"grep for _GPU_BACKEND|GPUBackendState|register_gpu_backend|with_gpu_backend in src/ is empty\", \"grep for uses_gpu|solver_gpu_device in src/ is empty\", \"grep for SOLVER_GPU_BACKEND|SOLVER_GPU_SCALAR|SOLVER_GPU_VECTOR|SOLVER_GPU_SCRATCH in src/ is empty\"]}\n```"
+    },
+    {
+      "id": 29,
+      "subject": "Task 4: Rewrite test/gpu_backend.jl and add regression tests",
+      "status": "pending",
+      "blockedBy": [28],
+      "description": "**Goal:** Replace the now-deleted _GPU_BACKEND / with_gpu_backend tests with architecture type verification; add stability regressions.\n\n```json:metadata\n{\"files\": [\"test/gpu_backend.jl\", \"test/stability_regressions.jl\"], \"verifyCommand\": \"julia --project -e 'using GeoDynamo; include(\\\"test/gpu_backend.jl\\\"); include(\\\"test/stability_regressions.jl\\\")'\", \"acceptanceCriteria\": [\"test/gpu_backend.jl passes with zero skipped tests\", \"No references to _GPU_BACKEND, GPUBackendState, register_gpu_backend, with_gpu_backend in tests\", \"Regression test asserts SolverBackend{CPU}.architecture === CPU\", \"Regression test asserts TransformWorkspace{Float64, CPU} has arch field not device\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-04-26T00:00:00Z"
+}

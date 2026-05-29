@@ -7,16 +7,16 @@
 # for efficient spherical harmonic transforms.
 #
 # Basic Gaunt integral:
-#   G_{ℓm,ℓ'm',LM} = ∫ Y_ℓ^{m*} Y_{ℓ'}^{m'} Y_L^M dΩ
+#   G_{lm,l'm',LM} = ∫ Y_l^{m*} Y_{l'}^{m'} Y_L^M dΩ
 #
 # Gradient Gaunt integral (for slope coupling):
-#   G^{(∇)}_{ℓm,ℓ'm',LM} = ∫ Y_ℓ^{m*} ∇_H Y_{ℓ'}^{m'} · ∇_H Y_L^M dΩ
+#   G^{(∇)}_{lm,l'm',LM} = ∫ Y_l^{m*} ∇_H Y_{l'}^{m'} · ∇_H Y_L^M dΩ
 #
 # Cross Gaunt integral (for toroidal coupling):
-#   G^{(×)}_{ℓm,ℓ'm',LM} = ∫ Y_ℓ^{m*} r̂ · (∇_H Y_{ℓ'}^{m'} × ∇_H Y_L^M) dΩ
+#   G^{(×)}_{lm,l'm',LM} = ∫ Y_l^{m*} r̂ · (∇_H Y_{l'}^{m'} × ∇_H Y_L^M) dΩ
 #
 # The gradient Gaunt can be computed efficiently using the identity:
-#   G^{(∇)} = (1/2)[ℓ'(ℓ'+1) + L(L+1) - ℓ(ℓ+1)] G
+#   G^{(∇)} = (1/2)[l'(l'+1) + L(L+1) - l(l+1)] G
 #
 # ================================================================================
 
@@ -29,7 +29,7 @@ using LinearAlgebra
 mutable struct GauntTensorCache{T<:AbstractFloat}
     lmax::Int
     lmax_topo::Int
-    G::Dict{NTuple{6,Int}, T}           # (ℓ,m,ℓ',m',L,M) -> value
+    G::Dict{NTuple{6,Int}, T}           # (l,m,l',m',L,M) -> value
     G_∇::Dict{NTuple{6,Int}, T}      # Gradient Gaunt
     G_cross::Dict{NTuple{6,Int}, T}     # Cross Gaunt
     sht_config::SHTnsKit.SHTConfig       # SHTnsKit configuration
@@ -363,7 +363,7 @@ end
                                   cache::GauntTensorCache{T}) where T
 
 Compute the gradient Gaunt integral using the analytic identity:
-G^{(∇)}_{l1,m1,l2,m2,L,M} = (1/2)[ℓ2(ℓ2+1) + L(L+1) - ℓ1(ℓ1+1)] G_{l1,m1,l2,m2,L,M}
+G^{(∇)}_{l1,m1,l2,m2,L,M} = (1/2)[l2(l2+1) + L(L+1) - l1(l1+1)] G_{l1,m1,l2,m2,L,M}
 
 This is more efficient and accurate than numerical gradient computation.
 """
@@ -710,7 +710,7 @@ end
     gradient_gaunt_from_basic(l1::Int, l2::Int, L::Int, G_basic::T) where T
 
 Compute gradient Gaunt using the identity:
-G^{(∇)} = (1/2)[ℓ2(ℓ2+1) + L(L+1) - ℓ1(ℓ1+1)] G
+G^{(∇)} = (1/2)[l2(l2+1) + L(L+1) - l1(l1+1)] G
 
 This avoids computing gradients explicitly.
 """

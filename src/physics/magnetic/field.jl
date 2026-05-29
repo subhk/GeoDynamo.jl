@@ -173,7 +173,7 @@ mutable struct SHTnsMagneticFields{
     induction_physical::VF  # Added missing field for u×B
 
     # Pre-computed coefficients
-    ℓ_factors::Vector{T}        # l(l+1) values
+    l_factors::Vector{T}        # l(l+1) values
 
     # Radial derivative matrices (cached for performance)
     ∂r::BandedMatrix{T}          # First derivative d/dr
@@ -241,7 +241,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::C,
     induction_physical = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, pencils)
     
     # Pre-compute l(l+1) factors
-    ℓ_factors = T[l * (l + 1) for l in config.l_values]
+    l_factors = T[l * (l + 1) for l in config.l_values]
 
     # Create radial derivative matrices (cached for performance)
     ∂r  = create_derivative_matrix(T, 1, 𝒟ᵒᶜ)
@@ -262,7 +262,7 @@ function create_shtns_magnetic_fields(::Type{T}, config::C,
                                nlᵀ, nlᴾ, prev_nlᵀ, prev_nlᴾ,
                                work_tor, work_pol, work_physical,
                                induction_physical,
-                               ℓ_factors,
+                               l_factors,
                                ∂r, ∂²r, curl_work,
                                imposed_field,
                                config,
@@ -325,7 +325,7 @@ end
 """
     _spectral_curl_torpol!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
                            src_tor_r, src_tor_i, src_pol_r, src_pol_i,
-                           ℓ_factors, d1_matrix, d²_matrix, domain, config, T)
+                           l_factors, d1_matrix, d²_matrix, domain, config, T)
 
 Shared spectral curl for toroidal-poloidal fields:
     (∇×V)_tor = [l(l+1)/r² - d²/dr² - 2/r d/dr] V_pol
@@ -336,7 +336,7 @@ Used by both current density (j = ∇×B) and induction curl (∇×(u×B)).
 function _spectral_curl_torpol!(
     dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
     src_tor_r, src_tor_i, src_pol_r, src_pol_i,
-    ℓ_factors, d1_matrix, d²_matrix, domain::RadialDomain, config::C, ::Type{T};
+    l_factors, d1_matrix, d²_matrix, domain::RadialDomain, config::C, ::Type{T};
     _work::Union{Nothing, NTuple{6, Vector{T}}}=nothing
 ) where {T,C<:SHTnsKitConfig}
     lm_range = local_spectral_mode_indices(config)
@@ -359,14 +359,14 @@ function _spectral_curl_torpol!(
     # same mode. That shared kernel is reused for both current density and the
     # curl of the induction term.
     for lm_idx in lm_range
-        if lm_idx > length(ℓ_factors)
+        if lm_idx > length(l_factors)
             continue
         end
         slot = local_spectral_storage_slot(config, lm_idx)
         if slot === nothing
             continue
         end
-        ℓ_factor = ℓ_factors[lm_idx]
+        l_factor = l_factors[lm_idx]
 
         fill!(Pᴾ_profile_real, zero(T))
         fill!(Pᴾ_profile_imag, zero(T))
@@ -394,17 +394,17 @@ function _spectral_curl_torpol!(
                     r⁻¹ = domain.r[r_idx, 3]
                     r⁻² = domain.r[r_idx, 2]
                     set_local_spectral_value!(dst_tor_r, slot, local_r,
-                                              ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx] -
+                                              l_factor * r⁻² * Pᴾ_profile_real[r_idx] -
                                               d²ᴾ_dr²_real[r_idx] -
                                               2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
                     set_local_spectral_value!(dst_tor_i, slot, local_r,
-                                              ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx] -
+                                              l_factor * r⁻² * Pᴾ_profile_imag[r_idx] -
                                               d²ᴾ_dr²_imag[r_idx] -
                                               2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
                     set_local_spectral_value!(dst_pol_r, slot, local_r,
-                                              -ℓ_factor * r⁻² * local_spectral_value(src_tor_r, slot, local_r))
+                                              -l_factor * r⁻² * local_spectral_value(src_tor_r, slot, local_r))
                     set_local_spectral_value!(dst_pol_i, slot, local_r,
-                                              -ℓ_factor * r⁻² * local_spectral_value(src_tor_i, slot, local_r))
+                                              -l_factor * r⁻² * local_spectral_value(src_tor_i, slot, local_r))
                 end
             end
         end
@@ -419,7 +419,7 @@ function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T},
         parent(ℬ.work_pol.data_real), parent(ℬ.work_pol.data_imag),
         parent(ℬ.𝒯.data_real), parent(ℬ.𝒯.data_imag),
         parent(ℬ.𝒫.data_real), parent(ℬ.𝒫.data_imag),
-        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, 𝒟ᵒᶜ, ℬ.𝒯.config, T;
+        ℬ.l_factors, ℬ.∂r, ℬ.∂²r, 𝒟ᵒᶜ, ℬ.𝒯.config, T;
         _work=ℬ.curl_work,
     )
 end
@@ -510,7 +510,7 @@ function compute_curl_of_induction!(ℬ::SHTnsMagneticFields{T}) where T
         parent(ℬ.nlᴾ.data_real), parent(ℬ.nlᴾ.data_imag),
         parent(ℬ.work_tor.data_real), parent(ℬ.work_tor.data_imag),
         parent(ℬ.work_pol.data_real), parent(ℬ.work_pol.data_imag),
-        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, ℬ.outer_domain, ℬ.𝒯.config, T;
+        ℬ.l_factors, ℬ.∂r, ℬ.∂²r, ℬ.outer_domain, ℬ.𝒯.config, T;
         _work=ℬ.curl_work,
     )
 end
@@ -619,10 +619,10 @@ function compute_magnetic_energy(ℬ::SHTnsMagneticFields{T}, domain::RadialDoma
         if lm_idx <= ℬ.𝒯.nlm
             slot = local_spectral_storage_slot(config, lm_idx)
             slot === nothing && continue
-            ℓ_factor = ℬ.ℓ_factors[lm_idx]
+            l_factor = ℬ.l_factors[lm_idx]
             
             # Spectral magnetic energy weight: l(l+1) for toroidal-poloidal decomposition
-            weight = Float64(ℓ_factor)
+            weight = Float64(l_factor)
 
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
@@ -766,9 +766,9 @@ function validate_magnetic_configuration(ℬ::SHTnsMagneticFields{T}, config::C)
         push!(errors, "Toroidal magnetic field local slot capacity is smaller than owned spectral mode count")
     end
     
-    # Check that ℓ_factors are consistent
-    if length(ℬ.ℓ_factors) != config.nlm
-        push!(errors, "ℓ_factors length mismatch with config.nlm")
+    # Check that l_factors are consistent
+    if length(ℬ.l_factors) != config.nlm
+        push!(errors, "l_factors length mismatch with config.nlm")
     end
     
     # Validate pencil topology consistency
@@ -821,10 +821,10 @@ function compute_magnetic_helicity(ℬ::SHTnsMagneticFields{T}) where T
         if lm_idx <= ℬ.𝒯.nlm
             slot = local_spectral_storage_slot(config, lm_idx)
             slot === nothing && continue
-            ℓ_factor = ℬ.ℓ_factors[lm_idx]
+            l_factor = ℬ.l_factors[lm_idx]
             
             # Weight for helicity calculation
-            weight = 1.0 / max(sqrt(ℓ_factor), 1.0)
+            weight = 1.0 / max(sqrt(l_factor), 1.0)
             
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
@@ -834,7 +834,7 @@ function compute_magnetic_helicity(ℬ::SHTnsMagneticFields{T}) where T
                         local_spectral_value(tor_real, slot, local_r)^2 +
                         local_spectral_value(tor_imag, slot, local_r)^2 +
                         (local_spectral_value(pol_real, slot, local_r)^2 +
-                         local_spectral_value(pol_imag, slot, local_r)^2) / max(ℓ_factor, 1.0)
+                         local_spectral_value(pol_imag, slot, local_r)^2) / max(l_factor, 1.0)
                     )
                 end
             end

@@ -6,12 +6,12 @@
     mutable struct Simulation{M,C,O}
 
 Holds a `GeodynamoModel` together with time-stepping controls, callbacks, and
-output writers.  Create with `Simulation(model; Δt, ...)` and advance with
+output writers.  Create with `Simulation(model; dt, ...)` and advance with
 `run!(sim)`.
 """
 mutable struct Simulation{M,C,O}
     model           :: M
-    Δt              :: Float64
+    dt              :: Float64
     stop_time       :: Float64
     stop_iteration  :: Int
     wall_time_limit :: Float64
@@ -43,7 +43,7 @@ end
 
 """
     Simulation(model::GeodynamoModel;
-               Δt, stop_time=Inf, stop_iteration=typemax(Int),
+               dt, stop_time=Inf, stop_iteration=typemax(Int),
                timestepper, timestep_scheme, implicit_theta,
                etd_krylov_dimension, krylov_tolerance,
                callbacks=[], output_writers=[],
@@ -59,7 +59,7 @@ initialized.  A warning is emitted when `restart_from` is set but MPI is not
 available.
 """
 function Simulation(model::GeodynamoModel;
-        Δt             :: Real,
+        dt             :: Real,
         stop_time      :: Float64 = Inf,
         stop_iteration :: Int     = typemax(Int),
         wall_time_limit :: Real   = Inf,
@@ -95,9 +95,9 @@ function Simulation(model::GeodynamoModel;
         end
     end
 
-    Δt_f = Float64(Δt)
+    dt_f = Float64(dt)
 
-    # Propagate Δt, stop_time, and stop_iteration into the solver's SolverParameters so
+    # Propagate dt, stop_time, and stop_iteration into the solver's SolverParameters so
     # that advance_solver_step! uses the timestep the caller requested.
     p = model.state.parameters
     old_timestep = model.state.parameters.timestep
@@ -111,15 +111,15 @@ function Simulation(model::GeodynamoModel;
     )
     model.state.parameters = SolverParameters(;
         (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
-        timestep  = Δt_f,
+        timestep  = dt_f,
         end_time  = stop_time,
         stop_iteration = stop_iteration,
         timestepper = timestep_options.timestepper,
         courant = Float64(something(courant, p.courant)),
     )
-    if Δt_f != old_timestep
-        rebuild_solver_implicit_matrices!(model.state, Δt_f)
-        model.state.runtime.timestep_state.dt = Δt_f
+    if dt_f != old_timestep
+        rebuild_solver_implicit_matrices!(model.state, dt_f)
+        model.state.runtime.timestep_state.dt = dt_f
     end
 
     callback_items = _to_ordered(callbacks, :callback)
@@ -127,7 +127,7 @@ function Simulation(model::GeodynamoModel;
 
     sync_clock!(model.clock, model.state)
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
-        model, Δt_f, stop_time, stop_iteration, Float64(wall_time_limit),
+        model, dt_f, stop_time, stop_iteration, Float64(wall_time_limit),
         callback_items,
         output_writer_items,
         0.0,
@@ -139,35 +139,35 @@ end
 # ================================================================================
 
 """
-    time_step!(model::GeodynamoModel, Δt)
+    time_step!(model::GeodynamoModel, dt)
 
-Advance the model by one step with timestep `Δt`, then sync the clock.
+Advance the model by one step with timestep `dt`, then sync the clock.
 """
-function time_step!(model::GeodynamoModel, Δt::Real)
+function time_step!(model::GeodynamoModel, dt::Real)
     state = model.state
-    Δt_f = Float64(Δt)
-    if Δt_f != state.parameters.timestep
+    dt_f = Float64(dt)
+    if dt_f != state.parameters.timestep
         p = state.parameters
         state.parameters = SolverParameters(;
             (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
-            timestep = Δt_f,
+            timestep = dt_f,
         )
-        rebuild_solver_implicit_matrices!(state, Δt_f)
-        state.runtime.timestep_state.dt = Δt_f
+        rebuild_solver_implicit_matrices!(state, dt_f)
+        state.runtime.timestep_state.dt = dt_f
     end
     advance_solver_step!(state)
     sync_clock!(model.clock, state)
-    model.clock.last_Δt = Δt_f
+    model.clock.last_dt = dt_f
     return model
 end
 
 """
     time_step!(sim::Simulation)
 
-Advance the simulation by one step at `sim.Δt`, firing callbacks and writers.
+Advance the simulation by one step at `sim.dt`, firing callbacks and writers.
 """
 function time_step!(sim::Simulation)
-    time_step!(sim.model, sim.Δt)
+    time_step!(sim.model, sim.dt)
     _run_callbacks!(sim)
     _run_output_writers!(sim)
     return sim

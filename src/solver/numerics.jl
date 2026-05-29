@@ -1198,9 +1198,9 @@ function compute_vorticity_spectral!(
     d2pol_dr2_real_bufs = workspace.∂ᵣᵣ𝒫_real
     d2pol_dr2_imag_bufs = workspace.∂ᵣᵣ𝒫_imag
 
-    @solver_threaded_local_spectral_modes lm_idx slot lm_range config velocity_fields.ℓ_factors u_pol_real begin
+    @solver_threaded_local_spectral_modes lm_idx slot lm_range config velocity_fields.l_factors u_pol_real begin
         tid = Threads.threadid()
-        ℓ_factor = velocity_fields.ℓ_factors[lm_idx]
+        l_factor = velocity_fields.l_factors[lm_idx]
         pol_profile_real = pol_profile_real_bufs[tid]
         pol_profile_imag = pol_profile_imag_bufs[tid]
         tor_profile_real = tor_profile_real_bufs[tid]
@@ -1239,19 +1239,19 @@ function compute_vorticity_spectral!(
                     r_inv = domain.r[r_idx, 3]
                     r_inv2 = domain.r[r_idx, 2]
                     set_local_spectral_value!(ζ_tor_real, slot, local_r, (
-                        ℓ_factor * r_inv2 * pol_profile_real[r_idx]
+                        l_factor * r_inv2 * pol_profile_real[r_idx]
                         - d2pol_dr2_real[r_idx]
                         - 2.0 * r_inv * dpol_dr_real[r_idx]
                     ))
                     set_local_spectral_value!(ζ_tor_imag, slot, local_r, (
-                        ℓ_factor * r_inv2 * pol_profile_imag[r_idx]
+                        l_factor * r_inv2 * pol_profile_imag[r_idx]
                         - d2pol_dr2_imag[r_idx]
                         - 2.0 * r_inv * dpol_dr_imag[r_idx]
                     ))
                     set_local_spectral_value!(ζ_pol_real, slot, local_r,
-                                              -ℓ_factor * r_inv2 * tor_profile_real[r_idx])
+                                              -l_factor * r_inv2 * tor_profile_real[r_idx])
                     set_local_spectral_value!(ζ_pol_imag, slot, local_r,
-                                              -ℓ_factor * r_inv2 * tor_profile_imag[r_idx])
+                                              -l_factor * r_inv2 * tor_profile_imag[r_idx])
                 end
             end
         end
@@ -1489,7 +1489,7 @@ function spectral_curl_torpol!(
     src_tor_i,
     src_pol_r,
     src_pol_i,
-    ℓ_factors,
+    l_factors,
     d1_matrix,
     d²_matrix,
     domain::RadialDomainType,
@@ -1512,8 +1512,8 @@ function spectral_curl_torpol!(
         d²ᴾ_dr²_imag = zeros(T, nr)
     end
 
-    @solver_local_spectral_modes lm_idx slot lm_range config ℓ_factors src_pol_r begin
-        ℓ_factor = ℓ_factors[lm_idx]
+    @solver_local_spectral_modes lm_idx slot lm_range config l_factors src_pol_r begin
+        l_factor = l_factors[lm_idx]
 
         fill!(Pᴾ_profile_real, zero(T))
         fill!(Pᴾ_profile_imag, zero(T))
@@ -1542,19 +1542,19 @@ function spectral_curl_torpol!(
                     r⁻¹ = domain.r[r_idx, 3]
                     r⁻² = domain.r[r_idx, 2]
                     set_local_spectral_value!(dst_tor_r, slot, local_r, (
-                        ℓ_factor * r⁻² * Pᴾ_profile_real[r_idx] -
+                        l_factor * r⁻² * Pᴾ_profile_real[r_idx] -
                         d²ᴾ_dr²_real[r_idx] -
                         2.0 * r⁻¹ * dᴾ_dr_real[r_idx]
                     ))
                     set_local_spectral_value!(dst_tor_i, slot, local_r, (
-                        ℓ_factor * r⁻² * Pᴾ_profile_imag[r_idx] -
+                        l_factor * r⁻² * Pᴾ_profile_imag[r_idx] -
                         d²ᴾ_dr²_imag[r_idx] -
                         2.0 * r⁻¹ * dᴾ_dr_imag[r_idx]
                     ))
                     set_local_spectral_value!(dst_pol_r, slot, local_r,
-                                              -ℓ_factor * r⁻² * local_spectral_value(src_tor_r, slot, local_r))
+                                              -l_factor * r⁻² * local_spectral_value(src_tor_r, slot, local_r))
                     set_local_spectral_value!(dst_pol_i, slot, local_r,
-                                              -ℓ_factor * r⁻² * local_spectral_value(src_tor_i, slot, local_r))
+                                              -l_factor * r⁻² * local_spectral_value(src_tor_i, slot, local_r))
                 end
             end
         end
@@ -1570,7 +1570,7 @@ function solver_compute_current_density_spectral!(magnetic_fields, outer_domain)
         parent(magnetic_fields.work_pol.data_real), parent(magnetic_fields.work_pol.data_imag),
         parent(magnetic_fields.𝒯.data_real), parent(magnetic_fields.𝒯.data_imag),
         parent(magnetic_fields.𝒫.data_real), parent(magnetic_fields.𝒫.data_imag),
-        magnetic_fields.ℓ_factors,
+        magnetic_fields.l_factors,
         magnetic_fields.∂r,
         magnetic_fields.∂²r,
         outer_domain,
@@ -1684,7 +1684,7 @@ function solver_compute_curl_of_induction!(magnetic_fields)
         parent(magnetic_fields.nlᴾ.data_real), parent(magnetic_fields.nlᴾ.data_imag),
         parent(magnetic_fields.work_tor.data_real), parent(magnetic_fields.work_tor.data_imag),
         parent(magnetic_fields.work_pol.data_real), parent(magnetic_fields.work_pol.data_imag),
-        magnetic_fields.ℓ_factors,
+        magnetic_fields.l_factors,
         magnetic_fields.∂r,
         magnetic_fields.∂²r,
         magnetic_fields.outer_domain,

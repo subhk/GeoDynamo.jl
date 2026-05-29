@@ -42,11 +42,11 @@ using Test
             Ek=1e-2, Ra=1e4, include_magnetic=false, include_composition=false)
         GeoDynamo.time_step!(model, 1e-4)
         @test model.clock.iteration == 1
-        @test model.clock.last_Δt == 1e-4
+        @test model.clock.last_dt == 1e-4
         @test isfinite(model.clock.time)
     end
 
-    @testset "time_step! with a new Δt rebuilds implicit matrices" begin
+    @testset "time_step! with a new dt rebuilds implicit matrices" begin
         using MPI
         if !MPI.Initialized(); MPI.Init(); end
         grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
@@ -61,7 +61,7 @@ using Test
         @test all(isfinite, parent(model.state.fields.temperature.spectral.data_real))
     end
 
-    @testset "Simulation rebuilds implicit matrices for its Δt" begin
+    @testset "Simulation rebuilds implicit matrices for its dt" begin
         using MPI
         if !MPI.Initialized(); MPI.Init(); end
         grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
@@ -70,7 +70,7 @@ using Test
             Ek=1e-2, Ra=1e4, include_magnetic=false, include_composition=false)
         old_id = objectid(model.state.implicit_matrices)
         default_dt = model.state.parameters.timestep
-        sim = GeoDynamo.Simulation(model; Δt=2e-4, stop_iteration=1)
+        sim = GeoDynamo.Simulation(model; dt=2e-4, stop_iteration=1)
         @test model.state.parameters.timestep == 2e-4
         @test model.state.runtime.timestep_state.dt == 2e-4
         @test 2e-4 != default_dt          # sanity: we actually changed it
@@ -84,7 +84,7 @@ using Test
             lmax=4, mmax=4, nlat=12, nlon=16, nr=16, nr_inner=4)
         model = GeoDynamo.GeodynamoModel(grid;
             Ek=1e-2, Ra=1e4, include_magnetic=false, include_composition=false)
-        sim = GeoDynamo.Simulation(model; Δt=1e-4, stop_iteration=2)
+        sim = GeoDynamo.Simulation(model; dt=1e-4, stop_iteration=2)
         @test sim.callbacks isa GeoDynamo.OrderedDict{Symbol,<:Any}
         @test sim.output_writers isa GeoDynamo.OrderedDict{Symbol,<:Any}
 

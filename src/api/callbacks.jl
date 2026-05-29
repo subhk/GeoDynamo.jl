@@ -127,7 +127,7 @@ end
 Logs the current simulation time and step number.
 """
 function _fire_callback!(cb::SimulationProgress, sim)
-    @info "Simulation progress" step=sim.model.clock.iteration time=sim.model.clock.time Δt=sim.Δt
+    @info "Simulation progress" step=sim.model.clock.iteration time=sim.model.clock.time dt=sim.dt
     return nothing
 end
 

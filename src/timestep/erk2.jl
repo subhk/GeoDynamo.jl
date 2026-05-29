@@ -619,7 +619,7 @@ function create_solver_erk2_cache(
 
     if mpi_rank() == 0
         method_name = use_krylov ? "Krylov" : "dense"
-        @info "Creating solver ERK2 cache for $(length(l_values)) ℓ-modes with $method_name methods"
+        @info "Creating solver ERK2 cache for $(length(l_values)) l-modes with $method_name methods"
     end
 
     for l in l_values
@@ -651,7 +651,7 @@ function create_solver_erk2_cache(
             E_half_l = exp(operator_half)
             E_full_l = exp(operator_full)
             if !all(isfinite, E_half_l) || !all(isfinite, E_full_l)
-                @error "Non-finite solver ERK2 matrix exponential for ℓ=$l (dt=$dt, ||A||=$(opnorm(operator_dense)))"
+                @error "Non-finite solver ERK2 matrix exponential for l=$l (dt=$dt, ||A||=$(opnorm(operator_dense)))"
             end
             push!(E_half, Matrix{T}(E_half_l))
             push!(E_full, Matrix{T}(E_full_l))
@@ -1464,7 +1464,7 @@ function create_solver_velocity_poloidal_influence_matrices(
         if relative_det > pivot_tol(T) && abs(det) > zero(T)
             inv_det = one(T) / det
             if !isfinite(inv_det)
-                @error "Solver ERK2 influence matrix inversion overflow for ℓ=$l (det=$det). Zeroing correction matrix."
+                @error "Solver ERK2 influence matrix inversion overflow for l=$l (det=$det). Zeroing correction matrix."
                 invG .= zero(T)
                 influence_matrices[l] = ERK2InfluenceOp{T}(Gre, invG, l)
                 continue
@@ -1475,7 +1475,7 @@ function create_solver_velocity_poloidal_influence_matrices(
             invG[1, 2] = -invG[1, 2] * inv_det
             invG[2, 1] = -invG[2, 1] * inv_det
         else
-            @error "Solver ERK2 influence matrix is near-singular for ℓ=$l (det=$det, relative_det=$relative_det, max_elem=$max_elem)."
+            @error "Solver ERK2 influence matrix is near-singular for l=$l (det=$det, relative_det=$relative_det, max_elem=$max_elem)."
             invG .= zero(T)
         end
 

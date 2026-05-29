@@ -162,7 +162,7 @@ function Base.show(io::IO, ::MIME"text/plain", backend::SolverBackend)
     _solver_print_row(io, "backend", "SHTnsKit + PencilArrays + PencilFFTs")
     _solver_print_row(io, "architecture", backend.architecture)
     _solver_print_row(io, "compute device", SHTnsKit.get_config_device(cfg.sht_config))
-    _solver_print_row(io, "ℓmax / mmax", "$(cfg.lmax) / $(cfg.mmax)")
+    _solver_print_row(io, "lmax / mmax", "$(cfg.lmax) / $(cfg.mmax)")
     _solver_print_row(io, "Nθ × Nφ", "$(cfg.nlat) × $(cfg.nlon)")
     _solver_print_row(io, "spectral modes", cfg.nlm)
     println(io, "├─ domains")
@@ -405,7 +405,7 @@ end
 @inline solver_build_composition_implicit_matrix(cfg, domain, diffusivity, dt, composition_bc_code) =
     SOLVER_COMPOSITION_MATRIX_BUILDER(cfg, domain, diffusivity, dt; composition_bc_code=composition_bc_code)
 
-# Shared core for both the eager (construction-time) and rebuild (Δt-change)
+# Shared core for both the eager (construction-time) and rebuild (dt-change)
 # implicit-matrix paths. `dt` is the authoritative timestep — callers pass it
 # explicitly so the rebuild path can override the (frozen) backend timestep.
 function _build_implicit_matrices_dict(

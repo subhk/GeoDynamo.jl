@@ -1,5 +1,5 @@
 """
-    solver_build_rhs_cnab2!(rhs, uₙ, nₙ, nₙ₋₁, Δt, matrices; mass_coeff=1.0)
+    solver_build_rhs_cnab2!(rhs, uₙ, nₙ, nₙ₋₁, dt, matrices; mass_coeff=1.0)
 
 Build the CNAB2 right-hand side inside the flattened solver layer in `src/`
 so the solver step reads
@@ -11,7 +11,7 @@ function solver_build_rhs_cnab2!(
     uₙ::SpectralFieldType{T},
     nₙ::SpectralFieldType{T},
     nₙ₋₁::SpectralFieldType{T},
-    Δt::Float64,
+    dt::Float64,
     matrices::ImplicitMatrixSet{T};
     mass_coeff::Float64=1.0,
     work::Union{SolverRadialWork{T}, Nothing}=nothing,
@@ -27,7 +27,7 @@ function solver_build_rhs_cnab2!(
 
     r_range = local_range(uₙ.pencil, 3)
 
-    inv_Δt = T(mass_coeff / Δt)
+    inv_dt = T(mass_coeff / dt)
     three_halves = T(1.5)
     one_half = T(0.5)
     θ = T(matrices.theta)
@@ -49,15 +49,15 @@ function solver_build_rhs_cnab2!(
         slot = local_spectral_storage_slot(uₙ.config, lm_idx)
         slot === nothing && continue
 
-        ℓ = uₙ.config.l_values[lm_idx]
+        l = uₙ.config.l_values[lm_idx]
 
         if add_linear
             # Explicit linear term L·u over this mode's full (local) radial
             # profile. No Allreduce: the previous per-mode reduction summed the
             # owner's profile against all-zero contributions from the other ranks
             # and so never changed the owner's result.
-            matrix_idx = get(matrices.lookup, ℓ, nothing)
-            matrix_idx === nothing && error("Missing implicit matrix for ℓ=$ℓ")
+            matrix_idx = get(matrices.lookup, l, nothing)
+            matrix_idx === nothing && error("Missing implicit matrix for l=$l")
             fill!(u_real_global, zero(T))
             fill!(u_imag_global, zero(T))
             gather_local_radial_profile!(u_real_global, u_imag_global, u_real, u_imag, slot, r_range)
@@ -75,11 +75,11 @@ function solver_build_rhs_cnab2!(
             local_r <= size(rhs_real, 3) || continue
 
             rhs_value_real =
-                inv_Δt * local_spectral_value(u_real, slot, local_r) +
+                inv_dt * local_spectral_value(u_real, slot, local_r) +
                 three_halves * local_spectral_value(n_real, slot, local_r) -
                 one_half * local_spectral_value(p_real, slot, local_r)
             rhs_value_imag =
-                inv_Δt * local_spectral_value(u_imag, slot, local_r) +
+                inv_dt * local_spectral_value(u_imag, slot, local_r) +
                 three_halves * local_spectral_value(n_imag, slot, local_r) -
                 one_half * local_spectral_value(p_imag, slot, local_r)
 
@@ -178,7 +178,7 @@ function _ensure_etd_cache!(
 end
 
 """
-    solver_eab2_update_krylov_cached!(u, nₙ, nₙ₋₁, alu_map, domain, ν, config, Δt; ...)
+    solver_eab2_update_krylov_cached!(u, nₙ, nₙ₋₁, alu_map, domain, ν, config, dt; ...)
 
 Solver-local EAB2 update so the new timestep code does not reach through the
 legacy timestep API for its exponential update.
@@ -195,7 +195,7 @@ function solver_eab2_update_krylov_cached!(
     domain::RadialDomainType,
     diffusivity::Float64,
     config::SHTnsConfigType,
-    Δt::Float64;
+    dt::Float64;
     m::Int=20,
     tol::Float64=1e-8,
     mass_coeff::Float64=1.0,
@@ -227,20 +227,20 @@ function solver_eab2_update_krylov_cached!(
     # purely local. So the owning rank advances each mode with no inter-rank
     # communication; non-owners skip it. The previous per-mode Allreduce was
     # redundant — owner data summed against all-zero contributions elsewhere. Each
-    # rank now builds per-ℓ operators only for the modes it owns.
+    # rank now builds per-l operators only for the modes it owns.
     for lm_idx in 1:u.nlm
         slot = local_spectral_storage_slot(u.config, lm_idx)
         slot === nothing && continue
 
-        ℓ = config.l_values[lm_idx]
-        operator_entry = get(alu_map, ℓ, nothing)
+        l = config.l_values[lm_idx]
+        operator_entry = get(alu_map, l, nothing)
         if operator_entry === nothing
             # EAB2 reuses the same per-degree radial operator across all modes
-            # with the same ℓ, so cache the factorization once here.
-            operator_matrix = solver_build_banded_A(T, domain, diffusivity / mass_coeff, ℓ)
+            # with the same l, so cache the factorization once here.
+            operator_matrix = solver_build_banded_A(T, domain, diffusivity / mass_coeff, l)
             operator_lu = solver_factorize_banded(operator_matrix)
             operator_entry = (operator_matrix, operator_lu)
-            alu_map[ℓ] = operator_entry
+            alu_map[l] = operator_entry
         end
         operator_matrix, operator_lu = operator_entry
 
@@ -265,16 +265,16 @@ function solver_eab2_update_krylov_cached!(
                 )
         end
 
-        # The exponential action advances the linear part, while phi₁(AΔt)
+        # The exponential action advances the linear part, while phi₁(Adt)
         # applies the matching correction to the Adams-Bashforth nonlinear term.
         Aop = SolverBandedAction(operator_matrix)
 
-        exp_action_krylov!(u_real_next, Aop, u_real_global, Δt; m, tol, work=krylov_action_work)
-        exp_action_krylov!(u_imag_next, Aop, u_imag_global, Δt; m, tol, work=krylov_action_work)
-        phi1_action_krylov!(nl_real_global, Aop, operator_lu, nl_real_global, Δt; m, tol, work=krylov_action_work)
-        phi1_action_krylov!(nl_imag_global, Aop, operator_lu, nl_imag_global, Δt; m, tol, work=krylov_action_work)
-        @. u_real_next = u_real_next + Δt * nl_real_global
-        @. u_imag_next = u_imag_next + Δt * nl_imag_global
+        exp_action_krylov!(u_real_next, Aop, u_real_global, dt; m, tol, work=krylov_action_work)
+        exp_action_krylov!(u_imag_next, Aop, u_imag_global, dt; m, tol, work=krylov_action_work)
+        phi1_action_krylov!(nl_real_global, Aop, operator_lu, nl_real_global, dt; m, tol, work=krylov_action_work)
+        phi1_action_krylov!(nl_imag_global, Aop, operator_lu, nl_imag_global, dt; m, tol, work=krylov_action_work)
+        @. u_real_next = u_real_next + dt * nl_real_global
+        @. u_imag_next = u_imag_next + dt * nl_imag_global
 
         if bc_spec !== nothing
             # Krylov actions operate on the full radial vector and can move the
@@ -284,10 +284,10 @@ function solver_eab2_update_krylov_cached!(
             outer_val = boundary_mode_value(bc_spec.outer_mode_values, lm_idx)
             inner_val_i = boundary_mode_value(bc_spec.inner_mode_values_imag, lm_idx)
             outer_val_i = boundary_mode_value(bc_spec.outer_mode_values_imag, lm_idx)
-            solver_enforce_erk2_bc!(u_real_next, bc_spec.inner, 1, ℓ, nr; value_override=inner_val)
-            solver_enforce_erk2_bc!(u_real_next, bc_spec.outer, nr, ℓ, nr; value_override=outer_val)
-            solver_enforce_erk2_bc!(u_imag_next, bc_spec.inner, 1, ℓ, nr; value_override=inner_val_i)
-            solver_enforce_erk2_bc!(u_imag_next, bc_spec.outer, nr, ℓ, nr; value_override=outer_val_i)
+            solver_enforce_erk2_bc!(u_real_next, bc_spec.inner, 1, l, nr; value_override=inner_val)
+            solver_enforce_erk2_bc!(u_real_next, bc_spec.outer, nr, l, nr; value_override=outer_val)
+            solver_enforce_erk2_bc!(u_imag_next, bc_spec.inner, 1, l, nr; value_override=inner_val_i)
+            solver_enforce_erk2_bc!(u_imag_next, bc_spec.outer, nr, l, nr; value_override=outer_val_i)
         end
 
         scatter_local_radial_profile!(u_real, u_imag, u_real_next, u_imag_next, slot, r_range)
@@ -328,8 +328,8 @@ function _solver_solve_scalar_implicit_step!(
 
     @inbounds for lm_idx in lm_range
         slot = local_spectral_storage_slot(solution.config, lm_idx)
-        ℓ = solution.config.l_values[lm_idx]
-        matrix_idx = get(matrices.lookup, ℓ, nothing)
+        l = solution.config.l_values[lm_idx]
+        matrix_idx = get(matrices.lookup, l, nothing)
         matrix_idx === nothing && continue
 
         fill!(tmp_real, zero(T))
@@ -450,9 +450,9 @@ function solver_solve_velocity_implicit_step!(
 
     @inbounds for lm_idx in lm_range
         slot = local_spectral_storage_slot(solution.config, lm_idx)
-        ℓ = solution.config.l_values[lm_idx]
+        l = solution.config.l_values[lm_idx]
         m = solution.config.m_values[lm_idx]
-        matrix_idx = get(matrices.lookup, ℓ, nothing)
+        matrix_idx = get(matrices.lookup, l, nothing)
         matrix_idx === nothing && continue
 
         fill!(tmp_real, zero(T))
@@ -463,7 +463,7 @@ function solver_solve_velocity_implicit_step!(
             inner_real = zero(T)
             outer_real = zero(T)
 
-            if (velocity_bc_code == 1 || velocity_bc_code == 2) && ℓ == 1 && m == 0 && domain !== nothing
+            if (velocity_bc_code == 1 || velocity_bc_code == 2) && l == 1 && m == 0 && domain !== nothing
                 inner_real = T(rot_omega * domain.r[1, 4])
                 if current_field !== nothing
                     current_real = parent(current_field.data_real)
@@ -525,8 +525,8 @@ function solver_solve_magnetic_implicit_step!(
 
     @inbounds for lm_idx in lm_range
         slot = local_spectral_storage_slot(solution.config, lm_idx)
-        ℓ = solution.config.l_values[lm_idx]
-        matrix_idx = get(matrices.lookup, ℓ, nothing)
+        l = solution.config.l_values[lm_idx]
+        matrix_idx = get(matrices.lookup, l, nothing)
         matrix_idx === nothing && continue
 
         fill!(tmp_real, zero(T))

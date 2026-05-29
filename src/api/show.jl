@@ -14,7 +14,7 @@ Base.summary(m::GeodynamoModel{T}) where {T} =
     "GeodynamoModel{$T}(time=$(m.clock.time), iteration=$(m.clock.iteration))"
 
 Base.summary(s::Simulation) =
-    "Simulation(Δt=$(s.Δt), stop_time=$(s.stop_time), stop_iteration=$(s.stop_iteration))"
+    "Simulation(dt=$(s.dt), stop_time=$(s.stop_time), stop_iteration=$(s.stop_iteration))"
 
 function Base.show(io::IO, ::MIME"text/plain", m::GeodynamoModel{T}) where {T}
     p = m.state.parameters
@@ -28,7 +28,7 @@ end
 function Base.show(io::IO, ::MIME"text/plain", sim::Simulation)
     c = sim.model.clock
     println(io, "Simulation of ", summary(sim.model))
-    println(io, "├── Δt: ", sim.Δt)
+    println(io, "├── dt: ", sim.dt)
     println(io, "├── stop_time: ", sim.stop_time)
     println(io, "├── stop_iteration: ", sim.stop_iteration)
     println(io, "├── wall_time_limit: ", sim.wall_time_limit)

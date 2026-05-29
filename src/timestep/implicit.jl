@@ -7,12 +7,12 @@
 
 Precomputed linear operators for one implicit timestep solve family.
 
-The matrices are stored per spherical-harmonic degree `ℓ` so CNAB2/IMEX style
+The matrices are stored per spherical-harmonic degree `l` so CNAB2/IMEX style
 updates can reuse banded system matrices and their factorizations across many
 timesteps.
 """
 struct SHTnsImplicitMatrices{T}
-    system_matrices::Vector{BandedMatrix{T}}  # (1/Δt)I − θ·L per l
+    system_matrices::Vector{BandedMatrix{T}}  # (1/dt)I − θ·L per l
     factorizations::Vector{BandedLU{T}}       # Banded LU factorizations
     linear_matrices::Vector{BandedMatrix{T}}  # Linear operator L per l (scaled by diffusivity)
     l_values::Vector{Int}                     # l values for indexing
@@ -23,7 +23,7 @@ end
 """
     create_shtns_timestepping_matrices(config, domain, diffusivity, dt; theta=0.5, mass_coeff=1.0, T=Float64)
 
-Build the per-`ℓ` implicit matrices used by the standard scalar/vector timestep
+Build the per-`l` implicit matrices used by the standard scalar/vector timestep
 operators.
 
 The result includes the linear operator, the shifted system matrix, and a

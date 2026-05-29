@@ -112,7 +112,7 @@ mutable struct SHTnsCompositionField{
     boundary_time_index::Ref{Int}
 
     # Pre-computed coefficients
-    ℓ_factors::Vector{T}               # l(l+1) values for diffusion
+    l_factors::Vector{T}               # l(l+1) values for diffusion
 
     # Internal sources (radial profile, matching thermal field)
     internal_sources::Vector{T}
@@ -210,7 +210,7 @@ function create_shtns_composition_field(::Type{T}, config::C,
     bc_type_outer = fill(Int(NEUMANN), config.nlm)  # No-flux at outer boundary
 
     # Pre-compute l(l+1) factors (matching physics/temperature/field.jl pattern)
-    ℓ_factors = T[l * (l + 1) for l in config.l_values]
+    l_factors = T[l * (l + 1) for l in config.l_values]
 
     # Create radial derivative matrices
     ∂r  = create_derivative_matrix(T, 1, 𝒟ᵒᶜ)
@@ -228,7 +228,7 @@ function create_shtns_composition_field(::Type{T}, config::C,
         work_spectral, work_physical, advection_physical,
         boundary_values, bc_type_inner, bc_type_outer,
         nothing, bcs.BoundaryInterpolationCache(T), Ref(1),  # boundary condition fields
-        ℓ_factors, internal_sources, config,
+        l_factors, internal_sources, config,
         ∂r, ∂²r,
         ∂θ, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),

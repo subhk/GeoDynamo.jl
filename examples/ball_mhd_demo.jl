@@ -55,7 +55,7 @@ function main(;
     Pm=1.0,
     Sc=1.0,
     Ra=1e6,
-    Δt=1e-4,
+    dt=1e-4,
     stop_iteration=500,
     kwargs...,
 )
@@ -75,7 +75,7 @@ function main(;
         ; kwargs...,
     )
 
-    simulation = Simulation(model; Δt=Δt, stop_iteration=stop_iteration)
+    simulation = Simulation(model; dt=dt, stop_iteration=stop_iteration)
     state = simulation.model.state
     GeoDynamo.initialize_fields!(state)
     domain = state.runtime.𝒟ᵒᶜ

@@ -13,8 +13,8 @@
 # 3. Stress-free (∂_r(uₜ/r) = 0):
 #    ∂_r(uₜ/r) = (ε/r_b)(∇_H h) ∂_r uᵣ
 #
-# In spectral (ℓ,m) space, the impermeability condition becomes:
-#    ℓ(ℓ+1)/r_b² P_{u,ℓm} + ε Σ h_{LM} [α ∂_r P + β T_u + γ P] = 0
+# In spectral (l,m) space, the impermeability condition becomes:
+#    l(l+1)/r_b² P_{u,lm} + ε Σ h_{LM} [α ∂_r P + β T_u + γ P] = 0
 #
 # ================================================================================
 
@@ -83,7 +83,7 @@ function apply_velocity_topography_correction!(velocity_field, topography::Topog
     end
 
     # The expensive radial traces are staged once per field, then reused for
-    # both boundaries and every coupled (ℓ,m) mode. That keeps the topography
+    # both boundaries and every coupled (l,m) mode. That keeps the topography
     # correction focused on mode coupling rather than repeated radial algebra.
     # Precompute boundary value/derivative caches once for this field
     p_cache = compute_boundary_derivative_cache(poloidal,
@@ -145,8 +145,8 @@ function apply_velocity_correction_at_boundary!(poloidal,
     T_bv = toroidal.boundary_values
 
     # Boundary values are updated mode-by-mode. Each target mode gathers all
-    # topography and field couplings that project back onto that same (ℓ,m).
-    # Compute corrections for each (ℓ, m) mode
+    # topography and field couplings that project back onto that same (l,m).
+    # Compute corrections for each (l, m) mode
     for l in 1:lmax  # Start from l=1 (l=0 has no velocity)
         for m in -l:l
             if abs(m) > mmax
@@ -159,8 +159,8 @@ function apply_velocity_correction_at_boundary!(poloidal,
             )
 
             # Apply correction to poloidal BC
-            # The flat-sphere BC is: ℓ(ℓ+1)/r² P = 0
-            # With topography: ℓ(ℓ+1)/r² P + ε * correction = 0
+            # The flat-sphere BC is: l(l+1)/r² P = 0
+            # With topography: l(l+1)/r² P + ε * correction = 0
             lm_idx = lm_to_spectral_index(l, m, poloidal.config)
             if lm_idx > 0 && lm_idx <= size(P_bv, 2)
                 P_bv[bc_row, lm_idx] -= ε * real(imp_corr) * rb^2 / (l * (l + 1))
@@ -200,16 +200,16 @@ end
 
 Compute the topography correction to the impermeability condition for mode (l, m).
 
-The flat-sphere condition is: uᵣ = ℓ(ℓ+1)/r² P_{ℓm} = 0
+The flat-sphere condition is: uᵣ = l(l+1)/r² P_{lm} = 0
 
 With topography:
 uᵣ - ε(∇_H h)·uₜ + εh ∂_r uᵣ = 0
 
 In spectral space (schematic):
-ℓ(ℓ+1)/r² P_{ℓm} + ε Σ_{LM,ℓ'm'} h_{LM} [
-    G · ∂_r(ℓ'(ℓ'+1)/r² P_{ℓ'm'})           # shift term
-    - G^{(∇)} · ∂_r P_{ℓ'm'}                   # slope term (poloidal)
-    - G^{(×)} · T_{ℓ'm'}                       # slope term (toroidal)
+l(l+1)/r² P_{lm} + ε Σ_{LM,l'm'} h_{LM} [
+    G · ∂_r(l'(l'+1)/r² P_{l'm'})           # shift term
+    - G^{(∇)} · ∂_r P_{l'm'}                   # slope term (poloidal)
+    - G^{(×)} · T_{l'm'}                       # slope term (toroidal)
 ] = 0
 """
 function compute_impermeability_correction(l::Int, m::Int,
@@ -226,7 +226,7 @@ function compute_impermeability_correction(l::Int, m::Int,
     lmax_t = topo.lmax
 
     # This is the actual mode-coupling core: topography mode (L,M) mixes every
-    # compatible field mode (ℓ',m') back into the target impermeability row.
+    # compatible field mode (l',m') back into the target impermeability row.
     # Sum over topography modes (L, M)
     for L in 0:lmax_t
         for M in -L:L
@@ -235,7 +235,7 @@ function compute_impermeability_correction(l::Int, m::Int,
                 continue
             end
 
-            # Sum over field modes (ℓ', m')
+            # Sum over field modes (l', m')
             for lp in 1:lmax
                 for mp in -lp:lp
                     # m' + M must equal m (azimuthal selection rule)
@@ -253,12 +253,12 @@ function compute_impermeability_correction(l::Int, m::Int,
                     T_lpm = get_cache_value(t_cache, lp, mp, location)
                     dP_dr = get_cache_d1(p_cache, lp, mp, location)
 
-                    ℓℓ_factor = T(lp * (lp + 1))
+                    ll_factor = T(lp * (lp + 1))
 
                     # Shift term: h · ∂_r uᵣ
                     if config.include_shift_terms && abs(G) > 1e-15
-                        # ∂_r(ℓ'(ℓ'+1)/r² P) evaluated at r = rb
-                        shift_contrib = G * ℓℓ_factor * (dP_dr / rb^2 - 2 * P_lpm / rb^3)
+                        # ∂_r(l'(l'+1)/r² P) evaluated at r = rb
+                        shift_contrib = G * ll_factor * (dP_dr / rb^2 - 2 * P_lpm / rb^3)
                         correction += h_LM * shift_contrib
                     end
 
@@ -404,13 +404,13 @@ function compute_stressfree_correction(l::Int, m::Int,
                     end
 
                     # Get ∂_r uᵣ at boundary
-                    # uᵣ = ℓ'(ℓ'+1)/r² P, so ∂_r uᵣ involves ∂_r P and P
+                    # uᵣ = l'(l'+1)/r² P, so ∂_r uᵣ involves ∂_r P and P
                     dP_dr = get_cache_d1(p_cache, lp, mp, location)
                     P_val = get_cache_value(p_cache, lp, mp, location)
 
-                    ℓℓ_factor = T(lp * (lp + 1))
-                    # ∂_r uᵣ = ∂_r[ℓ'(ℓ'+1)/r² P] = ℓ'(ℓ'+1)[∂_r P/r² - 2P/r³]
-                    duᵣ_dr = ℓℓ_factor * (dP_dr / rb^2 - 2 * P_val / rb^3)
+                    ll_factor = T(lp * (lp + 1))
+                    # ∂_r uᵣ = ∂_r[l'(l'+1)/r² P] = l'(l'+1)[∂_r P/r² - 2P/r³]
+                    duᵣ_dr = ll_factor * (dP_dr / rb^2 - 2 * P_val / rb^3)
 
                     # Stress-free correction: (1/r_b) ∇_H h · (∂_r uᵣ)
                     correction += h_LM * G_grad * duᵣ_dr / (rb^2)
@@ -584,7 +584,7 @@ function assemble_velocity_boundary_operator(l::Int, topo::TopographyField{T},
 
     # Flat-sphere contribution (diagonal)
     if bc_type == :impermeability
-        # ℓ(ℓ+1)/r² P = 0
+        # l(l+1)/r² P = 0
         for m in -l:l
             operator[(l, m, :P)] = T(l * (l + 1)) / rb^2
         end

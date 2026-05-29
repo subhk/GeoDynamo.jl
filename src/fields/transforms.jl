@@ -539,39 +539,79 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
     # only this rank's local portion using these offsets.
     phys_axes_local = vec_phys.r_component.pencil.axes_local
 
-    # Vector transforms are staged one radius at a time so the expensive
-    # spherical-harmonic work sees dense `(l,m)` slices while the outer arrays
-    # remain distributed in the simulation's native pencil layout.
+    # ════════════════════════════════════════════════════════════════════════
+    # EXPERIMENTAL (Mie-consistent reconstruction — NOT validated, NOT for merge).
+    # Branch: poloidal-mie-experimental. See test/poloidal_solenoidality.jl header.
+    #
+    # For a true poloidal (Mie) field B = ∇×∇×(P r̂):
+    #   v_r          = l(l+1)/r² · P          (was l(l+1)/r · P)
+    #   spheroidal S = (1/r) d(rP)/dr         (was P passed directly)
+    #   toroidal     = T                      (unchanged)
+    # The tangential synthesis kernel therefore receives S (the radial-derivative
+    # combination) as its spheroidal argument, not the raw poloidal scalar.
+    #
+    # ⚠ Requires Christensen Case 0 validation before this can be trusted; the
+    # SHTnsKit spheroidal normalization has not been independently confirmed here.
+    # ════════════════════════════════════════════════════════════════════════
+
+    # Precompute the spheroidal scalar S(r) = (1/r) d(rP)/dr per (l,m) across the
+    # (fully local) radial direction. Radial is local everywhere, so the N×N
+    # derivative matrix can act on each mode's full radial profile.
+    sph_real = get_cached_buffer!(config, :mie_spheroidal_real) do
+        zeros(eltype(pol_real), size(pol_real))
+    end::typeof(pol_real)
+    sph_imag = get_cached_buffer!(config, :mie_spheroidal_imag) do
+        zeros(eltype(pol_imag), size(pol_imag))
+    end::typeof(pol_imag)
+    fill!(sph_real, zero(eltype(sph_real)))
+    fill!(sph_imag, zero(eltype(sph_imag)))
+
+    if domain !== nothing
+        d1 = create_derivative_matrix(eltype(pol_real), 1, domain)
+        N  = domain.N
+        rprof = zeros(eltype(pol_real), N)
+        dprof = zeros(eltype(pol_real), N)
+        for lm_idx in local_spectral_mode_indices(config)
+            l = config.l_values[lm_idx]
+            l == 0 && continue                      # no poloidal monopole
+            slot = local_spectral_storage_slot(config, lm_idx)
+            slot === nothing && continue
+            for part in (true, false)               # real then imaginary
+                src = part ? pol_real : pol_imag
+                dst = part ? sph_real : sph_imag
+                @inbounds for r in 1:min(N, size(src, 3))
+                    rg = r + first(r_range) - 1
+                    rprof[r] = src[slot[1], slot[2], r] * domain.r[rg, 4]   # r·P
+                end
+                mul!(dprof, d1, rprof)                                       # d(rP)/dr
+                @inbounds for r in 1:min(N, size(dst, 3))
+                    rg = r + first(r_range) - 1
+                    rv = domain.r[rg, 4]
+                    dst[slot[1], slot[2], r] = rv > 0 ? dprof[r] / rv : zero(eltype(dst))
+                end
+            end
+        end
+    end
+
     # Process each radial level
     for r_local in axes(tor_real, 3)
-        # Gather one radial slice of toroidal/poloidal coefficients into the
-        # dense `(l,m)` layout expected by SHTnsKit for this transform.
-        tor_coeffs, pol_coeffs = extract_coefficients_pair_for_shtnskit(
-            tor_real, tor_imag, pol_real, pol_imag, r_local, config)
+        # Tangential synthesis takes the SPHEROIDAL scalar S (not raw P).
+        tor_coeffs, sph_coeffs = extract_coefficients_pair_for_shtnskit(
+            tor_real, tor_imag, sph_real, sph_imag, r_local, config)
 
-        # SHTnsKit gives the tangential components directly; the radial component
-        # is reconstructed from the poloidal scalar below.
         if plan !== nothing && vt_out !== nothing && vp_out !== nothing
-            # Allocation-free path: in-place vector synthesis
-            SHTnsKit.synthesis_sphtor!(plan, vt_out, vp_out, pol_coeffs, tor_coeffs; real_output=true)
+            SHTnsKit.synthesis_sphtor!(plan, vt_out, vp_out, sph_coeffs, tor_coeffs; real_output=true)
             store_vector_components_generic!(v_theta, v_phi, vt_out, vp_out, r_local, config;
                                              axes_local=phys_axes_local)
         else
-            vt_field, vp_field = SHTnsKit.synthesis_sphtor(sht_config, pol_coeffs, tor_coeffs;
+            vt_field, vp_field = SHTnsKit.synthesis_sphtor(sht_config, sph_coeffs, tor_coeffs;
                                                           real_output=true)
             store_vector_components_generic!(v_theta, v_phi, vt_field, vp_field, r_local, config;
                                              axes_local=phys_axes_local)
         end
 
-        # Tangential components come directly from the toroidal/poloidal vector
-        # synthesis kernel. The radial component is a second pass because it is
-        # derived from the poloidal scalar with explicit radial scaling.
-        # ========================================================================
-        # CRITICAL: Compute radial component from poloidal scalar
-        # v_r = l(l+1)/r * P * Y_lm
-        # Only computed if domain information is provided
-        # ========================================================================
-
+        # Radial component v_r = l(l+1)/r² · P, synthesized from the raw poloidal
+        # scalar (extracted separately from the tangential spheroidal).
         if domain !== nothing
             r_idx_global = r_local + first(r_range) - 1
 
@@ -581,19 +621,31 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
                 if r_val > eps(Float64) * domain.r[domain.N, 4]
                     lmax, mmax = config.lmax, config.mmax
 
+                    pol_coeffs = get_cached_buffer!(config, :mie_pol_coeffs_buffer) do
+                        zeros(ComplexF64, lmax+1, mmax+1)
+                    end::Matrix{ComplexF64}
+                    extract_coefficients_for_shtnskit!(pol_coeffs, pol_real, pol_imag, r_local, config)
+                    if !coefficient_matrix_is_local(config)
+                        gathered = get_cached_buffer!(config, :mie_pol_coeffs_gathered) do
+                            zeros(ComplexF64, lmax+1, mmax+1)
+                        end::Matrix{ComplexF64}
+                        Allreduce!(pol_coeffs, gathered, MPI.SUM, get_comm())
+                        copyto!(pol_coeffs, gathered)
+                    end
+
                     pol_rad_coeffs = get_cached_buffer!(config, :pol_rad_coeffs_buffer) do
                         zeros(ComplexF64, lmax+1, mmax+1)
                     end::Matrix{ComplexF64}
                     fill!(pol_rad_coeffs, zero(ComplexF64))
 
+                    inv_r2 = 1.0 / (r_val * r_val)
                     for l in 0:lmax
-                        l_factor = l * (l + 1) / r_val
+                        l_factor = l * (l + 1) * inv_r2      # MIE: l(l+1)/r²
                         for m in 0:min(l, mmax)
                             pol_rad_coeffs[l+1, m+1] = pol_coeffs[l+1, m+1] * l_factor
                         end
                     end
 
-                    # Synthesize radial component (allocation-free if plan available)
                     if plan !== nothing && synth_out !== nothing
                         SHTnsKit.synthesis!(plan, synth_out, pol_rad_coeffs; real_output=true)
                         store_scalar_component_generic!(v_r, synth_out, r_local, config;

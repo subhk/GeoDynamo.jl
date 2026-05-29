@@ -70,7 +70,7 @@ const FINALIZE_MPI_SHELL = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         temp = Shell.create_shell_temperature_field(Float64, cfg; nr=nr)
         @test temp !== nothing
         @test temp.config === cfg
-        @test length(temp.ℓ_factors) == cfg.nlm
+        @test length(temp.l_factors) == cfg.nlm
     end
 
     @testset "Shell composition field" begin

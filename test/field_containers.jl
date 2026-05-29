@@ -73,10 +73,10 @@ const FINALIZE_MPI_FIELDS = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
         @test temp.config === cfg
         @test length(temp.internal_sources) == nr
         @test size(temp.boundary_values) == (2, cfg.nlm)
-        @test length(temp.ℓ_factors) == cfg.nlm
-        # ℓ_factors should be l*(l+1)
+        @test length(temp.l_factors) == cfg.nlm
+        # l_factors should be l*(l+1)
         for (i, l) in enumerate(cfg.l_values)
-            @test temp.ℓ_factors[i] ≈ l * (l + 1)
+            @test temp.l_factors[i] ≈ l * (l + 1)
         end
     end
 

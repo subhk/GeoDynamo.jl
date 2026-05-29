@@ -105,7 +105,7 @@ mutable struct SHTnsTemperatureField{
     boundary_time_index::Ref{Int}                                    # Current time index for time-dependent BCs
     
     # Pre-computed coefficients
-    ℓ_factors::Vector{T}               # l(l+1) values
+    l_factors::Vector{T}               # l(l+1) values
     
     # Configuration (SHTnsKit)
     config::C
@@ -173,7 +173,7 @@ function create_shtns_temperature_field(::Type{T}, config::C,
     bc_type_outer = fill(Int(DIRICHLET), config.nlm)
     
     # Pre-compute l(l+1) factors
-    ℓ_factors = T[l * (l + 1) for l in config.l_values]
+    l_factors = T[l * (l + 1) for l in config.l_values]
     
     # Transform manager removed in SHTnsKit migration
     
@@ -191,7 +191,7 @@ function create_shtns_temperature_field(::Type{T}, config::C,
         internal_sources, boundary_values,
         bc_type_inner, bc_type_outer,
         nothing, bcs.BoundaryInterpolationCache(T), Ref(1),  # boundary condition fields
-        ℓ_factors, config,
+        l_factors, config,
         ∂r, ∂²r,
         theta_derivative_matrix, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),
