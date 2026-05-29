@@ -20,7 +20,7 @@ const FINALIZE_MPI_CNAB2 = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
 # Passing on multiple ranks is the proof that any per-mode Allreduce in the
 # assembly is redundant — the distributed result equals the purely-local one.
 
-@testset "CNAB2 RHS distributed equivalence (radial-local ⇒ comm-free)" begin
+@testset "CNAB2 + ERK2 distributed equivalence (radial-local ⇒ comm-free)" begin
     if MPI.Finalized()
         @warn "MPI already finalized; skipping CNAB2 RHS equivalence test"
         return
@@ -127,6 +127,51 @@ const FINALIZE_MPI_CNAB2 = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
     nprocs = GeoDynamo.get_nprocs()
     total_owned = nprocs > 1 ? MPI.Allreduce(n_owned, MPI.SUM, comm) : n_owned
     @test total_owned == cfg.nlm
+
+    # ---- ERK2 stage preparation obeys the same radial-local ⇒ comm-free contract ----
+    # prepare_solver_erk2_field! applies the per-degree stage operators (E, φ₁) to
+    # each mode's full local radial profile. Check every owned mode against a direct
+    # recompute using the cache's own dense operators (bc_spec=nothing ⇒ zero
+    # endpoints on the provisional stage).
+    erk2_cache = GeoDynamo.create_erk2_cache(Float64, cfg, dom, diffusivity, dt)
+    erk2_buf   = GeoDynamo.ERK2FieldBuffers(u, nl, erk2_cache)
+    GeoDynamo.erk2_prepare_field!(erk2_buf, u, nl, erk2_cache, cfg, dt)
+
+    lin_r = erk2_buf.linear_real; lin_i = erk2_buf.linear_imag
+    k1r   = erk2_buf.k1_real;     k1i   = erk2_buf.k1_imag
+    str   = erk2_buf.stage_real;  sti   = erk2_buf.stage_imag
+    half_dt = dt / 2
+    erk2_maxerr = 0.0
+    uv = zeros(Float64, nr); nv = zeros(Float64, nr)
+
+    for lm in GeoDynamo.local_spectral_mode_indices(cfg)
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+        slot === nothing && continue
+        l = cfg.l_values[lm]
+        ci = get(erk2_buf.cache_lookup, l, 0)
+        ci == 0 && continue
+        Ef = erk2_cache.E_full[ci]; Eh = erk2_cache.E_half[ci]
+        p1f = erk2_cache.phi1_full[ci]; p1h = erk2_cache.phi1_half[ci]
+
+        for (src, lin_b, k1_b, st_b) in ((ur, lin_r, k1r, str), (ui, lin_i, k1i, sti))
+            nsrc = src === ur ? nr_ : ni_
+            for r in 1:nr
+                uv[r] = GeoDynamo.local_spectral_value(src, slot, r)
+                nv[r] = GeoDynamo.local_spectral_value(nsrc, slot, r)
+            end
+            lref = Ef * uv
+            kref = p1f * nv
+            sref = Eh * uv .+ half_dt .* (p1h * nv)
+            sref[1] = 0.0; sref[nr] = 0.0
+            for r in 1:nr
+                erk2_maxerr = max(erk2_maxerr, abs(GeoDynamo.local_spectral_value(lin_b, slot, r) - lref[r]))
+                erk2_maxerr = max(erk2_maxerr, abs(GeoDynamo.local_spectral_value(k1_b, slot, r) - kref[r]))
+                erk2_maxerr = max(erk2_maxerr, abs(GeoDynamo.local_spectral_value(st_b, slot, r) - sref[r]))
+            end
+        end
+    end
+
+    @test erk2_maxerr < 1.0e-10
 
     if MPI.Initialized()
         MPI.Barrier(GeoDynamo.get_comm())

@@ -2021,8 +2021,6 @@ function prepare_solver_erk2_field!(
     linear_tmp, k1_tmp, stage_tmp, stage_phi_tmp = buffers._ws[5], buffers._ws[6], buffers._ws[7], buffers._ws[8]
     half_dt = T(dt) / T(2)
 
-    comm = mpi_comm()
-    multi = mpi_comm_size(comm) > 1
     nlm_total = u.nlm
 
     linear_real = buffers.linear_real
@@ -2032,9 +2030,15 @@ function prepare_solver_erk2_field!(
     stage_real = buffers.stage_real
     stage_imag = buffers.stage_imag
 
+    # Each spherical-harmonic mode owns a COMPLETE radial profile on a single
+    # rank (the spectral pencil keeps the radial dimension local), so every ERK2
+    # stage operator (E, φ₁) is applied on the owning rank with no inter-rank
+    # communication. Non-owners skip the mode entirely. The previous per-mode
+    # Allreduce was redundant: it summed the owner's profile against all-zero
+    # contributions from the other ranks and never changed the owner's result.
     for lm_idx in 1:nlm_total
         slot = local_spectral_storage_slot(config, lm_idx)
-        owns_mode = slot !== nothing
+        slot === nothing && continue
 
         l = config.l_values[lm_idx]
         cache_idx = get(buffers.cache_lookup, l, 0)
@@ -2049,34 +2053,22 @@ function prepare_solver_erk2_field!(
         fill!(ui, zero(T))
         fill!(nr_vec, zero(T))
         fill!(ni_vec, zero(T))
+        gather_local_radial_profile!(ur, ui, u_real, u_imag, slot, r_range)
+        gather_local_radial_profile!(
+            nr_vec,
+            ni_vec,
+            buffers.n_current_real,
+            buffers.n_current_imag,
+            slot,
+            r_range,
+        )
 
-        if owns_mode
-            gather_local_radial_profile!(ur, ui, u_real, u_imag, slot, r_range)
-            gather_local_radial_profile!(
-                nr_vec,
-                ni_vec,
-                buffers.n_current_real,
-                buffers.n_current_imag,
-                slot,
-                r_range,
-            )
-        end
-
-        if multi
-            allreduce_sum_in_place!(ur, comm)
-            allreduce_sum_in_place!(ui, comm)
-            allreduce_sum_in_place!(nr_vec, comm)
-            allreduce_sum_in_place!(ni_vec, comm)
-        end
-
+        # Real component
         LA.mul!(linear_tmp, E_full, ur)
         LA.mul!(k1_tmp, phi1_full, nr_vec)
-
-        if owns_mode
-            @inbounds for r in r_range
-                set_local_spectral_value!(linear_real, slot, r, linear_tmp[r])
-                set_local_spectral_value!(k1_real, slot, r, k1_tmp[r])
-            end
+        @inbounds for r in r_range
+            set_local_spectral_value!(linear_real, slot, r, linear_tmp[r])
+            set_local_spectral_value!(k1_real, slot, r, k1_tmp[r])
         end
 
         LA.mul!(stage_tmp, E_half, ur)
@@ -2091,21 +2083,16 @@ function prepare_solver_erk2_field!(
             stage_tmp[1] = zero(T)
             stage_tmp[nr] = zero(T)
         end
-
-        if owns_mode
-            @inbounds for r in r_range
-                set_local_spectral_value!(stage_real, slot, r, stage_tmp[r])
-            end
+        @inbounds for r in r_range
+            set_local_spectral_value!(stage_real, slot, r, stage_tmp[r])
         end
 
+        # Imag component
         LA.mul!(linear_tmp, E_full, ui)
         LA.mul!(k1_tmp, phi1_full, ni_vec)
-
-        if owns_mode
-            @inbounds for r in r_range
-                set_local_spectral_value!(linear_imag, slot, r, linear_tmp[r])
-                set_local_spectral_value!(k1_imag, slot, r, k1_tmp[r])
-            end
+        @inbounds for r in r_range
+            set_local_spectral_value!(linear_imag, slot, r, linear_tmp[r])
+            set_local_spectral_value!(k1_imag, slot, r, k1_tmp[r])
         end
 
         LA.mul!(stage_tmp, E_half, ui)
@@ -2120,11 +2107,8 @@ function prepare_solver_erk2_field!(
             stage_tmp[1] = zero(T)
             stage_tmp[nr] = zero(T)
         end
-
-        if owns_mode
-            @inbounds for r in r_range
-                set_local_spectral_value!(stage_imag, slot, r, stage_tmp[r])
-            end
+        @inbounds for r in r_range
+            set_local_spectral_value!(stage_imag, slot, r, stage_tmp[r])
         end
     end
 

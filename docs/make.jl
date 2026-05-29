@@ -62,6 +62,7 @@ format = Documenter.HTML(;
     ],
     size_threshold = 700 * 1024,  # Increased for large API reference
     size_threshold_warn = 600 * 1024,
+    search_size_threshold_warn = 600 * 1024,  # Search index ~554 KiB; quiet the warn
     # Show version selector with dev and stable
     ansicolor = true,
 )
