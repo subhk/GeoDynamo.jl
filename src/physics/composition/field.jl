@@ -147,7 +147,7 @@ get_main_physical_field(𝔽::SHTnsCompositionField{T}) where T = 𝔽.compositi
 
 """
     create_shtns_composition_field(::Type{T}, config,
-                                   𝒟ᵒᶜ::RadialDomain,
+                                   outer_core_domain::RadialDomain,
                                    pencils=nothing, pencil_spec=nothing) where T
 
 Create a composition field structure with all necessary arrays for spectral computation.
@@ -155,7 +155,7 @@ Create a composition field structure with all necessary arrays for spectral comp
 # Arguments
 - `T`: Numeric type (e.g., Float64)
 - `config`: SHTnsKitConfig with transform parameters (lmax, mmax, nlat, nlon)
-- `𝒟ᵒᶜ`: Radial domain information for outer core
+- `outer_core_domain`: Radial domain information for outer core
 - `pencils`: Optional pencil decomposition (defaults to config.pencils)
 - `pencil_spec`: Optional spectral pencil (defaults to pencils.spec)
 
@@ -174,7 +174,7 @@ Default boundary conditions are no-flux (NEUMANN) at both boundaries,
 appropriate for typical compositional convection problems.
 """
 function create_shtns_composition_field(::Type{T}, config::C,
-                                        𝒟ᵒᶜ::RadialDomain,
+                                        outer_core_domain::RadialDomain,
                                         pencils=nothing, pencil_spec=nothing) where {T,C<:SHTnsKitConfig}
     # Use config's pencils by default (consistent with velocity/magnetic creators)
     if pencils === nothing
@@ -185,21 +185,21 @@ function create_shtns_composition_field(::Type{T}, config::C,
     end
 
     # Composition field in r-pencil for efficient radial operations
-    composition = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
+    composition = create_shtns_physical_field(T, config, outer_core_domain, pencils.r)
 
     # Gradient components
-    gradient = create_shtns_vector_field(T, config, 𝒟ᵒᶜ,
+    gradient = create_shtns_vector_field(T, config, outer_core_domain,
                                         (pencils.θ, pencils.φ, pencils.r))
 
     # Spectral representation using spectral pencil
-    spectral       = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    nonlinear      = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    prev_nonlinear = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    spectral       = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    nonlinear      = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    prev_nonlinear = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
 
     # Work arrays
-    work_spectral      = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    work_physical      = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
-    advection_physical = create_shtns_physical_field(T, config, 𝒟ᵒᶜ, pencils.r)
+    work_spectral      = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    work_physical      = create_shtns_physical_field(T, config, outer_core_domain, pencils.r)
+    advection_physical = create_shtns_physical_field(T, config, outer_core_domain, pencils.r)
 
     # Boundary conditions
     boundary_values  = zeros(T, 2, config.nlm)
@@ -213,15 +213,15 @@ function create_shtns_composition_field(::Type{T}, config::C,
     ℓ_factors = T[l * (l + 1) for l in config.l_values]
 
     # Create radial derivative matrices
-    ∂r  = create_derivative_matrix(T, 1, 𝒟ᵒᶜ)
-    ∂²r = create_derivative_matrix(T, 2, 𝒟ᵒᶜ)
+    ∂r  = create_derivative_matrix(T, 1, outer_core_domain)
+    ∂²r = create_derivative_matrix(T, 2, outer_core_domain)
 
     # Pre-compute spectral derivative operators
     ∂θ = build_∂θ(T, config)
     theta_recurrence_coeffs = compute_theta_recurrence_coefficients(T, config)
 
     # Internal sources (radial profile, e.g. secular cooling)
-    internal_sources = zeros(T, 𝒟ᵒᶜ.N)
+    internal_sources = zeros(T, outer_core_domain.N)
 
     return SHTnsCompositionField(
         composition, gradient, spectral, nonlinear, prev_nonlinear,
@@ -232,7 +232,7 @@ function create_shtns_composition_field(::Type{T}, config::C,
         ∂r, ∂²r,
         ∂θ, theta_recurrence_coeffs,
         Ref(0.0), Ref(0.0), Ref(0.0), Ref(0.0),
-        𝒟ᵒᶜ
+        outer_core_domain
     )
 end
 
@@ -245,7 +245,7 @@ include("../../bcs/compositional_bc.jl")
 
 """
     compute_composition_nonlinear!(𝔽::SHTnsCompositionField{T},
-                                   vel_fields, 𝒟ᵒᶜ::RadialDomain,
+                                   vel_fields, outer_core_domain::RadialDomain,
                                    ws::GradientWorkspace{T};
                                    geometry::Symbol) where T
 
@@ -264,7 +264,7 @@ The advection term -u·∇C is computed using the following optimized workflow:
 # Arguments
 - `𝔽`: Composition field structure to update
 - `vel_fields`: Velocity field structure (provides u for advection)
-- `𝒟ᵒᶜ`: Radial domain information
+- `outer_core_domain`: Radial domain information
 - `geometry`: Geometry type (:shell or :ball) for transform selection
 
 # Side Effects
@@ -278,7 +278,7 @@ The advection term -u·∇C is computed using the following optimized workflow:
 - Physical space operations are embarrassingly parallel
 """
 function compute_composition_nonlinear!(𝔽::SHTnsCompositionField{T},
-                                        vel_fields, 𝒟ᵒᶜ::RadialDomain,
+                                        vel_fields, outer_core_domain::RadialDomain,
                                         ws::GradientWorkspace{T};
                                         geometry::Symbol) where T
     t_start = ENABLE_TIMING[] ? MPI.Wtime() : 0.0
@@ -291,7 +291,7 @@ function compute_composition_nonlinear!(𝔽::SHTnsCompositionField{T},
     if ENABLE_TIMING[]
         t_spectral = MPI.Wtime()
     end
-    compute_all_gradients_spectral!(𝔽, 𝒟ᵒᶜ, ws)
+    compute_all_gradients_spectral!(𝔽, outer_core_domain, ws)
     if ENABLE_TIMING[]
         𝔽.spectral_time[] += MPI.Wtime() - t_spectral
     end
@@ -338,35 +338,6 @@ zero_composition_work_arrays!(𝔽::SHTnsCompositionField{T}) where T = zero_sca
 # Validation and Testing
 # ================================================================================
 
-function validate_composition_field(𝔽::SHTnsCompositionField{T}, domain::RadialDomain) where T
-    """
-    Validate composition field consistency and boundary conditions
-    """
-    errors = String[]
-    
-    # Check spectral field dimensions
-    spec_real = parent(𝔽.spectral.data_real)
-    local_slot_capacity = size(spec_real, 1) * size(spec_real, 2)
-    local_mode_count = length(local_spectral_mode_indices(𝔽.config))
-    if local_mode_count > local_slot_capacity
-        push!(errors, "Spectral field local slot capacity is smaller than owned spectral mode count")
-    end
-    
-    # Check boundary condition arrays
-    if length(𝔽.bc_type_inner) != 𝔽.config.nlm
-        push!(errors, "Inner BC array size mismatch")
-    end
-    
-    if length(𝔽.bc_type_outer) != 𝔽.config.nlm
-        push!(errors, "Outer BC array size mismatch")
-    end
-
-    if !isempty(errors)
-        error("Composition field validation failed:\n" * join(errors, "\n"))
-    end
-    
-    return true
-end
 
 # ================================================================================
 # Diagnostic functions
@@ -378,7 +349,7 @@ end
 Compute a global RMS measure of the composition field from its spectral
 coefficients.
 """
-function compute_composition_rms(𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::RadialDomain) where T
+function compute_composition_rms(𝔽::SHTnsCompositionField{T}, outer_core_domain::RadialDomain) where T
     # Compute RMS composition
     spec_real = parent(𝔽.spectral.data_real)
     spec_imag = parent(𝔽.spectral.data_imag)
@@ -406,7 +377,7 @@ function compute_composition_rms(𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::Rad
     comm = get_comm()
     global_sum = MPI.Allreduce(local_sum, MPI.SUM, comm)
     
-    return sqrt(global_sum / (𝒟ᵒᶜ.N * 𝔽.config.nlm))
+    return sqrt(global_sum / (outer_core_domain.N * 𝔽.config.nlm))
 end
 
 """
@@ -414,7 +385,7 @@ end
 
 Compute a volume-averaged compositional energy from the current physical field.
 """
-function compute_composition_energy(𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::RadialDomain) where T
+function compute_composition_energy(𝔽::SHTnsCompositionField{T}, outer_core_domain::RadialDomain) where T
     # Compute compositional energy ∫ C² dV
     
     # Transform to physical space first
@@ -439,7 +410,7 @@ function compute_composition_energy(𝔽::SHTnsCompositionField{T}, 𝒟ᵒᶜ::
     comm = get_comm()
     global_energy = MPI.Allreduce(local_energy, MPI.SUM, comm)
     
-    return global_energy / (𝔽.config.nlat * 𝔽.config.nlon * 𝒟ᵒᶜ.N)
+    return global_energy / (𝔽.config.nlat * 𝔽.config.nlon * outer_core_domain.N)
 end
 
 # ================================================================================
@@ -495,7 +466,7 @@ The helper is intended for tests and simple setups that want a uniform, linear,
 or randomly perturbed compositional state without reading a restart file.
 """
 function set_composition_ic!(𝔽::SHTnsCompositionField{T}, 
-                             ic_type::Symbol, 𝒟ᵒᶜ::RadialDomain) where T
+                             ic_type::Symbol, outer_core_domain::RadialDomain) where T
     # Set initial conditions for composition field
     
     spec_real = parent(𝔽.spectral.data_real)
@@ -523,7 +494,7 @@ function set_composition_ic!(𝔽::SHTnsCompositionField{T},
         if slot !== nothing
             for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
-                r = 𝒟ᵒᶜ.r[r_idx, 4]  # Normalized radius
+                r = outer_core_domain.r[r_idx, 4]  # Normalized radius
                 set_local_spectral_value!(spec_real, slot, local_r, T(r))
             end
         end

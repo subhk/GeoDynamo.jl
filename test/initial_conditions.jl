@@ -102,7 +102,7 @@ end
 
         magnetic = GeoDynamo.create_shtns_magnetic_fields(Float64, cfg, ball, ball)
         GeoDynamo.set_analytical_initial_conditions!(magnetic, :magnetic, :uniform_field, amplitude=1.0, direction=:x)
-        assert_ball_vector_regularity(magnetic.𝒯, magnetic.𝒫, cfg)
+        assert_ball_vector_regularity(magnetic.toroidal, magnetic.poloidal, cfg)
     end
 
     if MPI.Initialized()

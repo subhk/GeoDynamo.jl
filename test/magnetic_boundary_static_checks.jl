@@ -40,9 +40,9 @@ end
         "function _magnetic_toroidal_inner_bc_increment(",
     )
     @test occursin("local_spectral_mode_indices(solution.config)", legacy_magnetic_solve)
-    @test occursin("local_spectral_mode_indices(magnetic.𝒯.config)", toroidal_inner_bc)
+    @test occursin("local_spectral_mode_indices(magnetic.toroidal.config)", toroidal_inner_bc)
     @test !occursin("get_local_range(solution.pencil, 1)", legacy_magnetic_solve)
-    @test !occursin("local_range(magnetic.𝒯.pencil, 1)", toroidal_inner_bc)
+    @test !occursin("local_range(magnetic.toroidal.pencil, 1)", toroidal_inner_bc)
 
     insulating_inner = _magnetic_bc_static_function_body(
         erk2,

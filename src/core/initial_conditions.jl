@@ -27,7 +27,7 @@ const GEODYNAMO_PARENT = parentmodule(@__MODULE__)
     getproperty(GEODYNAMO_PARENT, :apply_ball_temperature_regularity!)(field)
 
 @inline apply_ball_vector_regularity!(field) =
-    getproperty(GEODYNAMO_PARENT, :enforce_ball_vector_regularity!)(field.𝒯, field.𝒫)
+    getproperty(GEODYNAMO_PARENT, :enforce_ball_vector_regularity!)(field.toroidal, field.poloidal)
 
 export load_initial_conditions!, generate_random_initial_conditions!
 export set_analytical_initial_conditions!, save_initial_conditions
@@ -93,7 +93,7 @@ Populate velocity-like toroidal/poloidal fields with random perturbations up to 
 """
 function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain=nothing)
     amp = Float64(amplitude)
-    for spectral in (field.𝒯, field.𝒫)
+    for spectral in (field.toroidal, field.poloidal)
         real = parent(spectral.data_real)
         imag = parent(spectral.data_imag)
         fill!(real, zero(eltype(real)))
@@ -117,7 +117,7 @@ function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain=nothi
         end
     end
     _maybe_enforce_ball_vector!(field, domain)
-    for spectral in (field.𝒯, field.𝒫)
+    for spectral in (field.toroidal, field.poloidal)
         if any(isnan, parent(spectral.data_real)) || any(isinf, parent(spectral.data_real))
             error("Non-finite values in vector field initial conditions (real part)")
         end
@@ -132,7 +132,7 @@ Populate magnetic toroidal/poloidal fields with random perturbations.
 """
 function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain=nothing)
     amp = Float64(amplitude)
-    for spectral in (field.𝒯, field.𝒫)
+    for spectral in (field.toroidal, field.poloidal)
         real = parent(spectral.data_real)
         imag = parent(spectral.data_imag)
         fill!(real, zero(eltype(real)))
@@ -156,7 +156,7 @@ function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain=not
         end
     end
     _maybe_enforce_ball_vector!(field, domain)
-    for spectral in (field.𝒯, field.𝒫)
+    for spectral in (field.toroidal, field.poloidal)
         if any(isnan, parent(spectral.data_real)) || any(isinf, parent(spectral.data_real))
             error("Non-finite values in magnetic field initial conditions (real part)")
         end
@@ -401,7 +401,7 @@ Uses PencilArray structure with data_real/data_imag arrays.
 """
 function generate_random_magnetic!(mag_field, amplitude, modes_range)
     # Process toroidal and poloidal components
-    for (spectral, is_poloidal) in ((mag_field.𝒯, false), (mag_field.𝒫, true))
+    for (spectral, is_poloidal) in ((mag_field.toroidal, false), (mag_field.poloidal, true))
         real_data = parent(spectral.data_real)
         imag_data = parent(spectral.data_imag)
         T = eltype(real_data)
@@ -456,7 +456,7 @@ Uses PencilArray structure with data_real/data_imag arrays.
 """
 function generate_random_velocity!(vel_field, amplitude, modes_range)
     # Process toroidal and poloidal components
-    for spectral in (vel_field.𝒯, vel_field.𝒫)
+    for spectral in (vel_field.toroidal, vel_field.poloidal)
         real_data = parent(spectral.data_real)
         imag_data = parent(spectral.data_imag)
         T = eltype(real_data)
@@ -709,22 +709,22 @@ function set_analytical_magnetic!(mag_field, pattern::Symbol, amplitude; paramet
     end
 
     # Clear both fields
-    for spectral in (mag_field.𝒯, mag_field.𝒫)
+    for spectral in (mag_field.toroidal, mag_field.poloidal)
         fill!(parent(spectral.data_real), zero(eltype(parent(spectral.data_real))))
         fill!(parent(spectral.data_imag), zero(eltype(parent(spectral.data_imag))))
     end
 
     if pattern == :dipole
         # Earth-like dipolar field: l=1 mode
-        set_spectral_values!(mag_field.𝒫, 1, r -> amplitude * sin(π * r))
-        set_spectral_values!(mag_field.𝒯, 1, r -> 0.1 * amplitude * sin(π * r))
+        set_spectral_values!(mag_field.poloidal, 1, r -> amplitude * sin(π * r))
+        set_spectral_values!(mag_field.toroidal, 1, r -> 0.1 * amplitude * sin(π * r))
 
     elseif pattern == :uniform_field
         direction = get(parameters, :direction, :z)
         if direction == :z
-            set_spectral_values!(mag_field.𝒫, 0, r -> amplitude)
+            set_spectral_values!(mag_field.poloidal, 0, r -> amplitude)
         elseif direction == :x
-            set_spectral_values!(mag_field.𝒫, 1, r -> amplitude)
+            set_spectral_values!(mag_field.poloidal, 1, r -> amplitude)
         end
 
     else
@@ -744,14 +744,14 @@ Uses PencilArray structure with data_real/data_imag arrays.
 """
 function set_analytical_velocity!(vel_field, pattern::Symbol, amplitude; parameters...)
     # Clear both fields
-    for spectral in (vel_field.𝒯, vel_field.𝒫)
+    for spectral in (vel_field.toroidal, vel_field.poloidal)
         fill!(parent(spectral.data_real), zero(eltype(parent(spectral.data_real))))
         fill!(parent(spectral.data_imag), zero(eltype(parent(spectral.data_imag))))
     end
 
     if pattern == :convective
         # Small convective perturbations in low-order modes
-        for spectral in (vel_field.𝒯, vel_field.𝒫)
+        for spectral in (vel_field.toroidal, vel_field.poloidal)
             real_data = parent(spectral.data_real)
             T = eltype(real_data)
             nr = size(real_data, 3)

@@ -245,17 +245,17 @@ function apply_velocity_bc_to_rhs!(rhs, velocity_field)
     # - Poloidal component P: related to radial velocity (v_r) and tangential flow potential
 
     # Apply boundary conditions to toroidal component
-    if hasfield(typeof(velocity_field), :𝒯) && hasfield(typeof(velocity_field.𝒯), :boundary_values)
-        innerᵀ = velocity_field.𝒯.boundary_values[1, :]
-        outerᵀ = velocity_field.𝒯.boundary_values[2, :]
+    if hasfield(typeof(velocity_field), :toroidal) && hasfield(typeof(velocity_field.toroidal), :boundary_values)
+        innerᵀ = velocity_field.toroidal.boundary_values[1, :]
+        outerᵀ = velocity_field.toroidal.boundary_values[2, :]
 
         nlm = length(innerᵀ)
         for lm in 1:nlm
             # Get boundary condition types
-            bc_type_inner = hasfield(typeof(velocity_field.𝒯), :bc_type_inner) ?
-                           velocity_field.𝒯.bc_type_inner[lm] : Int(DIRICHLET)
-            bc_type_outer = hasfield(typeof(velocity_field.𝒯), :bc_type_outer) ?
-                           velocity_field.𝒯.bc_type_outer[lm] : Int(DIRICHLET)
+            bc_type_inner = hasfield(typeof(velocity_field.toroidal), :bc_type_inner) ?
+                           velocity_field.toroidal.bc_type_inner[lm] : Int(DIRICHLET)
+            bc_type_outer = hasfield(typeof(velocity_field.toroidal), :bc_type_outer) ?
+                           velocity_field.toroidal.bc_type_outer[lm] : Int(DIRICHLET)
 
             # Apply toroidal boundary conditions
             if bc_type_inner == Int(DIRICHLET)  # Dirichlet (no-slip): T = prescribed value
@@ -277,17 +277,17 @@ function apply_velocity_bc_to_rhs!(rhs, velocity_field)
     end
 
     # Apply boundary conditions to poloidal component
-    if hasfield(typeof(velocity_field), :𝒫) && hasfield(typeof(velocity_field.𝒫), :boundary_values)
-        innerᴾ = velocity_field.𝒫.boundary_values[1, :]
-        outerᴾ = velocity_field.𝒫.boundary_values[2, :]
+    if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
+        innerᴾ = velocity_field.poloidal.boundary_values[1, :]
+        outerᴾ = velocity_field.poloidal.boundary_values[2, :]
 
         nlm = length(innerᴾ)
         for lm in 1:nlm
             # Get boundary condition types
-            bc_type_inner = hasfield(typeof(velocity_field.𝒫), :bc_type_inner) ?
-                           velocity_field.𝒫.bc_type_inner[lm] : Int(DIRICHLET)
-            bc_type_outer = hasfield(typeof(velocity_field.𝒫), :bc_type_outer) ?
-                           velocity_field.𝒫.bc_type_outer[lm] : Int(DIRICHLET)
+            bc_type_inner = hasfield(typeof(velocity_field.poloidal), :bc_type_inner) ?
+                           velocity_field.poloidal.bc_type_inner[lm] : Int(DIRICHLET)
+            bc_type_outer = hasfield(typeof(velocity_field.poloidal), :bc_type_outer) ?
+                           velocity_field.poloidal.bc_type_outer[lm] : Int(DIRICHLET)
 
             # Apply poloidal boundary conditions
             if bc_type_inner == Int(DIRICHLET)  # Dirichlet: P = prescribed value
@@ -323,8 +323,8 @@ function apply_magnetic_bc_to_rhs!(rhs, magnetic_field)
     end
     
     # Apply boundary conditions to toroidal component
-    if hasfield(typeof(magnetic_field), :𝒯) && hasfield(typeof(magnetic_field.𝒯), :boundary_values)
-        toroidal = magnetic_field.𝒯
+    if hasfield(typeof(magnetic_field), :toroidal) && hasfield(typeof(magnetic_field.toroidal), :boundary_values)
+        toroidal = magnetic_field.toroidal
 
         if hasfield(typeof(toroidal), :bc_type_inner) && hasfield(typeof(toroidal), :bc_type_outer)
             innerᵀ = toroidal.boundary_values[1, :]
@@ -357,8 +357,8 @@ function apply_magnetic_bc_to_rhs!(rhs, magnetic_field)
     end
 
     # Apply boundary conditions to poloidal component
-    if hasfield(typeof(magnetic_field), :𝒫) && hasfield(typeof(magnetic_field.𝒫), :boundary_values)
-        poloidal = magnetic_field.𝒫
+    if hasfield(typeof(magnetic_field), :poloidal) && hasfield(typeof(magnetic_field.poloidal), :boundary_values)
+        poloidal = magnetic_field.poloidal
 
         if hasfield(typeof(poloidal), :bc_type_inner) && hasfield(typeof(poloidal), :bc_type_outer)
             innerᴾ = poloidal.boundary_values[1, :]
@@ -497,17 +497,17 @@ function enforce_velocity_bc_in_solution!(solution, velocity_field)
     # This function is called after timestepping to ensure the solution satisfies BCs
 
     # Toroidal component enforcement
-    if hasfield(typeof(velocity_field), :𝒯) && hasfield(typeof(velocity_field.𝒯), :boundary_values)
-        innerᵀ = velocity_field.𝒯.boundary_values[1, :]
-        outerᵀ = velocity_field.𝒯.boundary_values[2, :]
+    if hasfield(typeof(velocity_field), :toroidal) && hasfield(typeof(velocity_field.toroidal), :boundary_values)
+        innerᵀ = velocity_field.toroidal.boundary_values[1, :]
+        outerᵀ = velocity_field.toroidal.boundary_values[2, :]
 
         nlm = length(innerᵀ)
         for lm in 1:nlm
             # Get boundary condition types
-            bc_type_inner = hasfield(typeof(velocity_field.𝒯), :bc_type_inner) ?
-                           velocity_field.𝒯.bc_type_inner[lm] : Int(DIRICHLET)
-            bc_type_outer = hasfield(typeof(velocity_field.𝒯), :bc_type_outer) ?
-                           velocity_field.𝒯.bc_type_outer[lm] : Int(DIRICHLET)
+            bc_type_inner = hasfield(typeof(velocity_field.toroidal), :bc_type_inner) ?
+                           velocity_field.toroidal.bc_type_inner[lm] : Int(DIRICHLET)
+            bc_type_outer = hasfield(typeof(velocity_field.toroidal), :bc_type_outer) ?
+                           velocity_field.toroidal.bc_type_outer[lm] : Int(DIRICHLET)
 
             # Enforce toroidal boundary conditions
             if bc_type_inner == Int(DIRICHLET)  # Dirichlet: enforce T = boundary_value at inner boundary
@@ -523,17 +523,17 @@ function enforce_velocity_bc_in_solution!(solution, velocity_field)
     end
 
     # Poloidal component enforcement
-    if hasfield(typeof(velocity_field), :𝒫) && hasfield(typeof(velocity_field.𝒫), :boundary_values)
-        innerᴾ = velocity_field.𝒫.boundary_values[1, :]
-        outerᴾ = velocity_field.𝒫.boundary_values[2, :]
+    if hasfield(typeof(velocity_field), :poloidal) && hasfield(typeof(velocity_field.poloidal), :boundary_values)
+        innerᴾ = velocity_field.poloidal.boundary_values[1, :]
+        outerᴾ = velocity_field.poloidal.boundary_values[2, :]
 
         nlm = length(innerᴾ)
         for lm in 1:nlm
             # Get boundary condition types
-            bc_type_inner = hasfield(typeof(velocity_field.𝒫), :bc_type_inner) ?
-                           velocity_field.𝒫.bc_type_inner[lm] : Int(DIRICHLET)
-            bc_type_outer = hasfield(typeof(velocity_field.𝒫), :bc_type_outer) ?
-                           velocity_field.𝒫.bc_type_outer[lm] : Int(DIRICHLET)
+            bc_type_inner = hasfield(typeof(velocity_field.poloidal), :bc_type_inner) ?
+                           velocity_field.poloidal.bc_type_inner[lm] : Int(DIRICHLET)
+            bc_type_outer = hasfield(typeof(velocity_field.poloidal), :bc_type_outer) ?
+                           velocity_field.poloidal.bc_type_outer[lm] : Int(DIRICHLET)
 
             # Enforce poloidal boundary conditions
             if bc_type_inner == Int(DIRICHLET)  # Dirichlet: enforce P = boundary_value at inner boundary
@@ -569,13 +569,13 @@ function enforce_magnetic_bc_in_solution!(solution, magnetic_field)
     # For perfect conductor: enforce specific field continuity conditions
     
     # Toroidal component enforcement
-    if hasfield(typeof(magnetic_field), :𝒯) && hasfield(typeof(magnetic_field.𝒯), :boundary_values)
+    if hasfield(typeof(magnetic_field), :toroidal) && hasfield(typeof(magnetic_field.toroidal), :boundary_values)
         # Insulating: ∂(rBᵀ)/∂r = 0
         # Perfect conductor: Bᵀ = 0
     end
     
     # Poloidal component enforcement
-    if hasfield(typeof(magnetic_field), :𝒫) && hasfield(typeof(magnetic_field.𝒫), :boundary_values)
+    if hasfield(typeof(magnetic_field), :poloidal) && hasfield(typeof(magnetic_field.poloidal), :boundary_values)
         # Insulating: match potential field
         # Perfect conductor: ∂Bᴾ/∂r = 0
     end

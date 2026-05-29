@@ -51,12 +51,12 @@ function demo_vector_transforms(cfg, domain)
     Random.seed!(42)
     randomize_vector_field!(fields; amplitude=1e-4, lmax=4, domain=domain)
 
-    before_t_real = copy(parent(fields.𝒯.data_real))
-    before_t_imag = copy(parent(fields.𝒯.data_imag))
-    before_p_real = copy(parent(fields.𝒫.data_real))
-    before_p_imag = copy(parent(fields.𝒫.data_imag))
+    before_t_real = copy(parent(fields.toroidal.data_real))
+    before_t_imag = copy(parent(fields.toroidal.data_imag))
+    before_p_real = copy(parent(fields.poloidal.data_real))
+    before_p_imag = copy(parent(fields.poloidal.data_imag))
 
-    shtnskit_vector_synthesis!(fields.𝒯, fields.𝒫, fields.velocity; domain=domain)
+    shtnskit_vector_synthesis!(fields.toroidal, fields.poloidal, fields.velocity; domain=domain)
     shtnskit_vector_analysis!(fields.velocity, fields.work_tor, fields.work_pol)
 
     tor_error = local_roundtrip_error(

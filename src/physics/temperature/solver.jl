@@ -70,7 +70,7 @@ end
 function solver_compute_temperature_nonlinear!(
     temp_𝔽::TemperatureFieldType{T},
     vel_fields,
-    𝒟ᵒᶜ::RadialDomainType,
+    outer_core_domain::RadialDomainType,
     ws::SolverGradientWorkspace{T};
     geometry::Symbol=solver_default_geometry(),
 ) where T
@@ -84,7 +84,7 @@ function solver_compute_temperature_nonlinear!(
     if timing_enabled()
         t_spectral = mpi_wtime()
     end
-    compute_all_gradients_spectral!(temp_𝔽, 𝒟ᵒᶜ, ws)
+    compute_all_gradients_spectral!(temp_𝔽, outer_core_domain, ws)
     if timing_enabled()
         temp_𝔽.spectral_time[] += mpi_wtime() - t_spectral
     end
@@ -100,7 +100,7 @@ function solver_compute_temperature_nonlinear!(
     if vel_fields !== nothing
         solver_compute_scalar_advection_local!(temp_𝔽, vel_fields)
     end
-    solver_add_internal_sources_local!(temp_𝔽, 𝒟ᵒᶜ)
+    solver_add_internal_sources_local!(temp_𝔽, outer_core_domain)
 
     if timing_enabled()
         t_transform = mpi_wtime()
@@ -158,10 +158,10 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
         radial_work = get_radial_work!(
             state.timestep_caches,
             :temperature,
-            runtime.𝒟ᵒᶜ.N,
+            runtime.outer_core_domain.N,
         )
         temperature_bc_code = _thermal_bc_code(state.parameters.temperature_bcs)
-        scalar_bc = build_solver_erk2_scalar_bc(T, runtime.𝒟ᵒᶜ, temperature_bc_code)
+        scalar_bc = build_solver_erk2_scalar_bc(T, runtime.outer_core_domain, temperature_bc_code)
         bc_spec = with_boundary_mode_values(
             scalar_bc,
             bc.inner_real,
@@ -174,7 +174,7 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
             temperature.nonlinear,
             temperature.prev_nonlinear,
             alu_map,
-            runtime.𝒟ᵒᶜ,
+            runtime.outer_core_domain,
             diffusivity,
             runtime.shtns_config,
             dt;
@@ -205,10 +205,3 @@ function apply_temperature_implicit_update!(state::SolverState{T,<:AbstractArchi
     return state
 end
 
-function queue_temperature_implicit_update!(
-    operations::Vector{Function},
-    state::SolverState{T,<:AbstractArchitecture},
-) where T
-    push!(operations, () -> apply_temperature_implicit_update!(state))
-    return operations
-end

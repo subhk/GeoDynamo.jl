@@ -2492,16 +2492,16 @@ function restore_solver_erk2_nonlinear_terms!(
 )
     copyto!(parent(state.fields.temperature.nonlinear.data_real), temp_buffers.n_current_real)
     copyto!(parent(state.fields.temperature.nonlinear.data_imag), temp_buffers.n_current_imag)
-    copyto!(parent(state.fields.velocity.nlᵀ.data_real), vel_tor_buffers.n_current_real)
-    copyto!(parent(state.fields.velocity.nlᵀ.data_imag), vel_tor_buffers.n_current_imag)
-    copyto!(parent(state.fields.velocity.nlᴾ.data_real), vel_pol_buffers.n_current_real)
-    copyto!(parent(state.fields.velocity.nlᴾ.data_imag), vel_pol_buffers.n_current_imag)
+    copyto!(parent(state.fields.velocity.nl_toroidal.data_real), vel_tor_buffers.n_current_real)
+    copyto!(parent(state.fields.velocity.nl_toroidal.data_imag), vel_tor_buffers.n_current_imag)
+    copyto!(parent(state.fields.velocity.nl_poloidal.data_real), vel_pol_buffers.n_current_real)
+    copyto!(parent(state.fields.velocity.nl_poloidal.data_imag), vel_pol_buffers.n_current_imag)
 
     if mag_tor_buffers !== nothing
-        copyto!(parent(state.fields.magnetic.nlᵀ.data_real), mag_tor_buffers.n_current_real)
-        copyto!(parent(state.fields.magnetic.nlᵀ.data_imag), mag_tor_buffers.n_current_imag)
-        copyto!(parent(state.fields.magnetic.nlᴾ.data_real), mag_pol_buffers.n_current_real)
-        copyto!(parent(state.fields.magnetic.nlᴾ.data_imag), mag_pol_buffers.n_current_imag)
+        copyto!(parent(state.fields.magnetic.nl_toroidal.data_real), mag_tor_buffers.n_current_real)
+        copyto!(parent(state.fields.magnetic.nl_toroidal.data_imag), mag_tor_buffers.n_current_imag)
+        copyto!(parent(state.fields.magnetic.nl_poloidal.data_real), mag_pol_buffers.n_current_real)
+        copyto!(parent(state.fields.magnetic.nl_poloidal.data_imag), mag_pol_buffers.n_current_imag)
     end
 
     if comp_buffers !== nothing
@@ -2588,7 +2588,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         :velocity_poloidal,
         T,
         runtime.shtns_config,
-        runtime.𝒟ᵒᶜ,
+        runtime.outer_core_domain,
         params.Ek,
         params.timestep,
         velocity_bc_code;
@@ -2600,7 +2600,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         params.Pm / params.Pr,
         T,
         runtime.shtns_config,
-        runtime.𝒟ᵒᶜ,
+        runtime.outer_core_domain,
         params.timestep,
         temperature_bc_code;
         use_krylov=false,
@@ -2628,7 +2628,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         params.Ek,
         T,
         runtime.shtns_config,
-        runtime.𝒟ᵒᶜ,
+        runtime.outer_core_domain,
         params.timestep;
         use_krylov=false,
         bc_spec=vel_tor_bc,
@@ -2636,14 +2636,14 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     vel_tor_buffers = get_solver_erk2_field_buffers!(
         state.timestep_caches,
         :velocity_toroidal,
-        state.fields.velocity.𝒯,
-        state.fields.velocity.nlᵀ,
+        state.fields.velocity.toroidal,
+        state.fields.velocity.nl_toroidal,
         vel_tor_cache,
     )
     prepare_solver_erk2_field!(
         vel_tor_buffers,
-        state.fields.velocity.𝒯,
-        state.fields.velocity.nlᵀ,
+        state.fields.velocity.toroidal,
+        state.fields.velocity.nl_toroidal,
         vel_tor_cache,
         runtime.shtns_config,
         params.timestep;
@@ -2656,7 +2656,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         params.Ek,
         T,
         runtime.shtns_config,
-        runtime.𝒟ᵒᶜ,
+        runtime.outer_core_domain,
         params.timestep;
         use_krylov=false,
         bc_spec=vel_pol_bc,
@@ -2664,14 +2664,14 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     vel_pol_buffers = get_solver_erk2_field_buffers!(
         state.timestep_caches,
         :velocity_poloidal,
-        state.fields.velocity.𝒫,
-        state.fields.velocity.nlᴾ,
+        state.fields.velocity.poloidal,
+        state.fields.velocity.nl_poloidal,
         vel_pol_cache,
     )
     prepare_solver_erk2_field!(
         vel_pol_buffers,
-        state.fields.velocity.𝒫,
-        state.fields.velocity.nlᴾ,
+        state.fields.velocity.poloidal,
+        state.fields.velocity.nl_poloidal,
         vel_pol_cache,
         runtime.shtns_config,
         params.timestep;
@@ -2699,21 +2699,21 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             1.0,
             T,
             runtime.shtns_config,
-            runtime.𝒟ᵒᶜ,
+            runtime.outer_core_domain,
             params.timestep;
             use_krylov=false,
         )
         mag_tor_buffers = get_solver_erk2_field_buffers!(
             state.timestep_caches,
             :magnetic_toroidal,
-            state.fields.magnetic.𝒯,
-            state.fields.magnetic.nlᵀ,
+            state.fields.magnetic.toroidal,
+            state.fields.magnetic.nl_toroidal,
             mag_tor_cache,
         )
         prepare_solver_erk2_field!(
             mag_tor_buffers,
-            state.fields.magnetic.𝒯,
-            state.fields.magnetic.nlᵀ,
+            state.fields.magnetic.toroidal,
+            state.fields.magnetic.nl_toroidal,
             mag_tor_cache,
             runtime.shtns_config,
             params.timestep;
@@ -2725,21 +2725,21 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             1.0,
             T,
             runtime.shtns_config,
-            runtime.𝒟ᵒᶜ,
+            runtime.outer_core_domain,
             params.timestep;
             use_krylov=false,
         )
         mag_pol_buffers = get_solver_erk2_field_buffers!(
             state.timestep_caches,
             :magnetic_poloidal,
-            state.fields.magnetic.𝒫,
-            state.fields.magnetic.nlᴾ,
+            state.fields.magnetic.poloidal,
+            state.fields.magnetic.nl_poloidal,
             mag_pol_cache,
         )
         prepare_solver_erk2_field!(
             mag_pol_buffers,
-            state.fields.magnetic.𝒫,
-            state.fields.magnetic.nlᴾ,
+            state.fields.magnetic.poloidal,
+            state.fields.magnetic.nl_poloidal,
             mag_pol_cache,
             runtime.shtns_config,
             params.timestep;
@@ -2768,7 +2768,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
             params.Pm / params.Sc,
             T,
             runtime.shtns_config,
-            runtime.𝒟ᵒᶜ,
+            runtime.outer_core_domain,
             params.timestep,
             composition_bc_code;
             use_krylov=false,
@@ -2794,11 +2794,11 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     # Stage application advances each field to the provisional ERK2 state using
     # the cached linear operator and the nonlinear data from the previous step.
     apply_solver_erk2_stage!(temp_buffers, state.fields.temperature.spectral)
-    apply_solver_erk2_stage!(vel_tor_buffers, state.fields.velocity.𝒯)
-    apply_solver_erk2_stage!(vel_pol_buffers, state.fields.velocity.𝒫)
+    apply_solver_erk2_stage!(vel_tor_buffers, state.fields.velocity.toroidal)
+    apply_solver_erk2_stage!(vel_pol_buffers, state.fields.velocity.poloidal)
     if mag_tor_buffers !== nothing
-        apply_solver_erk2_stage!(mag_tor_buffers, state.fields.magnetic.𝒯)
-        apply_solver_erk2_stage!(mag_pol_buffers, state.fields.magnetic.𝒫)
+        apply_solver_erk2_stage!(mag_tor_buffers, state.fields.magnetic.toroidal)
+        apply_solver_erk2_stage!(mag_pol_buffers, state.fields.magnetic.poloidal)
     end
     if comp_buffers !== nothing
         apply_solver_erk2_stage!(comp_buffers, state.fields.composition.spectral)
@@ -2810,15 +2810,15 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
 
     store_solver_erk2_stage_nonlinear!(temp_buffers, state.fields.temperature.nonlinear)
     maybe_log_solver_erk2_stage_residual!(:temperature, temp_buffers, runtime.timestep_state.step)
-    store_solver_erk2_stage_nonlinear!(vel_tor_buffers, state.fields.velocity.nlᵀ)
+    store_solver_erk2_stage_nonlinear!(vel_tor_buffers, state.fields.velocity.nl_toroidal)
     maybe_log_solver_erk2_stage_residual!(:velocity_toroidal, vel_tor_buffers, runtime.timestep_state.step)
-    store_solver_erk2_stage_nonlinear!(vel_pol_buffers, state.fields.velocity.nlᴾ)
+    store_solver_erk2_stage_nonlinear!(vel_pol_buffers, state.fields.velocity.nl_poloidal)
     maybe_log_solver_erk2_stage_residual!(:velocity_poloidal, vel_pol_buffers, runtime.timestep_state.step)
 
     if mag_tor_buffers !== nothing
-        store_solver_erk2_stage_nonlinear!(mag_tor_buffers, state.fields.magnetic.nlᵀ)
+        store_solver_erk2_stage_nonlinear!(mag_tor_buffers, state.fields.magnetic.nl_toroidal)
         maybe_log_solver_erk2_stage_residual!(:magnetic_toroidal, mag_tor_buffers, runtime.timestep_state.step)
-        store_solver_erk2_stage_nonlinear!(mag_pol_buffers, state.fields.magnetic.nlᴾ)
+        store_solver_erk2_stage_nonlinear!(mag_pol_buffers, state.fields.magnetic.nl_poloidal)
         maybe_log_solver_erk2_stage_residual!(:magnetic_poloidal, mag_pol_buffers, runtime.timestep_state.step)
     end
 
@@ -2839,7 +2839,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     )
     finalize_solver_erk2_field!(
         vel_tor_buffers,
-        state.fields.velocity.𝒯,
+        state.fields.velocity.toroidal,
         vel_tor_cache,
         runtime.shtns_config,
         params.timestep;
@@ -2847,22 +2847,22 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
     )
     finalize_solver_erk2_field!(
         vel_pol_buffers,
-        state.fields.velocity.𝒫,
+        state.fields.velocity.poloidal,
         vel_pol_cache,
         runtime.shtns_config,
         params.timestep;
         bc_spec=vel_pol_bc,
     )
-    pol_nr = size(parent(state.fields.velocity.𝒫.data_real), 3)
+    pol_nr = size(parent(state.fields.velocity.poloidal.data_real), 3)
     apply_solver_velocity_poloidal_influence_correction!(
-        state.fields.velocity.𝒫, vel_pol_influence, runtime.shtns_config;
+        state.fields.velocity.poloidal, vel_pol_influence, runtime.shtns_config;
         work=get_radial_work!(state.timestep_caches, :velocity_poloidal_influence, pol_nr).tmp_real,
     )
 
     if mag_tor_buffers !== nothing
         finalize_solver_erk2_field!(
             mag_tor_buffers,
-            state.fields.magnetic.𝒯,
+            state.fields.magnetic.toroidal,
             mag_tor_cache,
             runtime.shtns_config,
             params.timestep;
@@ -2870,7 +2870,7 @@ function integrate_solver_erk2_step!(state::SolverState{T,<:AbstractArchitecture
         )
         finalize_solver_erk2_field!(
             mag_pol_buffers,
-            state.fields.magnetic.𝒫,
+            state.fields.magnetic.poloidal,
             mag_pol_cache,
             runtime.shtns_config,
             params.timestep;

@@ -567,8 +567,8 @@ Returns vector of spectral coefficients for uᵣ.
 function compute_normal_velocity_spectral(velocity_field, r::T,
                                           location::BoundaryLocation=OUTER_BOUNDARY) where T
     # Get poloidal component
-    if hasfield(typeof(velocity_field), :𝒫)
-        poloidal = velocity_field.𝒫
+    if hasfield(typeof(velocity_field), :poloidal)
+        poloidal = velocity_field.poloidal
     elseif hasfield(typeof(velocity_field), :P)
         poloidal = velocity_field.P
     else

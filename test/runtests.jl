@@ -158,6 +158,7 @@ additional_tests = (
     "cnab2_rhs_distributed_equivalence.jl",
     "shell_boundaries.jl",
     "shtnskit_roundtrip.jl",
+    "spectral_operators.jl",
     "ball_roundtrip.jl",
     "ball_finiteness.jl",
     "stefan_condition_sanity.jl",

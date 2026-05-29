@@ -153,18 +153,18 @@ mutable struct SHTnsMagneticFields{
     current::VF
 
     # Spectral representation
-    𝒯::SF
-    𝒫::SF
+    toroidal::SF
+    poloidal::SF
 
     # Inner core fields
-    𝒯ⁱᶜ::SF
-    𝒫ⁱᶜ::SF
+    toroidal_ic::SF
+    poloidal_ic::SF
 
     # Nonlinear terms (induction)
-    nlᵀ::SF
-    nlᴾ::SF
-    prev_nlᵀ::SF
-    prev_nlᴾ::SF
+    nl_toroidal::SF
+    nl_poloidal::SF
+    prev_nl_toroidal::SF
+    prev_nl_poloidal::SF
 
     # Work arrays
     work_tor::SF
@@ -198,8 +198,8 @@ end
 Allocate and initialize the magnetic field container used by GeoDynamo.
 """
 function create_shtns_magnetic_fields(::Type{T}, config::C,
-                                      𝒟ᵒᶜ::RadialDomain, 
-                                      𝒟ⁱᶜ::RadialDomain, 
+                                      outer_core_domain::RadialDomain, 
+                                      inner_core_domain::RadialDomain, 
                                       pencils=nothing, pencil_spec=nothing) where {T,C<:SHTnsKitConfig}
 
     # Use enhanced pencil topology from config if not provided
@@ -214,39 +214,39 @@ function create_shtns_magnetic_fields(::Type{T}, config::C,
     end
     
     # Physical space fields
-    magnetic = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, pencils)
-    current  = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, pencils)
+    magnetic = create_shtns_vector_field(T, config, outer_core_domain, pencils)
+    current  = create_shtns_vector_field(T, config, outer_core_domain, pencils)
     
     # Spectral fields
-    𝒯 = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    𝒫 = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    toroidal = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    poloidal = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
     
     # Inner core fields (different domain). Give them an inner-core-sized spectral
     # pencil (nr_inner radial points) instead of padding to the outer-core nr; the
     # (l, m) topology/slot layout is identical to the outer-core fields.
-    pencil_spec_ic = create_inner_core_spectral_pencil(config, pencil_spec, 𝒟ⁱᶜ.N)
-    𝒯ⁱᶜ = create_shtns_spectral_field(T, config, 𝒟ⁱᶜ, pencil_spec_ic)
-    𝒫ⁱᶜ = create_shtns_spectral_field(T, config, 𝒟ⁱᶜ, pencil_spec_ic)
+    pencil_spec_ic = create_inner_core_spectral_pencil(config, pencil_spec, inner_core_domain.N)
+    toroidal_ic = create_shtns_spectral_field(T, config, inner_core_domain, pencil_spec_ic)
+    poloidal_ic = create_shtns_spectral_field(T, config, inner_core_domain, pencil_spec_ic)
     
     # Nonlinear terms
-    nlᵀ = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    nlᴾ = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    prev_nlᵀ = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    prev_nlᴾ = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
+    nl_toroidal = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    nl_poloidal = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    prev_nl_toroidal = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    prev_nl_poloidal = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
     
     # Work arrays
-    work_tor = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    work_pol = create_shtns_spectral_field(T, config, 𝒟ᵒᶜ, pencil_spec)
-    work_physical = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, pencils)
-    induction_physical = create_shtns_vector_field(T, config, 𝒟ᵒᶜ, pencils)
+    work_tor = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    work_pol = create_shtns_spectral_field(T, config, outer_core_domain, pencil_spec)
+    work_physical = create_shtns_vector_field(T, config, outer_core_domain, pencils)
+    induction_physical = create_shtns_vector_field(T, config, outer_core_domain, pencils)
     
     # Pre-compute l(l+1) factors
     ℓ_factors = T[l * (l + 1) for l in config.l_values]
 
     # Create radial derivative matrices (cached for performance)
-    ∂r  = create_derivative_matrix(T, 1, 𝒟ᵒᶜ)
-    ∂²r = create_derivative_matrix(T, 2, 𝒟ᵒᶜ)
-    curl_work = ntuple(_ -> zeros(T, 𝒟ᵒᶜ.N), 6)
+    ∂r  = create_derivative_matrix(T, 1, outer_core_domain)
+    ∂²r = create_derivative_matrix(T, 2, outer_core_domain)
+    curl_work = ntuple(_ -> zeros(T, outer_core_domain.N), 6)
 
     # Create transpose plans for efficient data movement
     transpose_plans = create_transpose_plans(pencils)
@@ -257,16 +257,16 @@ function create_shtns_magnetic_fields(::Type{T}, config::C,
     boundary_time_index = Ref{Int}(1)
     
     return SHTnsMagneticFields(magnetic, current,
-                               𝒯, 𝒫,
-                               𝒯ⁱᶜ, 𝒫ⁱᶜ,
-                               nlᵀ, nlᴾ, prev_nlᵀ, prev_nlᴾ,
+                               toroidal, poloidal,
+                               toroidal_ic, poloidal_ic,
+                               nl_toroidal, nl_poloidal, prev_nl_toroidal, prev_nl_poloidal,
                                work_tor, work_pol, work_physical,
                                induction_physical,
                                ℓ_factors,
                                ∂r, ∂²r, curl_work,
                                imposed_field,
                                config,
-                               𝒟ᵒᶜ,
+                               outer_core_domain,
                                boundary_condition_set, boundary_cache, boundary_time_index)
 end
 
@@ -280,7 +280,7 @@ include("inner_core.jl")
 # Main nonlinear computation using enhanced transforms
 # ========================================================
 function compute_magnetic_nonlinear!(ℬ::SHTnsMagneticFields{T},
-                                    𝒰, 𝒟ᵒᶜ::RadialDomain, 𝒟ⁱᶜ::RadialDomain,
+                                    𝒰, outer_core_domain::RadialDomain, inner_core_domain::RadialDomain,
                                     rotation_rate::Float64=0.0;
                                     geometry::Symbol) where T
     # Zero work arrays
@@ -292,15 +292,15 @@ function compute_magnetic_nonlinear!(ℬ::SHTnsMagneticFields{T},
     # physical space.
 
     # Step 1: Convert spectral B to physical space using enhanced transforms
-    shtnskit_vector_synthesis!(ℬ.𝒯, ℬ.𝒫,
-                               ℬ.magnetic; domain=𝒟ᵒᶜ)
+    shtnskit_vector_synthesis!(ℬ.toroidal, ℬ.poloidal,
+                               ℬ.magnetic; domain=outer_core_domain)
 
     # Step 2: Compute current density j = ∇ × B in spectral space
-    compute_current_density_spectral!(ℬ, 𝒟ᵒᶜ)
+    compute_current_density_spectral!(ℬ, outer_core_domain)
 
     # Step 3: Transform current to physical space
     shtnskit_vector_synthesis!(ℬ.work_tor, ℬ.work_pol,
-                               ℬ.current; domain=𝒟ᵒᶜ)
+                               ℬ.current; domain=outer_core_domain)
     
     # Step 4: Compute induction equation: ∂B/∂t = ∇ × (u × B) + η∇²B
     if 𝒰 !== nothing
@@ -312,7 +312,7 @@ function compute_magnetic_nonlinear!(ℬ::SHTnsMagneticFields{T},
         add_inner_core_rotation!(ℬ, rotation_rate)
     end
     
-    # Note: The nonlinear terms are now in ℬ.nlᵀ/poloidal
+    # Note: The nonlinear terms are now in ℬ.nl_toroidal/poloidal
 end
 
 
@@ -412,14 +412,14 @@ function _spectral_curl_torpol!(
 end
 
 function compute_current_density_spectral!(ℬ::SHTnsMagneticFields{T},
-                                          𝒟ᵒᶜ::RadialDomain) where T
-    # j = ∇ × B: source is B (𝒯,𝒫), destination is work arrays
+                                          outer_core_domain::RadialDomain) where T
+    # j = ∇ × B: source is B (toroidal,poloidal), destination is work arrays
     _spectral_curl_torpol!(
         parent(ℬ.work_tor.data_real), parent(ℬ.work_tor.data_imag),
         parent(ℬ.work_pol.data_real), parent(ℬ.work_pol.data_imag),
-        parent(ℬ.𝒯.data_real), parent(ℬ.𝒯.data_imag),
-        parent(ℬ.𝒫.data_real), parent(ℬ.𝒫.data_imag),
-        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, 𝒟ᵒᶜ, ℬ.𝒯.config, T;
+        parent(ℬ.toroidal.data_real), parent(ℬ.toroidal.data_imag),
+        parent(ℬ.poloidal.data_real), parent(ℬ.poloidal.data_imag),
+        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, outer_core_domain, ℬ.toroidal.config, T;
         _work=ℬ.curl_work,
     )
 end
@@ -506,11 +506,11 @@ end
 function compute_curl_of_induction!(ℬ::SHTnsMagneticFields{T}) where T
     # ∇ × (u × B): source is work arrays, destination is NL arrays
     _spectral_curl_torpol!(
-        parent(ℬ.nlᵀ.data_real), parent(ℬ.nlᵀ.data_imag),
-        parent(ℬ.nlᴾ.data_real), parent(ℬ.nlᴾ.data_imag),
+        parent(ℬ.nl_toroidal.data_real), parent(ℬ.nl_toroidal.data_imag),
+        parent(ℬ.nl_poloidal.data_real), parent(ℬ.nl_poloidal.data_imag),
         parent(ℬ.work_tor.data_real), parent(ℬ.work_tor.data_imag),
         parent(ℬ.work_pol.data_real), parent(ℬ.work_pol.data_imag),
-        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, ℬ.outer_domain, ℬ.𝒯.config, T;
+        ℬ.ℓ_factors, ℬ.∂r, ℬ.∂²r, ℬ.outer_domain, ℬ.toroidal.config, T;
         _work=ℬ.curl_work,
     )
 end
@@ -524,19 +524,19 @@ function add_inner_core_rotation!(ℬ::SHTnsMagneticFields{T}, Ω::Float64) wher
     # This modifies the nonlinear terms based on inner core rotation
     
     # Get local data views
-    ic_tor_real = parent(ℬ.𝒯ⁱᶜ.data_real)
-    ic_tor_imag = parent(ℬ.𝒯ⁱᶜ.data_imag)
-    ic_pol_real = parent(ℬ.𝒫ⁱᶜ.data_real)
-    ic_pol_imag = parent(ℬ.𝒫ⁱᶜ.data_imag)
+    ic_tor_real = parent(ℬ.toroidal_ic.data_real)
+    ic_tor_imag = parent(ℬ.toroidal_ic.data_imag)
+    ic_pol_real = parent(ℬ.poloidal_ic.data_real)
+    ic_pol_imag = parent(ℬ.poloidal_ic.data_imag)
     
-    NLᵀ_real = parent(ℬ.nlᵀ.data_real)
-    NLᵀ_imag = parent(ℬ.nlᵀ.data_imag)
-    NLᴾ_real = parent(ℬ.nlᴾ.data_real)
-    NLᴾ_imag = parent(ℬ.nlᴾ.data_imag)
+    NLᵀ_real = parent(ℬ.nl_toroidal.data_real)
+    NLᵀ_imag = parent(ℬ.nl_toroidal.data_imag)
+    NLᴾ_real = parent(ℬ.nl_poloidal.data_real)
+    NLᴾ_imag = parent(ℬ.nl_poloidal.data_imag)
     
     # Get local ranges
-    lm_range = get_local_range(ℬ.𝒯ⁱᶜ.pencil, 1)
-    r_range  = get_local_range(ℬ.𝒯ⁱᶜ.pencil, 3)
+    lm_range = get_local_range(ℬ.toroidal_ic.pencil, 1)
+    r_range  = get_local_range(ℬ.toroidal_ic.pencil, 3)
     
     # Rotation factor for inner core coupling (direct rotation rate, no arbitrary scaling)
     rotation_factor = Ω
@@ -546,10 +546,10 @@ function add_inner_core_rotation!(ℬ::SHTnsMagneticFields{T}, Ω::Float64) wher
     # volumetric forcing.
     # Add rotation effects to nonlinear terms at inner core boundary
     @inbounds for lm_idx in lm_range
-        if lm_idx <= ℬ.𝒯ⁱᶜ.nlm
-            slot = local_spectral_storage_slot(ℬ.𝒯.config, lm_idx)
+        if lm_idx <= ℬ.toroidal_ic.nlm
+            slot = local_spectral_storage_slot(ℬ.toroidal.config, lm_idx)
             slot === nothing && continue
-            m = ℬ.𝒯.config.m_values[lm_idx]
+            m = ℬ.toroidal.config.m_values[lm_idx]
             
             # Only affects m ≠ 0 modes (azimuthal dependence)
             if m != 0
@@ -601,22 +601,22 @@ representation.
 function compute_magnetic_energy(ℬ::SHTnsMagneticFields{T}, domain::RadialDomain) where T
     # Compute magnetic energy in spectral space
     
-    tor_real = parent(ℬ.𝒯.data_real)
-    tor_imag = parent(ℬ.𝒯.data_imag)
-    pol_real = parent(ℬ.𝒫.data_real)
-    pol_imag = parent(ℬ.𝒫.data_imag)
+    tor_real = parent(ℬ.toroidal.data_real)
+    tor_imag = parent(ℬ.toroidal.data_imag)
+    pol_real = parent(ℬ.poloidal.data_real)
+    pol_imag = parent(ℬ.poloidal.data_imag)
     
     local_energy = zero(Float64)
 
     # Get local ranges using config-aware pencil topology
     # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
     # since spectral field data is distributed using pencils.spec
-    config = ℬ.𝒯.config
+    config = ℬ.toroidal.config
     lm_range = local_spectral_mode_indices(config)
     r_range  = range_local(config.pencils.spec, 3)
 
     @inbounds for lm_idx in lm_range
-        if lm_idx <= ℬ.𝒯.nlm
+        if lm_idx <= ℬ.toroidal.nlm
             slot = local_spectral_storage_slot(config, lm_idx)
             slot === nothing && continue
             ℓ_factor = ℬ.ℓ_factors[lm_idx]
@@ -662,7 +662,7 @@ function compute_ohmic_dissipation(ℬ::SHTnsMagneticFields{T}) where T
     
     local_dissipation = zero(Float64)
     
-    config = ℬ.𝒯.config
+    config = ℬ.toroidal.config
     lm_range = local_spectral_mode_indices(config)
     r_range  = get_local_range(ℬ.work_tor.pencil, 3)
     
@@ -719,7 +719,7 @@ Perform batched transforms for better cache efficiency using `transforms/spectra
 """
 function batch_magnetic_transforms!(ℬ::SHTnsMagneticFields{T}) where T
     # Use batched operations from transforms/spectral.jl for better performance.
-    specs = [ℬ.𝒯, ℬ.𝒫, ℬ.𝒯ⁱᶜ, ℬ.𝒫ⁱᶜ]
+    specs = [ℬ.toroidal, ℬ.poloidal, ℬ.toroidal_ic, ℬ.poloidal_ic]
     physs = [ℬ.work_physical.r_component, ℬ.work_physical.θ_component, 
              ℬ.work_physical.φ_component, ℬ.magnetic.r_component]
     
@@ -738,14 +738,14 @@ Optimize memory layout for better cache performance using pencil topology
 """
 function optimize_magnetic_memory_layout!(ℬ::SHTnsMagneticFields{T}) where T
     # Use transpose plans for optimal data layout based on upcoming operations
-    config = ℬ.𝒯.config
+    config = ℬ.toroidal.config
     
     # Use transpose plans if available
     plans = config.transpose_plans
     if !isempty(plans) && haskey(plans, :r_to_spec)
-        transpose_with_timer!(ℬ.work_tor.data_real, ℬ.𝒯.data_real,
+        transpose_with_timer!(ℬ.work_tor.data_real, ℬ.toroidal.data_real,
                               plans[:r_to_spec], "magnetic_toroidal_layout_opt")
-        transpose_with_timer!(ℬ.work_pol.data_real, ℬ.𝒫.data_real, 
+        transpose_with_timer!(ℬ.work_pol.data_real, ℬ.poloidal.data_real, 
                               plans[:r_to_spec], "magnetic_poloidal_layout_opt")
     end
 end
@@ -760,7 +760,7 @@ function validate_magnetic_configuration(ℬ::SHTnsMagneticFields{T}, config::C)
     errors = String[]
     
     # Check field dimensions match config
-    local_slot_capacity = size(ℬ.𝒯.data_real, 1) * size(ℬ.𝒯.data_real, 2)
+    local_slot_capacity = size(ℬ.toroidal.data_real, 1) * size(ℬ.toroidal.data_real, 2)
     local_mode_count = length(local_spectral_mode_indices(config))
     if local_mode_count > local_slot_capacity
         push!(errors, "Toroidal magnetic field local slot capacity is smaller than owned spectral mode count")
@@ -780,7 +780,7 @@ function validate_magnetic_configuration(ℬ::SHTnsMagneticFields{T}, config::C)
     # Note: Transform manager checks removed - now handled by SHTnsKit directly
     
     # Check inner core field consistency
-    if local_mode_count > size(ℬ.𝒯ⁱᶜ.data_real, 1) * size(ℬ.𝒯ⁱᶜ.data_real, 2)
+    if local_mode_count > size(ℬ.toroidal_ic.data_real, 1) * size(ℬ.toroidal_ic.data_real, 2)
         push!(errors, "Inner core toroidal field local slot capacity is smaller than owned spectral mode count")
     end
     
@@ -803,22 +803,22 @@ function compute_magnetic_helicity(ℬ::SHTnsMagneticFields{T}) where T
     # This requires the magnetic vector potential A
     
     # Get local data views
-    tor_real = parent(ℬ.𝒯.data_real)
-    tor_imag = parent(ℬ.𝒯.data_imag)
-    pol_real = parent(ℬ.𝒫.data_real)
-    pol_imag = parent(ℬ.𝒫.data_imag)
+    tor_real = parent(ℬ.toroidal.data_real)
+    tor_imag = parent(ℬ.toroidal.data_imag)
+    pol_real = parent(ℬ.poloidal.data_real)
+    pol_imag = parent(ℬ.poloidal.data_imag)
     
     local_helicity = zero(Float64)
 
     # Use configuration pencils for consistent range access
     # CRITICAL: Both lm_range and r_range must come from the SAME pencil (spec)
     # since spectral field data is distributed using pencils.spec
-    config = ℬ.𝒯.config
+    config = ℬ.toroidal.config
     lm_range = local_spectral_mode_indices(config)
     r_range = range_local(config.pencils.spec, 3)
 
     @inbounds for lm_idx in lm_range
-        if lm_idx <= ℬ.𝒯.nlm
+        if lm_idx <= ℬ.toroidal.nlm
             slot = local_spectral_storage_slot(config, lm_idx)
             slot === nothing && continue
             ℓ_factor = ℬ.ℓ_factors[lm_idx]

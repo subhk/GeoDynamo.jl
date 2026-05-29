@@ -48,15 +48,15 @@ end
 
 Return the true radial collocation nodes for the writer: an explicit
 `radial_grid` wins, otherwise the outer-core `RadialDomain` carried on
-`state.runtime.𝒟ᵒᶜ` is used when present. Falls back to `nothing` so the
+`state.runtime.outer_core_domain` is used when present. Falls back to `nothing` so the
 `fields`-only path keeps working without a runtime.
 """
 function resolved_state_radial_grid(state, radial_grid)
     radial_grid !== nothing && return radial_grid
     hasproperty(state, :runtime) || return nothing
     rt = state.runtime
-    hasproperty(rt, :𝒟ᵒᶜ) || return nothing
-    dom = getproperty(rt, :𝒟ᵒᶜ)
+    hasproperty(rt, :outer_core_domain) || return nothing
+    dom = getproperty(rt, :outer_core_domain)
     return Float64.(dom.r[1:dom.N, 4])
 end
 

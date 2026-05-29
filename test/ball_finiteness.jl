@@ -49,10 +49,10 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
             nlon=nlon,
         ))
     # Fill toroidal/poloidal spectra with random values (no regularity enforced here)
-    randn!(parent(vfields.𝒯.data_real))
-    randn!(parent(vfields.𝒯.data_imag))
-    randn!(parent(vfields.𝒫.data_real))
-    randn!(parent(vfields.𝒫.data_imag))
+    randn!(parent(vfields.toroidal.data_real))
+    randn!(parent(vfields.toroidal.data_imag))
+    randn!(parent(vfields.poloidal.data_real))
+    randn!(parent(vfields.poloidal.data_imag))
 
     GeoDynamo.compute_vorticity_spectral_full!(vfields, dom)
 
@@ -80,10 +80,10 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
 
     # Magnetic current density finiteness at r=0
     mfields = GeoDynamo.create_shtns_magnetic_fields(Float64, cfg, dom, dom)
-    randn!(parent(mfields.𝒯.data_real))
-    randn!(parent(mfields.𝒯.data_imag))
-    randn!(parent(mfields.𝒫.data_real))
-    randn!(parent(mfields.𝒫.data_imag))
+    randn!(parent(mfields.toroidal.data_real))
+    randn!(parent(mfields.toroidal.data_imag))
+    randn!(parent(mfields.poloidal.data_real))
+    randn!(parent(mfields.poloidal.data_imag))
 
     GeoDynamo.compute_current_density_spectral!(mfields, dom)
 

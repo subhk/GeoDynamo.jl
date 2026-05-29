@@ -25,8 +25,8 @@ function summarize_scalar(label, field)
 end
 
 function summarize_vector(label, field)
-    tor = parent(field.𝒯.data_real)
-    pol = parent(field.𝒫.data_real)
+    tor = parent(field.toroidal.data_real)
+    pol = parent(field.poloidal.data_real)
     println(label)
     println("  toroidal max : $(round(maximum(abs.(tor)), sigdigits=4))")
     println("  poloidal max : $(round(maximum(abs.(pol)), sigdigits=4))")

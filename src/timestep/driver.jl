@@ -49,12 +49,12 @@ function _sync_solver_nonlinear_histories!(
     magnetic_enabled::Bool,
 )
     _sync_solver_history!(state.fields.temperature.prev_nonlinear, state.fields.temperature.nonlinear)
-    _sync_solver_history!(state.fields.velocity.prev_nlᵀ, state.fields.velocity.nlᵀ)
-    _sync_solver_history!(state.fields.velocity.prev_nlᴾ, state.fields.velocity.nlᴾ)
+    _sync_solver_history!(state.fields.velocity.prev_nl_toroidal, state.fields.velocity.nl_toroidal)
+    _sync_solver_history!(state.fields.velocity.prev_nl_poloidal, state.fields.velocity.nl_poloidal)
 
     if magnetic_enabled && state.fields.magnetic !== nothing
-        _sync_solver_history!(state.fields.magnetic.prev_nlᵀ, state.fields.magnetic.nlᵀ)
-        _sync_solver_history!(state.fields.magnetic.prev_nlᴾ, state.fields.magnetic.nlᴾ)
+        _sync_solver_history!(state.fields.magnetic.prev_nl_toroidal, state.fields.magnetic.nl_toroidal)
+        _sync_solver_history!(state.fields.magnetic.prev_nl_poloidal, state.fields.magnetic.nl_poloidal)
     end
 
     if state.fields.composition !== nothing
@@ -162,21 +162,21 @@ function _prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitectur
         :etd_temperature,
         params.Pm / params.Pr,
         T,
-        runtime.𝒟ᵒᶜ,
+        runtime.outer_core_domain,
     )
     _ensure_etd_cache!(
         state.timestep_caches,
         :etd_velocity_toroidal,
         params.Ek,
         T,
-        runtime.𝒟ᵒᶜ,
+        runtime.outer_core_domain,
     )
     _ensure_etd_cache!(
         state.timestep_caches,
         :etd_velocity_poloidal,
         params.Ek,
         T,
-        runtime.𝒟ᵒᶜ,
+        runtime.outer_core_domain,
     )
 
     if state.fields.magnetic !== nothing
@@ -185,14 +185,14 @@ function _prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitectur
             :etd_magnetic_toroidal,
             1.0,
             T,
-            runtime.𝒟ᵒᶜ,
+            runtime.outer_core_domain,
         )
         _ensure_etd_cache!(
             state.timestep_caches,
             :etd_magnetic_poloidal,
             1.0,
             T,
-            runtime.𝒟ᵒᶜ,
+            runtime.outer_core_domain,
         )
     end
 
@@ -202,7 +202,7 @@ function _prepare_solver_eab2_caches!(state::SolverState{T,<:AbstractArchitectur
             :etd_composition,
             params.Pm / params.Sc,
             T,
-            runtime.𝒟ᵒᶜ,
+            runtime.outer_core_domain,
         )
     end
 
