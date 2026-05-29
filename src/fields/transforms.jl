@@ -549,66 +549,25 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
     # only this rank's local portion using these offsets.
     phys_axes_local = vec_phys.r_component.pencil.axes_local
 
-    # ════════════════════════════════════════════════════════════════════════
-    # EXPERIMENTAL (Mie-consistent reconstruction — NOT validated, NOT for merge).
-    # Branch: poloidal-mie-experimental. See test/poloidal_solenoidality.jl header.
+    # The geodynamo poloidal/toroidal scalars are passed directly as the SHTns
+    # spheroidal/toroidal arguments. This makes synthesis the exact inverse of
+    # `shtnskit_vector_analysis!` (which recovers the spheroidal coefficient as the
+    # poloidal scalar), so the synthesis→analysis roundtrip is the identity on the
+    # valid (l,m) modes.
     #
-    # For a true poloidal (Mie) field B = ∇×∇×(P r̂):
-    #   v_r          = l(l+1)/r² · P          (was l(l+1)/r · P)
-    #   spheroidal S = (1/r) d(rP)/dr         (was P passed directly)
-    #   toroidal     = T                      (unchanged)
-    # The tangential synthesis kernel therefore receives S (the radial-derivative
-    # combination) as its spheroidal argument, not the raw poloidal scalar.
-    #
-    # ⚠ Requires Christensen Case 0 validation before this can be trusted; the
-    # SHTnsKit spheroidal normalization has not been independently confirmed here.
-    # ════════════════════════════════════════════════════════════════════════
-
-    # Precompute the spheroidal scalar S(r) = (1/r) d(rP)/dr per (l,m) across the
-    # (fully local) radial direction. Radial is local everywhere, so the N×N
-    # derivative matrix can act on each mode's full radial profile.
-    sph_real = get_cached_buffer!(config, :mie_spheroidal_real) do
-        zeros(eltype(pol_real), size(pol_real))
-    end::typeof(pol_real)
-    sph_imag = get_cached_buffer!(config, :mie_spheroidal_imag) do
-        zeros(eltype(pol_imag), size(pol_imag))
-    end::typeof(pol_imag)
-    fill!(sph_real, zero(eltype(sph_real)))
-    fill!(sph_imag, zero(eltype(sph_imag)))
-
-    if domain !== nothing
-        d1 = create_derivative_matrix(eltype(pol_real), 1, domain)
-        N = domain.N
-        rprof = zeros(eltype(pol_real), N)
-        dprof = zeros(eltype(pol_real), N)
-        for lm_idx in local_spectral_mode_indices(config)
-            l = config.l_values[lm_idx]
-            l == 0 && continue                      # no poloidal monopole
-            slot = local_spectral_storage_slot(config, lm_idx)
-            slot === nothing && continue
-            for part in (true, false)               # real then imaginary
-                src = part ? pol_real : pol_imag
-                dst = part ? sph_real : sph_imag
-                @inbounds for r in 1:min(N, size(src, 3))
-                    rg = r + first(r_range) - 1
-                    rprof[r] = src[slot[1], slot[2], r] * domain.r[rg, 4]   # r·P
-                end
-                mul!(dprof, d1, rprof)                                       # d(rP)/dr
-                @inbounds for r in 1:min(N, size(dst, 3))
-                    rg = r + first(r_range) - 1
-                    rv = domain.r[rg, 4]
-                    dst[slot[1], slot[2], r] = rv > 0 ? dprof[r] / rv : zero(eltype(dst))
-                end
-            end
-        end
-    end
+    # NOTE: an earlier experimental "Mie" variant injected the radial-derivative
+    # combination S = (1/r) d(rP)/dr here as the spheroidal argument. That broke the
+    # roundtrip — analysis was never changed to invert it, and with no `domain` the
+    # precomputed S was identically zero, dropping the entire poloidal contribution.
+    # The radial poloidal→field physics belongs in the field-reconstruction layer,
+    # not in this low-level angular spheroidal/toroidal transform.
 
     # Process each radial level
     for r_local in axes(tor_real, 3)
-        # Tangential synthesis takes the SPHEROIDAL scalar S (not raw P).
+        # Pass the poloidal scalar P directly as the spheroidal argument.
         tor_coeffs,
         sph_coeffs = extract_coefficients_pair_for_shtnskit(
-            tor_real, tor_imag, sph_real, sph_imag, r_local, config)
+            tor_real, tor_imag, pol_real, pol_imag, r_local, config)
 
         if plan !== nothing && vt_out !== nothing && vp_out !== nothing
             SHTnsKit.synthesis_sphtor!(
