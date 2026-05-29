@@ -44,12 +44,18 @@ end
         @test isapprox(_physical_from_mean_coeff(cfg, dom, c_inner), 0.3; atol=1e-9)
     end
 
-    @testset ":blob (0,0) background reconstructs to physical 0.1" begin
+    @testset ":blob (0,0) reconstructs to the Gaussian-bump physical value" begin
+        bg = 0.1; blob_composition = 0.8; r_center = 0.3; blob_width = 0.2
         comp = G.create_shtns_composition_field(Float64, cfg, dom)
         G.set_analytical_initial_conditions!(comp, :composition, :blob,
-                                             r_center=0.3, blob_width=0.2, blob_composition=0.8)
-        # local_r=1 ⇒ r_frac=0, |0 - 0.3| = 0.3 > 0.2 ⇒ outside blob ⇒ background 0.1
+                                             r_center=r_center, blob_width=blob_width,
+                                             blob_composition=blob_composition)
+        # The :blob preset is a Gaussian bump with infinite tails (NOT compact):
+        #   value(r_frac) = bg + (blob_composition - bg)·exp(-½((r_frac-r_center)/w)²)
+        # At local_r=1 ⇒ r_frac=0 the tail is nonzero, so the (0,0) coefficient
+        # reconstructs to this value — confirming the √(4π) normalization is applied.
+        expected = bg + (blob_composition - bg) * exp(-0.5 * ((0.0 - r_center) / blob_width)^2)
         c_bg = G.local_spectral_value(parent(comp.spectral.data_real), slot, 1)
-        @test isapprox(_physical_from_mean_coeff(cfg, dom, c_bg), 0.1; atol=1e-9)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, c_bg), expected; atol=1e-9)
     end
 end

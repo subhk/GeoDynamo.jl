@@ -164,13 +164,15 @@ additional_tests = (
     "stefan_condition_shift_sanity.jl",
     "check_gaunt_tensors.jl",
     # Previously-orphaned coverage now wired in (MPI-aware unit/numerical tests).
-    # NOTE: 4 further orphans fail against current code and remain unwired pending
-    # investigation of the √(4π) orthonormal-normalization convention:
-    #   composition_analytical_ic.jl, temperature_ic_normalization.jl,
-    #   nusselt_and_analytical_ic.jl, poloidal_solenoidality.jl
+    # NOTE: poloidal_solenoidality.jl stays unwired on purpose — it is a @test_broken
+    # spec for a not-yet-implemented Mie-consistent poloidal reconstruction (see its
+    # header + memory) and currently errors in setup.
     "analytical_blob_radial.jl",
+    "composition_analytical_ic.jl",
     "composition_ic_bc_consistency.jl",
     "temperature_boundary_normalization.jl",
+    "temperature_ic_normalization.jl",
+    "nusselt_and_analytical_ic.jl",
     "solver_diagnostics.jl",
     "magnetic_conducting_inner_core.jl",
     "magnetic_conducting_matrix_rows.jl",

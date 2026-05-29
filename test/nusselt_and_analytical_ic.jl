@@ -71,10 +71,15 @@ end
         cr = G.local_spectral_value(parent(tr.spectral.data_real), slot, 1)
         @test isapprox(_physical_from_mean_coeff(cfg, dom, cr), 1.0; atol=5e-2)  # ±seed noise
 
-        # hot_blob l=0 background at r_frac=0 (outside blob ⇒ 0.5 physical)
+        # hot_blob l=0 at r_frac=0: value = 0.5·(1-r_frac) + amplitude·Gaussian bump.
+        # The bump is NOT compact, so r_frac=0 carries base 0.5 plus the Gaussian
+        # tail amplitude·exp(-½(r_center/blob_width)²); reconstructing it confirms
+        # the √(4π) normalization is applied.
+        amp = 1.0; r_center = 0.5; blob_width = 0.2
         th = G.create_shtns_temperature_field(Float64, cfg, dom)
-        G.set_analytical_initial_conditions!(th, :temperature, :hot_blob, amplitude=1.0, r_center=0.5, blob_width=0.2)
+        G.set_analytical_initial_conditions!(th, :temperature, :hot_blob, amplitude=amp, r_center=r_center, blob_width=blob_width)
         ch = G.local_spectral_value(parent(th.spectral.data_real), slot, 1)
-        @test isapprox(_physical_from_mean_coeff(cfg, dom, ch), 0.5; atol=1e-9)
+        expected = 0.5 * (1.0 - 0.0) + amp * exp(-0.5 * ((0.0 - r_center) / blob_width)^2)
+        @test isapprox(_physical_from_mean_coeff(cfg, dom, ch), expected; atol=1e-9)
     end
 end

@@ -475,3 +475,12 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
     return state
 end
 
+function queue_magnetic_implicit_updates!(
+    operations::Vector{Function},
+    state::SolverState{T,<:AbstractArchitecture},
+) where T
+    state.fields.magnetic === nothing && return operations
+    push!(operations, () -> apply_magnetic_toroidal_implicit_update!(state))
+    push!(operations, () -> apply_magnetic_poloidal_implicit_update!(state))
+    return operations
+end

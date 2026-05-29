@@ -37,6 +37,11 @@ end
         include_composition = true,
         include_magnetic_field = false,
         # temperature_bcs default = FixedTemperature(1.0) / FixedTemperature(0.0)
+        # initialize_composition_field! seeds a BC-consistent (0,0) background, so
+        # pin a uniform physical mean of 0.5 via the composition boundaries (the
+        # default is 0/0, which would seed 0 — see src/physics/composition/solver.jl).
+        composition_bcs = G.BoundaryConditions(
+            inner = G.FixedTemperature(0.5), outer = G.FixedTemperature(0.5)),
     )
 
     state = G.initialize_simulation(params)
