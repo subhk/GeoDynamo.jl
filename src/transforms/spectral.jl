@@ -126,6 +126,10 @@ mutable struct SHTnsBuffers
     # MIE vector-transform spheroidal scalar buffers
     mie_spheroidal_real::Union{AbstractArray, Nothing}
     mie_spheroidal_imag::Union{AbstractArray, Nothing}
+
+    # MIE vector-transform poloidal coefficient buffers (radial-component path)
+    mie_pol_coeffs_buffer::Union{AbstractArray, Nothing}
+    mie_pol_coeffs_gathered::Union{AbstractArray, Nothing}
 end
 
 """
@@ -139,7 +143,7 @@ function SHTnsBuffers()
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
-        nothing, nothing
+        nothing, nothing, nothing, nothing
     )
 end
 
@@ -172,7 +176,9 @@ const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
     :generic_slice_buffer => :generic_slice_buffer,
     :vector_component_buffer => :vector_component_buffer,
     :mie_spheroidal_real => :mie_spheroidal_real,
-    :mie_spheroidal_imag => :mie_spheroidal_imag
+    :mie_spheroidal_imag => :mie_spheroidal_imag,
+    :mie_pol_coeffs_buffer => :mie_pol_coeffs_buffer,
+    :mie_pol_coeffs_gathered => :mie_pol_coeffs_gathered
 )
 
 @inline function _shtns_buffer_field(::Val{key}) where {key}

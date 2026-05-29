@@ -1,7 +1,8 @@
 # Whitespace-insensitive source matching: SciML auto-formatting (spacing,
 # line wraps) must not break these static source-contract checks.
 _sc_wsn(s) = replace(s, r"\s+" => "")
-_sc_occ(pat, src) = occursin(_sc_wsn(pat), _sc_wsn(src))
+_sc_occ(pat::AbstractString, src) = occursin(_sc_wsn(pat), _sc_wsn(src))
+_sc_occ(pat::Regex, src) = occursin(pat, replace(src, r"\s+" => " "))  # collapse ws so wrapped calls still match
 
 using Test
 

@@ -280,6 +280,39 @@ function Base.:*(matrix::BandedMatrix{T}, v::AbstractVector{S}) where {T, S}
     return output
 end
 
+# In-place banded matrix-vector product so `mul!`-based call sites (e.g. the
+# vector-synthesis radial derivative) work with `BandedMatrix`, which is a plain
+# struct rather than an `AbstractMatrix`. The 3-arg form delegates to the
+# canonical 5-arg `y = α·(A·x) + β·y`.
+LinearAlgebra.mul!(y::AbstractVector, matrix::BandedMatrix, x::AbstractVector) =
+    LinearAlgebra.mul!(y, matrix, x, true, false)
+
+function LinearAlgebra.mul!(
+    y::AbstractVector,
+    matrix::BandedMatrix{T},
+    x::AbstractVector,
+    α::Number,
+    β::Number,
+) where {T}
+    N = matrix.size
+    bandwidth = matrix.bandwidth
+    if iszero(β)
+        fill!(y, zero(eltype(y)))   # strong zero: overwrite (handles β === false)
+    elseif !isone(β)
+        y .*= β
+    end
+    @inbounds for j in 1:min(N, length(x))
+        for i in max(1, j - bandwidth):min(N, j + bandwidth)
+            band_row = bandwidth + 1 + i - j
+            if 1 <= band_row <= 2*bandwidth + 1
+                y[i] += α * matrix.data[band_row, j] * x[j]
+            end
+        end
+    end
+
+    return y
+end
+
 #export BandedMatrix, BandedLU, create_derivative_matrix, create_radial_laplacian,
 #       apply_banded_matrix!, factorize_banded, solve_banded!
 
