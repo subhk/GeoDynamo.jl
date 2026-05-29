@@ -382,7 +382,9 @@ function create_radial_domain(nr::Union{Int,Nothing}=nothing;
         integration_weights[n] = w * 0.5  # scale by half-interval h = 0.5
     end
 
-    return RadialDomain(N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)
+    domain = RadialDomain(N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)
+    _populate_radial_operators!(domain)
+    return domain
 end
 
 

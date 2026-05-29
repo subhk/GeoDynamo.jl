@@ -35,6 +35,16 @@ const FINALIZE_MPI_RD = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true
 
         # Column 3 holds r^(-1)
         @test dom.r[:, 3] ≈ 1.0 ./ dom.r[:, 4] atol=1e-12
+
+        # Radial operators must be populated at construction, not left zero
+        # (regression guard against the silent-zeros footgun), and must equal a
+        # fresh recompute.
+        @test any(!iszero, dom.radial_laplacian)
+        @test dom.radial_laplacian ≈ GeoDynamo.create_radial_laplacian(dom).data
+        for order in 1:length(dom.dr_matrices)
+            @test any(!iszero, dom.dr_matrices[order])
+            @test dom.dr_matrices[order] ≈ GeoDynamo.create_derivative_matrix(order, dom).data
+        end
     end
 
     @testset "Ball radial domain creation" begin
@@ -58,6 +68,11 @@ const FINALIZE_MPI_RD = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true
         @test dom.r[1, 1] == 0.0  # r^(-3)
         @test dom.r[1, 2] == 0.0  # r^(-2)
         @test dom.r[1, 3] == 0.0  # r^(-1)
+
+        # Radial operators populated at construction (regression: silent-zeros footgun)
+        @test any(!iszero, dom.radial_laplacian)
+        @test any(!iszero, dom.dr_matrices[1])
+        @test all(isfinite, dom.radial_laplacian)  # r=0 regularization must not leak Inf/NaN
     end
 
     @testset "Ball domain requires nr >= 2" begin

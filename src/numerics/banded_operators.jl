@@ -216,6 +216,33 @@ function create_radial_laplacian(domain::RadialDomain)
     return create_radial_laplacian(eltype(domain.r), domain)
 end
 
+"""
+    _populate_radial_operators!(domain) -> domain
+
+Fill `domain.dr_matrices` and `domain.radial_laplacian` with the finite-difference
+operators for this grid, in place.
+
+The `RadialDomain` constructors allocate these as zero matrices. Without this
+step they stay zero: every current consumer recomputes via
+`create_derivative_matrix`/`create_radial_laplacian`, but any code that reads the
+stored fields directly would silently get zeros (wrong derivatives, no error).
+Populating them keeps the cached operators consistent with a fresh recompute.
+
+Degenerate grids with `N < length(dr_matrices) + 1` lack enough stencil points for
+the highest-order derivative; their operators are left zero (as before). Physical
+runs use `N` far larger than the stencil order, so this only affects toy domains
+that never build radial operators anyway.
+"""
+function _populate_radial_operators!(domain::RadialDomain)
+    norders = length(domain.dr_matrices)
+    domain.N >= norders + 1 || return domain
+    for order in 1:norders
+        domain.dr_matrices[order] .= create_derivative_matrix(order, domain).data
+    end
+    domain.radial_laplacian .= create_radial_laplacian(domain).data
+    return domain
+end
+
 function apply_∂r!(output::Vector{T},
                                 matrix::BandedMatrix{T},
                                 input::Vector{T}) where T
