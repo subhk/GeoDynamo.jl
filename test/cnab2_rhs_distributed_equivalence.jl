@@ -128,6 +128,48 @@ const FINALIZE_MPI_CNAB2 = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
     total_owned = nprocs > 1 ? MPI.Allreduce(n_owned, MPI.SUM, comm) : n_owned
     @test total_owned == cfg.nlm
 
+    # ---- Legacy GeoDynamo.build_rhs_cnab2! (SHTnsImplicitMatrices) must assemble
+    # every owned mode correctly. Guards both the redundant per-mode Allreduce and
+    # an ownership bug where modes were selected by the rectangular l-index range
+    # instead of the compact lm index (silently dropping modes lm > lmax+1). ----
+    rhs_legacy = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, pencil)
+    GeoDynamo.build_rhs_cnab2!(rhs_legacy, u, nl, pv, dt, matrices)
+    lgr = parent(rhs_legacy.data_real); lgi = parent(rhs_legacy.data_imag)
+    legacy_maxerr = 0.0
+
+    for lm in GeoDynamo.local_spectral_mode_indices(cfg)
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+        slot === nothing && continue
+        l   = cfg.l_values[lm]
+        idx = get(matrices.lookup, l, nothing)
+        idx === nothing && continue
+        L = matrices.linear_matrices[idx]
+        for r in 1:nr
+            uvec[r] = GeoDynamo.local_spectral_value(ur, slot, r)
+        end
+        Lu = L * uvec
+        for r in 1:nr
+            ref = inv_dt * GeoDynamo.local_spectral_value(ur, slot, r) +
+                  1.5 * GeoDynamo.local_spectral_value(nr_, slot, r) -
+                  0.5 * GeoDynamo.local_spectral_value(pr, slot, r) +
+                  linear_weight * Lu[r]
+            legacy_maxerr = max(legacy_maxerr, abs(GeoDynamo.local_spectral_value(lgr, slot, r) - ref))
+        end
+        for r in 1:nr
+            uvec[r] = GeoDynamo.local_spectral_value(ui, slot, r)
+        end
+        Lu = L * uvec
+        for r in 1:nr
+            ref = inv_dt * GeoDynamo.local_spectral_value(ui, slot, r) +
+                  1.5 * GeoDynamo.local_spectral_value(ni_, slot, r) -
+                  0.5 * GeoDynamo.local_spectral_value(pi_, slot, r) +
+                  linear_weight * Lu[r]
+            legacy_maxerr = max(legacy_maxerr, abs(GeoDynamo.local_spectral_value(lgi, slot, r) - ref))
+        end
+    end
+
+    @test legacy_maxerr < 1.0e-10
+
     # ---- ERK2 stage preparation obeys the same radial-local ⇒ comm-free contract ----
     # prepare_solver_erk2_field! applies the per-degree stage operators (E, φ₁) to
     # each mode's full local radial profile. Check every owned mode against a direct
@@ -172,6 +214,42 @@ const FINALIZE_MPI_CNAB2 = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
     end
 
     @test erk2_maxerr < 1.0e-10
+
+    # ---- ERK2 finalize: run the full prepare→stage→finalize cycle and check the
+    # accepted update equals  E·u + dt·φ₁·Nₙ + 2dt·φ₂·(N_stage − Nₙ)  per owned mode
+    # (endpoints zeroed). Same radial-local ⇒ comm-free contract as prep. ----
+    GeoDynamo.erk2_apply_stage!(erk2_buf, u)             # u ← provisional stage
+    GeoDynamo.erk2_store_stage_nonlinear!(erk2_buf, nl)  # buffers.stage_nl ← N_stage
+    GeoDynamo.erk2_finalize_field!(erk2_buf, u, erk2_cache, cfg, dt)  # u ← accepted update
+
+    fr_u = parent(u.data_real); fi_u = parent(u.data_imag)
+    fin_maxerr = 0.0
+    dvec = zeros(Float64, nr)
+    for lm in GeoDynamo.local_spectral_mode_indices(cfg)
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+        slot === nothing && continue
+        l = cfg.l_values[lm]
+        ci = get(erk2_buf.cache_lookup, l, 0)
+        ci == 0 && continue
+        phi2 = erk2_cache.phi2_full[ci]
+        for (lin_b, k1_b, ncur_b, snl_b, out_b) in (
+                (erk2_buf.linear_real, erk2_buf.k1_real, erk2_buf.n_current_real, erk2_buf.stage_nl_real, fr_u),
+                (erk2_buf.linear_imag, erk2_buf.k1_imag, erk2_buf.n_current_imag, erk2_buf.stage_nl_imag, fi_u))
+            for r in 1:nr
+                dvec[r] = GeoDynamo.local_spectral_value(snl_b, slot, r) -
+                          GeoDynamo.local_spectral_value(ncur_b, slot, r)
+            end
+            corr = phi2 * dvec
+            for r in 1:nr
+                ref = GeoDynamo.local_spectral_value(lin_b, slot, r) +
+                      dt * GeoDynamo.local_spectral_value(k1_b, slot, r) +
+                      2 * dt * corr[r]
+                (r == 1 || r == nr) && (ref = 0.0)
+                fin_maxerr = max(fin_maxerr, abs(GeoDynamo.local_spectral_value(out_b, slot, r) - ref))
+            end
+        end
+    end
+    @test fin_maxerr < 1.0e-10
 
     if MPI.Initialized()
         MPI.Barrier(GeoDynamo.get_comm())

@@ -239,11 +239,3 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{T,<:Abstrac
     return state
 end
 
-function queue_velocity_implicit_updates!(
-    operations::Vector{Function},
-    state::SolverState{T,<:AbstractArchitecture},
-) where T
-    push!(operations, () -> apply_velocity_toroidal_implicit_update!(state))
-    push!(operations, () -> apply_velocity_poloidal_implicit_update!(state))
-    return operations
-end

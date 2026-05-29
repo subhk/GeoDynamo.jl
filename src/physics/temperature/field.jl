@@ -315,54 +315,6 @@ end
 # Validation and Testing
 # ================================================================================
 
-function validate_flux_bc(temp_field, domain)
-    """
-    Check if flux boundary conditions are satisfied within tolerance.
-    """
-    spec_real = parent(temp_field.spectral.data_real)
-    spec_imag = parent(temp_field.spectral.data_imag)
-    
-    lm_range = local_spectral_mode_indices(temp_field.config)
-    
-    max_error = 0.0
-    
-    for lm_idx in lm_range
-        if lm_idx <= temp_field.config.nlm
-            slot = local_spectral_storage_slot(temp_field.config, lm_idx)
-            slot === nothing && continue
-
-            # Check inner boundary
-            if temp_field.bc_type_inner[lm_idx] == Int(NEUMANN)
-                prescribed = get_flux_value(lm_idx, 1, temp_field)
-                actual = compute_flux_at_boundary(spec_real, spec_imag, slot,
-                                                 1, temp_field, domain)
-                error = abs(prescribed - actual)
-                max_error = max(max_error, error)
-            end
-
-            # Check outer boundary
-            if temp_field.bc_type_outer[lm_idx] == Int(NEUMANN)
-                prescribed = get_flux_value(lm_idx, 2, temp_field)
-                actual = compute_flux_at_boundary(spec_real, spec_imag, slot,
-                                                 2, temp_field, domain)
-                error = abs(prescribed - actual)
-                max_error = max(max_error, error)
-            end
-        end
-    end
-    
-    # Global maximum error
-    global_max_error = MPI.Allreduce(max_error, MPI.MAX, get_comm())
-    
-    if get_rank() == 0
-        println("Maximum flux BC error: $(global_max_error)")
-        if global_max_error > 1e-6
-            println("Warning: Flux BC error exceeds tolerance")
-        end
-    end
-    
-    return global_max_error
-end
 
 
 # ================================================================================

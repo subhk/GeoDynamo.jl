@@ -212,9 +212,6 @@ function solver_eab2_update_krylov_cached!(
     r_range = local_range(u.pencil, 3)
     nr = domain.N
 
-    comm = mpi_comm()
-    multi_rank = mpi_comm_size(comm) > 1
-
     work_ok = krylov_work !== nothing && length(krylov_work.u_real_global) == nr
     u_real_global = work_ok ? krylov_work.u_real_global : zeros(T, nr)
     u_imag_global = work_ok ? krylov_work.u_imag_global : zeros(T, nr)
@@ -225,8 +222,16 @@ function solver_eab2_update_krylov_cached!(
     krylov_action_work = work_ok ? krylov_work.krylov : nothing
     inv_mass_coeff = T(inv(mass_coeff))
 
+    # Each mode owns a COMPLETE radial profile on a single rank (the spectral
+    # pencil keeps the radial dimension local), and the exp/φ₁ Krylov actions are
+    # purely local. So the owning rank advances each mode with no inter-rank
+    # communication; non-owners skip it. The previous per-mode Allreduce was
+    # redundant — owner data summed against all-zero contributions elsewhere. Each
+    # rank now builds per-ℓ operators only for the modes it owns.
     for lm_idx in 1:u.nlm
         slot = local_spectral_storage_slot(u.config, lm_idx)
+        slot === nothing && continue
+
         ℓ = config.l_values[lm_idx]
         operator_entry = get(alu_map, ℓ, nothing)
         if operator_entry === nothing
@@ -244,29 +249,20 @@ function solver_eab2_update_krylov_cached!(
         fill!(nl_real_global, zero(T))
         fill!(nl_imag_global, zero(T))
 
-        if slot !== nothing
-            gather_local_radial_profile!(u_real_global, u_imag_global, u_real, u_imag, slot, r_range)
-            for r_idx in r_range
-                local_r = r_idx - first(r_range) + 1
-                local_r <= size(n_real, 3) || continue
-                nl_real_global[r_idx] =
-                    inv_mass_coeff * (
-                        T(1.5) * local_spectral_value(n_real, slot, local_r) -
-                        T(0.5) * local_spectral_value(p_real, slot, local_r)
-                    )
-                nl_imag_global[r_idx] =
-                    inv_mass_coeff * (
-                        T(1.5) * local_spectral_value(n_imag, slot, local_r) -
-                        T(0.5) * local_spectral_value(p_imag, slot, local_r)
-                    )
-            end
-        end
-
-        if multi_rank
-            allreduce_sum_in_place!(u_real_global, comm)
-            allreduce_sum_in_place!(u_imag_global, comm)
-            allreduce_sum_in_place!(nl_real_global, comm)
-            allreduce_sum_in_place!(nl_imag_global, comm)
+        gather_local_radial_profile!(u_real_global, u_imag_global, u_real, u_imag, slot, r_range)
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            local_r <= size(n_real, 3) || continue
+            nl_real_global[r_idx] =
+                inv_mass_coeff * (
+                    T(1.5) * local_spectral_value(n_real, slot, local_r) -
+                    T(0.5) * local_spectral_value(p_real, slot, local_r)
+                )
+            nl_imag_global[r_idx] =
+                inv_mass_coeff * (
+                    T(1.5) * local_spectral_value(n_imag, slot, local_r) -
+                    T(0.5) * local_spectral_value(p_imag, slot, local_r)
+                )
         end
 
         # The exponential action advances the linear part, while phi₁(AΔt)
@@ -294,7 +290,6 @@ function solver_eab2_update_krylov_cached!(
             solver_enforce_erk2_bc!(u_imag_next, bc_spec.outer, nr, ℓ, nr; value_override=outer_val_i)
         end
 
-        slot === nothing && continue
         scatter_local_radial_profile!(u_real, u_imag, u_real_next, u_imag_next, slot, r_range)
     end
 

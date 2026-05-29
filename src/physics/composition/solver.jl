@@ -199,11 +199,3 @@ function apply_composition_implicit_update!(state::SolverState{T,<:AbstractArchi
     return state
 end
 
-function queue_composition_implicit_update!(
-    operations::Vector{Function},
-    state::SolverState{T,<:AbstractArchitecture},
-) where T
-    state.fields.composition === nothing && return operations
-    push!(operations, () -> apply_composition_implicit_update!(state))
-    return operations
-end

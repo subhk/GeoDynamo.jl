@@ -942,34 +942,8 @@ function extract_local_radial_profile!(profile::Vector{T}, data::AbstractArray{T
 end
 
 
-function store_local_radial_profile!(data::AbstractArray{T,3}, profile::Vector{T},
-                                    slot::CartesianIndex{2}, r_range) where T
-    @inbounds for r_idx in r_range
-        local_r = r_idx - first(r_range) + 1
-        if local_r <= size(data, 3) && r_idx <= length(profile)
-            set_local_spectral_value!(data, slot, local_r, profile[r_idx])
-        end
-    end
-end
 
 
-function apply_derivative_local(matrix::BandedMatrix{T}, field::Vector{T}) where T
-    # Apply banded derivative matrix
-    N = matrix.size
-    bandwidth = matrix.bandwidth
-    result = zeros(T, N)
-    
-    @inbounds for j in 1:N
-        for i in max(1, j - bandwidth):min(N, j + bandwidth)
-            band_row = bandwidth + 1 + i - j
-            if 1 <= band_row <= 2*bandwidth + 1
-                result[i] += matrix.data[band_row, j] * field[j]
-            end
-        end
-    end
-    
-    return result
-end
 
 
 # function solve_helmholtz_equation(laplacian::BandedMatrix{T}, source::Vector{T},
@@ -1149,19 +1123,7 @@ function zero_velocity_work_arrays!(𝒰::SHTnsVelocityFields{T}) where T
     fill!(parent(𝒰.ζᴾ.data_imag), z)
 end
 
-function scale_field!(field::SHTnsVectorField{T}, factor::Float64) where T
-    # Scale all components of a vector field
-    parent(field.r_component.data) .*= factor
-    parent(field.θ_component.data) .*= factor
-    parent(field.φ_component.data) .*= factor
-end
 
-function add_vector_fields!(dest::SHTnsVectorField{T}, source::SHTnsVectorField{T}) where T
-    # Add source to destination with vectorized operations
-    parent(dest.r_component.data) .+= parent(source.r_component.data)
-    parent(dest.θ_component.data) .+= parent(source.θ_component.data)
-    parent(dest.φ_component.data) .+= parent(source.φ_component.data)
-end
 
 
 # ================================================================================

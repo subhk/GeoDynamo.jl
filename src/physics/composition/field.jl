@@ -338,35 +338,6 @@ zero_composition_work_arrays!(𝔽::SHTnsCompositionField{T}) where T = zero_sca
 # Validation and Testing
 # ================================================================================
 
-function validate_composition_field(𝔽::SHTnsCompositionField{T}, domain::RadialDomain) where T
-    """
-    Validate composition field consistency and boundary conditions
-    """
-    errors = String[]
-    
-    # Check spectral field dimensions
-    spec_real = parent(𝔽.spectral.data_real)
-    local_slot_capacity = size(spec_real, 1) * size(spec_real, 2)
-    local_mode_count = length(local_spectral_mode_indices(𝔽.config))
-    if local_mode_count > local_slot_capacity
-        push!(errors, "Spectral field local slot capacity is smaller than owned spectral mode count")
-    end
-    
-    # Check boundary condition arrays
-    if length(𝔽.bc_type_inner) != 𝔽.config.nlm
-        push!(errors, "Inner BC array size mismatch")
-    end
-    
-    if length(𝔽.bc_type_outer) != 𝔽.config.nlm
-        push!(errors, "Outer BC array size mismatch")
-    end
-
-    if !isempty(errors)
-        error("Composition field validation failed:\n" * join(errors, "\n"))
-    end
-    
-    return true
-end
 
 # ================================================================================
 # Diagnostic functions

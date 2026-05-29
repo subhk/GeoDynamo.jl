@@ -186,8 +186,7 @@ function build_rhs_cnab2!(rhs::SHTnsSpecField{T}, un::SHTnsSpecField{T},
     n_real = parent(nl.data_real);  n_imag = parent(nl.data_imag)
     p_real = parent(nl_prev.data_real); p_imag = parent(nl_prev.data_imag)
 
-    lm_range = get_local_range(un.pencil, 1)
-    r_range  = get_local_range(un.pencil, 3)
+    r_range = get_local_range(un.pencil, 3)
 
     # Mass coefficient: c1/dt (Fortran convention: c1=Ek for velocity, c1=1 for others)
     inv_dt = T(mass_coeff / dt)
@@ -204,60 +203,47 @@ function build_rhs_cnab2!(rhs::SHTnsSpecField{T}, un::SHTnsSpecField{T},
     lin_r = add_linear ? zeros(T, nr_global) : T[]
     lin_i = add_linear ? zeros(T, nr_global) : T[]
 
-    comm = get_comm()
-    multi = MPI.Comm_size(comm) > 1
     nlm_total = un.nlm
 
-    # Use GLOBAL loop bounds to ensure all processes call Allreduce same number of times
+    # Each (l,m) mode owns a COMPLETE radial profile on a single rank (the spectral
+    # pencil keeps the radial dimension local), so the CNAB2 RHS is assembled with
+    # no inter-rank communication; non-owners skip the mode entirely. Ownership is
+    # read from the mode's storage slot — NOT a rectangular l-index range, which
+    # silently dropped compact modes lm > lmax+1.
     @inbounds for lm_idx in 1:nlm_total
-        # Check if this process owns this lm mode
-        owns_mode = lm_idx in lm_range
-        slot = owns_mode ? local_spectral_storage_slot(un.config, lm_idx) : nothing
+        slot = local_spectral_storage_slot(un.config, lm_idx)
+        slot === nothing && continue
 
         l = un.config.l_values[lm_idx]
-        idx = add_linear ? get(matrices.lookup, l, nothing) : nothing
 
         if add_linear
+            idx = get(matrices.lookup, l, nothing)
             idx === nothing && error("Missing implicit matrix for l=$l")
             fill!(ur, zero(T)); fill!(ui, zero(T))
-
-            # Only fill if this process owns the mode
-            if slot !== nothing
-                gather_local_radial_profile!(ur, ui, u_real, u_imag, slot, r_range)
-            end
-
-            # ALL processes call Allreduce together (collective operation)
-            if multi
-                Allreduce!(ur, MPI.SUM, comm)
-                Allreduce!(ui, MPI.SUM, comm)
-            end
-
+            gather_local_radial_profile!(ur, ui, u_real, u_imag, slot, r_range)
             fill!(lin_r, zero(T)); fill!(lin_i, zero(T))
             apply_banded_full!(lin_r, matrices.linear_matrices[idx], ur)
             apply_banded_full!(lin_i, matrices.linear_matrices[idx], ui)
         end
 
-        # Only update output if this process owns the mode
-        if slot !== nothing
-            for r in r_range
-                lr = r - first(r_range) + 1
-                lr > size(r_real, 3) && continue
+        for r in r_range
+            lr = r - first(r_range) + 1
+            lr > size(r_real, 3) && continue
 
-                value_real = inv_dt * local_spectral_value(u_real, slot, lr) +
-                             three_halves * local_spectral_value(n_real, slot, lr) -
-                             half * local_spectral_value(p_real, slot, lr)
-                value_imag = inv_dt * local_spectral_value(u_imag, slot, lr) +
-                             three_halves * local_spectral_value(n_imag, slot, lr) -
-                             half * local_spectral_value(p_imag, slot, lr)
+            value_real = inv_dt * local_spectral_value(u_real, slot, lr) +
+                         three_halves * local_spectral_value(n_real, slot, lr) -
+                         half * local_spectral_value(p_real, slot, lr)
+            value_imag = inv_dt * local_spectral_value(u_imag, slot, lr) +
+                         three_halves * local_spectral_value(n_imag, slot, lr) -
+                         half * local_spectral_value(p_imag, slot, lr)
 
-                if add_linear
-                    value_real += linear_weight * lin_r[r]
-                    value_imag += linear_weight * lin_i[r]
-                end
-
-                set_local_spectral_value!(r_real, slot, lr, value_real)
-                set_local_spectral_value!(r_imag, slot, lr, value_imag)
+            if add_linear
+                value_real += linear_weight * lin_r[r]
+                value_imag += linear_weight * lin_i[r]
             end
+
+            set_local_spectral_value!(r_real, slot, lr, value_real)
+            set_local_spectral_value!(r_imag, slot, lr, value_imag)
         end
     end
 

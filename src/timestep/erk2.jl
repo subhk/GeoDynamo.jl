@@ -2214,49 +2214,27 @@ function finalize_solver_erk2_field!(
     tmp_linear, tmp_k1, tmp_Nn, tmp_stage = buffers._ws[1], buffers._ws[2], buffers._ws[3], buffers._ws[4]
     delta, correction, result, result_real_profile = buffers._ws[5], buffers._ws[6], buffers._ws[7], buffers._ws[8]
 
-    comm = mpi_comm()
-    multi = mpi_comm_size(comm) > 1
     nlm_total = u.nlm
 
+    # Per-mode finalize on the owning rank only. The inputs (linear, k1, N_n, stage
+    # N) are owner-local per-mode radial profiles (the spectral pencil keeps the
+    # radial dimension local), so no Allreduce is needed — the previous per-mode
+    # reduction summed owner data against all-zero contributions from other ranks.
+    # Non-owners skip the mode entirely.
     for lm_idx in 1:nlm_total
         slot = local_spectral_storage_slot(config, lm_idx)
-        owns_mode = slot !== nothing
+        slot === nothing && continue
 
         l = config.l_values[lm_idx]
         cache_idx = get(buffers.cache_lookup, l, 0)
         cache_idx == 0 && error("Missing ERK2 cache entry for l=$l")
         phi2 = cache.phi2_full[cache_idx]
 
-        fill!(tmp_linear, zero(T))
-        fill!(tmp_k1, zero(T))
-        fill!(tmp_Nn, zero(T))
-        fill!(tmp_stage, zero(T))
-
-        if owns_mode
-            gather_local_radial_profile!(
-                tmp_linear,
-                tmp_k1,
-                buffers.linear_real,
-                buffers.k1_real,
-                slot,
-                r_range,
-            )
-            gather_local_radial_profile!(
-                tmp_Nn,
-                tmp_stage,
-                buffers.n_current_real,
-                buffers.stage_nl_real,
-                slot,
-                r_range,
-            )
-        end
-
-        if multi
-            allreduce_sum_in_place!(tmp_linear, comm)
-            allreduce_sum_in_place!(tmp_k1, comm)
-            allreduce_sum_in_place!(tmp_Nn, comm)
-            allreduce_sum_in_place!(tmp_stage, comm)
-        end
+        # Real component
+        fill!(tmp_linear, zero(T)); fill!(tmp_k1, zero(T))
+        fill!(tmp_Nn, zero(T)); fill!(tmp_stage, zero(T))
+        gather_local_radial_profile!(tmp_linear, tmp_k1, buffers.linear_real, buffers.k1_real, slot, r_range)
+        gather_local_radial_profile!(tmp_Nn, tmp_stage, buffers.n_current_real, buffers.stage_nl_real, slot, r_range)
 
         delta .= tmp_stage
         @. delta = delta - tmp_Nn
@@ -2271,41 +2249,13 @@ function finalize_solver_erk2_field!(
             result[1] = zero(T)
             result[nr] = zero(T)
         end
+        copy!(result_real_profile, result)
 
-        if owns_mode
-            copy!(result_real_profile, result)
-        end
-
-        fill!(tmp_linear, zero(T))
-        fill!(tmp_k1, zero(T))
-        fill!(tmp_Nn, zero(T))
-        fill!(tmp_stage, zero(T))
-
-        if owns_mode
-            gather_local_radial_profile!(
-                tmp_linear,
-                tmp_k1,
-                buffers.linear_imag,
-                buffers.k1_imag,
-                slot,
-                r_range,
-            )
-            gather_local_radial_profile!(
-                tmp_Nn,
-                tmp_stage,
-                buffers.n_current_imag,
-                buffers.stage_nl_imag,
-                slot,
-                r_range,
-            )
-        end
-
-        if multi
-            allreduce_sum_in_place!(tmp_linear, comm)
-            allreduce_sum_in_place!(tmp_k1, comm)
-            allreduce_sum_in_place!(tmp_Nn, comm)
-            allreduce_sum_in_place!(tmp_stage, comm)
-        end
+        # Imag component
+        fill!(tmp_linear, zero(T)); fill!(tmp_k1, zero(T))
+        fill!(tmp_Nn, zero(T)); fill!(tmp_stage, zero(T))
+        gather_local_radial_profile!(tmp_linear, tmp_k1, buffers.linear_imag, buffers.k1_imag, slot, r_range)
+        gather_local_radial_profile!(tmp_Nn, tmp_stage, buffers.n_current_imag, buffers.stage_nl_imag, slot, r_range)
 
         delta .= tmp_stage
         @. delta = delta - tmp_Nn
@@ -2321,16 +2271,7 @@ function finalize_solver_erk2_field!(
             result[nr] = zero(T)
         end
 
-        if owns_mode
-            scatter_local_radial_profile!(
-                u_real,
-                u_imag,
-                result_real_profile,
-                result,
-                slot,
-                r_range,
-            )
-        end
+        scatter_local_radial_profile!(u_real, u_imag, result_real_profile, result, slot, r_range)
     end
 
     solver_synchronize_pencil_transforms!(u)

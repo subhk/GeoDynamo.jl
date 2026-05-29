@@ -598,29 +598,6 @@ function scalar_physical_to_spectral!(
     return spec
 end
 
-function collect_scalar_coefficients(spec_real, spec_imag, r_local, config)
-    lmax, mmax = config.lmax, config.mmax
-
-    coeffs_buffer = solver_get_cached_buffer!(config, :coeffs_buffer) do
-        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
-    end::Matrix{ComplexF64}
-
-    fill_scalar_coeff_buffer!(
-        coeffs_buffer,
-        spec_real,
-        spec_imag,
-        r_local,
-        config,
-    )
-
-    coeffs_gathered = solver_get_cached_buffer!(config, :coeffs_buffer_gathered) do
-        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
-    end::Matrix{ComplexF64}
-
-    allreduce_sum!(coeffs_buffer, coeffs_gathered)
-
-    return coeffs_gathered
-end
 
 @inline function workspace_zeros(config, ::Type{T}, dims...) where {T}
     workspace = config._buffers.solver_transform_workspace
@@ -772,21 +749,6 @@ function cpu_store_physical_slice!(phys_data, phys_slice, r_local)
     return phys_data
 end
 
-function apply_scalar_transform_batch!(
-    spectral_fields::Vector{SpectralFieldType{T}},
-    physical_fields::Vector{PhysicalFieldType{T}},
-) where T
-    @assert length(spectral_fields) == length(physical_fields)
-
-    # Keep transforms sequential because each synthesis path uses MPI collectives.
-    for field_idx in eachindex(spectral_fields)
-        scalar_spectral_to_physical!(
-            spectral_fields[field_idx],
-            physical_fields[field_idx],
-        )
-    end
-    return nothing
-end
 
 function transform_field_and_gradients_to_physical!(
     𝔽::ScalarFieldType{T},
