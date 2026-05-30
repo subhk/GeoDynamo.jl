@@ -50,7 +50,7 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
     state = GeoDynamo.initialize_simulation(Float64, params)
     GeoDynamo.initialize_fields!(state)
     # Warm up: compile the hot paths and populate the per-config transform buffers.
-    GeoDynamo.advance_solver_step!(state)
+    GeoDynamo.solver_step!(state)
 
     temp_field = state.fields.temperature
     grad_ws = state.runtime.gradient_workspace

@@ -1117,7 +1117,7 @@ function _get_or_build_erk2_cache(
                     existing.dt != dt ||
                     existing.use_krylov != use_krylov ||
                     !existing.mpi_consistent ||
-                    existing.l_values != config.l_values
+                    existing.l_values != unique(config.l_values)
 
     if needs_rebuild
         if mpi_rank() == 0
@@ -1164,7 +1164,7 @@ function _get_or_build_erk2_scalar_cache(
                     existing.dt != dt ||
                     existing.use_krylov != use_krylov ||
                     !existing.mpi_consistent ||
-                    existing.l_values != config.l_values
+                    existing.l_values != unique(config.l_values)
 
     if needs_rebuild
         bc_desc = ["DD", "DN", "ND", "NN"][clamp(boundary_condition, 1, 4)]
@@ -1685,7 +1685,7 @@ function get_solver_erk2_magnetic_toroidal_cache!(
                     existing.dt != dt ||
                     existing.use_krylov != use_krylov ||
                     !existing.mpi_consistent ||
-                    existing.l_values != config.l_values
+                    existing.l_values != unique(config.l_values)
 
     if needs_rebuild
         if mpi_rank() == 0
@@ -1730,7 +1730,7 @@ function get_solver_erk2_magnetic_poloidal_cache!(
                     existing.dt != dt ||
                     existing.use_krylov != use_krylov ||
                     !existing.mpi_consistent ||
-                    existing.l_values != config.l_values
+                    existing.l_values != unique(config.l_values)
 
     if needs_rebuild
         if mpi_rank() == 0

@@ -455,7 +455,7 @@ export initialize_simulation, run_simulation!, sync_spectral_history!
 export SolverBackend, SolverFields, SolverTopographyState, SolverTimestepState,
        SolverGradientWorkspace, TransformWorkspace, SolverRuntime, SolverState
 export create_solver_backend, create_solver_topography_state
-export initialize_solver_fields!, initialize_solver_state, advance_solver_step!, run_solver!
+export initialize_solver_fields!, initialize_solver_state, solver_step!, advance_solver_step!, run_solver!
 export GPUBackendState, register_gpu_backend!, gpu_backend_state, restore_gpu_backend!,
        with_gpu_backend
 export gpu_backend_loaded, gpu_backend_available, gpu_backend_device

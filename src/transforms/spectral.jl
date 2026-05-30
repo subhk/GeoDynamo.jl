@@ -541,26 +541,27 @@ function create_shtnskit_config(; lmax::Int, mmax::Int = lmax,
     # Step 6: Initialize grid coordinates and quadrature weights
     # These are used for physical space operations and integration
 
-    # Latitude grid (Gauss-Legendre nodes, latitude in [-π/2, π/2])
-    theta_grid = try
-        Vector{Float64}(SHTnsKit.grid_latitudes(sht_config))
+    # Physical grids read straight from the SHTnsKit Gauss configuration so the
+    # stored nodes/weights MATCH the transform grid: Gauss-Legendre colatitude
+    # θ ∈ [0, π] (non-uniform), uniform longitude φ ∈ [0, 2π), and the Gauss
+    # quadrature weights (Σw = 2). `_grid` is SHTnsKit-internal but is the only
+    # source guaranteed consistent with the transforms — accessor functions have
+    # been renamed across versions. Warn LOUDLY (never silently substitute a
+    # uniform grid, which corrupts Coriolis terms and all θ-quadrature).
+    _sht_grid = try
+        sht_config._grid
     catch
-        # Fallback: uniform grid (less accurate but works)
-        range(-pi/2, stop = pi/2, length = nlat) |> collect |> Vector{Float64}
+        nothing
     end
-
-    # Longitude grid (uniform spacing in [0, 2π))
-    phi_grid = try
-        Vector{Float64}(SHTnsKit.grid_longitudes(sht_config))
-    catch
-        range(0, stop = 2pi, length = nlon+1)[1:(end - 1)] |> collect |> Vector{Float64}
-    end
-
-    # Gauss-Legendre quadrature weights for numerical integration over θ
-    gauss_weights = try
-        Vector{Float64}(SHTnsKit.get_gauss_weights(sht_config))
-    catch
-        ones(Float64, nlat)  # Fallback: uniform weights
+    if _sht_grid !== nothing
+        theta_grid    = Vector{Float64}(_sht_grid.θ)
+        phi_grid      = Vector{Float64}(_sht_grid.φ)
+        gauss_weights = Vector{Float64}(_sht_grid.w)
+    else
+        @warn "SHTnsKit Gauss grid (`_grid`) unavailable; falling back to a UNIFORM θ grid + unit weights. Physical-space integration (energy/Nusselt) and Coriolis terms will be INACCURATE — check SHTnsKit version compatibility." maxlog = 1
+        theta_grid    = range(0, stop = pi, length = nlat) |> collect |> Vector{Float64}
+        phi_grid      = range(0, stop = 2pi, length = nlon + 1)[1:(end - 1)] |> collect |> Vector{Float64}
+        gauss_weights = ones(Float64, nlat)
     end
 
     # Step 7: Build spectral index to (l,m) mapping arrays

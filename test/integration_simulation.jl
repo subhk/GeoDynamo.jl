@@ -79,7 +79,7 @@ const FINALIZE_MPI_INTEG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         state = GeoDynamo.initialize_simulation(Float64, tiny_params)
         GeoDynamo.initialize_fields!(state)
 
-        GeoDynamo.advance_solver_step!(state)
+        GeoDynamo.solver_step!(state)
 
         # All fields should remain finite
         @test all(isfinite, parent(state.fields.temperature.spectral.data_real))
@@ -105,7 +105,7 @@ const FINALIZE_MPI_INTEG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         @test E0 >= 0.0
 
         for step in 1:n_steps
-            GeoDynamo.advance_solver_step!(state)
+            GeoDynamo.solver_step!(state)
             @test state.step == step
         end
 

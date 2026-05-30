@@ -47,7 +47,7 @@ const FINALIZE_MPI_THREADED_SMOKE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "tru
         # threaded implicit dispatch deadlocks here and MPIEXEC_TIMEOUT kills the
         # job. Reaching the asserts means every rank completed the step in sync.
         for _ in 1:3
-            GeoDynamo.advance_solver_step!(state)
+            GeoDynamo.solver_step!(state)
             MPI.Barrier(GeoDynamo.get_comm())
         end
 

@@ -65,7 +65,7 @@ function GeoDynamo.initialize_simulation(params::SolverParameters)
 end
 
 """
-    advance_solver_step!(state)
+    solver_step!(state)
 
 Advance the rewritten solver by one timestep.
 
@@ -76,7 +76,7 @@ The step order is:
 3. apply the IMEX/ERK2 timestep update
 4. finalize time/step bookkeeping and diagnostics
 """
-function advance_solver_step!(state::SolverState{T, <:AbstractArchitecture}) where {T}
+function solver_step!(state::SolverState{T, <:AbstractArchitecture}) where {T}
     state.is_initialized || initialize_solver_fields!(state)
 
     next_step = state.step + 1
@@ -98,6 +98,9 @@ function advance_solver_step!(state::SolverState{T, <:AbstractArchitecture}) whe
 
     return state
 end
+
+# Back-compat alias for the pre-rename public name.
+const advance_solver_step! = solver_step!
 
 """
     rebuild_solver_implicit_matrices!(state, dt)
@@ -134,7 +137,7 @@ function run_solver!(state::SolverState{T, <:AbstractArchitecture}) where {T}
 
     while state.time < state.parameters.end_time &&
         state.step < state.parameters.stop_iteration
-        advance_solver_step!(state)
+        solver_step!(state)
     end
 
     return state

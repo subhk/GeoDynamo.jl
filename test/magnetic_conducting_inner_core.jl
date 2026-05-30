@@ -88,7 +88,7 @@ end
 
     # Advance enough steps for the field to diffuse across the ICB.
     for _ in 1:30
-        GeoDynamo.advance_solver_step!(state)
+        GeoDynamo.solver_step!(state)
     end
 
     ic_tor = parent(mag.toroidal_ic.data_real)

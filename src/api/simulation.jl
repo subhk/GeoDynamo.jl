@@ -98,7 +98,7 @@ function Simulation(model::GeodynamoModel;
     dt_f = Float64(dt)
 
     # Propagate dt, stop_time, and stop_iteration into the solver's SolverParameters so
-    # that advance_solver_step! uses the timestep the caller requested.
+    # that solver_step! uses the timestep the caller requested.
     p = model.state.parameters
     old_timestep = model.state.parameters.timestep
     timestep_options = _resolve_timestepper(
@@ -155,7 +155,7 @@ function time_step!(model::GeodynamoModel, dt::Real)
         rebuild_solver_implicit_matrices!(state, dt_f)
         state.runtime.timestep_state.dt = dt_f
     end
-    advance_solver_step!(state)
+    solver_step!(state)
     sync_clock!(model.clock, state)
     model.clock.last_dt = dt_f
     return model
