@@ -269,7 +269,7 @@ after a successful update.
 """
 function apply_solver_implicit_step!(state::SolverState)
     timestepper = state.parameters.timestepper
-    magnetic_enabled = state.parameters.include_magnetic_field &&
+    magnetic_enabled = state.parameters.include_magnetic &&
                        state.fields.magnetic !== nothing
 
     bootstrap_solver_history!(state, timestepper, magnetic_enabled)

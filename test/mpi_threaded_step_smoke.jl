@@ -37,7 +37,7 @@ const FINALIZE_MPI_THREADED_SMOKE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "tru
             nr = 16, lmax = 8, mmax = 8, nlat = 16, nlon = 32,
             timestep = 1e-6, timestepper = GeoDynamo.CNAB2(),
             Ra = 1e2, RaC = 1e2,
-            include_magnetic_field = true,
+            include_magnetic = true,
             include_composition = true
         )
         state = GeoDynamo.initialize_simulation(params)

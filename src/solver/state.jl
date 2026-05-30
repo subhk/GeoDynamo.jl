@@ -382,7 +382,7 @@ end
 
 function _collect_solver_fields(runtime::SolverRuntime{T, <:AbstractArchitecture},
         params::SolverParameters) where {T}
-    magnetic = params.include_magnetic_field ? runtime.magnetic : nothing
+    magnetic = params.include_magnetic ? runtime.magnetic : nothing
     composition = params.include_composition ? runtime.composition : nothing
 
     # Use the all-inferred constructor: `SolverFields{T}(...)` is a partial

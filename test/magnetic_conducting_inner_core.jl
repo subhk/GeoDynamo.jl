@@ -9,7 +9,7 @@ const FINALIZE_MPI_CONDIC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
     params = GeoDynamo.SolverParameters(
         architecture = :cpu, geometry = :shell, nr = 16, nr_inner = 8,
         lmax = 4, mmax = 4, nlat = 12, nlon = 16,
-        include_magnetic_field = true, include_composition = false,
+        include_magnetic = true, include_composition = false,
         timestepper = GeoDynamo.CNAB2(),
         magnetic_inner_bc = :conducting_inner_core
     )
@@ -61,7 +61,7 @@ end
         start_time = 0.0,
         end_time = 1.0,
         stop_iteration = 1000,
-        include_magnetic_field = true,
+        include_magnetic = true,
         include_composition = false,
         timestepper = GeoDynamo.CNAB2(),
         topography_enabled = false,

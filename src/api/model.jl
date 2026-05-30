@@ -67,7 +67,7 @@ function _build_geodynamo_model(
         Pm = Pm,
         Sc = Sc,
         Ra = Ra,
-        include_magnetic_field = include_magnetic,
+        include_magnetic = include_magnetic,
         include_composition = include_composition,
         velocity_bcs = velocity_bcs,
         temperature_bcs = temperature_bcs,

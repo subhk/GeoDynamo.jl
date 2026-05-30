@@ -46,7 +46,7 @@ Base.@kwdef struct SolverParameters
     output_interval::Float64 = 1.0
     restart_interval::Float64 = 0.0
 
-    include_magnetic_field::Bool = false
+    include_magnetic::Bool = false
     include_composition::Bool = true
     impose_magnetic_field::Bool = false
     magnetic_inner_bc::Symbol = :insulating   # :insulating | :conducting_inner_core
@@ -107,7 +107,7 @@ function Base.show(io::IO, ::MIME"text/plain", params::SolverParameters)
     end
 
     print_section(io, "Physics")
-    for key in (:Ek, :Ra, :RaC, :Pr, :Pm, :Sc, :include_magnetic_field,
+    for key in (:Ek, :Ra, :RaC, :Pr, :Pm, :Sc, :include_magnetic,
         :include_composition, :impose_magnetic_field)
         print_entry(io, key, getfield(params, key))
     end

@@ -26,7 +26,7 @@ function Base.show(io::IO, ::MIME"text/plain", m::GeodynamoModel{T}) where {T}
     println(io, "├── grid: ", summary(m.grid))
     println(io, "├── clock: time=", m.clock.time, ", iteration=", m.clock.iteration)
     println(io, "├── physics: Ek=$(p.Ek), Pr=$(p.Pr), Pm=$(p.Pm), Sc=$(p.Sc), Ra=$(p.Ra)")
-    print(io, "└── active: magnetic=$(p.include_magnetic_field), composition=$(p.include_composition)")
+    print(io, "└── active: magnetic=$(p.include_magnetic), composition=$(p.include_composition)")
 end
 
 function Base.show(io::IO, ::MIME"text/plain", sim::Simulation)

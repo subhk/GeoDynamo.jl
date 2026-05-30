@@ -1014,7 +1014,7 @@ function compute_solver_nonlinear_terms!(state::SolverState)
         geometry = state.parameters.geometry
     )
 
-    if state.parameters.include_magnetic_field && state.fields.magnetic !== nothing
+    if state.parameters.include_magnetic && state.fields.magnetic !== nothing
         # Ball runs reuse the outer-core domain in both slots; shell runs carry
         # a distinct inner-core domain that the magnetic coupling needs.
         inner_domain = isnothing(state.backend.inner_core_domain) ?

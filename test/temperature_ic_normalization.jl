@@ -35,7 +35,7 @@ end
         geometry = :shell,
         nr = 8, lmax = 4, mmax = 4, nlat = 10, nlon = 16,
         include_composition = true,
-        include_magnetic_field = false,
+        include_magnetic = false,
         # temperature_bcs default = FixedTemperature(1.0) / FixedTemperature(0.0)
         # initialize_composition_field! seeds a BC-consistent (0,0) background, so
         # pin a uniform physical mean of 0.5 via the composition boundaries (the

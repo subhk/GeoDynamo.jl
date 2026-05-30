@@ -73,7 +73,7 @@ using Test
             timestep = 1e-4,
             stop_iteration = 1,
             timestepper = GeoDynamo.ERK2(),
-            include_magnetic_field = false,
+            include_magnetic = false,
             include_composition = false,
             topography_enabled = false,
             stefan_enabled = false
@@ -134,7 +134,7 @@ using Test
             timestep = 1e-4,
             stop_iteration = 1,
             timestepper = GeoDynamo.EAB2(),
-            include_magnetic_field = true,
+            include_magnetic = true,
             include_composition = true,
             topography_enabled = false,
             stefan_enabled = false

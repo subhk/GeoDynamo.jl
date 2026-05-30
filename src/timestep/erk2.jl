@@ -2724,7 +2724,7 @@ function integrate_solver_erk2_step!(state::SolverState{
     mag_pol_cache = nothing
     mag_tor_bc = nothing
     mag_pol_bc = nothing
-    if params.include_magnetic_field && state.fields.magnetic !== nothing
+    if params.include_magnetic && state.fields.magnetic !== nothing
         mag_tor_bc = _get_or_build_erk2_boundary_spec!(
             state.timestep_caches, :magnetic_tor, 0,
             () -> build_solver_erk2_magnetic_tor_bc(T, nr)
