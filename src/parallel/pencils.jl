@@ -388,6 +388,14 @@ function validate_radial_distribution(pencils; warn_uneven::Bool = true, strict:
     distribution_info = Dict{Symbol, Tuple{Int, Int}}()
 
     for (name, pencil) in pairs(pencils)
+        # Only the r-local compute pencils (:r, :spec, :mixed) require synchronized
+        # radial counts across ranks — their per-radial collective sync depends on
+        # every rank holding the full radial profile. The :θ/:φ transpose pencils
+        # distribute r by design (FFT orientations, no per-radial collective;
+        # PencilFFTs transposes via Alltoallv, which handles uneven counts), so an
+        # uneven r-split there is expected and harmless. Skip them to avoid false
+        # "uneven radial distribution" alarms for odd nr.
+        name in (:r, :spec, :mixed) || continue
         # Use range_local accessor for version compatibility
         local_axes = range_local(pencil)
         if length(local_axes) >= 3
