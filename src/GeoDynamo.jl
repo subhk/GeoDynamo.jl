@@ -527,6 +527,7 @@ include("parallel/mpi.jl")
 include("parallel/pencils.jl")
 include("parallel/transposes.jl")
 include("transforms/spectral.jl")  # SHTnsKit-based transforms (includes SHTnsKitConfig)
+include("parallel/spectral_pencil_adapter.jl")  # dense (l,m) <-> SHTnsKit spectral seams
 include("bcs/bcs.jl")  # Needed before field types import BC enums
 using .bcs: AbstractBoundaryCondition
 using .bcs: BoundaryLocation, INNER_BOUNDARY, OUTER_BOUNDARY
