@@ -53,42 +53,6 @@ end
     return cache.anal_out::Matrix{ComplexF64}
 end
 
-@inline function _get_vt_out(cache::SHTnsBuffers, config, ::Type{T}) where {T <:
-                                                                            AbstractFloat}
-    cache.sht_plan === nothing && return nothing
-    if cache.vt_out === nothing
-        cache.vt_out = zeros(Float64, config.nlat, config.nlon)
-    end
-    return cache.vt_out::Matrix{Float64}
-end
-
-@inline function _get_vp_out(cache::SHTnsBuffers, config, ::Type{T}) where {T <:
-                                                                            AbstractFloat}
-    cache.sht_plan === nothing && return nothing
-    if cache.vp_out === nothing
-        cache.vp_out = zeros(Float64, config.nlat, config.nlon)
-    end
-    return cache.vp_out::Matrix{Float64}
-end
-
-@inline function _get_slm_out(cache::SHTnsBuffers, config, ::Type{T}) where {T <:
-                                                                             AbstractFloat}
-    cache.sht_plan === nothing && return nothing
-    if cache.slm_out === nothing
-        cache.slm_out = zeros(ComplexF64, config.lmax + 1, config.mmax + 1)
-    end
-    return cache.slm_out::Matrix{ComplexF64}
-end
-
-@inline function _get_tlm_out(cache::SHTnsBuffers, config, ::Type{T}) where {T <:
-                                                                             AbstractFloat}
-    cache.sht_plan === nothing && return nothing
-    if cache.tlm_out === nothing
-        cache.tlm_out = zeros(ComplexF64, config.lmax + 1, config.mmax + 1)
-    end
-    return cache.tlm_out::Matrix{ComplexF64}
-end
-
 """
     shtnskit_spectral_to_physical!(spec, phys)
 
@@ -534,20 +498,9 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
     # Get local radial range
     r_range = get_local_range(pol_spec.pencil, 3)
 
-    # Get pre-allocated plan and output buffers (allocation-free path)
-    plan = _get_sht_plan(config._buffers)
-    vt_out = _get_vt_out(config._buffers, config, T)
-    vp_out = _get_vp_out(config._buffers, config, T)
-    synth_out = _get_synth_out(config._buffers, config)
-
-    # SAFETY: The radial loop below contains MPI collectives (Allreduce).
+    # SAFETY: The radial loop below contains MPI collectives.
     # All processes MUST iterate the same number of times to avoid deadlock.
     @assert size(v_r, 3) == size(tor_real, 3) "Radial dimension mismatch: physical=$(size(v_r,3)) vs spectral=$(size(tor_real,3)). Vector SH transforms require radial to be local."
-
-    # Get global index ranges for this rank's portion of the physical grid.
-    # SHTnsKit synthesis produces the FULL (nlat, nlon) grid; we must extract
-    # only this rank's local portion using these offsets.
-    phys_axes_local = vec_phys.r_component.pencil.axes_local
 
     # The geodynamo poloidal/toroidal scalars are passed directly as the SHTns
     # spheroidal/toroidal arguments. This makes synthesis the exact inverse of
@@ -562,27 +515,31 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
     # The radial poloidal→field physics belongs in the field-reconstruction layer,
     # not in this low-level angular spheroidal/toroidal transform.
 
+    # Cached θ-PencilArray prototype: tells dist_synthesis_sphtor which θ-rows
+    # this rank owns. Allocated once, reused across levels and calls.
+    proto = get_cached_buffer!(config, :theta_phys_proto) do
+        pencil2d = config.pencils.theta_phys
+        PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
+    end::PencilArray
+
     # Process each radial level
     for r_local in axes(tor_real, 3)
-        # Pass the poloidal scalar P directly as the spheroidal argument.
+        # Pass the poloidal scalar P directly as the spheroidal argument S.
+        # extract_coefficients_pair_for_shtnskit returns DENSE gathered matrices.
         tor_coeffs,
         sph_coeffs = extract_coefficients_pair_for_shtnskit(
             tor_real, tor_imag, pol_real, pol_imag, r_local, config)
 
-        if plan !== nothing && vt_out !== nothing && vp_out !== nothing
-            SHTnsKit.synthesis_sphtor!(
-                plan, vt_out, vp_out, sph_coeffs, tor_coeffs; real_output = true)
-            store_vector_components_generic!(
-                v_theta, v_phi, vt_out, vp_out, r_local, config;
-                axes_local = phys_axes_local)
-        else
-            vt_field,
-            vp_field = SHTnsKit.synthesis_sphtor(sht_config, sph_coeffs, tor_coeffs;
-                real_output = true)
-            store_vector_components_generic!(
-                v_theta, v_phi, vt_field, vp_field, r_local, config;
-                axes_local = phys_axes_local)
-        end
+        # dist_synthesis_sphtor returns (Vt, Vp) as plain Matrix{Float64} of size
+        # (nθ_local, nlon) — exactly matching view(v_theta,:,:,r_local).
+        Vt, Vp = SHTnsKit.dist_synthesis_sphtor(
+            sht_config,
+            to_sht_spectral(config, sph_coeffs),
+            to_sht_spectral(config, tor_coeffs);
+            prototype_θφ = proto,
+            real_output = true)
+        copyto!(view(v_theta, :, :, r_local), Vt)
+        copyto!(view(v_phi,   :, :, r_local), Vp)
 
         # Radial component v_r = l(l+1)/r² · P, synthesized from the raw poloidal
         # scalar (extracted separately from the tangential spheroidal).
@@ -622,15 +579,14 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
                         end
                     end
 
-                    if plan !== nothing && synth_out !== nothing
-                        SHTnsKit.synthesis!(plan, synth_out, pol_rad_coeffs; real_output = true)
-                        store_scalar_component_generic!(v_r, synth_out, r_local, config;
-                            axes_local = phys_axes_local)
-                    else
-                        vr_field = SHTnsKit.synthesis(sht_config, pol_rad_coeffs; real_output = true)
-                        store_scalar_component_generic!(v_r, vr_field, r_local, config;
-                            axes_local = phys_axes_local)
-                    end
+                    # Use dist_synthesis for the radial component (same pattern as
+                    # scalar transforms in nonlinear.jl).
+                    vr = SHTnsKit.dist_synthesis(
+                        sht_config,
+                        to_sht_spectral(config, pol_rad_coeffs);
+                        prototype_θφ = proto,
+                        real_output = true)
+                    copyto!(view(v_r, :, :, r_local), vr)
                 else
                     store_zero_component_generic!(v_r, r_local, config)
                 end
@@ -686,8 +642,8 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
     config = tor_spec.config
     sht_config = config.sht_config
 
-    # Get data arrays
-    v_r = parent(vec_phys.r_component.data)
+    # Get data arrays (analysis recovers tor/pol from the tangential components
+    # only; v_r is not consumed here).
     v_theta = parent(vec_phys.θ_component.data)
     v_phi = parent(vec_phys.φ_component.data)
 
@@ -696,49 +652,34 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
     pol_real = parent(pol_spec.data_real)
     pol_imag = parent(pol_spec.data_imag)
 
-    # Get local radial range
-    r_range = get_local_range(pol_spec.pencil, 3)
+    # Cached θ-PencilArray slabs for passing the local tangential physical slices
+    # to dist_analysis_sphtor. Two slabs are needed (vt and vp) so both tangential
+    # components can be passed simultaneously. Allocated once, reused across levels.
+    vt_slab = get_cached_buffer!(config, :theta_phys_slab) do
+        pencil2d = config.pencils.theta_phys
+        PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
+    end::PencilArray
+    vp_slab = get_cached_buffer!(config, :theta_phys_slab2) do
+        pencil2d = config.pencils.theta_phys
+        PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
+    end::PencilArray
 
-    # Get pre-allocated plan and output buffers (allocation-free path)
-    plan = _get_sht_plan(config._buffers)
-    slm_out = _get_slm_out(config._buffers, config, T)
-    tlm_out = _get_tlm_out(config._buffers, config, T)
-
-    # As in synthesis, the decomposition is done radius-by-radius so each call
-    # can gather a dense tangential slice, recover toroidal/poloidal spectra,
-    # then scatter those coefficients back into the distributed storage.
-    # Process each radial level
+    # The decomposition is done radius-by-radius. dist_analysis_sphtor accepts
+    # θ-PencilArrays for (Vt, Vp), performs the θ-Allreduce internally, and
+    # returns DENSE (lmax+1 × mmax+1) (S, T) matrices replicated on every rank.
+    # No full-grid Allreduce gather is needed on this side.
     for r_local in axes(v_theta, 3)
-        # Extract each tangential slice into its own temporary buffer; both
-        # components are needed simultaneously by the sphtor analysis kernel.
-        nlat, nlon = config.nlat, config.nlon
-        vt_buffer = get_cached_buffer!(config, :vector_component_buffer_vt) do
-            zeros(eltype(v_theta), nlat, nlon)
-        end::Matrix{Float64}
-        vp_buffer = get_cached_buffer!(config, :vector_component_buffer_vp) do
-            zeros(eltype(v_phi), nlat, nlon)
-        end::Matrix{Float64}
-        phys_axes_local = vec_phys.r_component.pencil.axes_local
-        vt_field = extract_vector_component_generic!(vt_buffer, v_theta, r_local, config;
-            axes_local = phys_axes_local)
-        vp_field = extract_vector_component_generic!(vp_buffer, v_phi, r_local, config;
-            axes_local = phys_axes_local)
+        # Copy θ-local slabs into the PencilArray wrappers.
+        copyto!(parent(vt_slab), view(v_theta, :, :, r_local))
+        copyto!(parent(vp_slab), view(v_phi,   :, :, r_local))
 
-        # The toroidal/poloidal decomposition is recovered from the tangential
-        # components, then written back into the distributed spectral storage.
-        if plan !== nothing && slm_out !== nothing && tlm_out !== nothing
-            # Allocation-free path: in-place vector analysis
-            SHTnsKit.analysis_sphtor!(plan, slm_out, tlm_out, vt_field, vp_field)
-            store_coefficients_from_shtnskit!(pol_real, pol_imag, slm_out, r_local, config)
-            store_coefficients_from_shtnskit!(tor_real, tor_imag, tlm_out, r_local, config)
-        else
-            pol_coeffs,
-            tor_coeffs = SHTnsKit.analysis_sphtor(sht_config, vt_field, vp_field)
-            store_coefficients_from_shtnskit!(
-                pol_real, pol_imag, pol_coeffs, r_local, config)
-            store_coefficients_from_shtnskit!(
-                tor_real, tor_imag, tor_coeffs, r_local, config)
-        end
+        # dist_analysis_sphtor returns (slm, tlm) = (spheroidal/poloidal, toroidal)
+        # as plain Matrix{ComplexF64} of size (lmax+1, mmax+1), replicated.
+        slm, tlm = SHTnsKit.dist_analysis_sphtor(sht_config, vt_slab, vp_slab)
+
+        # spheroidal/poloidal coefficients → poloidal storage, toroidal → toroidal
+        store_coefficients_from_shtnskit!(pol_real, pol_imag, from_sht_spectral(config, slm), r_local, config)
+        store_coefficients_from_shtnskit!(tor_real, tor_imag, from_sht_spectral(config, tlm), r_local, config)
     end
 end
 
@@ -1454,6 +1395,7 @@ function extract_physical_slice_generic(phys_data, r_local, config;
 end
 
 """
+<<<<<<< HEAD
     extract_vector_component_generic!(component_buffer, v_data, r_local, config)
 
 Generic extraction for vector components using pre-allocated buffer.
@@ -1596,6 +1538,8 @@ function store_scalar_component_generic!(v_component, field, r_local, config;
 end
 
 """
+=======
+>>>>>>> feat/theta-dist-transform
     store_zero_component_generic!(v_component, r_local, config)
 
 Set a component to zero at a given radial level.

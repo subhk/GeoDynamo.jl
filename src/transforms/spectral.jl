@@ -130,6 +130,16 @@ mutable struct SHTnsBuffers
     # MIE vector-transform poloidal coefficient buffers (radial-component path)
     mie_pol_coeffs_buffer::Union{AbstractArray, Nothing}
     mie_pol_coeffs_gathered::Union{AbstractArray, Nothing}
+
+    # θ-distributed PencilArray buffers for dist_synthesis / dist_analysis.
+    # Both are shaped (nθ_local, nlon) over the theta_phys pencil and are
+    # allocated once per config (cached lazily by get_cached_buffer!).
+    # theta_phys_proto is the read-only prototype passed to dist_synthesis;
+    # theta_phys_slab  is the mutable workspace filled for dist_analysis input (vt);
+    # theta_phys_slab2 is a second mutable workspace for dist_analysis input (vp).
+    theta_phys_proto::Union{PencilArray, Nothing}
+    theta_phys_slab::Union{PencilArray, Nothing}
+    theta_phys_slab2::Union{PencilArray, Nothing}
 end
 
 """
@@ -143,7 +153,8 @@ function SHTnsBuffers()
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
-        nothing, nothing, nothing, nothing
+        nothing, nothing, nothing, nothing,
+        nothing, nothing, nothing
     )
 end
 
@@ -178,7 +189,10 @@ const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
     :mie_spheroidal_real => :mie_spheroidal_real,
     :mie_spheroidal_imag => :mie_spheroidal_imag,
     :mie_pol_coeffs_buffer => :mie_pol_coeffs_buffer,
-    :mie_pol_coeffs_gathered => :mie_pol_coeffs_gathered
+    :mie_pol_coeffs_gathered => :mie_pol_coeffs_gathered,
+    :theta_phys_proto => :theta_phys_proto,
+    :theta_phys_slab => :theta_phys_slab,
+    :theta_phys_slab2 => :theta_phys_slab2
 )
 
 @inline function _shtns_buffer_field(::Val{key}) where {key}
@@ -280,6 +294,9 @@ function clear_buffer_cache!(config)
         b.phi_slice_buffer = nothing
         b.generic_slice_buffer = nothing
         b.vector_component_buffer = nothing
+        b.theta_phys_proto = nothing
+        b.theta_phys_slab = nothing
+        b.theta_phys_slab2 = nothing
     end
 end
 
@@ -663,10 +680,15 @@ degree/order grid. Invalid `(l,m)` slots such as `m > l` are left unmapped.
 - `nlat, nlon, nr`: Grid dimensions
 - `sht_config`: SHTnsKit configuration (provides nlm)
 - `comm`: MPI communicator
-- `optimize`: Whether to optimize process topology for load balance
+- `optimize`: accepted for API compatibility but IGNORED in Phase 1 (the 1D-θ grid
+  is fixed `(nprocs, 1)`); Phase 2 (r×θ) will honor it via
+  `optimize_process_topology_shtnskit`.
 
 # Returns
-NamedTuple with pencil configurations: (:theta, :θ, :phi, :φ, :r, :spec, :mixed)
+NamedTuple with pencil configurations:
+(:theta, :θ, :phi, :φ, :r, :spec, :mixed, :theta_phys).
+`theta_phys` is a 2D `(nlat, nlon)` θ-distributed / φ-local prototype pencil used as
+`prototype_θφ` for SHTnsKit's per-radial-level `dist_synthesis`/`dist_analysis`.
 """
 function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
         sht_config::SHTnsKit.SHTConfig,
@@ -675,14 +697,13 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
         mmax::Int)
     nprocs = MPI.Comm_size(comm)
 
-    # Determine optimal 2D process grid for theta-phi parallelization.
-    # Spectral storage uses a real (l,m,r) grid, so the same 2D topology can
-    # distribute spectral modes without splitting a dummy axis.
-    if optimize && nprocs > 1
-        proc_dims = optimize_process_topology_shtnskit(nprocs, nlat, nlon, lmax, mmax)
-    else
-        proc_dims = (nprocs, 1)  # Simple 1D decomposition
-    end
+    # Phase 1 (θ-distributed transform): always use a 1D-θ process grid so that
+    # every rank holds a contiguous θ-slab, φ-full and r-full.  This is the
+    # prerequisite for feeding per-radial-level 2D (θ,φ) slices directly into
+    # SHTnsKit's dist_synthesis/dist_analysis without any additional scatter.
+    # Phase 2 (r×θ 2D topology) will reintroduce optimize_process_topology_shtnskit
+    # when the radial dimension is also distributed across the second process-grid axis.
+    proc_dims = (nprocs, 1)  # 1D-θ decomposition (Phase 1)
 
     # Create PencilArrays MPI topology
     # MPITopology maps the 2D process grid to MPI ranks
@@ -717,6 +738,16 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     # Compatibility alias for older call sites. Mixed spectral storage must obey
     # the same rectangular (l, m, r) ownership contract as the spectral pencil.
 
+    # 2D (nlat,nlon) θ-distributed / φ-local prototype for SHTnsKit's per-level
+    # dist_synthesis/dist_analysis (prototype_θφ). We use a dedicated 1D MPI
+    # topology (nprocs,) so that the single decomp_dims=(1,) is valid (a 2D pencil
+    # over MPITopology{2} would require a 2-tuple decomp_dims, leaving no local dim).
+    # Under proc_dims=(nprocs,1), the θ-split of this 1D pencil is identical to
+    # pencils.r (same θ-split pattern) so phys.data[:,:,k] maps directly onto this
+    # prototype's local θ-slab.
+    topo1d = TopoCtor(comm, (nprocs,))
+    pencil_theta_phys = Pencil(topo1d, (nlat, nlon), (1,))
+
     # Return named tuple with both ASCII and Unicode names for convenience
     return (; theta = pencil_theta,
         θ = pencil_theta,      # Unicode alias
@@ -724,7 +755,8 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
         φ = pencil_phi,        # Unicode alias
         r = pencil_r,
         spec = pencil_spec,
-        mixed = pencil_spec)
+        mixed = pencil_spec,
+        theta_phys = pencil_theta_phys)
 end
 
 """

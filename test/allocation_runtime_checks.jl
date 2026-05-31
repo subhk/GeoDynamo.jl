@@ -85,20 +85,23 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         @test GeoDynamo._THETA_GATHER_REDUCE_COUNT[] == 2
     end
 
-    # --- A3. Scalar transforms batch the per-radial-level slice gather ----------
-    @testset "scalar synthesis/analysis gather once, not once per radial level (#6)" begin
-        # Synthesis (spectral→physical) gathered the full coefficient matrix and
-        # analysis (physical→spectral) gathered the full physical slice once per
-        # radial level — O(nr) collectives. Batching stacks all levels into one
-        # buffer and gathers once. `_SCALAR_GATHER_REDUCE_COUNT` counts batched
-        # gather passes; nr=16 here, so the former per-level path registered 16.
+    # --- A3. Scalar transforms minimise the cross-rank collective count --------
+    @testset "scalar synthesis gathers once; analysis distributes (no full-grid gather) (#6)" begin
+        # Synthesis (spectral→physical) still gathers the full coefficient matrix
+        # ONCE per call (batched over all radial levels) — `dist_synthesis` consumes
+        # the dense replicated (l,m) matrix, so the single coeff Allreduce remains.
+        # Analysis (physical→spectral) NO LONGER gathers the full physical grid:
+        # `dist_analysis` is θ-distributed and performs only its own internal
+        # (small, spectral) reduction, which is NOT counted here. So the external
+        # `_SCALAR_GATHER_REDUCE_COUNT` is 1 for synthesis and 0 for analysis —
+        # the θ-distributed path strictly reduces the collective footprint.
         GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] = 0
         GeoDynamo.scalar_spectral_to_physical!(temp_field.spectral, temp_field.temperature)
         @test GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] == 1
 
         GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] = 0
         GeoDynamo.scalar_physical_to_spectral!(temp_field.temperature, temp_field.spectral)
-        @test GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] == 1
+        @test GeoDynamo._SCALAR_GATHER_REDUCE_COUNT[] == 0
     end
 
     # --- B. Caches reuse rather than rebuild -----------------------------------
