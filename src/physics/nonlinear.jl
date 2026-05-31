@@ -533,13 +533,6 @@ function scalar_physical_to_spectral!(
         "SH transforms require radial to be local."
     )
 
-<<<<<<< HEAD
-    plan = get_sht_plan(config._buffers)
-    anal_out = _get_anal_out(config._buffers, config)   # lazily allocates → in-place analysis path (avoids per-level malloc)
-    phys_axes_local = phys.pencil.axes_local
-
-=======
->>>>>>> feat/theta-dist-transform
     nr = size(phys_data, 3)
     sht_cfg = config.sht_config
 
