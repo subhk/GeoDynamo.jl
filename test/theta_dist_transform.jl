@@ -48,6 +48,35 @@ end
 end
 
 # ============================================================================
+# Task 5: vector dist-transform roundtrip (tor/pol spec → phys → tor/pol spec)
+# ============================================================================
+
+@testset "vector dist transform roundtrip" begin
+    cfg = GeoDynamo.create_shtnskit_config(lmax=8, mmax=8, nlat=12, nlon=20, nr=4)
+    dom = GeoDynamo.create_radial_domain(4)
+    vf  = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, dom)
+    tr = parent(vf.toroidal.data_real); ti = parent(vf.toroidal.data_imag)
+    pr = parent(vf.poloidal.data_real); pi_ = parent(vf.poloidal.data_imag)
+    tr .= 0; ti .= 0; pr .= 0; pi_ .= 0
+    for k in 1:size(tr,3)
+        tr[min(2,size(tr,1)),1,k] = 0.5
+        if size(tr,2) >= 2; pr[min(3,size(pr,1)),2,k] = 0.3; pi_[min(3,size(pr,1)),2,k] = -0.1; end
+    end
+    tr0=copy(tr); ti0=copy(ti); pr0=copy(pr); pi0=copy(pi_)
+    GeoDynamo.shtnskit_vector_synthesis!(vf.toroidal, vf.poloidal, vf.velocity; domain=dom)
+    # Assert synthesized physical field is finite and non-zero (defence-in-depth:
+    # catches a θ-split bug where the prototype gives the wrong rank's rows)
+    vt_data = parent(vf.velocity.θ_component.data)
+    @test any(x -> abs(x) > 1e-10, vt_data)
+    @test all(isfinite, vt_data)
+    GeoDynamo.shtnskit_vector_analysis!(vf.velocity, vf.toroidal, vf.poloidal; domain=dom)
+    @test maximum(abs.(parent(vf.toroidal.data_real) .- tr0)) < 1e-8
+    @test maximum(abs.(parent(vf.toroidal.data_imag) .- ti0)) < 1e-8
+    @test maximum(abs.(parent(vf.poloidal.data_real) .- pr0)) < 1e-8
+    @test maximum(abs.(parent(vf.poloidal.data_imag) .- pi0)) < 1e-8
+end
+
+# ============================================================================
 # Tasks 5 (vector transform roundtrips): APPEND new @testset blocks
 # ABOVE this line — the MPI.Finalize() below must remain the last statement.
 # ============================================================================
