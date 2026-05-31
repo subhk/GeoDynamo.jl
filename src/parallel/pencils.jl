@@ -97,9 +97,11 @@ end
     create_pencil_topology(shtns_config; nr, optimize=true)
 
 Create enhanced pencil decomposition for SHTns grids.
-Chooses the best shared 2D process grid for the physical and spectral pencil
-layouts. Accepts an object with fields `nlat`, `nlon`, `nlm`, `lmax`, and
-`mmax` (e.g., `SHTnsKitConfig`).
+Phase 1 (θ-distributed transform) always uses a 1D-θ process grid `(nprocs, 1)`,
+so the physical pencils are θ-distributed / φ-local / r-local. The `optimize`
+keyword is accepted for API compatibility but currently IGNORED; Phase 2 (r×θ)
+will honor it again via `optimize_process_topology`. Accepts an object with
+fields `nlat`, `nlon`, `nlm`, `lmax`, and `mmax` (e.g., `SHTnsKitConfig`).
 """
 function create_pencil_topology(shtns_config; nr::Int, optimize::Bool = true)
     comm = get_comm()
@@ -115,12 +117,11 @@ function create_pencil_topology(shtns_config; nr::Int, optimize::Bool = true)
     # Choose the process grid before constructing any pencils so every later
     # pencil/orientation shares the same MPI topology. Spectral space uses a
     # real (l, m, r) grid, so both process-grid dimensions are valid.
-    if optimize && nprocs > 1
-        proc_dims = optimize_process_topology(nprocs, dims, spectral_dims)
-    else
-        # Default to 1D decomposition
-        proc_dims = (nprocs, 1)
-    end
+    # Phase 1 (θ-distributed transform): always use a 1D-θ process grid.
+    # Phase 2 (r×θ 2D topology) will reintroduce optimize_process_topology
+    # when the radial dimension is also distributed.
+    # optimize_process_topology remains defined for future use.
+    proc_dims = (nprocs, 1)  # 1D-θ decomposition (Phase 1)
 
     # Create PencilArrays topology
     # Construct MPI-aware topology (modern PencilArrays exports MPITopology)
