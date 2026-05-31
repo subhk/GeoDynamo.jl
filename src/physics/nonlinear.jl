@@ -320,7 +320,7 @@ function scalar_spectral_to_physical!(
     )
 
     plan = get_sht_plan(config._buffers)
-    synth_out = get_synth_out(config._buffers)
+    synth_out = _get_synth_out(config._buffers, config)   # lazily allocates → in-place synth path (avoids per-level malloc)
     axes_local = phys.pencil.axes_local
 
     nr = size(phys_data, 3)
@@ -423,7 +423,7 @@ function cpu_extract_physical_slice!(
         θ_range = axes_local[1]
         φ_range = axes_local[2]
         if has_local_data
-            Threads.@threads for i_local in 1:size(phys_data, 1)
+            for i_local in 1:size(phys_data, 1)
                 i_global = θ_range[i_local]
                 for j_local in 1:size(phys_data, 2)
                     j_global = φ_range[j_local]
@@ -435,7 +435,7 @@ function cpu_extract_physical_slice!(
         common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
         common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
         if has_local_data
-            Threads.@threads for i in common_i_range
+            for i in common_i_range
                 for j in common_j_range
                     slice_buffer[i, j] = phys_data[i, j, r_local]
                 end
@@ -508,7 +508,7 @@ function cpu_store_scalar_coefficients!(
 
     local_modes = local_spectral_mode_indices(config)
 
-    Threads.@threads for lm_idx in local_modes
+    for lm_idx in local_modes
         slot = local_spectral_storage_slot(config, lm_idx)
         slot === nothing && continue
         l = config.l_values[lm_idx]
@@ -545,7 +545,7 @@ function scalar_physical_to_spectral!(
     )
 
     plan = get_sht_plan(config._buffers)
-    anal_out = get_anal_out(config._buffers)
+    anal_out = _get_anal_out(config._buffers, config)   # lazily allocates → in-place analysis path (avoids per-level malloc)
     phys_axes_local = phys.pencil.axes_local
 
     nr = size(phys_data, 3)
@@ -741,7 +741,7 @@ function cpu_fill_scalar_coeff_buffer!(
 
     local_modes = local_spectral_mode_indices(config)
 
-    Threads.@threads for lm_idx in local_modes
+    for lm_idx in local_modes
         slot = local_spectral_storage_slot(config, lm_idx)
         slot === nothing && continue
         l = config.l_values[lm_idx]
@@ -768,7 +768,7 @@ function cpu_store_physical_slice!(phys_data, phys_slice, r_local)
     common_i_range = 1:min(size(phys_data, 1), size(phys_slice, 1))
     common_j_range = 1:min(size(phys_data, 2), size(phys_slice, 2))
 
-    Threads.@threads for i in common_i_range
+    for i in common_i_range
         for j in common_j_range
             if r_local <= size(phys_data, 3)
                 phys_data[i, j, r_local] = phys_slice[i, j]

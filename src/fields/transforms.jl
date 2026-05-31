@@ -969,7 +969,7 @@ function extract_coefficients_for_shtnskit_mapped!(coeffs_buffer::Matrix{Complex
     buffer_mmax = size(coeffs_buffer, 2) - 1
     fill!(coeffs_buffer, zero(ComplexF64))
 
-    Threads.@threads for slot in CartesianIndices(lm_map)
+    for slot in CartesianIndices(lm_map)
         lm_idx = lm_map[slot]
         lm_idx == 0 && continue
 
@@ -991,7 +991,7 @@ function store_coefficients_from_shtnskit_mapped!(spec_real, spec_imag, coeffs_m
     matrix_lmax = size(coeffs_matrix, 1) - 1
     matrix_mmax = size(coeffs_matrix, 2) - 1
 
-    Threads.@threads for slot in CartesianIndices(lm_map)
+    for slot in CartesianIndices(lm_map)
         lm_idx = lm_map[slot]
         if r_local > size(spec_real, 3) || r_local > size(spec_imag, 3)
             continue
@@ -1289,7 +1289,7 @@ function store_physical_slice_phi_local!(phys_data, phys_slice, r_local, config)
     common_j_range = 1:min(size(phys_data, 2), nlon, size(phys_slice, 2))
 
     # Threaded copy for large arrays
-    Threads.@threads for i in common_i_range
+    for i in common_i_range
         for j in common_j_range
             if r_local <= size(phys_data, 3)
                 phys_data[i, j, r_local] = phys_slice[i, j]
@@ -1308,7 +1308,7 @@ function store_physical_slice_generic!(phys_data, phys_slice, r_local, config)
     common_i_range = 1:min(size(phys_data, 1), size(phys_slice, 1))
     common_j_range = 1:min(size(phys_data, 2), size(phys_slice, 2))
 
-    Threads.@threads for i in common_i_range
+    for i in common_i_range
         for j in common_j_range
             if r_local <= size(phys_data, 3)
                 phys_data[i, j, r_local] = phys_slice[i, j]
@@ -1345,7 +1345,7 @@ function extract_physical_slice_phi_local!(
         θ_range = axes_local[1]
         φ_range = axes_local[2]
         if has_local_data
-            Threads.@threads for i_local in 1:size(phys_data, 1)
+            for i_local in 1:size(phys_data, 1)
                 i_global = θ_range[i_local]
                 for j_local in 1:size(phys_data, 2)
                     j_global = φ_range[j_local]
@@ -1358,7 +1358,7 @@ function extract_physical_slice_phi_local!(
         common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
         common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
         if has_local_data
-            Threads.@threads for i in common_i_range
+            for i in common_i_range
                 for j in common_j_range
                     slice_buffer[i, j] = phys_data[i, j, r_local]
                 end
@@ -1413,7 +1413,7 @@ function extract_physical_slice_generic!(
         θ_range = axes_local[1]
         φ_range = axes_local[2]
         if has_local_data
-            Threads.@threads for i_local in 1:size(phys_data, 1)
+            for i_local in 1:size(phys_data, 1)
                 i_global = θ_range[i_local]
                 for j_local in 1:size(phys_data, 2)
                     j_global = φ_range[j_local]
@@ -1426,7 +1426,7 @@ function extract_physical_slice_generic!(
         common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
         common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
         if has_local_data
-            Threads.@threads for i in common_i_range
+            for i in common_i_range
                 for j in common_j_range
                     slice_buffer[i, j] = phys_data[i, j, r_local]
                 end
@@ -1481,7 +1481,7 @@ function extract_vector_component_generic!(
         θ_range = axes_local[1]
         φ_range = axes_local[2]
         if has_local_data
-            Threads.@threads for i_local in 1:size(v_data, 1)
+            for i_local in 1:size(v_data, 1)
                 i_global = θ_range[i_local]
                 for j_local in 1:size(v_data, 2)
                     j_global = φ_range[j_local]
@@ -1494,7 +1494,7 @@ function extract_vector_component_generic!(
         common_i_range = 1:min(size(v_data, 1), nlat, size(component_buffer, 1))
         common_j_range = 1:min(size(v_data, 2), nlon, size(component_buffer, 2))
         if has_local_data
-            Threads.@threads for i in common_i_range
+            for i in common_i_range
                 for j in common_j_range
                     component_buffer[i, j] = v_data[i, j, r_local]
                 end
@@ -1537,7 +1537,7 @@ function store_vector_components_generic!(
         # extract only this rank's local portion
         θ_range = axes_local[1]
         φ_range = axes_local[2]
-        Threads.@threads for i_local in 1:size(v_theta, 1)
+        for i_local in 1:size(v_theta, 1)
             i_global = θ_range[i_local]
             for j_local in 1:size(v_theta, 2)
                 j_global = φ_range[j_local]
@@ -1549,7 +1549,7 @@ function store_vector_components_generic!(
         # Legacy path: assumes local indices match global
         common_i_range = 1:min(size(v_theta, 1), size(v_phi, 1), size(vt_field, 1), size(vp_field, 1))
         common_j_range = 1:min(size(v_theta, 2), size(v_phi, 2), size(vt_field, 2), size(vp_field, 2))
-        Threads.@threads for i in common_i_range
+        for i in common_i_range
             for j in common_j_range
                 v_theta[i, j, r_local] = vt_field[i, j]
                 v_phi[i, j, r_local] = vp_field[i, j]
@@ -1576,7 +1576,7 @@ function store_scalar_component_generic!(v_component, field, r_local, config;
         # extract only this rank's local portion
         θ_range = axes_local[1]
         φ_range = axes_local[2]
-        Threads.@threads for i_local in 1:size(v_component, 1)
+        for i_local in 1:size(v_component, 1)
             i_global = θ_range[i_local]
             for j_local in 1:size(v_component, 2)
                 j_global = φ_range[j_local]
@@ -1587,7 +1587,7 @@ function store_scalar_component_generic!(v_component, field, r_local, config;
         # Legacy path: assumes local indices match global
         common_i_range = 1:min(size(v_component, 1), size(field, 1))
         common_j_range = 1:min(size(v_component, 2), size(field, 2))
-        Threads.@threads for i in common_i_range
+        for i in common_i_range
             for j in common_j_range
                 v_component[i, j, r_local] = field[i, j]
             end
@@ -1607,7 +1607,7 @@ function store_zero_component_generic!(v_component, r_local, config)
     end
 
     # Threaded zeroing for consistency with other store functions
-    Threads.@threads for i in axes(v_component, 1)
+    for i in axes(v_component, 1)
         for j in axes(v_component, 2)
             v_component[i, j, r_local] = zero(eltype(v_component))
         end

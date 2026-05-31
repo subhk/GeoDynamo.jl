@@ -719,7 +719,7 @@ function cpu_store_vector_coefficients!(
 
     local_modes = local_spectral_mode_indices(config)
 
-    Threads.@threads for lm_idx in local_modes
+    for lm_idx in local_modes
         slot = local_spectral_storage_slot(config, lm_idx)
         slot === nothing && continue
         l = config.l_values[lm_idx]
@@ -780,7 +780,7 @@ function cpu_extract_vector_component!(
         θ_range = axes_local[1]
         φ_range = axes_local[2]
         if has_local_data
-            Threads.@threads for i_local in 1:size(v_data, 1)
+            for i_local in 1:size(v_data, 1)
                 i_global = θ_range[i_local]
                 for j_local in 1:size(v_data, 2)
                     j_global = φ_range[j_local]
@@ -792,7 +792,7 @@ function cpu_extract_vector_component!(
         common_i_range = 1:min(size(v_data, 1), nlat, size(component_buffer, 1))
         common_j_range = 1:min(size(v_data, 2), nlon, size(component_buffer, 2))
         if has_local_data
-            Threads.@threads for i in common_i_range
+            for i in common_i_range
                 for j in common_j_range
                     component_buffer[i, j] = v_data[i, j, r_local]
                 end
@@ -851,7 +851,7 @@ function cpu_store_vector_components!(
     if axes_local !== nothing
         θ_range = axes_local[1]
         φ_range = axes_local[2]
-        Threads.@threads for i_local in 1:size(v_theta, 1)
+        for i_local in 1:size(v_theta, 1)
             i_global = θ_range[i_local]
             for j_local in 1:size(v_theta, 2)
                 j_global = φ_range[j_local]
@@ -862,7 +862,7 @@ function cpu_store_vector_components!(
     else
         common_i_range = 1:min(size(v_theta, 1), size(v_phi, 1), size(vt_field, 1), size(vp_field, 1))
         common_j_range = 1:min(size(v_theta, 2), size(v_phi, 2), size(vt_field, 2), size(vp_field, 2))
-        Threads.@threads for i in common_i_range
+        for i in common_i_range
             for j in common_j_range
                 v_theta[i, j, r_local] = vt_field[i, j]
                 v_phi[i, j, r_local] = vp_field[i, j]
@@ -887,7 +887,7 @@ function store_scalar_component!(
     if axes_local !== nothing
         θ_range = axes_local[1]
         φ_range = axes_local[2]
-        Threads.@threads for i_local in 1:size(v_component, 1)
+        for i_local in 1:size(v_component, 1)
             i_global = θ_range[i_local]
             for j_local in 1:size(v_component, 2)
                 j_global = φ_range[j_local]
@@ -897,7 +897,7 @@ function store_scalar_component!(
     else
         common_i_range = 1:min(size(v_component, 1), size(field, 1))
         common_j_range = 1:min(size(v_component, 2), size(field, 2))
-        Threads.@threads for i in common_i_range
+        for i in common_i_range
             for j in common_j_range
                 v_component[i, j, r_local] = field[i, j]
             end
@@ -912,7 +912,7 @@ function store_zero_component!(v_component, r_local, config)
         return v_component
     end
 
-    Threads.@threads for i in axes(v_component, 1)
+    for i in axes(v_component, 1)
         for j in axes(v_component, 2)
             v_component[i, j, r_local] = zero(eltype(v_component))
         end
