@@ -29,9 +29,11 @@
 
 ---
 
-## Task 0: Spike — θ-subcommunicator `dist_*` feasibility (GATES EVERYTHING)
+## Task 0: Spike — θ-subcommunicator `dist_*` feasibility (GATES EVERYTHING) — ✅ DONE 2026-06-01: SUBCOMM_OK
 
-**Files:** `/tmp/spike_subcomm.jl` (throwaway). No production code.
+**RESULT (4 ranks = 2 r-groups × 2 θ-ranks):** `dist_analysis`/`dist_synthesis` run correctly on a θ-SUBcommunicator carried by the prototype PencilArray — analysis err `6.7e-16`, roundtrip `3.2e-14` (machine precision), `θsize=2` (used the 2-rank subcomm, not COMM_WORLD), and the two r-groups produced DIFFERENT `alm` (probes `0.5,0.5,1.0,1.0`) ⇒ NO cross-group reduction. The transpose architecture is feasible; proceed. (Mechanism: build the `theta_phys` prototype `Pencil((nlat,nlon),(1,), θ_comm)` on the θ-subcomm; `dist_*` honor that comm.)
+
+**Files:** `/tmp/spike_subcomm.jl` (throwaway, deleted). No production code.
 
 > Rationale: in Phase 1 every rank was the θ-group (`COMM_WORLD`). Phase 2 needs the SH transform to run on a θ-SUBcommunicator (the ranks sharing one r-slab). If SHTnsKit's `dist_synthesis`/`dist_analysis`/`dist_*_sphtor` cannot run on a sub-comm (e.g. hardcode `COMM_WORLD`), the whole transpose architecture is blocked → STOP and escalate (fall back to the replicate-radial-solve variant). This spike answers that before any production code.
 
