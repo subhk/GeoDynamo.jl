@@ -502,30 +502,6 @@ end
     return buffers.sht_plan::Union{SHTnsKit.SHTPlan, Nothing}
 end
 
-@inline function get_synth_out(buffers::SHTnsBuffers)
-    return buffers.synth_out::Union{Matrix{Float64}, Nothing}
-end
-
-@inline function get_anal_out(buffers::SHTnsBuffers)
-    return buffers.anal_out::Union{Matrix{ComplexF64}, Nothing}
-end
-
-@inline function get_vt_out(buffers::SHTnsBuffers, ::Type{T}) where {T <: AbstractFloat}
-    return buffers.vt_out::Union{Matrix{Float64}, Nothing}
-end
-
-@inline function get_vp_out(buffers::SHTnsBuffers, ::Type{T}) where {T <: AbstractFloat}
-    return buffers.vp_out::Union{Matrix{Float64}, Nothing}
-end
-
-@inline function get_slm_out(buffers::SHTnsBuffers, ::Type{T}) where {T <: AbstractFloat}
-    return buffers.slm_out::Union{Matrix{ComplexF64}, Nothing}
-end
-
-@inline function get_tlm_out(buffers::SHTnsBuffers, ::Type{T}) where {T <: AbstractFloat}
-    return buffers.tlm_out::Union{Matrix{ComplexF64}, Nothing}
-end
-
 @inline function transform_arch(config)
     device = config._buffers.transform_device
     device isa AbstractArchitecture && return device
@@ -533,105 +509,6 @@ end
 end
 
 @inline uses_gpu(config) = !(transform_arch(config) isa CPU)
-
-@inline function sht_synthesis!(plan, synth_out, coeffs_matrix)
-    SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output = true)
-    return synth_out
-end
-
-@inline function sht_synthesis(config, coeffs_matrix)
-    if uses_gpu(config)
-        if solver_gpu_device() === :cuda
-            return SHTnsKit.gpu_synthesis_safe(
-                config.sht_config,
-                coeffs_matrix;
-                device = SHTnsKit.CUDA_DEVICE,
-                real_output = true
-            )
-        end
-        return solver_gpu_scalar_synthesis(config.sht_config, coeffs_matrix; real_output = true)
-    end
-    return SHTnsKit.synthesis(config.sht_config, coeffs_matrix; real_output = true)
-end
-
-@inline function sht_analysis!(plan, anal_out, phys_slice)
-    SHTnsKit.analysis!(plan, anal_out, phys_slice)
-    return anal_out
-end
-
-@inline function sht_analysis(config, phys_slice)
-    if uses_gpu(config)
-        if solver_gpu_device() === :cuda
-            return SHTnsKit.gpu_analysis_safe(
-                config.sht_config,
-                phys_slice;
-                device = SHTnsKit.CUDA_DEVICE,
-                real_output = true
-            )
-        end
-        return solver_gpu_scalar_analysis(config.sht_config, phys_slice; real_output = true)
-    end
-    return SHTnsKit.analysis(config.sht_config, phys_slice)
-end
-
-@inline function sht_vector_synthesis!(
-        plan,
-        vt_out,
-        vp_out,
-        pol_coeffs,
-        tor_coeffs
-)
-    SHTnsKit.synthesis_sphtor!(
-        plan, vt_out, vp_out, pol_coeffs, tor_coeffs; real_output = true)
-    return vt_out, vp_out
-end
-
-@inline function sht_vector_synthesis(config, pol_coeffs, tor_coeffs)
-    if uses_gpu(config)
-        if solver_gpu_device() === :cuda
-            return SHTnsKit.gpu_synthesis_sphtor(
-                config.sht_config,
-                pol_coeffs,
-                tor_coeffs;
-                device = SHTnsKit.CUDA_DEVICE,
-                real_output = true
-            )
-        end
-        return solver_gpu_vector_synthesis(
-            config.sht_config,
-            pol_coeffs,
-            tor_coeffs;
-            real_output = true
-        )
-    end
-    return SHTnsKit.synthesis_sphtor(config.sht_config, pol_coeffs, tor_coeffs; real_output = true)
-end
-
-@inline function sht_vector_analysis!(
-        plan,
-        slm_out,
-        tlm_out,
-        vt_field,
-        vp_field
-)
-    SHTnsKit.analysis_sphtor!(plan, slm_out, tlm_out, vt_field, vp_field)
-    return slm_out, tlm_out
-end
-
-@inline function sht_vector_analysis(config, vt_field, vp_field)
-    if uses_gpu(config)
-        if solver_gpu_device() === :cuda
-            return SHTnsKit.gpu_analysis_sphtor(
-                config.sht_config,
-                vt_field,
-                vp_field;
-                device = SHTnsKit.CUDA_DEVICE
-            )
-        end
-        return solver_gpu_vector_analysis(config.sht_config, vt_field, vp_field)
-    end
-    return SHTnsKit.analysis_sphtor(config.sht_config, vt_field, vp_field)
-end
 
 function collect_vector_coefficients(
         spec1_real,
@@ -939,16 +816,19 @@ function vector_spectral_to_physical!(
     v_phi = parent(vector_field.φ_component.data)
 
     r_range = local_range(poloidal.pencil, 3)
-    plan = get_sht_plan(config._buffers)
-    vt_out = get_vt_out(config._buffers, T)
-    vp_out = get_vp_out(config._buffers, T)
-    synth_out = get_synth_out(config._buffers)
 
     @assert size(v_r, 3) == size(tor_real, 3) "Radial dimension mismatch: physical=$(size(v_r,3)) vs spectral=$(size(tor_real,3)). Vector SH transforms require radial to be local."
 
-    phys_axes_local = vector_field.r_component.pencil.axes_local
+    # Cached θ-PencilArray prototype: tells dist_synthesis_sphtor which θ-rows
+    # this rank owns. Allocated once and reused across radial levels and calls.
+    proto = get_cached_buffer!(config, :theta_phys_proto) do
+        pencil2d = config.pencils.theta_phys
+        PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
+    end::PencilArray
 
     for r_local in axes(tor_real, 3)
+        # collect_vector_coefficients returns DENSE gathered (tor_coeffs, pol_coeffs)
+        # matrices via Allreduce — exactly what dist_synthesis_sphtor expects.
         tor_coeffs,
         pol_coeffs = collect_vector_coefficients(
             tor_real,
@@ -959,29 +839,17 @@ function vector_spectral_to_physical!(
             config
         )
 
-        if plan !== nothing && vt_out !== nothing && vp_out !== nothing
-            sht_vector_synthesis!(plan, vt_out, vp_out, pol_coeffs, tor_coeffs)
-            store_vector_components!(
-                v_theta,
-                v_phi,
-                vt_out,
-                vp_out,
-                r_local,
-                config;
-                axes_local = phys_axes_local
-            )
-        else
-            vt_field, vp_field = sht_vector_synthesis(config, pol_coeffs, tor_coeffs)
-            store_vector_components!(
-                v_theta,
-                v_phi,
-                vt_field,
-                vp_field,
-                r_local,
-                config;
-                axes_local = phys_axes_local
-            )
-        end
+        # dist_synthesis_sphtor returns (Vt, Vp) as plain Matrix{Float64} of size
+        # (nθ_local, nlon) — the θ-slab owned by this rank, no gather needed.
+        Vt, Vp = SHTnsKit.dist_synthesis_sphtor(
+            config.sht_config,
+            pol_coeffs,
+            tor_coeffs;
+            prototype_θφ = proto,
+            real_output = true
+        )
+        copyto!(view(v_theta, :, :, r_local), Vt)
+        copyto!(view(v_phi,   :, :, r_local), Vp)
 
         if domain !== nothing
             r_idx_global = r_local + first(r_range) - 1
@@ -991,11 +859,11 @@ function vector_spectral_to_physical!(
                     lmax, mmax = config.lmax, config.mmax
                     pol_rad_coeffs = solver_get_cached_buffer!(
                         config, :solver_pol_rad_coeffs_buffer) do
-                        workspace_zeros(config, ComplexF64, lmax + 1, mmax +
-                                                                      1)
+                        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
                     end::Matrix{ComplexF64}
                     fill!(pol_rad_coeffs, zero(ComplexF64))
 
+                    # Preserve exact physics factor l*(l+1)/r_val (NOT /r_val²).
                     for l in 0:lmax
                         l_factor = l * (l + 1) / r_val
                         for m in 0:min(l, mmax)
@@ -1004,25 +872,15 @@ function vector_spectral_to_physical!(
                         end
                     end
 
-                    if plan !== nothing && synth_out !== nothing
-                        sht_synthesis!(plan, synth_out, pol_rad_coeffs)
-                        store_scalar_component!(
-                            v_r,
-                            synth_out,
-                            r_local,
-                            config;
-                            axes_local = phys_axes_local
-                        )
-                    else
-                        vr_field = sht_synthesis(config, pol_rad_coeffs)
-                        store_scalar_component!(
-                            v_r,
-                            vr_field,
-                            r_local,
-                            config;
-                            axes_local = phys_axes_local
-                        )
-                    end
+                    # dist_synthesis returns a θ-local Matrix{Float64} of size
+                    # (nθ_local, nlon) — copy directly into the v_r slab.
+                    vr = SHTnsKit.dist_synthesis(
+                        config.sht_config,
+                        pol_rad_coeffs;
+                        prototype_θφ = proto,
+                        real_output = true
+                    )
+                    copyto!(view(v_r, :, :, r_local), vr)
                 else
                     store_zero_component!(v_r, r_local, config)
                 end
@@ -1051,44 +909,30 @@ function vector_physical_to_spectral!(
     pol_real = parent(poloidal.data_real)
     pol_imag = parent(poloidal.data_imag)
 
-    plan = get_sht_plan(config._buffers)
-    slm_out = get_slm_out(config._buffers, T)
-    tlm_out = get_tlm_out(config._buffers, T)
-    phys_axes_local = vector_field.r_component.pencil.axes_local
+    # Cached θ-PencilArray slabs for dist_analysis_sphtor input.
+    # Two slabs are needed (vt and vp); allocated once, reused across levels.
+    # The full-grid Allreduce gather of the old extract_vector_component! path
+    # is eliminated — dist_analysis_sphtor gathers internally.
+    vt_slab = get_cached_buffer!(config, :theta_phys_slab) do
+        pencil2d = config.pencils.theta_phys
+        PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
+    end::PencilArray
+    vp_slab = get_cached_buffer!(config, :theta_phys_slab2) do
+        pencil2d = config.pencils.theta_phys
+        PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
+    end::PencilArray
 
     for r_local in axes(v_theta, 3)
-        nlat, nlon = config.nlat, config.nlon
-        vt_buffer = solver_get_cached_buffer!(config, :solver_vector_component_buffer_vt) do
-            workspace_zeros(config, eltype(v_theta), nlat, nlon)
-        end::Matrix{Float64}
-        vp_buffer = solver_get_cached_buffer!(config, :solver_vector_component_buffer_vp) do
-            workspace_zeros(config, eltype(v_phi), nlat, nlon)
-        end::Matrix{Float64}
+        # Copy θ-local slabs directly — no gather needed.
+        copyto!(parent(vt_slab), view(v_theta, :, :, r_local))
+        copyto!(parent(vp_slab), view(v_phi,   :, :, r_local))
 
-        vt_field = extract_vector_component!(
-            vt_buffer,
-            v_theta,
-            r_local,
-            config;
-            axes_local = phys_axes_local
-        )
-        vp_field = extract_vector_component!(
-            vp_buffer,
-            v_phi,
-            r_local,
-            config;
-            axes_local = phys_axes_local
-        )
-
-        if plan !== nothing && slm_out !== nothing && tlm_out !== nothing
-            sht_vector_analysis!(plan, slm_out, tlm_out, vt_field, vp_field)
-            store_vector_coefficients!(pol_real, pol_imag, slm_out, r_local, config)
-            store_vector_coefficients!(tor_real, tor_imag, tlm_out, r_local, config)
-        else
-            pol_coeffs, tor_coeffs = sht_vector_analysis(config, vt_field, vp_field)
-            store_vector_coefficients!(pol_real, pol_imag, pol_coeffs, r_local, config)
-            store_vector_coefficients!(tor_real, tor_imag, tor_coeffs, r_local, config)
-        end
+        # dist_analysis_sphtor returns (slm, tlm) as dense Matrix{ComplexF64}
+        # of size (lmax+1, mmax+1), replicated on every rank.
+        # slm = spheroidal/poloidal → store into poloidal; tlm = toroidal.
+        slm, tlm = SHTnsKit.dist_analysis_sphtor(config.sht_config, vt_slab, vp_slab)
+        store_vector_coefficients!(pol_real, pol_imag, slm, r_local, config)
+        store_vector_coefficients!(tor_real, tor_imag, tlm, r_local, config)
     end
 
     return toroidal, poloidal

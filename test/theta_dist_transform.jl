@@ -77,6 +77,45 @@ end
 end
 
 # ============================================================================
+# Phase-1b: solver vector dist transform roundtrip
+# Tests vector_spectral_to_physical! / vector_physical_to_spectral! in
+# src/solver/numerics.jl after migration to dist_*_sphtor.
+# ============================================================================
+
+@testset "solver vector dist transform roundtrip" begin
+    cfg = GeoDynamo.create_shtnskit_config(lmax=8, mmax=8, nlat=12, nlon=20, nr=4)
+    dom = GeoDynamo.create_radial_domain(4)
+    vf  = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, dom)
+    tr  = parent(vf.toroidal.data_real); ti  = parent(vf.toroidal.data_imag)
+    pr  = parent(vf.poloidal.data_real); pii = parent(vf.poloidal.data_imag)
+    tr .= 0; ti .= 0; pr .= 0; pii .= 0
+    for k in 1:size(tr, 3)
+        tr[min(2, size(tr, 1)), 1, k] = 0.5
+        if size(tr, 2) >= 2
+            pr[min(3, size(pr, 1)), 2, k]  =  0.3
+            pii[min(3, size(pii, 1)), 2, k] = -0.1
+        end
+    end
+    tr0 = copy(tr); ti0 = copy(ti); pr0 = copy(pr); pi0 = copy(pii)
+
+    # Call the LIVE SOLVER vector transforms (numerics.jl, in GeoDynamo module scope).
+    # domain=dom enables v_r (poloidal radial component) synthesis.
+    GeoDynamo.vector_spectral_to_physical!(vf.toroidal, vf.poloidal, vf.velocity; domain=dom)
+
+    # Assert synthesized physical field is finite and non-zero.
+    vt_data = parent(vf.velocity.θ_component.data)
+    @test any(x -> abs(x) > 1e-10, vt_data)
+    @test all(isfinite, vt_data)
+
+    GeoDynamo.vector_physical_to_spectral!(vf.velocity, vf.toroidal, vf.poloidal; domain=dom)
+
+    @test maximum(abs.(parent(vf.toroidal.data_real) .- tr0)) < 1e-8
+    @test maximum(abs.(parent(vf.toroidal.data_imag) .- ti0)) < 1e-8
+    @test maximum(abs.(parent(vf.poloidal.data_real) .- pr0)) < 1e-8
+    @test maximum(abs.(parent(vf.poloidal.data_imag) .- pi0)) < 1e-8
+end
+
+# ============================================================================
 # Tasks 5 (vector transform roundtrips): APPEND new @testset blocks
 # ABOVE this line — the MPI.Finalize() below must remain the last statement.
 # ============================================================================
