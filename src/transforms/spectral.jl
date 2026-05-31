@@ -130,6 +130,14 @@ mutable struct SHTnsBuffers
     # MIE vector-transform poloidal coefficient buffers (radial-component path)
     mie_pol_coeffs_buffer::Union{AbstractArray, Nothing}
     mie_pol_coeffs_gathered::Union{AbstractArray, Nothing}
+
+    # θ-distributed PencilArray buffers for dist_synthesis / dist_analysis.
+    # Both are shaped (nθ_local, nlon) over the theta_phys pencil and are
+    # allocated once per config (cached lazily by get_cached_buffer!).
+    # theta_phys_proto is the read-only prototype passed to dist_synthesis;
+    # theta_phys_slab  is the mutable workspace filled for dist_analysis input.
+    theta_phys_proto::Union{PencilArray, Nothing}
+    theta_phys_slab::Union{PencilArray, Nothing}
 end
 
 """
@@ -143,7 +151,8 @@ function SHTnsBuffers()
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
-        nothing, nothing, nothing, nothing
+        nothing, nothing, nothing, nothing,
+        nothing, nothing
     )
 end
 
@@ -178,7 +187,9 @@ const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
     :mie_spheroidal_real => :mie_spheroidal_real,
     :mie_spheroidal_imag => :mie_spheroidal_imag,
     :mie_pol_coeffs_buffer => :mie_pol_coeffs_buffer,
-    :mie_pol_coeffs_gathered => :mie_pol_coeffs_gathered
+    :mie_pol_coeffs_gathered => :mie_pol_coeffs_gathered,
+    :theta_phys_proto => :theta_phys_proto,
+    :theta_phys_slab => :theta_phys_slab
 )
 
 @inline function _shtns_buffer_field(::Val{key}) where {key}
@@ -280,6 +291,8 @@ function clear_buffer_cache!(config)
         b.phi_slice_buffer = nothing
         b.generic_slice_buffer = nothing
         b.vector_component_buffer = nothing
+        b.theta_phys_proto = nothing
+        b.theta_phys_slab = nothing
     end
 end
 

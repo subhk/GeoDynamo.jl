@@ -299,11 +299,13 @@ solver_main_physical_field(𝔽::TemperatureFieldType{T}) where {T} = 𝔽.tempe
 
 solver_main_physical_field(𝔽::CompositionFieldType{T}) where {T} = 𝔽.composition
 
-# Number of batched cross-rank gather passes performed by the most recent scalar
-# transform (`scalar_spectral_to_physical!` / `scalar_physical_to_spectral!`).
-# Under multi-rank MPI each pass is one collective; batching keeps it at 1 per
-# transform regardless of the radial-level count (versus nr for the former
-# per-level gather). A pass issues no collective when the data is already local.
+# Number of batched cross-rank coefficient-gather passes performed by the most
+# recent scalar SYNTHESIS (`scalar_spectral_to_physical!`). `dist_synthesis`
+# consumes the dense replicated (l,m) matrix, so synthesis still issues one
+# batched coeff Allreduce per call (independent of the radial-level count). Scalar
+# ANALYSIS (`scalar_physical_to_spectral!`) no longer contributes: `dist_analysis`
+# is θ-distributed and performs only its own internal (spectral) reduction, which
+# is not counted here — so analysis leaves this at 0.
 const _SCALAR_GATHER_REDUCE_COUNT = Ref(0)
 
 function scalar_spectral_to_physical!(
@@ -318,10 +320,6 @@ function scalar_spectral_to_physical!(
         "Radial dimension mismatch: physical=$(size(phys_data, 3)) vs " *
         "spectral=$(size(spec_real_data, 3)). SH transforms require radial to be local."
     )
-
-    plan = get_sht_plan(config._buffers)
-    synth_out = get_synth_out(config._buffers)
-    axes_local = phys.pencil.axes_local
 
     nr = size(phys_data, 3)
     lmax, mmax = config.lmax, config.mmax
@@ -349,37 +347,28 @@ function scalar_spectral_to_physical!(
     _SCALAR_GATHER_REDUCE_COUNT[] += 1
     needs_collective && allreduce_sum_in_place!(coeffs_stack, mpi_comm())
 
-    # Phase 3: synthesize each radial level from the gathered coefficients.
+    # Phase 3: synthesize each radial level via dist_synthesis.
+    # dist_synthesis returns the θ-local block (nθ_local × nlon) — no slicing needed.
+    # The prototype PencilArray is cached once; it tells dist_synthesis which θ-rows
+    # this rank owns (identical split as phys_data dim-1).
+    proto = get_cached_buffer!(config, :theta_phys_proto) do
+        pencil2d = config.pencils.theta_phys
+        PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
+    end::PencilArray
+    sht_cfg = config.sht_config
+
     @inbounds for r_local in 1:nr
-        coeffs_matrix = view(coeffs_stack,:,:,r_local)
-        if plan !== nothing && synth_out !== nothing
-            synthesize_scalar!(plan, synth_out, coeffs_matrix)
-            local_synth = @view synth_out[axes_local[1], axes_local[2]]
-            store_physical_slice!(phys_data, local_synth, r_local, config)
-        else
-            phys_slice = synthesize_scalar(config, coeffs_matrix)
-            local_slice = @view phys_slice[axes_local[1], axes_local[2]]
-            store_physical_slice!(phys_data, local_slice, r_local, config)
-        end
+        out = SHTnsKit.dist_synthesis(
+            sht_cfg,
+            to_sht_spectral(config, view(coeffs_stack,:,:,r_local));
+            prototype_θφ = proto,
+            real_output = true
+        )
+        # out is (nθ_local, nlon) — copy directly into the physical data slab.
+        copyto!(view(phys_data,:,:,r_local), out)
     end
 
     return phys
-end
-
-@inline function synthesize_scalar!(plan, synth_out, coeffs_matrix)
-    return sht_synthesis!(plan, synth_out, coeffs_matrix)
-end
-
-@inline function synthesize_scalar(config, coeffs_matrix)
-    return sht_synthesis(config, coeffs_matrix)
-end
-
-@inline function analyze_scalar!(plan, anal_out, phys_slice)
-    return sht_analysis!(plan, anal_out, phys_slice)
-end
-
-@inline function analyze_scalar(config, phys_slice)
-    return sht_analysis(config, phys_slice)
 end
 
 function extract_physical_slice!(
@@ -544,60 +533,28 @@ function scalar_physical_to_spectral!(
         "SH transforms require radial to be local."
     )
 
-    plan = get_sht_plan(config._buffers)
-    anal_out = get_anal_out(config._buffers)
-    phys_axes_local = phys.pencil.axes_local
-
     nr = size(phys_data, 3)
-    nlat, nlon = config.nlat, config.nlon
-    # A θ/φ-distributed physical grid needs the full slice assembled across
-    # ranks; a fully-local grid skips the gather.
-    needs_collective = !physical_grid_is_local(
-        (size(phys_data, 1), size(phys_data, 2)), phys_axes_local, nlat, nlon
-    )
+    sht_cfg = config.sht_config
 
-    # Phase 1: stack every radial level's locally-owned physical slice into one
-    # buffer (zero elsewhere) so the cross-rank sum is a single collective.
-    slice_stack = solver_get_cached_buffer!(config, :slice_buffer_batched) do
-        workspace_zeros(config, Float64, nlat, nlon, nr)
-    end::Array{Float64, 3}
+    # Reusable θ-PencilArray slab (nθ_local × nlon): fill with each radial level
+    # and pass to dist_analysis, which performs the θ-Allreduce internally and
+    # returns a dense (lmax+1 × mmax+1) matrix replicated on every rank.
+    # No full-grid slice_stack allreduce needed.
+    slab = get_cached_buffer!(config, :theta_phys_slab) do
+        pencil2d = config.pencils.theta_phys
+        PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
+    end::PencilArray
 
     @inbounds for r_local in 1:nr
-        extract_physical_slice!(
-            view(slice_stack,:,:,r_local),
-            phys_data,
+        copyto!(parent(slab), view(phys_data,:,:,r_local))
+        dense = SHTnsKit.dist_analysis(sht_cfg, slab)
+        store_scalar_coefficients!(
+            spec_real_data,
+            spec_imag_data,
+            from_sht_spectral(config, dense),
             r_local,
-            config;
-            axes_local = phys_axes_local
+            config
         )
-    end
-
-    # Phase 2: one collective over the whole stack (skipped when local).
-    _SCALAR_GATHER_REDUCE_COUNT[] += 1
-    needs_collective && allreduce_sum_in_place!(slice_stack, mpi_comm())
-
-    # Phase 3: analyze each gathered radial slice into spectral coefficients.
-    @inbounds for r_local in 1:nr
-        phys_slice = view(slice_stack,:,:,r_local)
-        if plan !== nothing && anal_out !== nothing
-            analyze_scalar!(plan, anal_out, phys_slice)
-            store_scalar_coefficients!(
-                spec_real_data,
-                spec_imag_data,
-                anal_out,
-                r_local,
-                config
-            )
-        else
-            coeffs_matrix = analyze_scalar(config, phys_slice)
-            store_scalar_coefficients!(
-                spec_real_data,
-                spec_imag_data,
-                coeffs_matrix,
-                r_local,
-                config
-            )
-        end
     end
 
     return spec
@@ -647,8 +604,7 @@ const _SOLVER_BUFFERS_KEY_MAP = Dict{Symbol, Symbol}(
     :solver_generic_slice_buffer_gathered => :generic_slice_gathered,
     :coeffs_buffer => :coeffs_buffer,
     :coeffs_buffer_gathered => :coeffs_gathered,
-    :coeffs_buffer_batched => :coeffs_buffer_batched,
-    :slice_buffer_batched => :slice_buffer_batched
+    :coeffs_buffer_batched => :coeffs_buffer_batched
 )
 
 @inline function _solver_buffer_field(::Val{key}) where {key}
@@ -755,13 +711,6 @@ function cpu_fill_scalar_coeff_buffer!(
     end
 
     return coeffs_buffer
-end
-
-function store_physical_slice!(phys_data, phys_slice, r_local, config)
-    if uses_gpu(config) && solver_gpu_device() !== :cuda
-        return solver_gpu_store_physical_slice(phys_data, phys_slice, r_local)
-    end
-    return cpu_store_physical_slice!(phys_data, phys_slice, r_local)
 end
 
 function cpu_store_physical_slice!(phys_data, phys_slice, r_local)

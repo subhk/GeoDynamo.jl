@@ -22,7 +22,33 @@ FINALIZE_MPI_THETA_DIST && MPI.Init()
 end
 
 # ============================================================================
-# Tasks 3/5 (scalar + vector transform roundtrips): APPEND new @testset blocks
+# Task 3: scalar dist-transform roundtrip (spec → phys → spec)
+# ============================================================================
+
+@testset "scalar dist transform roundtrip" begin
+    cfg = GeoDynamo.create_shtnskit_config(lmax=8, mmax=8, nlat=12, nlon=20, nr=4)
+    dom = GeoDynamo.create_radial_domain(4)
+    tf  = GeoDynamo.create_shtns_temperature_field(Float64, cfg, dom)
+    # Seed a few owned spectral modes directly so the roundtrip has something
+    # non-trivial to preserve.
+    sr = parent(tf.spectral.data_real); si = parent(tf.spectral.data_imag)
+    sr .= 0; si .= 0
+    for k in 1:size(sr, 3)
+        sr[min(2, size(sr, 1)), 1, k] = 0.7
+        if size(sr, 2) >= 2
+            sr[min(3, size(sr, 1)), 2, k] = 0.3
+            si[min(3, size(sr, 1)), 2, k] = -0.15
+        end
+    end
+    sr0 = copy(sr); si0 = copy(si)
+    GeoDynamo.scalar_spectral_to_physical!(tf.spectral, tf.temperature)
+    GeoDynamo.scalar_physical_to_spectral!(tf.temperature, tf.spectral)
+    @test maximum(abs.(parent(tf.spectral.data_real) .- sr0)) < 1e-10
+    @test maximum(abs.(parent(tf.spectral.data_imag) .- si0)) < 1e-10
+end
+
+# ============================================================================
+# Tasks 5 (vector transform roundtrips): APPEND new @testset blocks
 # ABOVE this line — the MPI.Finalize() below must remain the last statement.
 # ============================================================================
 
