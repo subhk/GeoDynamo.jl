@@ -49,6 +49,9 @@ function verify_all_ranks_wrote(output_dir::String, hist_number::Int;
 
     # Verify dimensions if expected values provided
     if expected_dims !== nothing
+        # A bare `return` from inside the `do` closure only exits the closure, so
+        # the mismatch verdict is captured here and propagated after the block.
+        mismatch_msg = nothing
         try
             NCDataset(filepath, "r") do ds
                 for (dim_name, expected_size) in expected_dims
@@ -56,7 +59,8 @@ function verify_all_ranks_wrote(output_dir::String, hist_number::Int;
                         actual_size = ds.dim[dim_name]
                         if actual_size != expected_size
                             info["error"] = "Dimension $dim_name: expected $expected_size, got $actual_size"
-                            return (false, ["Dimension mismatch"], info)
+                            mismatch_msg = "Dimension mismatch"
+                            return
                         end
                     end
                 end
@@ -66,6 +70,9 @@ function verify_all_ranks_wrote(output_dir::String, hist_number::Int;
         catch e
             info["error"] = string(e)
             return (false, ["Read error"], info)
+        end
+        if mismatch_msg !== nothing
+            return (false, [mismatch_msg], info)
         end
     end
 

@@ -167,8 +167,10 @@ const FINALIZE_MPI_IO_SUB = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
             missing_ok, _, _ = GeoDynamo.verify_all_ranks_wrote(tmpdir, 999; geometry = "shell")
             @test missing_ok == false
 
-            dname = first(keys(info["dimensions"]))
-            dsize = info["dimensions"][dname]
+            # read a real dimension + size the same way verify_all_ranks_wrote does
+            dname, dsize = NCDataset(histfile, "r") do ds
+                ("r", ds.dim["r"])
+            end
             match_ok, _, match_info = GeoDynamo.verify_all_ranks_wrote(
                 tmpdir, 1; geometry = "shell", expected_dims = Dict(dname => dsize))
             @test match_ok == true
