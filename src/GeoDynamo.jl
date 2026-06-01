@@ -526,6 +526,7 @@ include("core/parameters.jl")
 include("parallel/mpi.jl")
 include("parallel/pencils.jl")
 include("parallel/transposes.jl")
+include("parallel/process_grid.jl")  # GEODYNAMO_PROC_GRID parser + θ/r subcommunicators
 include("transforms/spectral.jl")  # SHTnsKit-based transforms (includes SHTnsKitConfig)
 include("parallel/spectral_pencil_adapter.jl")  # dense (l,m) <-> SHTnsKit spectral seams
 include("bcs/bcs.jl")  # Needed before field types import BC enums
