@@ -65,9 +65,8 @@ Given spherical harmonic coefficients f_l^m, compute the physical field:
 where Y_l^m are the spherical harmonics.
 
 # Implementation
-Uses SHTnsKit's synthesis function which:
-1. Performs the Legendre transform (summing over l for each m)
-2. Performs the FFT along longitude (summing over m)
+Delegates to `scalar_spectral_to_physical!` (the Phase-2 r×θ θ-subcommunicator path),
+which works correctly under all process-grid configurations including r-distribution.
 
 # Arguments
 - `spec::SHTnsSpecField`: Source spectral field with coefficients
@@ -78,28 +77,7 @@ Modifies `phys.data` with the synthesized field values
 """
 function shtnskit_spectral_to_physical!(spec::SHTnsSpecField{T},
         phys::SHTnsPhysField{T}) where {T}
-    config = spec.config
-    _assert_not_r_distributed(config, "shtnskit_spectral_to_physical!", "scalar_spectral_to_physical!")
-
-    # Use direct synthesis method (processes each radial level)
-    # MPI synchronization is handled by Allreduce inside extract_coefficients_for_shtnskit
-    perform_synthesis_direct!(spec, phys, config)
-end
-
-# Guard for the legacy r-local / COMM_WORLD transform entry points. These predate the
-# Phase-2 r×θ decomposition and assume r is local with a COMM_WORLD coefficient gather;
-# under r-distribution (r_ranks > 1) they would gather over the wrong communicator
-# (silent wrong result) and can deadlock on uneven r-splits. Error loudly instead so a
-# caller is pointed at the migrated θ-subcommunicator path.
-function _assert_not_r_distributed(config, legacy_name::AbstractString, replacement_name::AbstractString)
-    pencils = config.pencils
-    if hasproperty(pencils, :r_comm) && pencils.r_comm !== nothing &&
-       MPI.Comm_size(pencils.r_comm) > 1
-        error("$legacy_name is the legacy r-local transform path and is INVALID under " *
-              "r-distribution (r_ranks>1 via GEODYNAMO_PROC_GRID=\"θxr\" with r>1). " *
-              "Use $replacement_name (the Phase-2 θ-subcommunicator r×θ transform) instead.")
-    end
-    return nothing
+    scalar_spectral_to_physical!(spec, phys)
 end
 
 """
@@ -296,9 +274,8 @@ The integral is computed numerically using:
 - FFT for the φ integral (exploiting periodicity)
 
 # Implementation
-Uses SHTnsKit's analysis function which:
-1. Performs the FFT along longitude (extracting Fourier modes)
-2. Performs the Legendre transform (computing l coefficients for each m)
+Delegates to `scalar_physical_to_spectral!` (the Phase-2 r×θ θ-subcommunicator path),
+which works correctly under all process-grid configurations including r-distribution.
 
 # Arguments
 - `phys::SHTnsPhysField`: Source physical field values
@@ -309,12 +286,7 @@ Modifies `spec.data_real` and `spec.data_imag` with the computed coefficients
 """
 function shtnskit_physical_to_spectral!(phys::SHTnsPhysField{T},
         spec::SHTnsSpecField{T}) where {T}
-    config = spec.config
-    _assert_not_r_distributed(config, "shtnskit_physical_to_spectral!", "scalar_physical_to_spectral!")
-
-    # Use direct analysis method (processes each radial level)
-    # MPI synchronization is handled by Allreduce inside extract_physical_slice_generic
-    perform_analysis_direct!(phys, spec, config)
+    scalar_physical_to_spectral!(phys, spec)
 end
 
 """
