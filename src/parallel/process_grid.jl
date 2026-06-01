@@ -22,16 +22,26 @@ Read `GEODYNAMO_PROC_GRID` from the environment and parse it for `nprocs` ranks.
 read_proc_grid(nprocs::Int) = parse_proc_grid(get(ENV, "GEODYNAMO_PROC_GRID", nothing), nprocs)
 
 """
-    make_subcomms(comm, θ_ranks::Int, r_ranks::Int) -> (θ_comm, r_comm)
+    make_subcomms(comm, pencil_r) -> (θ_transform_comm, r_transpose_comm)
 
-Split `comm` (row-major rank = r_group·θ_ranks + θ_index) into the θ-subcomm (ranks
-sharing an r-slab) and the r-subcomm (ranks sharing a θ-column).
+Split `comm` into the two sub-communicators the r×θ decomposition needs, deriving the
+split colors from the ACTUAL distribution of `pencil_r` (θ-dist / φ-local / r-dist) so
+the result is correct for ANY process grid and any PencilArrays rank ordering — NOT
+from an assumed `rank = f(θ_ranks, r_ranks)` formula (that only holds when
+θ_ranks==r_ranks).
+
+- `θ_transform_comm`: ranks that share the SAME r-slab and SPLIT θ — the group over
+  which the SH transform distributes θ (so `theta_phys`/`dist_*` run here, and the
+  per-level θ-mode gather reduces here). Color = this rank's first owned r index.
+- `r_transpose_comm`: ranks that share the SAME θ-slab and SPLIT r — the group aligned
+  with the r↔lm transpose's radial redistribution. Color = first owned θ index.
 """
-function make_subcomms(comm, θ_ranks::Int, r_ranks::Int)
+function make_subcomms(comm, pencil_r)
     rank = MPI.Comm_rank(comm)
-    r_group = rank ÷ θ_ranks
-    θ_index = rank % θ_ranks
-    θ_comm = MPI.Comm_split(comm, r_group, rank)
-    r_comm = MPI.Comm_split(comm, θ_index, rank)
-    return θ_comm, r_comm
+    lr = PencilArrays.range_local(pencil_r)   # (θ_range, φ_range, r_range)
+    θ_lo = Int(first(lr[1]))                  # identifies this rank's θ-slab
+    r_lo = Int(first(lr[3]))                  # identifies this rank's r-slab
+    θ_transform_comm = MPI.Comm_split(comm, r_lo, rank)   # share r-slab, split θ
+    r_transpose_comm = MPI.Comm_split(comm, θ_lo, rank)   # share θ-slab, split r
+    return θ_transform_comm, r_transpose_comm
 end
