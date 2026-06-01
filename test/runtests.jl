@@ -185,6 +185,7 @@ additional_tests = (
     # Integration tests
     "output_writer.jl",
     "netcdf_write_roundtrip.jl",
+    "io_restart_roundtrip.jl",
     "integration_simulation.jl"
 )
 
