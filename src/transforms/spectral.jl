@@ -149,6 +149,15 @@ mutable struct SHTnsBuffers
     spec_transform_real::Union{PencilArray, Nothing}
     spec_transform_imag::Union{PencilArray, Nothing}
     dense_coeffs_buffer::Union{Matrix{ComplexF64}, Nothing}
+
+    # r×θ vector transform buffers (Phase 2, Task 5).
+    # spec_transform_pol_real/imag: same layout as spec_transform_real/imag but for the
+    # poloidal spectral field. spec_transform_real/imag serves as the toroidal buffer.
+    # dense_coeffs_buffer2: second (lmax+1, mmax+1) dense matrix so toroidal and poloidal
+    # can be Allreduced concurrently (one call each) within the same r-level loop.
+    spec_transform_pol_real::Union{PencilArray, Nothing}
+    spec_transform_pol_imag::Union{PencilArray, Nothing}
+    dense_coeffs_buffer2::Union{Matrix{ComplexF64}, Nothing}
 end
 
 """
@@ -163,6 +172,7 @@ function SHTnsBuffers()
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing,
+        nothing, nothing, nothing,
         nothing, nothing, nothing,
         nothing, nothing, nothing
     )
@@ -205,7 +215,10 @@ const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
     :theta_phys_slab2 => :theta_phys_slab2,
     :spec_transform_real => :spec_transform_real,
     :spec_transform_imag => :spec_transform_imag,
-    :dense_coeffs_buffer => :dense_coeffs_buffer
+    :dense_coeffs_buffer => :dense_coeffs_buffer,
+    :spec_transform_pol_real => :spec_transform_pol_real,
+    :spec_transform_pol_imag => :spec_transform_pol_imag,
+    :dense_coeffs_buffer2 => :dense_coeffs_buffer2
 )
 
 @inline function _shtns_buffer_field(::Val{key}) where {key}
@@ -313,6 +326,9 @@ function clear_buffer_cache!(config)
         b.spec_transform_real = nothing
         b.spec_transform_imag = nothing
         b.dense_coeffs_buffer = nothing
+        b.spec_transform_pol_real = nothing
+        b.spec_transform_pol_imag = nothing
+        b.dense_coeffs_buffer2 = nothing
     end
 end
 

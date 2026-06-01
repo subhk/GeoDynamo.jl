@@ -62,3 +62,57 @@ end
     @test maximum(abs.(parent(tf.spectral.data_real) .- sr0)) < 1e-10
     @test maximum(abs.(parent(tf.spectral.data_imag) .- si0)) < 1e-10
 end
+
+@testset "vector r×θ transform roundtrip (solver + non-solver)" begin
+    cfg = GeoDynamo.create_shtnskit_config(lmax=8, mmax=8, nlat=12, nlon=20, nr=6)
+    dom = GeoDynamo.create_radial_domain(6)
+
+    for (label, synth, anal) in (
+        ("solver",       GeoDynamo.vector_spectral_to_physical!, GeoDynamo.vector_physical_to_spectral!),
+        ("non-solver",   GeoDynamo.shtnskit_vector_synthesis!,   GeoDynamo.shtnskit_vector_analysis!),
+    )
+        @testset "$label path" begin
+            vf = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, dom)
+            tor_real = parent(vf.toroidal.data_real)
+            tor_imag = parent(vf.toroidal.data_imag)
+            pol_real = parent(vf.poloidal.data_real)
+            pol_imag = parent(vf.poloidal.data_imag)
+            fill!(tor_real, 0); fill!(tor_imag, 0)
+            fill!(pol_real, 0); fill!(pol_imag, 0)
+
+            # Seed valid (l ≥ m) modes using global (l,m) indices from the spec pencil.
+            # The spec pencil is (lmax+1)×(mmax+1)×nr; each rank owns a contiguous sub-block.
+            l_range_spec = PencilArrays.range_local(cfg.pencils.spec)[1]  # 1-based global l
+            m_range_spec = PencilArrays.range_local(cfg.pencils.spec)[2]  # 1-based global m
+            for k in 1:size(tor_real, 3)
+                for (il, lg) in enumerate(l_range_spec)
+                    l = lg - 1  # 0-based degree
+                    for (im, mg) in enumerate(m_range_spec)
+                        m = mg - 1  # 0-based order
+                        l < m && continue  # skip invalid modes (l < m has no SH)
+                        if l == 3 && m == 0
+                            tor_real[il, im, k] = 0.5
+                            pol_real[il, im, k] = 0.4
+                        elseif l == 4 && m == 2
+                            tor_real[il, im, k] = 0.3
+                            tor_imag[il, im, k] = 0.1
+                            pol_real[il, im, k] = 0.2
+                            pol_imag[il, im, k] = 0.15
+                        end
+                    end
+                end
+            end
+
+            tr0 = copy(tor_real); ti0 = copy(tor_imag)
+            pr0 = copy(pol_real); pi0 = copy(pol_imag)
+
+            synth(vf.toroidal, vf.poloidal, vf.velocity; domain=dom)
+            anal(vf.velocity, vf.toroidal, vf.poloidal; domain=dom)
+
+            @test maximum(abs.(parent(vf.toroidal.data_real) .- tr0)) < 1e-8
+            @test maximum(abs.(parent(vf.toroidal.data_imag) .- ti0)) < 1e-8
+            @test maximum(abs.(parent(vf.poloidal.data_real) .- pr0)) < 1e-8
+            @test maximum(abs.(parent(vf.poloidal.data_imag) .- pi0)) < 1e-8
+        end
+    end
+end

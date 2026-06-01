@@ -484,87 +484,112 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
         domain::Union{RadialDomain, Nothing} = nothing) where {T}
     config = tor_spec.config
     sht_config = config.sht_config
+    lmax, mmax = config.lmax, config.mmax
 
-    # Get data arrays
-    tor_real = parent(tor_spec.data_real)
-    tor_imag = parent(tor_spec.data_imag)
-    pol_real = parent(pol_spec.data_real)
-    pol_imag = parent(pol_spec.data_imag)
+    # r×θ path: spec is r-LOCAL (decomp (1,2)); physical is r-DISTRIBUTED (decomp (1,3)).
+    # Bridge: transpose spec → spec_transform (r-dist, m-full), then for each local r
+    # level do per-level l-completion Allreduce on θ_comm for BOTH tor and pol,
+    # then dist_synthesis_sphtor into the physical slab.
 
-    v_r = parent(vec_phys.r_component.data)
-    v_theta = parent(vec_phys.θ_component.data)
-    v_phi = parent(vec_phys.φ_component.data)
+    # Step 1: transform-orientation buffers for toroidal (reuse :spec_transform_real/imag)
+    #         and poloidal (:spec_transform_pol_real/imag).
+    tr_tor_real = get_cached_buffer!(config, :spec_transform_real) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
 
-    # Get local radial range
-    r_range = get_local_range(pol_spec.pencil, 3)
+    tr_tor_imag = get_cached_buffer!(config, :spec_transform_imag) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
 
-    # SAFETY: The radial loop below contains MPI collectives.
-    # All processes MUST iterate the same number of times to avoid deadlock.
-    @assert size(v_r, 3) == size(tor_real, 3) "Radial dimension mismatch: physical=$(size(v_r,3)) vs spectral=$(size(tor_real,3)). Vector SH transforms require radial to be local."
+    tr_pol_real = get_cached_buffer!(config, :spec_transform_pol_real) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
 
-    # The geodynamo poloidal/toroidal scalars are passed directly as the SHTns
-    # spheroidal/toroidal arguments. This makes synthesis the exact inverse of
-    # `shtnskit_vector_analysis!` (which recovers the spheroidal coefficient as the
-    # poloidal scalar), so the synthesis→analysis roundtrip is the identity on the
-    # valid (l,m) modes.
-    #
-    # NOTE: an earlier experimental "Mie" variant injected the radial-derivative
-    # combination S = (1/r) d(rP)/dr here as the spheroidal argument. That broke the
-    # roundtrip — analysis was never changed to invert it, and with no `domain` the
-    # precomputed S was identically zero, dropping the entire poloidal contribution.
-    # The radial poloidal→field physics belongs in the field-reconstruction layer,
-    # not in this low-level angular spheroidal/toroidal transform.
+    tr_pol_imag = get_cached_buffer!(config, :spec_transform_pol_imag) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
 
-    # Cached θ-PencilArray prototype: tells dist_synthesis_sphtor which θ-rows
-    # this rank owns. Allocated once, reused across levels and calls.
+    # Dense (lmax+1, mmax+1) buffers for per-level θ_comm Allreduce (tor and pol).
+    Dtor = get_cached_buffer!(config, :dense_coeffs_buffer) do
+        zeros(ComplexF64, lmax + 1, mmax + 1)
+    end::Matrix{ComplexF64}
+
+    Dpol = get_cached_buffer!(config, :dense_coeffs_buffer2) do
+        zeros(ComplexF64, lmax + 1, mmax + 1)
+    end::Matrix{ComplexF64}
+
+    # Step 2: transpose solve→transform for all four spectral buffers.
+    transpose_solve_to_transform!(tr_tor_real, tor_spec.data_real)
+    transpose_solve_to_transform!(tr_tor_imag, tor_spec.data_imag)
+    transpose_solve_to_transform!(tr_pol_real, pol_spec.data_real)
+    transpose_solve_to_transform!(tr_pol_imag, pol_spec.data_imag)
+
+    # θ_comm subcomm for per-level l-completion Allreduce.
+    θ_comm = config.pencils.θ_comm
+
+    # Step 3: prototype PencilArray on theta_phys pencil for dist_synthesis_sphtor.
     proto = get_cached_buffer!(config, :theta_phys_proto) do
         pencil2d = config.pencils.theta_phys
         PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
     end::PencilArray
 
-    # Process each radial level
-    for r_local in axes(tor_real, 3)
-        # Pass the poloidal scalar P directly as the spheroidal argument S.
-        # extract_coefficients_pair_for_shtnskit returns DENSE gathered matrices.
-        tor_coeffs,
-        sph_coeffs = extract_coefficients_pair_for_shtnskit(
-            tor_real, tor_imag, pol_real, pol_imag, r_local, config)
+    tr_tor_r = parent(tr_tor_real)
+    tr_tor_i = parent(tr_tor_imag)
+    tr_pol_r = parent(tr_pol_real)
+    tr_pol_i = parent(tr_pol_imag)
+    v_r     = parent(vec_phys.r_component.data)
+    v_theta = parent(vec_phys.θ_component.data)
+    v_phi   = parent(vec_phys.φ_component.data)
 
-        # dist_synthesis_sphtor returns (Vt, Vp) as plain Matrix{Float64} of size
-        # (nθ_local, nlon) — exactly matching view(v_theta,:,:,r_local).
+    # Local r-range of spec_transform (= local r-range of phys.r, verified aligned).
+    r_range_tr = PencilArrays.range_local(config.pencils.spec_transform)[3]
+    r_range_ph = PencilArrays.range_local(vec_phys.θ_component.pencil)[3]
+
+    # l-range and m-range of spec_transform (l θ_comm-distributed, m full/local).
+    l_range = PencilArrays.range_local(config.pencils.spec_transform)[1]
+    m_range = PencilArrays.range_local(config.pencils.spec_transform)[2]
+
+    @inbounds for (r_loc_tr, r_glob) in enumerate(r_range_tr)
+        # Map global r to local index in phys_data.
+        r_loc_ph = r_glob - first(r_range_ph) + 1
+        (r_loc_ph < 1 || r_loc_ph > size(v_theta, 3)) && continue
+
+        # Build partial dense coefficient matrices from this rank's l-subset.
+        fill!(Dtor, zero(ComplexF64))
+        fill!(Dpol, zero(ComplexF64))
+        for (im, m_glob) in enumerate(m_range)
+            for (il, l_glob) in enumerate(l_range)
+                Dtor[l_glob, m_glob] = complex(tr_tor_r[il, im, r_loc_tr],
+                                               tr_tor_i[il, im, r_loc_tr])
+                Dpol[l_glob, m_glob] = complex(tr_pol_r[il, im, r_loc_tr],
+                                               tr_pol_i[il, im, r_loc_tr])
+            end
+        end
+
+        # Complete l-axis by summing over all θ-group ranks (no-op if θ_ranks==1).
+        MPI.Allreduce!(Dtor, +, θ_comm)
+        MPI.Allreduce!(Dpol, +, θ_comm)
+
+        # dist_synthesis_sphtor(cfg, S=pol, T=tor) → (Vt, Vp) as θ-local Matrix{Float64}.
         Vt, Vp = SHTnsKit.dist_synthesis_sphtor(
             sht_config,
-            to_sht_spectral(config, sph_coeffs),
-            to_sht_spectral(config, tor_coeffs);
+            Dpol,
+            Dtor;
             prototype_θφ = proto,
             real_output = true)
-        copyto!(view(v_theta, :, :, r_local), Vt)
-        copyto!(view(v_phi,   :, :, r_local), Vp)
+        copyto!(view(v_theta, :, :, r_loc_ph), Vt)
+        copyto!(view(v_phi,   :, :, r_loc_ph), Vp)
 
-        # Radial component v_r = l(l+1)/r² · P, synthesized from the raw poloidal
-        # scalar (extracted separately from the tangential spheroidal).
+        # Radial component v_r = l(l+1)/r² · P (MIE: /r², consistent with this path).
         if domain !== nothing
-            r_idx_global = r_local + first(r_range) - 1
-
-            if r_idx_global >= 1 && r_idx_global <= domain.N
-                r_val = domain.r[r_idx_global, 4]
+            if r_glob >= 1 && r_glob <= domain.N
+                r_val = domain.r[r_glob, 4]
 
                 if r_val > eps(Float64) * domain.r[domain.N, 4]
-                    lmax, mmax = config.lmax, config.mmax
-
-                    pol_coeffs = get_cached_buffer!(config, :mie_pol_coeffs_buffer) do
-                        zeros(ComplexF64, lmax+1, mmax+1)
-                    end::Matrix{ComplexF64}
-                    extract_coefficients_for_shtnskit!(
-                        pol_coeffs, pol_real, pol_imag, r_local, config)
-                    if !coefficient_matrix_is_local(config)
-                        gathered = get_cached_buffer!(config, :mie_pol_coeffs_gathered) do
-                            zeros(ComplexF64, lmax+1, mmax+1)
-                        end::Matrix{ComplexF64}
-                        Allreduce!(pol_coeffs, gathered, MPI.SUM, get_comm())
-                        copyto!(pol_coeffs, gathered)
-                    end
-
                     pol_rad_coeffs = get_cached_buffer!(config, :pol_rad_coeffs_buffer) do
                         zeros(ComplexF64, lmax+1, mmax+1)
                     end::Matrix{ComplexF64}
@@ -572,27 +597,24 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
 
                     inv_r2 = 1.0 / (r_val * r_val)
                     for l in 0:lmax
-                        l_factor = l * (l + 1) * inv_r2      # MIE: l(l+1)/r²
+                        l_factor = l * (l + 1) * inv_r2   # MIE: l(l+1)/r²
                         for m in 0:min(l, mmax)
-                            pol_rad_coeffs[l + 1, m + 1] = pol_coeffs[l + 1, m + 1] *
-                                                           l_factor
+                            pol_rad_coeffs[l + 1, m + 1] = Dpol[l + 1, m + 1] * l_factor
                         end
                     end
 
-                    # Use dist_synthesis for the radial component (same pattern as
-                    # scalar transforms in nonlinear.jl).
                     vr = SHTnsKit.dist_synthesis(
                         sht_config,
-                        to_sht_spectral(config, pol_rad_coeffs);
+                        pol_rad_coeffs;
                         prototype_θφ = proto,
                         real_output = true)
-                    copyto!(view(v_r, :, :, r_local), vr)
+                    copyto!(view(v_r, :, :, r_loc_ph), vr)
                 else
-                    store_zero_component_generic!(v_r, r_local, config)
+                    fill!(view(v_r, :, :, r_loc_ph), zero(T))
                 end
             end
         else
-            store_zero_component_generic!(v_r, r_local, config)
+            fill!(view(v_r, :, :, r_loc_ph), zero(T))
         end
     end
 end
@@ -642,19 +664,12 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
     config = tor_spec.config
     sht_config = config.sht_config
 
-    # Get data arrays (analysis recovers tor/pol from the tangential components
-    # only; v_r is not consumed here).
-    v_theta = parent(vec_phys.θ_component.data)
-    v_phi = parent(vec_phys.φ_component.data)
+    # r×θ path: physical is r-DISTRIBUTED (decomp (1,3)); spec is r-LOCAL (decomp (1,2)).
+    # Bridge: for each local r level, dist_analysis_sphtor the θ-local slab → dense
+    # (slm, tlm) replicated on θ_comm; scatter into spec_transform (r-dist, m-full);
+    # then transpose transform→solve orientation back to spec.
 
-    tor_real = parent(tor_spec.data_real)
-    tor_imag = parent(tor_spec.data_imag)
-    pol_real = parent(pol_spec.data_real)
-    pol_imag = parent(pol_spec.data_imag)
-
-    # Cached θ-PencilArray slabs for passing the local tangential physical slices
-    # to dist_analysis_sphtor. Two slabs are needed (vt and vp) so both tangential
-    # components can be passed simultaneously. Allocated once, reused across levels.
+    # Step 1: θ-local slabs for dist_analysis_sphtor input (vt and vp).
     vt_slab = get_cached_buffer!(config, :theta_phys_slab) do
         pencil2d = config.pencils.theta_phys
         PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
@@ -664,23 +679,76 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
         PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
     end::PencilArray
 
-    # The decomposition is done radius-by-radius. dist_analysis_sphtor accepts
-    # θ-PencilArrays for (Vt, Vp), performs the θ-Allreduce internally, and
-    # returns DENSE (lmax+1 × mmax+1) (S, T) matrices replicated on every rank.
-    # No full-grid Allreduce gather is needed on this side.
-    for r_local in axes(v_theta, 3)
-        # Copy θ-local slabs into the PencilArray wrappers.
-        copyto!(parent(vt_slab), view(v_theta, :, :, r_local))
-        copyto!(parent(vp_slab), view(v_phi,   :, :, r_local))
+    # Step 2: transform-orientation buffers for toroidal and poloidal.
+    tr_tor_real = get_cached_buffer!(config, :spec_transform_real) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
 
-        # dist_analysis_sphtor returns (slm, tlm) = (spheroidal/poloidal, toroidal)
-        # as plain Matrix{ComplexF64} of size (lmax+1, mmax+1), replicated.
+    tr_tor_imag = get_cached_buffer!(config, :spec_transform_imag) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
+
+    tr_pol_real = get_cached_buffer!(config, :spec_transform_pol_real) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
+
+    tr_pol_imag = get_cached_buffer!(config, :spec_transform_pol_imag) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
+
+    # Zero out the transform buffers before accumulation (reused across calls).
+    fill!(parent(tr_tor_real), zero(Float64))
+    fill!(parent(tr_tor_imag), zero(Float64))
+    fill!(parent(tr_pol_real), zero(Float64))
+    fill!(parent(tr_pol_imag), zero(Float64))
+
+    tr_tor_r = parent(tr_tor_real)
+    tr_tor_i = parent(tr_tor_imag)
+    tr_pol_r = parent(tr_pol_real)
+    tr_pol_i = parent(tr_pol_imag)
+    v_theta  = parent(vec_phys.θ_component.data)
+    v_phi    = parent(vec_phys.φ_component.data)
+
+    # Local r-ranges (spec_transform and phys.r both r-dist, aligned).
+    r_range_tr = PencilArrays.range_local(config.pencils.spec_transform)[3]
+    r_range_ph = PencilArrays.range_local(vec_phys.θ_component.pencil)[3]
+
+    # l-range and m-range of spec_transform (l θ_comm-distributed, m full/local).
+    l_range = PencilArrays.range_local(config.pencils.spec_transform)[1]
+    m_range = PencilArrays.range_local(config.pencils.spec_transform)[2]
+
+    @inbounds for (r_loc_tr, r_glob) in enumerate(r_range_tr)
+        r_loc_ph = r_glob - first(r_range_ph) + 1
+        (r_loc_ph < 1 || r_loc_ph > size(v_theta, 3)) && continue
+
+        # Load θ-local slabs and analyse → dense (slm=pol, tlm=tor) replicated on θ_comm.
+        copyto!(parent(vt_slab), view(v_theta, :, :, r_loc_ph))
+        copyto!(parent(vp_slab), view(v_phi,   :, :, r_loc_ph))
+
         slm, tlm = SHTnsKit.dist_analysis_sphtor(sht_config, vt_slab, vp_slab)
 
-        # spheroidal/poloidal coefficients → poloidal storage, toroidal → toroidal
-        store_coefficients_from_shtnskit!(pol_real, pol_imag, from_sht_spectral(config, slm), r_local, config)
-        store_coefficients_from_shtnskit!(tor_real, tor_imag, from_sht_spectral(config, tlm), r_local, config)
+        # Scatter this rank's l-subset of (slm→pol, tlm→tor) into transform buffers.
+        for (im, m_glob) in enumerate(m_range)
+            for (il, l_glob) in enumerate(l_range)
+                cs = slm[l_glob, m_glob]
+                ct = tlm[l_glob, m_glob]
+                tr_pol_r[il, im, r_loc_tr] = real(cs)
+                tr_pol_i[il, im, r_loc_tr] = (m_glob == 1) ? zero(Float64) : imag(cs)
+                tr_tor_r[il, im, r_loc_tr] = real(ct)
+                tr_tor_i[il, im, r_loc_tr] = (m_glob == 1) ? zero(Float64) : imag(ct)
+            end
+        end
     end
+
+    # Step 3: transpose transform→solve orientation for both fields.
+    transpose_transform_to_solve!(tor_spec.data_real, tr_tor_real)
+    transpose_transform_to_solve!(tor_spec.data_imag, tr_tor_imag)
+    transpose_transform_to_solve!(pol_spec.data_real, tr_pol_real)
+    transpose_transform_to_solve!(pol_spec.data_imag, tr_pol_imag)
 end
 
 # ================================================================================
