@@ -140,6 +140,15 @@ mutable struct SHTnsBuffers
     theta_phys_proto::Union{PencilArray, Nothing}
     theta_phys_slab::Union{PencilArray, Nothing}
     theta_phys_slab2::Union{PencilArray, Nothing}
+
+    # r×θ scalar transform buffers (Phase 2).
+    # spec_transform_real/imag: PencilArrays in the transform orientation (decomp (1,3):
+    # l over θ_ranks, r over r_ranks, m LOCAL). Reused across radial loops.
+    # dense_coeffs_buffer: (lmax+1, mmax+1) ComplexF64 dense matrix for per-level
+    # θ_comm Allreduce (l-completion) before/after dist_synthesis/dist_analysis.
+    spec_transform_real::Union{PencilArray, Nothing}
+    spec_transform_imag::Union{PencilArray, Nothing}
+    dense_coeffs_buffer::Union{Matrix{ComplexF64}, Nothing}
 end
 
 """
@@ -154,6 +163,7 @@ function SHTnsBuffers()
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing,
+        nothing, nothing, nothing,
         nothing, nothing, nothing
     )
 end
@@ -192,7 +202,10 @@ const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
     :mie_pol_coeffs_gathered => :mie_pol_coeffs_gathered,
     :theta_phys_proto => :theta_phys_proto,
     :theta_phys_slab => :theta_phys_slab,
-    :theta_phys_slab2 => :theta_phys_slab2
+    :theta_phys_slab2 => :theta_phys_slab2,
+    :spec_transform_real => :spec_transform_real,
+    :spec_transform_imag => :spec_transform_imag,
+    :dense_coeffs_buffer => :dense_coeffs_buffer
 )
 
 @inline function _shtns_buffer_field(::Val{key}) where {key}
@@ -297,6 +310,9 @@ function clear_buffer_cache!(config)
         b.theta_phys_proto = nothing
         b.theta_phys_slab = nothing
         b.theta_phys_slab2 = nothing
+        b.spec_transform_real = nothing
+        b.spec_transform_imag = nothing
+        b.dense_coeffs_buffer = nothing
     end
 end
 
