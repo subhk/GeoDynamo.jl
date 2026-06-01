@@ -80,6 +80,31 @@ function transpose_with_timer!(dest::PencilArray, src::PencilArray, label::Symbo
 end
 
 """
+    transpose_solve_to_transform!(dst::PencilArray, src::PencilArray)
+
+Transpose spectral data from the solve orientation (`spec`, decomp (1,2): l over θ_ranks,
+m over r_ranks, r local) to the transform orientation (`spec_transform`, decomp (1,3):
+l over θ_ranks, r over r_ranks, m LOCAL).
+
+A single `PencilArrays.transpose!` call suffices — both pencils share axis-1 (l over
+θ_ranks); only axis-2 is swapped (m↔r).  This is an exact, zero-floating-point-error
+identity-invertible operation.  After this call, each rank holds a full-m × l-subset
+slab for each of its local r levels, enabling per-level distributed SH calls.
+"""
+transpose_solve_to_transform!(dst::PencilArray, src::PencilArray) =
+    transpose_with_timer!(dst, src, :spec_solve_to_transform)
+
+"""
+    transpose_transform_to_solve!(dst::PencilArray, src::PencilArray)
+
+Inverse of `transpose_solve_to_transform!`.  Transposes spectral data from the transform
+orientation (`spec_transform`, decomp (1,3)) back to the solve orientation (`spec`,
+decomp (1,2)).  Also a single `PencilArrays.transpose!` call; exact identity roundtrip.
+"""
+transpose_transform_to_solve!(dst::PencilArray, src::PencilArray) =
+    transpose_with_timer!(dst, src, :spec_transform_to_solve)
+
+"""
     print_transpose_statistics()
 
 Print accumulated transpose timing statistics.

@@ -179,6 +179,12 @@ function create_computation_pencils(topology, dims::Tuple{Int, Int, Int}, config
     spec_dims = spectral_mode_grid_dims(config, nr)
     pencil_spec = Pencil(topology, spec_dims, (1, 2))
 
+    # Transform orientation: l (dim1) over θ_ranks, r (dim3) over r_ranks, m (dim2) LOCAL.
+    # A single PencilArrays.transpose! between pencil_spec (1,2) and this (1,3) is an exact
+    # identity roundtrip (spiked at 2×2: err 0.0). It swaps ONLY axis2 (m↔r); l stays on
+    # axis1. Per local r-level the caller sees full-m × l-subset, enabling dist SH calls.
+    pencil_spec_transform = Pencil(topology, spec_dims, (1, 3))
+
     # Compatibility alias for older call sites. Mixed spectral storage must obey
     # the same rectangular (l, m, r) ownership contract as the spectral pencil.
 
@@ -193,6 +199,7 @@ function create_computation_pencils(topology, dims::Tuple{Int, Int, Int}, config
         φ = pencil_φ,
         r = pencil_r,
         spec = pencil_spec,
+        spec_transform = pencil_spec_transform,
         mixed = pencil_spec,
         theta_phys = pencil_theta_phys,
         θ_comm = θ_comm,
