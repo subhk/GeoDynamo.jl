@@ -166,6 +166,7 @@ additional_tests = (
     "stefan_condition_sanity.jl",
     "stefan_condition_shift_sanity.jl",
     "check_gaunt_tensors.jl",
+    "topography_coupling.jl",
     # Previously-orphaned coverage now wired in (MPI-aware unit/numerical tests).
     # NOTE: poloidal_solenoidality.jl stays unwired on purpose — it is a @test_broken
     # spec for a not-yet-implemented Mie-consistent poloidal reconstruction (see its
