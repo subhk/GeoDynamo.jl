@@ -312,60 +312,79 @@ function scalar_spectral_to_physical!(
         spec::SpectralFieldType{T},
         phys::PhysicalFieldType{T}) where {T}
     config = spec.config
-    spec_real_data = parent(spec.data_real)
-    spec_imag_data = parent(spec.data_imag)
-    phys_data = parent(phys.data)
-
-    @assert size(phys_data, 3) == size(spec_real_data, 3) (
-        "Radial dimension mismatch: physical=$(size(phys_data, 3)) vs " *
-        "spectral=$(size(spec_real_data, 3)). SH transforms require radial to be local."
-    )
-
-    nr = size(phys_data, 3)
     lmax, mmax = config.lmax, config.mmax
-    # Distributed spectral modes need the full coefficient matrix summed across
-    # ranks; when the matrix is already local the gather is a no-op.
-    needs_collective = !coefficient_matrix_is_local(config)
+    sht_cfg = config.sht_config
 
-    # Phase 1: stack every radial level's locally-owned coefficients into one
-    # buffer (zero elsewhere) so the cross-rank sum is a single collective.
-    coeffs_stack = solver_get_cached_buffer!(config, :coeffs_buffer_batched) do
-        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1, nr)
-    end::Array{ComplexF64, 3}
+    # r×θ path: spec is r-LOCAL (decomp (1,2)); physical is r-DISTRIBUTED (decomp (1,3)).
+    # Bridge: transpose spec → spec_transform (r-dist, m-full), then for each local r
+    # level do a per-level l-completion Allreduce on θ_comm + dist_synthesis into phys.
 
-    @inbounds for r_local in 1:nr
-        fill_scalar_coeff_buffer!(
-            view(coeffs_stack,:,:,r_local),
-            spec_real_data,
-            spec_imag_data,
-            r_local,
-            config
-        )
-    end
+    # Step 1: get/allocate transform-orientation buffers (spec_transform pencil: r-dist, m-full)
+    tr_real = get_cached_buffer!(config, :spec_transform_real) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
 
-    # Phase 2: one collective over the whole stack (skipped when local).
-    _SCALAR_GATHER_REDUCE_COUNT[] += 1
-    needs_collective && allreduce_sum_in_place!(coeffs_stack, mpi_comm())
+    tr_imag = get_cached_buffer!(config, :spec_transform_imag) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
 
-    # Phase 3: synthesize each radial level via dist_synthesis.
-    # dist_synthesis returns the θ-local block (nθ_local × nlon) — no slicing needed.
-    # The prototype PencilArray is cached once; it tells dist_synthesis which θ-rows
-    # this rank owns (identical split as phys_data dim-1).
+    # Dense (lmax+1, mmax+1) buffer for per-level θ_comm Allreduce.
+    D = get_cached_buffer!(config, :dense_coeffs_buffer) do
+        zeros(ComplexF64, lmax + 1, mmax + 1)
+    end::Matrix{ComplexF64}
+
+    # Step 2: transpose solve→transform orientation (exact, zero floating-point error).
+    transpose_solve_to_transform!(tr_real, spec.data_real)
+    transpose_solve_to_transform!(tr_imag, spec.data_imag)
+
+    # Step 3: θ_comm subcomm for per-level l-completion Allreduce.
+    θ_comm = config.pencils.θ_comm
+
+    # Step 4: prototype PencilArray on theta_phys pencil for dist_synthesis.
     proto = get_cached_buffer!(config, :theta_phys_proto) do
         pencil2d = config.pencils.theta_phys
         PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
     end::PencilArray
-    sht_cfg = config.sht_config
 
-    @inbounds for r_local in 1:nr
-        out = SHTnsKit.dist_synthesis(
-            sht_cfg,
-            to_sht_spectral(config, view(coeffs_stack,:,:,r_local));
-            prototype_θφ = proto,
-            real_output = true
-        )
-        # out is (nθ_local, nlon) — copy directly into the physical data slab.
-        copyto!(view(phys_data,:,:,r_local), out)
+    tr_real_p = parent(tr_real)
+    tr_imag_p = parent(tr_imag)
+    phys_data  = parent(phys.data)
+
+    # Local r-range of spec_transform (= local r-range of phys.r, verified aligned).
+    r_range_tr  = PencilArrays.range_local(config.pencils.spec_transform)[3]
+    r_range_ph  = PencilArrays.range_local(phys.pencil)[3]
+
+    # l-range and m-range of spec_transform (l is θ_comm-distributed, m is full/local).
+    l_range = PencilArrays.range_local(config.pencils.spec_transform)[1]
+    m_range = PencilArrays.range_local(config.pencils.spec_transform)[2]
+
+    _SCALAR_GATHER_REDUCE_COUNT[] += 1
+
+    @inbounds for (r_loc_tr, r_glob) in enumerate(r_range_tr)
+        # Map global r to local index in phys_data (both use the same global r-range).
+        r_loc_ph = r_glob - first(r_range_ph) + 1
+        (r_loc_ph < 1 || r_loc_ph > size(phys_data, 3)) && continue
+
+        # Build partial dense coefficient matrix from this rank's l-subset (m is full).
+        fill!(D, zero(ComplexF64))
+        for (im, m_glob) in enumerate(m_range)
+            for (il, l_glob) in enumerate(l_range)
+                # Only valid (l ≥ m) modes carry data; others remain zero (fine).
+                D[l_glob, m_glob] = complex(tr_real_p[il, im, r_loc_tr],
+                                            tr_imag_p[il, im, r_loc_tr])
+            end
+        end
+
+        # Complete l-axis by summing over all θ-group ranks (no-op if θ_ranks==1).
+        MPI.Allreduce!(D, +, θ_comm)
+
+        # Synthesize: dist_synthesis uses θ_comm internally (via proto pencil) and
+        # returns the θ-local block (nθ_local × nlon) for THIS rank.
+        out = SHTnsKit.dist_synthesis(sht_cfg, D; prototype_θφ = proto, real_output = true)
+
+        copyto!(view(phys_data, :, :, r_loc_ph), out)
     end
 
     return phys
@@ -523,39 +542,71 @@ function scalar_physical_to_spectral!(
         spec::SpectralFieldType{T}
 ) where {T}
     config = spec.config
-
-    phys_data = parent(phys.data)
-    spec_real_data = parent(spec.data_real)
-    spec_imag_data = parent(spec.data_imag)
-
-    @assert size(phys_data, 3) == size(spec_real_data, 3) (
-        "Radial dimension mismatch in solver scalar analysis. " *
-        "SH transforms require radial to be local."
-    )
-
-    nr = size(phys_data, 3)
     sht_cfg = config.sht_config
 
-    # Reusable θ-PencilArray slab (nθ_local × nlon): fill with each radial level
-    # and pass to dist_analysis, which performs the θ-Allreduce internally and
-    # returns a dense (lmax+1 × mmax+1) matrix replicated on every rank.
-    # No full-grid slice_stack allreduce needed.
+    # r×θ path: physical is r-DISTRIBUTED (decomp (1,3)); spec is r-LOCAL (decomp (1,2)).
+    # Bridge: for each local r level dist_analysis the θ-local slab → dense D (replicated
+    # on θ_comm); scatter D into spec_transform (r-dist, m-full); then transpose back.
+
+    # Step 1: θ-local slab for dist_analysis input.
     slab = get_cached_buffer!(config, :theta_phys_slab) do
         pencil2d = config.pencils.theta_phys
         PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
     end::PencilArray
 
-    @inbounds for r_local in 1:nr
-        copyto!(parent(slab), view(phys_data,:,:,r_local))
-        dense = SHTnsKit.dist_analysis(sht_cfg, slab)
-        store_scalar_coefficients!(
-            spec_real_data,
-            spec_imag_data,
-            from_sht_spectral(config, dense),
-            r_local,
-            config
-        )
+    # Step 2: get/allocate transform-orientation buffers (spec_transform: r-dist, m-full).
+    tr_real = get_cached_buffer!(config, :spec_transform_real) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
+
+    tr_imag = get_cached_buffer!(config, :spec_transform_imag) do
+        PencilArray(config.pencils.spec_transform,
+                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
+    end::PencilArray
+
+    # Zero out the transform buffers before accumulation (they may be reused).
+    fill!(parent(tr_real), zero(Float64))
+    fill!(parent(tr_imag), zero(Float64))
+
+    tr_real_p = parent(tr_real)
+    tr_imag_p = parent(tr_imag)
+    phys_data  = parent(phys.data)
+
+    # Local r-range of spec_transform = local r-range of phys.r (verified aligned).
+    r_range_tr  = PencilArrays.range_local(config.pencils.spec_transform)[3]
+    r_range_ph  = PencilArrays.range_local(phys.pencil)[3]
+
+    # l-range and m-range of spec_transform (l is θ_comm-distributed, m is full/local).
+    l_range = PencilArrays.range_local(config.pencils.spec_transform)[1]
+    m_range = PencilArrays.range_local(config.pencils.spec_transform)[2]
+
+    lmax = config.lmax
+
+    @inbounds for (r_loc_tr, r_glob) in enumerate(r_range_tr)
+        # Map global r to local index in phys_data.
+        r_loc_ph = r_glob - first(r_range_ph) + 1
+        (r_loc_ph < 1 || r_loc_ph > size(phys_data, 3)) && continue
+
+        # Load this rank's θ-local slab and analyse → dense D (replicated on θ_comm
+        # by dist_analysis's internal Allreduce).
+        copyto!(parent(slab), view(phys_data, :, :, r_loc_ph))
+        dense = SHTnsKit.dist_analysis(sht_cfg, slab)::Matrix{ComplexF64}
+
+        # Scatter this rank's l-subset of D into the transform-orientation buffers.
+        for (im, m_glob) in enumerate(m_range)
+            for (il, l_glob) in enumerate(l_range)
+                c = dense[l_glob, m_glob]
+                tr_real_p[il, im, r_loc_tr] = real(c)
+                # m=0 modes have purely real coefficients; store zero imaginary.
+                tr_imag_p[il, im, r_loc_tr] = (m_glob == 1) ? zero(Float64) : imag(c)
+            end
+        end
     end
+
+    # Step 3: transpose transform→solve orientation (exact identity roundtrip).
+    transpose_transform_to_solve!(spec.data_real, tr_real)
+    transpose_transform_to_solve!(spec.data_imag, tr_imag)
 
     return spec
 end

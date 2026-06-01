@@ -140,6 +140,24 @@ mutable struct SHTnsBuffers
     theta_phys_proto::Union{PencilArray, Nothing}
     theta_phys_slab::Union{PencilArray, Nothing}
     theta_phys_slab2::Union{PencilArray, Nothing}
+
+    # r×θ scalar transform buffers (Phase 2).
+    # spec_transform_real/imag: PencilArrays in the transform orientation (decomp (1,3):
+    # l over θ_ranks, r over r_ranks, m LOCAL). Reused across radial loops.
+    # dense_coeffs_buffer: (lmax+1, mmax+1) ComplexF64 dense matrix for per-level
+    # θ_comm Allreduce (l-completion) before/after dist_synthesis/dist_analysis.
+    spec_transform_real::Union{PencilArray, Nothing}
+    spec_transform_imag::Union{PencilArray, Nothing}
+    dense_coeffs_buffer::Union{Matrix{ComplexF64}, Nothing}
+
+    # r×θ vector transform buffers (Phase 2, Task 5).
+    # spec_transform_pol_real/imag: same layout as spec_transform_real/imag but for the
+    # poloidal spectral field. spec_transform_real/imag serves as the toroidal buffer.
+    # dense_coeffs_buffer2: second (lmax+1, mmax+1) dense matrix so toroidal and poloidal
+    # can be Allreduced concurrently (one call each) within the same r-level loop.
+    spec_transform_pol_real::Union{PencilArray, Nothing}
+    spec_transform_pol_imag::Union{PencilArray, Nothing}
+    dense_coeffs_buffer2::Union{Matrix{ComplexF64}, Nothing}
 end
 
 """
@@ -154,6 +172,8 @@ function SHTnsBuffers()
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing,
+        nothing, nothing, nothing,
+        nothing, nothing, nothing,
         nothing, nothing, nothing
     )
 end
@@ -192,7 +212,13 @@ const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
     :mie_pol_coeffs_gathered => :mie_pol_coeffs_gathered,
     :theta_phys_proto => :theta_phys_proto,
     :theta_phys_slab => :theta_phys_slab,
-    :theta_phys_slab2 => :theta_phys_slab2
+    :theta_phys_slab2 => :theta_phys_slab2,
+    :spec_transform_real => :spec_transform_real,
+    :spec_transform_imag => :spec_transform_imag,
+    :dense_coeffs_buffer => :dense_coeffs_buffer,
+    :spec_transform_pol_real => :spec_transform_pol_real,
+    :spec_transform_pol_imag => :spec_transform_pol_imag,
+    :dense_coeffs_buffer2 => :dense_coeffs_buffer2
 )
 
 @inline function _shtns_buffer_field(::Val{key}) where {key}
@@ -297,6 +323,12 @@ function clear_buffer_cache!(config)
         b.theta_phys_proto = nothing
         b.theta_phys_slab = nothing
         b.theta_phys_slab2 = nothing
+        b.spec_transform_real = nothing
+        b.spec_transform_imag = nothing
+        b.dense_coeffs_buffer = nothing
+        b.spec_transform_pol_real = nothing
+        b.spec_transform_pol_imag = nothing
+        b.dense_coeffs_buffer2 = nothing
     end
 end
 
@@ -697,13 +729,12 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
         mmax::Int)
     nprocs = MPI.Comm_size(comm)
 
-    # Phase 1 (θ-distributed transform): always use a 1D-θ process grid so that
-    # every rank holds a contiguous θ-slab, φ-full and r-full.  This is the
-    # prerequisite for feeding per-radial-level 2D (θ,φ) slices directly into
-    # SHTnsKit's dist_synthesis/dist_analysis without any additional scatter.
-    # Phase 2 (r×θ 2D topology) will reintroduce optimize_process_topology_shtnskit
-    # when the radial dimension is also distributed across the second process-grid axis.
-    proc_dims = (nprocs, 1)  # 1D-θ decomposition (Phase 1)
+    # Phase 2 (r×θ 2D topology): read the process grid from GEODYNAMO_PROC_GRID.
+    # At nprocs==1 this always returns (1,1) without requiring the env var.
+    # The grid is (θ_ranks, r_ranks): θ is axis-1 of the MPI topology (distributed
+    # across the first process-grid dimension), r is axis-2.
+    θ_ranks, r_ranks = read_proc_grid(nprocs)
+    proc_dims = (θ_ranks, r_ranks)
 
     # Create PencilArrays MPI topology
     # MPITopology maps the 2D process grid to MPI ranks
@@ -724,9 +755,17 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     # Needed for FFTs along longitude direction
     pencil_phi = Pencil(topology, dims, (1, 3))
 
-    # R pencil: dimension 3 (r) is local
-    # Needed for radial derivatives and boundary conditions
-    pencil_r = Pencil(topology, dims, (1, 2))
+    # R pencil: Phase 2 — θ(dim1) distributed over θ_ranks, r(dim3) distributed over
+    # r_ranks, φ(dim2) LOCAL.  decomp (1,3) maps dim1→axis1(θ) and dim3→axis2(r).
+    # At (θ_ranks,r_ranks)==(1,1) both dimensions are trivially local → behaviour
+    # identical to the old (1,2) single-rank case.
+    pencil_r = Pencil(topology, dims, (1, 3))
+
+    # Derive the sub-communicators from pencil_r's ACTUAL distribution (robust for any
+    # grid / rank ordering). θ_comm = ranks sharing an r-slab that split θ (the SH
+    # transform group — theta_phys + per-level dist_* run here); r_comm = ranks sharing
+    # a θ-slab that split r (aligned with the r↔lm transpose).
+    θ_comm, r_comm = make_subcomms(comm, pencil_r)
 
     # Create spectral space pencil.
     # Distribute degree/order axes and keep radial (dim 3) local on each rank.
@@ -735,28 +774,38 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     spec_dims = spectral_mode_grid_dims(lmax, mmax, nr)
     pencil_spec = Pencil(topology, spec_dims, (1, 2))
 
+    # Transform orientation: l (dim1) over θ_ranks, r (dim3) over r_ranks, m (dim2) LOCAL.
+    # A single PencilArrays.transpose! between pencil_spec (1,2) and this (1,3) is an exact
+    # identity roundtrip (spiked at 2×2: err 0.0). It swaps ONLY axis2 (m↔r); l stays on
+    # axis1. Per local r-level the caller sees full-m × l-subset, enabling dist SH calls.
+    pencil_spec_transform = Pencil(topology, spec_dims, (1, 3))
+
     # Compatibility alias for older call sites. Mixed spectral storage must obey
     # the same rectangular (l, m, r) ownership contract as the spectral pencil.
 
     # 2D (nlat,nlon) θ-distributed / φ-local prototype for SHTnsKit's per-level
-    # dist_synthesis/dist_analysis (prototype_θφ). We use a dedicated 1D MPI
-    # topology (nprocs,) so that the single decomp_dims=(1,) is valid (a 2D pencil
-    # over MPITopology{2} would require a 2-tuple decomp_dims, leaving no local dim).
-    # Under proc_dims=(nprocs,1), the θ-split of this 1D pencil is identical to
-    # pencils.r (same θ-split pattern) so phys.data[:,:,k] maps directly onto this
-    # prototype's local θ-slab.
-    topo1d = TopoCtor(comm, (nprocs,))
-    pencil_theta_phys = Pencil(topo1d, (nlat, nlon), (1,))
+    # dist_synthesis/dist_analysis (prototype_θφ). Built on θ_comm — the group of ranks
+    # that share an r-slab and split θ — so a 1D Pencil of size θ_ranks over θ_comm gives
+    # each rank exactly its pencil_r θ-slab (verified: theta_phys θ-split == pencils.r
+    # θ-split per rank). At (θ_ranks,r_ranks)==(1,1) θ_comm has size 1 → trivially local.
+    topo1d_θ = TopoCtor(θ_comm, (θ_ranks,))
+    pencil_theta_phys = Pencil(topo1d_θ, (nlat, nlon), (1,))
 
-    # Return named tuple with both ASCII and Unicode names for convenience
+    # Return named tuple with both ASCII and Unicode names for convenience.
+    # θ_comm and r_comm are included so callers can form sub-collective operations
+    # (e.g. per-r-group Allreduce on the θ-subcomm) without passing comm+grid dims
+    # separately.
     return (; theta = pencil_theta,
         θ = pencil_theta,      # Unicode alias
         phi = pencil_phi,
         φ = pencil_phi,        # Unicode alias
         r = pencil_r,
         spec = pencil_spec,
+        spec_transform = pencil_spec_transform,
         mixed = pencil_spec,
-        theta_phys = pencil_theta_phys)
+        theta_phys = pencil_theta_phys,
+        θ_comm = θ_comm,
+        r_comm = r_comm)
 end
 
 """

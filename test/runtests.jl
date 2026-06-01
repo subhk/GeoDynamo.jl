@@ -188,7 +188,11 @@ additional_tests = (
     "netcdf_write_roundtrip.jl",
     "io_restart_roundtrip.jl",
     "io_subsystem.jl",
-    "integration_simulation.jl"
+    "integration_simulation.jl",
+    # r×θ decomposition tests (Phase 2)
+    "r_theta_grid.jl",
+    "r_theta_transpose.jl",
+    "r_theta_equivalence.jl",
 )
 
 previous_setting = haskey(ENV, MPI_FINALIZE_KEY) ? ENV[MPI_FINALIZE_KEY] : nothing

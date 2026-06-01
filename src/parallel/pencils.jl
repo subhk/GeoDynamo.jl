@@ -97,11 +97,12 @@ end
     create_pencil_topology(shtns_config; nr, optimize=true)
 
 Create enhanced pencil decomposition for SHTns grids.
-Phase 1 (θ-distributed transform) always uses a 1D-θ process grid `(nprocs, 1)`,
-so the physical pencils are θ-distributed / φ-local / r-local. The `optimize`
-keyword is accepted for API compatibility but currently IGNORED; Phase 2 (r×θ)
-will honor it again via `optimize_process_topology`. Accepts an object with
-fields `nlat`, `nlon`, `nlm`, `lmax`, and `mmax` (e.g., `SHTnsKitConfig`).
+Phase 2 (r×θ 2D topology): reads the process grid from GEODYNAMO_PROC_GRID
+(`θ_ranks×r_ranks`), giving θ-distributed / φ-local / r-distributed physical
+pencils and a `theta_phys` 2D prototype built on the θ-subcommunicator.
+The `optimize` keyword is accepted for API compatibility.
+Accepts an object with fields `nlat`, `nlon`, `nlm`, `lmax`, and `mmax`
+(e.g., `SHTnsKitConfig`).
 """
 function create_pencil_topology(shtns_config; nr::Int, optimize::Bool = true)
     comm = get_comm()
@@ -112,16 +113,11 @@ function create_pencil_topology(shtns_config; nr::Int, optimize::Bool = true)
     nlat = shtns_config.nlat
     nlon = shtns_config.nlon
     dims = (nlat, nlon, nr)
-    spectral_dims = spectral_mode_grid_dims(shtns_config, nr)
 
-    # Choose the process grid before constructing any pencils so every later
-    # pencil/orientation shares the same MPI topology. Spectral space uses a
-    # real (l, m, r) grid, so both process-grid dimensions are valid.
-    # Phase 1 (θ-distributed transform): always use a 1D-θ process grid.
-    # Phase 2 (r×θ 2D topology) will reintroduce optimize_process_topology
-    # when the radial dimension is also distributed.
-    # optimize_process_topology remains defined for future use.
-    proc_dims = (nprocs, 1)  # 1D-θ decomposition (Phase 1)
+    # Phase 2 (r×θ 2D topology): read process grid from environment.
+    # At nprocs==1 returns (1,1) without requiring the env var.
+    θ_ranks, r_ranks = read_proc_grid(nprocs)
+    proc_dims = (θ_ranks, r_ranks)
 
     # Create PencilArrays topology
     # Construct MPI-aware topology (modern PencilArrays exports MPITopology)
@@ -134,25 +130,34 @@ function create_pencil_topology(shtns_config; nr::Int, optimize::Bool = true)
         println("═══════════════════════════════════════════════════════")
         println(" MPI Configuration:")
         println("   Processes:        $nprocs")
-        println("   Process grid:     $(proc_dims[1]) × $(proc_dims[2])")
+        println("   Process grid:     $(proc_dims[1]) × $(proc_dims[2]) (θ×r)")
         println(" Grid dimensions:")
         println("   Physical:         $nlat × $nlon × $nr")
         println("   Spectral modes:   $(shtns_config.nlm)")
         println("═══════════════════════════════════════════════════════")
     end
 
-    # Create pencils for different computational stages
-    pencils = create_computation_pencils(topology, dims, shtns_config)
+    # Create pencils for different computational stages (subcomms derived inside,
+    # from pencil_r's actual distribution).
+    pencils = create_computation_pencils(topology, dims, shtns_config, comm, θ_ranks)
 
     return pencils
 end
 
 """
-    create_computation_pencils(topology, dims, config)
-    
+    create_computation_pencils(topology, dims, config, θ_comm, r_comm, θ_ranks)
+
 Create specialized pencils for different stages of computation.
+
+Phase 2 (r×θ): `pencil_r` uses decomp `(1,3)` so θ(dim1) is distributed over
+θ_ranks and r(dim3) is distributed over r_ranks, leaving φ(dim2) LOCAL.
+`theta_phys` is a 2D `(nlat,nlon)` pencil on the θ-subcommunicator so its
+θ-split matches `pencil_r`'s θ-split within each r-group.
+`θ_comm` and `r_comm` are forwarded in the returned NamedTuple for sub-collective
+operations.
 """
-function create_computation_pencils(topology, dims::Tuple{Int, Int, Int}, config)
+function create_computation_pencils(topology, dims::Tuple{Int, Int, Int}, config,
+        comm, θ_ranks::Int)
     nlat, nlon, nr = dims
 
     # Each pencil keeps one axis local and distributes the other two. The
@@ -160,7 +165,13 @@ function create_computation_pencils(topology, dims::Tuple{Int, Int, Int}, config
     # communication in that orientation.
     pencil_θ = Pencil(topology, dims, (2, 3))  # Contiguous in θ (latitude)
     pencil_φ = Pencil(topology, dims, (1, 3))  # Contiguous in φ (longitude)
-    pencil_r = Pencil(topology, dims, (1, 2))  # Contiguous in r (radius)
+
+    # Phase 2 r×θ: decomp (1,3) → θ(dim1) over axis1(θ_ranks), r(dim3) over
+    # axis2(r_ranks), φ(dim2) LOCAL.  At (θ_ranks,r_ranks)==(1,1) trivially local.
+    pencil_r = Pencil(topology, dims, (1, 3))
+
+    # Derive subcomms from pencil_r's actual distribution (robust for any grid/ordering).
+    θ_comm, r_comm = make_subcomms(comm, pencil_r)
 
     # Spectral space is represented as a rectangular (l, m, r) grid rather than
     # the compact SHTns `nlm` list. Distributing l and m while keeping r local
@@ -168,14 +179,31 @@ function create_computation_pencils(topology, dims::Tuple{Int, Int, Int}, config
     spec_dims = spectral_mode_grid_dims(config, nr)
     pencil_spec = Pencil(topology, spec_dims, (1, 2))
 
+    # Transform orientation: l (dim1) over θ_ranks, r (dim3) over r_ranks, m (dim2) LOCAL.
+    # A single PencilArrays.transpose! between pencil_spec (1,2) and this (1,3) is an exact
+    # identity roundtrip (spiked at 2×2: err 0.0). It swaps ONLY axis2 (m↔r); l stays on
+    # axis1. Per local r-level the caller sees full-m × l-subset, enabling dist SH calls.
+    pencil_spec_transform = Pencil(topology, spec_dims, (1, 3))
+
     # Compatibility alias for older call sites. Mixed spectral storage must obey
     # the same rectangular (l, m, r) ownership contract as the spectral pencil.
+
+    # 2D (nlat,nlon) θ-distributed prototype for SHTnsKit's per-level transforms.
+    # Built on θ_comm (ranks sharing an r-slab that split θ) so its θ-split matches
+    # pencil_r's θ-split per rank.
+    TopoCtor = getproperty(PencilArrays, Symbol("MPITopology"))
+    topo1d_θ = TopoCtor(θ_comm, (θ_ranks,))
+    pencil_theta_phys = Pencil(topo1d_θ, (nlat, nlon), (1,))
 
     return (θ = pencil_θ,
         φ = pencil_φ,
         r = pencil_r,
         spec = pencil_spec,
-        mixed = pencil_spec)
+        spec_transform = pencil_spec_transform,
+        mixed = pencil_spec,
+        theta_phys = pencil_theta_phys,
+        θ_comm = θ_comm,
+        r_comm = r_comm)
 end
 
 # ===============================
@@ -233,13 +261,14 @@ function estimate_memory_usage(pencils, field_count::Int, precision::Type)
 
     # Calculate memory for each pencil orientation
     for (name, pencil) in pairs(pencils)
+        pencil isa Pencil || continue   # skip θ_comm, r_comm entries
         local_size = size_local(pencil)
         local_bytes = prod(local_size) * bytes_per_element * field_count
         total_bytes += local_bytes
     end
 
     # Add overhead for transpose buffers (typically 2x largest pencil)
-    max_pencil_size = maximum([prod(size_local(p)) for p in pencils])
+    max_pencil_size = maximum([prod(size_local(p)) for p in values(pencils) if p isa Pencil])
     buffer_bytes = 2 * max_pencil_size * bytes_per_element
     total_bytes += buffer_bytes
 
@@ -295,6 +324,7 @@ function print_pencil_info(pencils)
     end
 
     for (name, pencil) in pairs(pencils)
+        pencil isa Pencil || continue   # skip θ_comm, r_comm entries
         global_size = size_global(pencil)
         local_size = size_local(pencil)
         local_range = range_local(pencil)
@@ -334,6 +364,7 @@ function print_pencil_axes(pencils)
         println("\nPencil axes_local (local index ranges per axis):")
     end
     for (name, pencil) in pairs(pencils)
+        pencil isa Pencil || continue   # skip θ_comm, r_comm entries
         # Use range_local accessor for version compatibility
         axes_in = range_local(pencil)
         if rank == 0
@@ -389,14 +420,14 @@ function validate_radial_distribution(pencils; warn_uneven::Bool = true, strict:
     distribution_info = Dict{Symbol, Tuple{Int, Int}}()
 
     for (name, pencil) in pairs(pencils)
-        # Only the r-local compute pencils (:r, :spec, :mixed) require synchronized
+        # Only the r-local compute pencils (:spec, :mixed) require synchronized
         # radial counts across ranks — their per-radial collective sync depends on
-        # every rank holding the full radial profile. The :θ/:φ transpose pencils
-        # distribute r by design (FFT orientations, no per-radial collective;
-        # PencilFFTs transposes via Alltoallv, which handles uneven counts), so an
-        # uneven r-split there is expected and harmless. Skip them to avoid false
-        # "uneven radial distribution" alarms for odd nr.
-        name in (:r, :spec, :mixed) || continue
+        # every rank holding the full radial profile for its (l,m) mode subset.
+        # Phase 2: :r is now r-DISTRIBUTED (decomp (1,3)), so uneven r-splits across
+        # r-groups are expected and harmless (PencilArrays handles Alltoallv).
+        # The :θ/:φ transpose pencils also distribute r by design (FFT orientations).
+        # Skip all of these to avoid false "uneven radial distribution" alarms.
+        name in (:spec, :mixed) || continue
         # Use range_local accessor for version compatibility
         local_axes = range_local(pencil)
         if length(local_axes) >= 3
