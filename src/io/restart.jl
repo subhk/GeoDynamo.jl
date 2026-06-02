@@ -140,7 +140,8 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
         if haskey(ds, "temperature") && pencils !== nothing
             θ_range = range_local(pencils.r, 1)
             φ_range = range_local(pencils.r, 2)
-            restart_data["temperature"] = Array(ds["temperature"][θ_range, φ_range, :])
+            r_range = range_local(pencils.r, 3)  # r is distributed under r×θ (Phase 2)
+            restart_data["temperature"] = Array(ds["temperature"][θ_range, φ_range, r_range])
         elseif haskey(ds, "temperature")
             restart_data["temperature"] = Array(ds["temperature"][:, :, :])
         end
@@ -148,7 +149,8 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
         if haskey(ds, "composition") && pencils !== nothing
             θ_range = range_local(pencils.r, 1)
             φ_range = range_local(pencils.r, 2)
-            restart_data["composition"] = Array(ds["composition"][θ_range, φ_range, :])
+            r_range = range_local(pencils.r, 3)  # r is distributed under r×θ (Phase 2)
+            restart_data["composition"] = Array(ds["composition"][θ_range, φ_range, r_range])
         elseif haskey(ds, "composition")
             restart_data["composition"] = Array(ds["composition"][:, :, :])
         end
@@ -258,7 +260,8 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
             if pencils !== nothing
                 θ_range = range_local(pencils.r, 1)
                 φ_range = range_local(pencils.r, 2)
-                restart_data["temperature"] = Array(ds["temperature"][θ_range, φ_range, :])
+                r_range = range_local(pencils.r, 3)  # r is distributed under r×θ (Phase 2)
+                restart_data["temperature"] = Array(ds["temperature"][θ_range, φ_range, r_range])
             else
                 restart_data["temperature"] = Array(ds["temperature"][:, :, :])
             end
@@ -268,7 +271,8 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
             if pencils !== nothing
                 θ_range = range_local(pencils.r, 1)
                 φ_range = range_local(pencils.r, 2)
-                restart_data["composition"] = Array(ds["composition"][θ_range, φ_range, :])
+                r_range = range_local(pencils.r, 3)  # r is distributed under r×θ (Phase 2)
+                restart_data["composition"] = Array(ds["composition"][θ_range, φ_range, r_range])
             else
                 restart_data["composition"] = Array(ds["composition"][:, :, :])
             end

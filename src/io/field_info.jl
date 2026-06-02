@@ -160,6 +160,18 @@ function extract_field_info(
         phi = config.phi_grid
     end
 
+    # The radial extent is GLOBAL even when r is distributed across r-ranks
+    # (Phase 2 r×θ): the NetCDF file stores the full radial column and each rank
+    # writes its slab at a global offset. The local-array sizing above only sees
+    # this rank's r-slab, so recover the global radial count from the pencil.
+    # (When r is local — serial or Phase-1 θ-only — this equals the local nr.)
+    if pencils !== nothing
+        try
+            nr = size_global(pencils.r)[3]
+        catch
+        end
+    end
+
     # Prefer the true radial collocation grid when the caller supplies it. The
     # equispaced range fabricated above does not match the Chebyshev-clustered
     # nodes the solver actually integrates on, so without this the NetCDF "r"

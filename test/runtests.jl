@@ -151,6 +151,7 @@ additional_tests = (
     "mpi_parallel_invariants.jl",
     "mpi_threaded_step_smoke.jl",
     "mpi_distributed_write_roundtrip.jl",
+    "mpi_r_theta_restart_roundtrip.jl",
     "derivative_accuracy.jl",
     "shell_geometry.jl",
     "programmatic_boundaries.jl",

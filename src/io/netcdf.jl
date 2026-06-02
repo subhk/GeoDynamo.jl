@@ -468,25 +468,29 @@ function write_field_data!(ds, fields::Dict{String, Any}, config::OutputConfig,
     T = config.output_precision
     pencils = field_info.has_pencils ? field_info.pencils : nothing
 
-    # Temperature: physical space, r-pencil (theta,phi distributed, r local)
+    # Temperature: physical space, r-pencil (θ,φ distributed; r also distributed
+    # under Phase-2 r×θ). r_range is the full column when r is local.
     if haskey(fields, "temperature") && haskey(ds, "temperature")
         T_data = T.(fields["temperature"])
         if pencils !== nothing
             θ_range = range_local(pencils.r, 1)
             φ_range = range_local(pencils.r, 2)
-            ds["temperature"][θ_range, φ_range, :] = T_data
+            r_range = range_local(pencils.r, 3)
+            ds["temperature"][θ_range, φ_range, r_range] = T_data
         else
             ds["temperature"][:, :, :] = T_data
         end
     end
 
-    # Composition: physical space, r-pencil (theta,phi distributed, r local)
+    # Composition: physical space, r-pencil (θ,φ distributed; r also distributed
+    # under Phase-2 r×θ). r_range is the full column when r is local.
     if haskey(fields, "composition") && haskey(ds, "composition")
         C_data = T.(fields["composition"])
         if pencils !== nothing
             θ_range = range_local(pencils.r, 1)
             φ_range = range_local(pencils.r, 2)
-            ds["composition"][θ_range, φ_range, :] = C_data
+            r_range = range_local(pencils.r, 3)
+            ds["composition"][θ_range, φ_range, r_range] = C_data
         else
             ds["composition"][:, :, :] = C_data
         end
