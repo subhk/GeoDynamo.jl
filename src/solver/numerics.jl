@@ -510,41 +510,6 @@ end
 
 @inline uses_gpu(config) = !(transform_arch(config) isa CPU)
 
-function collect_vector_coefficients(
-        spec1_real,
-        spec1_imag,
-        spec2_real,
-        spec2_imag,
-        r_local,
-        config
-)
-    lmax, mmax = config.lmax, config.mmax
-
-    coeffs_buffer1 = solver_get_cached_buffer!(config, :solver_vector_coeffs_buffer_1) do
-        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
-    end::Matrix{ComplexF64}
-    coeffs_buffer2 = solver_get_cached_buffer!(config, :solver_vector_coeffs_buffer_2) do
-        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
-    end::Matrix{ComplexF64}
-
-    fill_vector_coeff_buffer!(coeffs_buffer1, spec1_real, spec1_imag, r_local, config)
-    fill_vector_coeff_buffer!(coeffs_buffer2, spec2_real, spec2_imag, r_local, config)
-
-    coeffs_gathered1 = solver_get_cached_buffer!(
-        config, :solver_vector_coeffs_gathered_1) do
-        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
-    end::Matrix{ComplexF64}
-    coeffs_gathered2 = solver_get_cached_buffer!(
-        config, :solver_vector_coeffs_gathered_2) do
-        workspace_zeros(config, ComplexF64, lmax + 1, mmax + 1)
-    end::Matrix{ComplexF64}
-
-    allreduce_sum!(coeffs_buffer1, coeffs_gathered1)
-    allreduce_sum!(coeffs_buffer2, coeffs_gathered2)
-
-    return coeffs_gathered1, coeffs_gathered2
-end
-
 function fill_vector_coeff_buffer!(coeffs_buffer, spec_real, spec_imag, r_local, config)
     if uses_gpu(config) && solver_gpu_device() !== :cuda
         return solver_gpu_fill_vector_coeff_buffer(

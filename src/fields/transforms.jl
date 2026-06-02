@@ -203,64 +203,6 @@ function perform_synthesis_to_phi_pencil!(spec::SHTnsSpecField{T},
 end
 
 """
-    perform_synthesis_direct!(spec, phys, config)
-
-Direct synthesis method that handles any pencil orientation.
-
-This is the default/fallback method. It works regardless of the physical
-field's pencil orientation by using a generic storage function that
-handles the index mapping appropriately.
-
-# Note
-For phi-pencil physical fields, `perform_synthesis_phi_local!` is more
-efficient as it can use optimized storage.
-"""
-function perform_synthesis_direct!(spec::SHTnsSpecField{T},
-        phys::SHTnsPhysField{T},
-        config) where {T}
-    sht_config = config.sht_config
-
-    # Extract underlying arrays from PencilArrays wrapper
-    spec_real_data = parent(spec.data_real)
-    spec_imag_data = parent(spec.data_imag)
-    phys_data = parent(phys.data)
-
-    # SAFETY: The radial loop below contains MPI collectives (Allreduce).
-    # All processes MUST iterate the same number of times to avoid deadlock.
-    # This is guaranteed when dim 3 is local (r-pencil or spec-pencil).
-    # If dim 3 is distributed unevenly, processes will deadlock.
-    @assert size(phys_data, 3) == size(spec_real_data, 3) "Radial dimension mismatch: physical=$(size(phys_data,3)) vs spectral=$(size(spec_real_data,3)). SH transforms require radial to be local."
-
-    # Get pre-allocated plan and output buffer (allocation-free path)
-    plan = _get_sht_plan(config._buffers)
-    synth_out = _get_synth_out(config._buffers, config)
-
-    # Get global index ranges for this rank's local portion of the physical grid.
-    # When angular dimensions are MPI-distributed, each rank owns a subset of
-    # the full (nlat, nlon) grid. SHTnsKit synthesis produces the FULL grid,
-    # so we must extract only this rank's portion using global offsets.
-    axes_local = phys.pencil.axes_local
-
-    # Process each radial level
-    for r_local in axes(phys_data, 3)
-        # Gather spectral coefficients for this radial level
-        coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
-
-        if plan !== nothing && synth_out !== nothing
-            # Allocation-free path: use pre-allocated plan and output buffer
-            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output = true)
-            local_synth = @view synth_out[axes_local[1], axes_local[2]]
-            store_physical_slice_generic!(phys_data, local_synth, r_local, config)
-        else
-            # Fallback: allocating path
-            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output = true)
-            local_slice = @view phys_slice[axes_local[1], axes_local[2]]
-            store_physical_slice_generic!(phys_data, local_slice, r_local, config)
-        end
-    end
-end
-
-"""
     shtnskit_physical_to_spectral!(phys, spec)
 
 Transform physical space values to spectral coefficients (analysis).
@@ -380,51 +322,6 @@ function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T, 3},
     for r_local in axes(phys_phi_data, 3)
         phys_slice = extract_physical_slice_phi_local(phys_phi_data, r_local, config;
             axes_local = phi_axes_local)
-
-        if plan !== nothing && anal_out !== nothing
-            SHTnsKit.analysis!(plan, anal_out, phys_slice)
-            store_coefficients_from_shtnskit!(
-                spec_real_data, spec_imag_data, anal_out, r_local, config)
-        else
-            coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
-            store_coefficients_from_shtnskit!(
-                spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
-        end
-    end
-end
-
-"""
-    perform_analysis_direct!(phys, spec, config)
-
-Direct analysis without transpose (fallback).
-"""
-function perform_analysis_direct!(phys::SHTnsPhysField{T},
-        spec::SHTnsSpecField{T},
-        config) where {T}
-    sht_config = config.sht_config
-
-    # Get local data
-    phys_data = parent(phys.data)
-    spec_real_data = parent(spec.data_real)
-    spec_imag_data = parent(spec.data_imag)
-
-    # SAFETY: see perform_synthesis_direct! — radial must be local for MPI safety
-    @assert size(phys_data, 3) == size(spec_real_data, 3) "Radial dimension mismatch in analysis. SH transforms require radial to be local."
-
-    # Get pre-allocated plan and output buffer
-    plan = _get_sht_plan(config._buffers)
-    anal_out = _get_anal_out(config._buffers, config)
-
-    # Get global index ranges for correct placement in Allreduce buffer
-    phys_axes_local = phys.pencil.axes_local
-
-    # Direct analysis is the catch-all path: each radial slice is reconstructed
-    # as a full angular grid, analyzed, then scattered back into the distributed
-    # coefficient storage for that one radius.
-    # Process each radial level
-    for r_local in axes(phys_data, 3)
-        phys_slice = extract_physical_slice_generic(phys_data, r_local, config;
-            axes_local = phys_axes_local)
 
         if plan !== nothing && anal_out !== nothing
             SHTnsKit.analysis!(plan, anal_out, phys_slice)
