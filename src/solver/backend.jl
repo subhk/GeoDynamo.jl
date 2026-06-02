@@ -93,18 +93,12 @@ mutable struct SolverTransformBuffers{T}
     generic_slice_gathered::Union{Matrix{Float64}, Nothing}
     coeffs_buffer::Union{Matrix{ComplexF64}, Nothing}
     coeffs_gathered::Union{Matrix{ComplexF64}, Nothing}
-    # Batched gather scratch for scalar SYNTHESIS: all radial levels stacked
-    # (lmax+1, mmax+1, nr) so the cross-rank coefficient gather uses one collective
-    # instead of one per level. (Analysis no longer gathers — it uses the
-    # θ-distributed dist_analysis — so the former slice_buffer_batched is gone.)
-    coeffs_buffer_batched::Union{Array{ComplexF64, 3}, Nothing}
 end
 
 function SolverTransformBuffers{T}() where {T}
     SolverTransformBuffers{T}(
         nothing, nothing, nothing, nothing, nothing,
-        nothing, nothing, nothing, nothing, nothing, nothing,
-        nothing
+        nothing, nothing, nothing, nothing, nothing, nothing
     )
 end
 

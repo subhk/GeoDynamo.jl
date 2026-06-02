@@ -194,6 +194,8 @@ additional_tests = (
     "r_theta_grid.jl",
     "r_theta_transpose.jl",
     "r_theta_equivalence.jl",
+    # Legacy scalar transform migration (Phase 2 follow-up)
+    "legacy_scalar_rtheta.jl",
 )
 
 previous_setting = haskey(ENV, MPI_FINALIZE_KEY) ? ENV[MPI_FINALIZE_KEY] : nothing

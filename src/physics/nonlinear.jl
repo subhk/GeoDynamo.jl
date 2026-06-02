@@ -654,8 +654,7 @@ const _SOLVER_BUFFERS_KEY_MAP = Dict{Symbol, Symbol}(
     :solver_generic_slice_buffer => :generic_slice,
     :solver_generic_slice_buffer_gathered => :generic_slice_gathered,
     :coeffs_buffer => :coeffs_buffer,
-    :coeffs_buffer_gathered => :coeffs_gathered,
-    :coeffs_buffer_batched => :coeffs_buffer_batched
+    :coeffs_buffer_gathered => :coeffs_gathered
 )
 
 @inline function _solver_buffer_field(::Val{key}) where {key}
