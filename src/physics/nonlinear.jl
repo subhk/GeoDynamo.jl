@@ -299,94 +299,86 @@ solver_main_physical_field(𝔽::TemperatureFieldType{T}) where {T} = 𝔽.tempe
 
 solver_main_physical_field(𝔽::CompositionFieldType{T}) where {T} = 𝔽.composition
 
-# Number of batched cross-rank coefficient-gather passes performed by the most
-# recent scalar SYNTHESIS (`scalar_spectral_to_physical!`). `dist_synthesis`
-# consumes the dense replicated (l,m) matrix, so synthesis still issues one
-# batched coeff Allreduce per call (independent of the radial-level count). Scalar
-# ANALYSIS (`scalar_physical_to_spectral!`) no longer contributes: `dist_analysis`
-# is θ-distributed and performs only its own internal (spectral) reduction, which
-# is not counted here — so analysis leaves this at 0.
+# Number of batched cross-rank SPECTRAL collectives issued by the most recent
+# scalar transform.  The Phase-3 path performs exactly ONE θ_comm m-axis
+# redistribution per call (synthesis: Allgatherv in spec_storage_to_solve!;
+# analysis: Allreduce in solve_to_spec_storage!), batched over ALL radial levels
+# (independent of nr).  The heavy Legendre/FFT work is θ-distributed inside
+# dist_synthesis!/dist_analysis! and is NOT counted here.
 const _SCALAR_GATHER_REDUCE_COUNT = Ref(0)
+
+# Number of times the Phase-3 DistTransposePlan scalar path has run (synthesis +
+# analysis each increment once).  Used by tests to assert the new path is wired in.
+const _SCALAR_DISTTRANSPOSE_COUNT = Ref(0)
+
+# ---------------------------------------------------------------------------
+# Phase 3 (Task 2): scalar transforms via DistTransposePlan.
+#
+# Storage contract (config.pencils.spec, decomp (2,1)):
+#   parent(spec.data_real/imag) = (l_local, m_local, nr)  — l over r_comm,
+#   m over θ_comm, r LOCAL (full nr on every rank).
+#
+# Physical field (phys on config.pencils.r, decomp (1,3)):
+#   parent(phys.data) = (nlat_local, nlon, nr_local)  — θ over θ_comm,
+#   φ LOCAL, r over r_comm.
+#
+# Plan spatial buffer (allocate_spatial): parent = (nlon, nlat_local, nlev)
+#   — φ LOCAL, θ over θ_comm, lev = nr_local.  The first two axes are the
+#   transpose of phys.data's; r_local ↔ lev align (plan nlev = phys r_local).
+# ---------------------------------------------------------------------------
+
+# Module-level scratch cache for the Phase-3 scalar transform buffers (Alm,
+# fspatial, and a private solve buffer), keyed by config identity.  Kept separate
+# from the SHTnsBuffers struct (which requires a registered field per key).
+const _P3_SCALAR_SCRATCH_CACHE = IdDict{Any, Any}()
+
+function _scalar_scratch(config, plan)
+    lock(_DISTTRANSPOSE_LOCK) do
+        get!(_P3_SCALAR_SCRATCH_CACHE, config) do
+            Alm      = SHTnsKit.allocate_spectral(plan)
+            fspatial = SHTnsKit.allocate_spatial(plan)
+            scratch  = get!(_DISTTRANSPOSE_SCRATCH_CACHE, config) do
+                _build_disttranspose_scratch(config, plan)
+            end
+            # Private solve buffer (do not alias to_spec_solve's scratch.solve).
+            solve = PencilArray{ComplexF64}(undef, scratch.pen_solve_r,
+                                            size(parent(scratch.solve), 3))
+            (; Alm, fspatial, solve)
+        end
+    end
+end
 
 function scalar_spectral_to_physical!(
         spec::SpectralFieldType{T},
         phys::PhysicalFieldType{T}) where {T}
     config = spec.config
-    lmax, mmax = config.lmax, config.mmax
-    sht_cfg = config.sht_config
+    plan   = get_disttranspose_plan(config)
 
-    # r×θ path: spec is r-LOCAL (decomp (1,2)); physical is r-DISTRIBUTED (decomp (1,3)).
-    # Bridge: transpose spec → spec_transform (r-dist, m-full), then for each local r
-    # level do a per-level l-completion Allreduce on θ_comm + dist_synthesis into phys.
+    sc       = _scalar_scratch(config, plan)
+    Alm      = sc.Alm
+    fspatial = sc.fspatial
+    solve    = sc.solve
 
-    # Step 1: get/allocate transform-orientation buffers (spec_transform pencil: r-dist, m-full)
-    tr_real = get_cached_buffer!(config, :spec_transform_real) do
-        PencilArray(config.pencils.spec_transform,
-                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
-    end::PencilArray
-
-    tr_imag = get_cached_buffer!(config, :spec_transform_imag) do
-        PencilArray(config.pencils.spec_transform,
-                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
-    end::PencilArray
-
-    # Dense (lmax+1, mmax+1) buffer for per-level θ_comm Allreduce.
-    D = get_cached_buffer!(config, :dense_coeffs_buffer) do
-        zeros(ComplexF64, lmax + 1, mmax + 1)
-    end::Matrix{ComplexF64}
-
-    # Step 2: transpose solve→transform orientation (exact, zero floating-point error).
-    transpose_solve_to_transform!(tr_real, spec.data_real)
-    transpose_solve_to_transform!(tr_imag, spec.data_imag)
-
-    # Step 3: θ_comm subcomm for per-level l-completion Allreduce.
-    θ_comm = config.pencils.θ_comm
-
-    # Step 4: prototype PencilArray on theta_phys pencil for dist_synthesis.
-    proto = get_cached_buffer!(config, :theta_phys_proto) do
-        pencil2d = config.pencils.theta_phys
-        PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
-    end::PencilArray
-
-    tr_real_p = parent(tr_real)
-    tr_imag_p = parent(tr_imag)
-    phys_data  = parent(phys.data)
-
-    # Local r-range of spec_transform (= local r-range of phys.r, verified aligned).
-    r_range_tr  = PencilArrays.range_local(config.pencils.spec_transform)[3]
-    r_range_ph  = PencilArrays.range_local(phys.pencil)[3]
-
-    # l-range and m-range of spec_transform (l is θ_comm-distributed, m is full/local).
-    l_range = PencilArrays.range_local(config.pencils.spec_transform)[1]
-    m_range = PencilArrays.range_local(config.pencils.spec_transform)[2]
-
+    # 1. spec storage → solve (l/r already aligned; ONE θ_comm m-axis collective).
     _SCALAR_GATHER_REDUCE_COUNT[] += 1
+    spec_storage_to_solve!(config, solve, parent(spec.data_real), parent(spec.data_imag), plan)
 
-    @inbounds for (r_loc_tr, r_glob) in enumerate(r_range_tr)
-        # Map global r to local index in phys_data (both use the same global r-range).
-        r_loc_ph = r_glob - first(r_range_ph) + 1
-        (r_loc_ph < 1 || r_loc_ph > size(phys_data, 3)) && continue
+    # 2. solve → Alm (batched r_comm l-transpose; r-full → r-local).
+    from_spec_solve!(config, Alm, solve, plan)
 
-        # Build partial dense coefficient matrix from this rank's l-subset (m is full).
-        fill!(D, zero(ComplexF64))
-        for (im, m_glob) in enumerate(m_range)
-            for (il, l_glob) in enumerate(l_range)
-                # Only valid (l ≥ m) modes carry data; others remain zero (fine).
-                D[l_glob, m_glob] = complex(tr_real_p[il, im, r_loc_tr],
-                                            tr_imag_p[il, im, r_loc_tr])
-            end
-        end
+    # 3. Distributed synthesis: Alm → fspatial (φ,θ,lev), batched over all nr_local.
+    SHTnsKit.dist_synthesis!(plan, fspatial, Alm)
 
-        # Complete l-axis by summing over all θ-group ranks (no-op if θ_ranks==1).
-        MPI.Allreduce!(D, +, θ_comm)
-
-        # Synthesize: dist_synthesis uses θ_comm internally (via proto pencil) and
-        # returns the θ-local block (nθ_local × nlon) for THIS rank.
-        out = SHTnsKit.dist_synthesis(sht_cfg, D; prototype_θφ = proto, real_output = true)
-
-        copyto!(view(phys_data, :, :, r_loc_ph), out)
+    # 4. Copy fspatial (nlon, nlat_local, lev) → phys.data (nlat_local, nlon, nr_local)
+    #    with the first-two-axis transpose; lev ↔ r_local are local per rank.
+    fp = parent(fspatial)
+    pd = parent(phys.data)
+    nθ = size(pd, 1); nφ = size(pd, 2); nlev = min(size(fp, 3), size(pd, 3))
+    @inbounds for k in 1:nlev, j in 1:nφ, i in 1:nθ
+        pd[i, j, k] = fp[j, i, k]
     end
 
+    _SCALAR_DISTTRANSPOSE_COUNT[] += 1
     return phys
 end
 
@@ -542,72 +534,33 @@ function scalar_physical_to_spectral!(
         spec::SpectralFieldType{T}
 ) where {T}
     config = spec.config
-    sht_cfg = config.sht_config
+    plan   = get_disttranspose_plan(config)
 
-    # r×θ path: physical is r-DISTRIBUTED (decomp (1,3)); spec is r-LOCAL (decomp (1,2)).
-    # Bridge: for each local r level dist_analysis the θ-local slab → dense D (replicated
-    # on θ_comm); scatter D into spec_transform (r-dist, m-full); then transpose back.
+    sc       = _scalar_scratch(config, plan)
+    Alm      = sc.Alm
+    fspatial = sc.fspatial
 
-    # Step 1: θ-local slab for dist_analysis input.
-    slab = get_cached_buffer!(config, :theta_phys_slab) do
-        pencil2d = config.pencils.theta_phys
-        PencilArray(pencil2d, zeros(Float64, PencilArrays.size_local(pencil2d)...))
-    end::PencilArray
-
-    # Step 2: get/allocate transform-orientation buffers (spec_transform: r-dist, m-full).
-    tr_real = get_cached_buffer!(config, :spec_transform_real) do
-        PencilArray(config.pencils.spec_transform,
-                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
-    end::PencilArray
-
-    tr_imag = get_cached_buffer!(config, :spec_transform_imag) do
-        PencilArray(config.pencils.spec_transform,
-                    zeros(Float64, PencilArrays.size_local(config.pencils.spec_transform)...))
-    end::PencilArray
-
-    # Zero out the transform buffers before accumulation (they may be reused).
-    fill!(parent(tr_real), zero(Float64))
-    fill!(parent(tr_imag), zero(Float64))
-
-    tr_real_p = parent(tr_real)
-    tr_imag_p = parent(tr_imag)
-    phys_data  = parent(phys.data)
-
-    # Local r-range of spec_transform = local r-range of phys.r (verified aligned).
-    r_range_tr  = PencilArrays.range_local(config.pencils.spec_transform)[3]
-    r_range_ph  = PencilArrays.range_local(phys.pencil)[3]
-
-    # l-range and m-range of spec_transform (l is θ_comm-distributed, m is full/local).
-    l_range = PencilArrays.range_local(config.pencils.spec_transform)[1]
-    m_range = PencilArrays.range_local(config.pencils.spec_transform)[2]
-
-    lmax = config.lmax
-
-    @inbounds for (r_loc_tr, r_glob) in enumerate(r_range_tr)
-        # Map global r to local index in phys_data.
-        r_loc_ph = r_glob - first(r_range_ph) + 1
-        (r_loc_ph < 1 || r_loc_ph > size(phys_data, 3)) && continue
-
-        # Load this rank's θ-local slab and analyse → dense D (replicated on θ_comm
-        # by dist_analysis's internal Allreduce).
-        copyto!(parent(slab), view(phys_data, :, :, r_loc_ph))
-        dense = SHTnsKit.dist_analysis(sht_cfg, slab)::Matrix{ComplexF64}
-
-        # Scatter this rank's l-subset of D into the transform-orientation buffers.
-        for (im, m_glob) in enumerate(m_range)
-            for (il, l_glob) in enumerate(l_range)
-                c = dense[l_glob, m_glob]
-                tr_real_p[il, im, r_loc_tr] = real(c)
-                # m=0 modes have purely real coefficients; store zero imaginary.
-                tr_imag_p[il, im, r_loc_tr] = (m_glob == 1) ? zero(Float64) : imag(c)
-            end
-        end
+    # 1. Copy phys.data (nlat_local, nlon, nr_local) → fspatial (nlon, nlat_local, lev)
+    #    with the first-two-axis transpose; lev ↔ r_local are local per rank.
+    pd = parent(phys.data)
+    fp = parent(fspatial)
+    nθ = size(pd, 1); nφ = size(pd, 2); nlev = min(size(fp, 3), size(pd, 3))
+    @inbounds for k in 1:nlev, j in 1:nφ, i in 1:nθ
+        fp[j, i, k] = pd[i, j, k]
     end
 
-    # Step 3: transpose transform→solve orientation (exact identity roundtrip).
-    transpose_transform_to_solve!(spec.data_real, tr_real)
-    transpose_transform_to_solve!(spec.data_imag, tr_imag)
+    # 2. Distributed analysis: fspatial → Alm (batched over all nr_local).
+    SHTnsKit.dist_analysis!(plan, Alm, fspatial)
 
+    # 3. Alm → solve (batched r_comm l-transpose; r-local → r-full).  Returns the
+    #    cached scratch.solve, consumed immediately below.
+    solve = GeoDynamo.to_spec_solve(config, Alm, plan)
+
+    # 4. solve → spec storage (l/r already aligned; ONE θ_comm m-axis collective).
+    _SCALAR_GATHER_REDUCE_COUNT[] += 1
+    solve_to_spec_storage!(config, parent(spec.data_real), parent(spec.data_imag), solve, plan)
+
+    _SCALAR_DISTTRANSPOSE_COUNT[] += 1
     return spec
 end
 

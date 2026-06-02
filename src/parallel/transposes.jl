@@ -79,30 +79,79 @@ function transpose_with_timer!(dest::PencilArray, src::PencilArray, label::Symbo
     end
 end
 
+# Cached intermediate PencilArrays for the two-step spec↔spec_transform transpose
+# (keyed by the (src_pencil, dst_pencil) pair).  Needed because the Phase-3 spec
+# pencil is decomp (2,1) while spec_transform is (1,3): they differ in BOTH
+# decomposed axes, and PencilArrays.transpose! permits at most one differing axis
+# per call.  We route through an intermediate that shares one axis with each.
+const _SPEC_TRANSPOSE_INTERMEDIATE_CACHE = IdDict{Any, Any}()
+const _SPEC_TRANSPOSE_LOCK = ReentrantLock()
+
+# Build an intermediate decomposition that differs from both `a` (src) and `b`
+# (dst) in at most one decomposed axis and has no repeated dimension.  We try the
+# two natural candidates — keep a's axis-1 and take b's axis-2, or keep a's axis-2
+# and take b's axis-1 — and return the first that is a valid (non-repeating)
+# decomposition.  For (2,1)↔(1,3) both directions yield (2,3).
+@inline function _intermediate_decomp(a::NTuple{2,Int}, b::NTuple{2,Int})
+    c1 = (a[1], b[2])   # keep src axis-1, take dst axis-2
+    c2 = (b[1], a[2])   # take dst axis-1, keep src axis-2
+    if c1[1] != c1[2]
+        return c1
+    elseif c2[1] != c2[2]
+        return c2
+    else
+        error("no valid intermediate decomposition between $a and $b")
+    end
+end
+
+function _spec_transpose!(dst::PencilArray, src::PencilArray, label::Symbol)
+    src_p = pencil(src)
+    dst_p = pencil(dst)
+    sd = decomposition(src_p)
+    dd = decomposition(dst_p)
+    if sum(sd .!= dd) <= 1
+        transpose_with_timer!(dst, src, label)
+        return dst
+    end
+    # Two-step via a cached intermediate (single differing axis per leg).
+    inter = lock(_SPEC_TRANSPOSE_LOCK) do
+        get!(_SPEC_TRANSPOSE_INTERMEDIATE_CACHE, (src_p, dst_p)) do
+            mid_decomp = _intermediate_decomp(Tuple(sd), Tuple(dd))
+            mid_pencil = Pencil(src_p, decomp_dims = mid_decomp)
+            PencilArray{eltype(src)}(undef, mid_pencil)
+        end
+    end::PencilArray
+    transpose_with_timer!(inter, src, label)
+    transpose_with_timer!(dst, inter, label)
+    return dst
+end
+
 """
     transpose_solve_to_transform!(dst::PencilArray, src::PencilArray)
 
-Transpose spectral data from the solve orientation (`spec`, decomp (1,2): l over θ_ranks,
-m over r_ranks, r local) to the transform orientation (`spec_transform`, decomp (1,3):
-l over θ_ranks, r over r_ranks, m LOCAL).
+Transpose spectral data from the solve orientation (`spec`, Phase-3 decomp (2,1):
+m over θ_ranks, l over r_ranks, r local) to the transform orientation
+(`spec_transform`, decomp (1,3): l over θ_ranks, r over r_ranks, m LOCAL).
 
-A single `PencilArrays.transpose!` call suffices — both pencils share axis-1 (l over
-θ_ranks); only axis-2 is swapped (m↔r).  This is an exact, zero-floating-point-error
-identity-invertible operation.  After this call, each rank holds a full-m × l-subset
-slab for each of its local r levels, enabling per-level distributed SH calls.
+Because (2,1) and (1,3) differ in both decomposed axes, this routes through a
+cached intermediate `(2,3)` pencil (two single-axis `PencilArrays.transpose!`
+calls), preserving exact, identity-invertible data movement.  After this call,
+each rank holds a full-m × l-subset slab for each of its local r levels, enabling
+the Phase-2 per-level distributed SH vector calls.
 """
 transpose_solve_to_transform!(dst::PencilArray, src::PencilArray) =
-    transpose_with_timer!(dst, src, :spec_solve_to_transform)
+    _spec_transpose!(dst, src, :spec_solve_to_transform)
 
 """
     transpose_transform_to_solve!(dst::PencilArray, src::PencilArray)
 
-Inverse of `transpose_solve_to_transform!`.  Transposes spectral data from the transform
-orientation (`spec_transform`, decomp (1,3)) back to the solve orientation (`spec`,
-decomp (1,2)).  Also a single `PencilArrays.transpose!` call; exact identity roundtrip.
+Inverse of `transpose_solve_to_transform!`.  Transposes spectral data from the
+transform orientation (`spec_transform`, decomp (1,3)) back to the solve
+orientation (`spec`, Phase-3 decomp (2,1)); also routed through the cached
+intermediate.  Exact identity roundtrip.
 """
 transpose_transform_to_solve!(dst::PencilArray, src::PencilArray) =
-    transpose_with_timer!(dst, src, :spec_transform_to_solve)
+    _spec_transpose!(dst, src, :spec_transform_to_solve)
 
 """
     print_transpose_statistics()

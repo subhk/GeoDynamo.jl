@@ -769,15 +769,32 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
 
     # Create spectral space pencil.
     # Distribute degree/order axes and keep radial (dim 3) local on each rank.
-    # decomp_dims must be a 2-tuple to match MPITopology{2}
-    # This matches DD_2DCODE where each rank has full radial profiles for its subset of (l,m) modes
+    # decomp_dims must be a 2-tuple to match MPITopology{2}.
+    #
+    # Phase-3 layout (DistTransposePlan / spec_solve partition). The decomp tuple
+    # (d1,d2) maps storage-dim d1 → topology axis-1 (θ_ranks / θ_comm) and storage-dim
+    # d2 → topology axis-2 (r_ranks / r_comm).  We want m (storage dim-2) distributed
+    # over θ_comm and l (storage dim-1) distributed over r_comm — i.e. exactly the
+    # ownership produced by `to_spec_solve` (l-dist/r_comm, m-dist/θ_comm, r-local).
+    # That is decomp (2,1): dim2(m)→axis1(θ), dim1(l)→axis2(r).
+    #
+    # The generic (l,m)->packed-index map (build_local_spectral_lm_map) reads
+    # range_local(spec,1/2) directly, so the radial-solve mode indexing adapts to this
+    # (l,m) ownership automatically.  At (θ,r)==(1,1) both axes are trivially local so
+    # the layout is identical to the historical single-rank case.  NOTE: the m-axis is
+    # `mmax+1` columns split evenly over θ_comm; this does NOT in general match the
+    # DistTransposePlan's nbin-based m-bin split (on dealiased grids), so the scalar
+    # transform performs an explicit m-axis redistribution over θ_comm (see
+    # physics/nonlinear.jl) rather than a bare local copy.
     spec_dims = spectral_mode_grid_dims(lmax, mmax, nr)
-    pencil_spec = Pencil(topology, spec_dims, (1, 2))
+    pencil_spec = Pencil(topology, spec_dims, (2, 1))
 
-    # Transform orientation: l (dim1) over θ_ranks, r (dim3) over r_ranks, m (dim2) LOCAL.
-    # A single PencilArrays.transpose! between pencil_spec (1,2) and this (1,3) is an exact
-    # identity roundtrip (spiked at 2×2: err 0.0). It swaps ONLY axis2 (m↔r); l stays on
-    # axis1. Per local r-level the caller sees full-m × l-subset, enabling dist SH calls.
+    # Transform orientation (used by the Phase-2 VECTOR path): l (dim1) over θ_ranks,
+    # r (dim3) over r_ranks, m (dim2) LOCAL (mmax+1).  PencilArrays.transpose!
+    # redistributes pencil_spec → this orientation globally (a 2-axis move now that
+    # pencil_spec is (2,1)); the result is still the correct (l-θ-dist, full-m,
+    # r-r-dist) layout per local r-level (full-m × l-subset), enabling the per-level
+    # dist SH vector calls.
     pencil_spec_transform = Pencil(topology, spec_dims, (1, 3))
 
     # Compatibility alias for older call sites. Mixed spectral storage must obey

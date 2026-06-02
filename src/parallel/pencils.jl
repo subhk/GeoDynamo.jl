@@ -174,15 +174,17 @@ function create_computation_pencils(topology, dims::Tuple{Int, Int, Int}, config
     θ_comm, r_comm = make_subcomms(comm, pencil_r)
 
     # Spectral space is represented as a rectangular (l, m, r) grid rather than
-    # the compact SHTns `nlm` list. Distributing l and m while keeping r local
-    # gives each owned mode a complete radial profile for banded radial solves.
+    # the compact SHTns `nlm` list.  Phase-3 layout: m (dim2) over θ_ranks, l (dim1)
+    # over r_ranks, r (dim3) LOCAL — i.e. decomp (2,1) — matching the spec_solve
+    # partition (l-dist/r_comm, m-dist/θ_comm).  The generic (l,m)->packed-index map
+    # reads range_local(spec,1/2), so the radial-solve indexing adapts automatically.
     spec_dims = spectral_mode_grid_dims(config, nr)
-    pencil_spec = Pencil(topology, spec_dims, (1, 2))
+    pencil_spec = Pencil(topology, spec_dims, (2, 1))
 
-    # Transform orientation: l (dim1) over θ_ranks, r (dim3) over r_ranks, m (dim2) LOCAL.
-    # A single PencilArrays.transpose! between pencil_spec (1,2) and this (1,3) is an exact
-    # identity roundtrip (spiked at 2×2: err 0.0). It swaps ONLY axis2 (m↔r); l stays on
-    # axis1. Per local r-level the caller sees full-m × l-subset, enabling dist SH calls.
+    # Transform orientation (Phase-2 VECTOR path): l (dim1) over θ_ranks, r (dim3)
+    # over r_ranks, m (dim2) LOCAL (mmax+1).  PencilArrays.transpose! redistributes
+    # pencil_spec → this orientation globally; per local r-level the caller sees
+    # full-m × l-subset, enabling the per-level dist SH vector calls.
     pencil_spec_transform = Pencil(topology, spec_dims, (1, 3))
 
     # Compatibility alias for older call sites. Mixed spectral storage must obey
