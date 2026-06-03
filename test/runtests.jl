@@ -159,6 +159,7 @@ additional_tests = (
     "programmatic_boundaries.jl",
     "erk2.jl",
     "erk2_cache_builders.jl",
+    "erk2_integration_step.jl",
     "cnab2_rhs_distributed_equivalence.jl",
     "shell_boundaries.jl",
     "shtnskit_roundtrip.jl",
