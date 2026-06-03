@@ -225,10 +225,22 @@ function _build_mbridge(cfg, plan)
     # each contributor's columns at the right global m offset in the full-m block.
     counts  = MPI.Allgather(Int32(m_local_cnt), θ_comm)
     firsts  = MPI.Allgather(Int32(first(spec_m_range)), θ_comm)  # 1-based first m-slot
+    m_counts = Int.(counts)
+
+    # Pre-allocated scratch reused across every bridge call (fixed sizes per config;
+    # transforms are serial per config so reuse is safe). Avoids per-call heap traffic.
+    mmax       = cfg.mmax
+    recvcounts = [c * l_local * nr for c in m_counts]
+    send       = Vector{ComplexF64}(undef, l_local * m_local_cnt * nr)
+    recv       = Vector{ComplexF64}(undef, sum(recvcounts))
+    vbuf       = MPI.VBuffer(recv, recvcounts)
+    full3      = Array{ComplexF64, 3}(undef, l_local, mmax + 1, nr)
+    local_full = Array{ComplexF64, 3}(undef, l_local, mmax + 1, nr)
 
     return (; θ_comm, θ_size,
-              spec_m_range, spec_l_range, nr, l_local,
-              m_counts = Int.(counts), m_firsts = Int.(firsts))
+              spec_m_range, spec_l_range, nr, l_local, mmax,
+              m_counts, m_firsts = Int.(firsts),
+              recvcounts, send, recv, vbuf, full3, local_full)
 end
 
 function _get_mbridge(cfg, plan)
@@ -250,52 +262,61 @@ are zeroed.
 """
 function spec_storage_to_solve!(cfg, solve, sr, si, plan)
     mb = _get_mbridge(cfg, plan)
-    θ_comm = mb.θ_comm
-    mmax   = cfg.mmax
-    nr     = mb.nr
-    l_local = mb.l_local
+    # Type-assert the Any-typed cached fields / plan / cfg to concrete types so the
+    # hot loops below specialize and DON'T box (the caches are IdDict{Any,Any}).
+    θ_comm  = mb.θ_comm
+    mmax    = cfg.mmax::Int
+    nr      = mb.nr::Int
+    l_local = mb.l_local::Int
+    send    = mb.send::Vector{ComplexF64}
+    recv    = mb.recv::Vector{ComplexF64}
+    full    = mb.full3::Array{ComplexF64, 3}
+    θ_size   = mb.θ_size::Int
+    m_counts = mb.m_counts::Vector{Int}
+    m_firsts = mb.m_firsts::Vector{Int}
+    mlocal   = plan.m_local::Vector{Int}
+    sp       = parent(solve)::AbstractArray{ComplexF64, 3}
+    _spec_to_solve_kernel!(sp, send, recv, full, sr, si, mb.vbuf, θ_comm,
+                           m_counts, m_firsts, mlocal, θ_size, nr, l_local, mmax,
+                           length(mb.spec_m_range)::Int)
+    return solve
+end
 
-    # 1. Pack this rank's spec m-columns into a contiguous complex send buffer
-    #    laid out (l_local, m_local, nr) → flat.
-    m_local_cnt = length(mb.spec_m_range)
-    send = Vector{ComplexF64}(undef, l_local * m_local_cnt * nr)
+# Type-stable kernel (function barrier): all args concrete → no boxing in the loops.
+function _spec_to_solve_kernel!(sp, send::Vector{ComplexF64}, recv::Vector{ComplexF64},
+        full::Array{ComplexF64, 3}, sr, si, vbuf, θ_comm,
+        m_counts::Vector{Int}, m_firsts::Vector{Int}, mlocal::Vector{Int},
+        θ_size::Int, nr::Int, l_local::Int, mmax::Int, m_local_cnt::Int)
+    # 1. Pack this rank's spec m-columns into the cached send buffer (l, m, nr → flat).
     idx = 1
     @inbounds for k in 1:nr, jm in 1:m_local_cnt, il in 1:l_local
         send[idx] = complex(sr[il, jm, k], si[il, jm, k]); idx += 1
     end
-
-    # 2. Allgatherv over θ_comm → every member receives all members' columns.
-    recvcounts = [c * l_local * nr for c in mb.m_counts]
-    recv = Vector{ComplexF64}(undef, sum(recvcounts))
-    vbuf = MPI.VBuffer(recv, recvcounts)
+    # 2. Allgatherv over θ_comm (cached vbuf) → every member gets all members' columns.
     MPI.Allgatherv!(send, vbuf, θ_comm)
-
-    # 3. Reassemble into a full-m block full[(il, m+1, k)] for m = 0..mmax.
-    full = zeros(ComplexF64, l_local, mmax + 1, nr)
+    # 3. Reassemble into the cached full-m block full[(il, m+1, k)] for m = 0..mmax.
+    fill!(full, zero(ComplexF64))
     base = 0
-    @inbounds for src in 1:mb.θ_size
-        cnt = mb.m_counts[src]
-        m0  = mb.m_firsts[src]              # 1-based first m-slot of source
+    @inbounds for src in 1:θ_size
+        cnt = m_counts[src]
+        m0  = m_firsts[src]
         for jm in 1:cnt, k in 1:nr, il in 1:l_local
-            # source send order was (il fastest, then jm, then k)
             off = base + (k - 1) * (cnt * l_local) + (jm - 1) * l_local + il
-            mslot = m0 + jm - 1            # 1-based global m-slot (= m+1)
+            mslot = m0 + jm - 1
             mslot <= mmax + 1 || continue
             full[il, mslot, k] = recv[off]
         end
         base += cnt * l_local * nr
     end
-
     # 4. Scatter the plan's owned m-bins into solve.
-    sp = parent(solve)
     fill!(sp, zero(ComplexF64))
-    @inbounds for (mi, m) in enumerate(plan.m_local)
+    @inbounds for (mi, m) in enumerate(mlocal)
         (0 <= m <= mmax) || continue
         for k in 1:nr, il in 1:l_local
             sp[il, k, mi] = full[il, m + 1, k]
         end
     end
-    return solve
+    return nothing
 end
 
 """
@@ -307,29 +328,35 @@ even-split (mmax+1) m-partition), performing the θ_comm m-axis redistribution.
 """
 function solve_to_spec_storage!(cfg, sr, si, solve, plan)
     mb = _get_mbridge(cfg, plan)
-    θ_comm = mb.θ_comm
-    mmax   = cfg.mmax
-    nr     = mb.nr
-    l_local = mb.l_local
+    # Concrete-typed locals (caches are IdDict{Any,Any}) → type-stable kernel below.
+    _solve_to_spec_kernel!(sr, si, mb.local_full::Array{ComplexF64, 3},
+                           parent(solve)::AbstractArray{ComplexF64, 3}, mb.θ_comm,
+                           plan.m_local::Vector{Int},
+                           Int(first(mb.spec_m_range)), length(mb.spec_m_range)::Int,
+                           mb.nr::Int, mb.l_local::Int, cfg.mmax::Int)
+    return nothing
+end
 
-    # 1. Build this rank's contribution to the full-m block from its plan m-bins.
-    local_full = zeros(ComplexF64, l_local, mmax + 1, nr)
-    sp = parent(solve)
-    @inbounds for (mi, m) in enumerate(plan.m_local)
+# Type-stable kernel (function barrier). `spec_m_range` is contiguous (PencilArrays
+# local range) so global m-slot of local column jm = spec_m_first + jm - 1.
+function _solve_to_spec_kernel!(sr, si, local_full::Array{ComplexF64, 3}, sp, θ_comm,
+        mlocal::Vector{Int}, spec_m_first::Int, m_cnt::Int,
+        nr::Int, l_local::Int, mmax::Int)
+    # 1. This rank's contribution to the full-m block from its plan m-bins.
+    fill!(local_full, zero(ComplexF64))
+    @inbounds for (mi, m) in enumerate(mlocal)
         (0 <= m <= mmax) || continue
         for k in 1:nr, il in 1:l_local
             local_full[il, m + 1, k] = sp[il, k, mi]
         end
     end
-
-    # 2. Sum-reduce over θ_comm so every member has the complete full-m block (each
-    #    m is produced by exactly one member, so SUM == concatenation).
+    # 2. Sum-reduce over θ_comm (each m produced by exactly one member → SUM == concat).
     MPI.Allreduce!(local_full, +, θ_comm)
-
     # 3. Write this rank's spec m-columns (its even-split subset) from the full block.
     fill!(sr, zero(eltype(sr)))
     fill!(si, zero(eltype(si)))
-    @inbounds for (jm, mslot) in enumerate(mb.spec_m_range)  # mslot = m+1 (1-based)
+    @inbounds for jm in 1:m_cnt
+        mslot = spec_m_first + jm - 1          # global m-slot (= m+1)
         m = mslot - 1
         (0 <= m <= mmax) || continue
         for k in 1:nr, il in 1:l_local
