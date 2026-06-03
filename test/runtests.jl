@@ -116,6 +116,8 @@ additional_tests = (
     "boundary_utilities.jl",
     "boundary_file_io.jl",
     "erk2_matrix_functions.jl",
+    "numerics_phi_functions.jl",
+    "process_grid_extended.jl",
     "krylov_exp.jl",
     "safe_parse.jl",
     "derived_parameters.jl",

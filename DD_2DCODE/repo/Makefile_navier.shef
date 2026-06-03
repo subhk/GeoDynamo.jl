@@ -1,0 +1,100 @@
+INSTDIR		= ./install/
+MODSDIR		= ./modules/
+PROGDIR		= ./program/
+UTILDIR		= ./utils/
+UTIL		= spec2phys_outer_mesh
+
+TRANSFORM	= fftw3
+MODSOBJ		= aux/*.o \
+		  codensity.o legendre.o meshs.o mpi.o \
+                  velocity.o magnetic.o rotation.o nonlinear.o \
+                  parameters.o timestep.o \
+                  transform.o variables.o io.o
+
+#COMPILER        = /opt/intel/fc/10.1.018/bin/ifort
+COMPILER        = /home/sm1apw/local/lib_ifort-10.1.018/bin/mpif77
+COMPFLAGS       = -cpp -c -O3 -heap-arrays 1024 -mcmodel=medium \
+                  -I/home/sm1apw/local/lib_ifort-10.1.018/include \
+                  -C #-pg
+		  #-I<above is include path for netcdf.mod>
+LINKFLAGS       = #-pg
+LIBS            = -i-static \
+                  -L/home/sm1apw/local/lib_ifort-10.1.018/lib \
+                  -L/home/sm1apw/local/lib \
+                  -lfftw3 -llapackd -lblasd -lnetcdf -lcurl
+
+
+#------------------------------------------------------------------------
+all : 	$(MODSOBJ) $(PROGDIR)main.f90
+	$(COMPILER) $(COMPFLAGS) $(PROGDIR)main.f90
+	$(COMPILER) $(LINKFLAGS) -o ./main.out main.o $(MODSOBJ) $(LIBS)
+	rm main.o
+
+install : main.out
+	if test ! -d $(INSTDIR); then mkdir -p $(INSTDIR); fi
+	mv ./main.out $(INSTDIR)
+	date > $(INSTDIR)/main.info
+	echo $(HOSTNAME) >> $(INSTDIR)/main.info
+	echo $(COMPILER) $(COMPFLAGS) >> $(INSTDIR)/main.info
+	grep "define _N"   parallel.h >> $(INSTDIR)/main.info
+	grep "define _PAR" parallel.h >> $(INSTDIR)/main.info
+	cut -d! -f1 $(PROGDIR)parameters.f90 | grep = | \
+	   cut -d: -f3  >> $(INSTDIR)/main.info
+
+util : 	$(MODSOBJ) $(UTILDIR)/$(UTIL).f90
+	$(COMPILER) $(COMPFLAGS) $(UTILDIR)/$(UTIL).f90
+	$(COMPILER) -o ./$(UTIL).out $(UTIL).o $(MODSOBJ) $(LIBS)
+	rm $(UTIL).o
+
+auxil :
+	cd aux/ ; $(COMPILER) $(COMPFLAGS) *.f ; cd ..
+
+#------------------------------------------------------------------------
+clean :
+	rm -f *.o *.mod *.d *.il core *.out
+cleanauxil :
+	rm -f aux/*.o
+
+#------------------------------------------------------------------------
+parameters.o : $(PROGDIR)parameters.f90 parallel.h
+	$(COMPILER) $(COMPFLAGS) $(PROGDIR)parameters.f90
+
+io.o : $(PROGDIR)io.f90 velocity.o codensity.o 
+	$(COMPILER) $(COMPFLAGS) $(PROGDIR)io.f90
+
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+codensity.o : $(MODSDIR)codensity.f90 timestep.o transform.o
+	$(COMPILER) $(COMPFLAGS) $(MODSDIR)codensity.f90
+
+legendre.o : $(MODSDIR)legendre.f90 parameters.o mpi.o
+	$(COMPILER) $(COMPFLAGS) $(MODSDIR)legendre.f90
+
+magnetic.o : $(MODSDIR)magnetic.f90 timestep.o transform.o
+	$(COMPILER) $(COMPFLAGS) $(MODSDIR)magnetic.f90
+
+meshs.o : $(MODSDIR)meshs.f90 parameters.o mpi.o
+	$(COMPILER) $(COMPFLAGS) $(MODSDIR)meshs.f90
+
+mpi.o : $(MODSDIR)mpi.f90 parallel.h
+	$(COMPILER) $(COMPFLAGS) $(MODSDIR)mpi.f90
+
+nonlinear.o : $(MODSDIR)nonlinear.f90 \
+	velocity.o codensity.o 
+	$(COMPILER) $(COMPFLAGS) $(MODSDIR)nonlinear.f90
+
+rotation.o : $(MODSDIR)rotation.f90 timestep.o transform.o
+	$(COMPILER) $(COMPFLAGS) $(MODSDIR)rotation.f90
+
+timestep.o : $(MODSDIR)timestep.f90 variables.o
+	$(COMPILER) $(COMPFLAGS) $(MODSDIR)timestep.f90
+
+transform.o : $(MODSDIR)transform.$(TRANSFORM).f90 variables.o
+	$(COMPILER) $(COMPFLAGS) -o transform.o \
+	$(MODSDIR)transform.$(TRANSFORM).f90
+
+variables.o : $(MODSDIR)variables.f90 legendre.o meshs.o
+	$(COMPILER) $(COMPFLAGS) $(MODSDIR)variables.f90
+
+velocity.o : $(MODSDIR)velocity.f90 timestep.o transform.o rotation.o
+	$(COMPILER) $(COMPFLAGS) $(MODSDIR)velocity.f90
+

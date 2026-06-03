@@ -1,0 +1,276 @@
+!*************************************************************************
+!
+!
+!*************************************************************************
+#include "../parallel.h"
+ module magnetic
+!*************************************************************************
+   use variables
+   use timestep
+   implicit none
+   save
+
+   type (phys) :: mag_r
+   type (phys) :: mag_t
+   type (phys) :: mag_p
+   type (phys) :: mag_curlr
+   type (phys) :: mag_curlt
+   type (phys) :: mag_curlp
+   type (coll) :: mag_Tor
+   type (coll) :: mag_Pol
+   type (coll) :: mag_NTor
+   type (coll) :: mag_NPol
+   type (coll) :: mag_icTor
+   type (coll) :: mag_icPol
+   type (coll) :: mag_icNTor
+   type (coll) :: mag_icNPol
+   type (coll) :: mag_B0Tor
+   type (coll) :: mag_B0Pol
+   type (coll) :: mag_icB0Tor
+   type (coll) :: mag_icB0Pol
+   double precision :: mag_bcRe(2,0:i_pH1)
+   double precision :: mag_bcIm(2,0:i_pH1)
+
+   type (coll), private :: Tor
+   type (coll), private :: Pol
+   type (coll), private :: NTor
+   type (coll), private :: NPol
+   type (coll), private :: icTor
+   type (coll), private :: icPol
+   type (coll), private :: icNTor
+   type (coll), private :: icNPol
+   
+   type (iclumesh), private :: XTor(0:i_L1)
+   type (iclumesh), private :: XPol(0:i_L1)
+   type (mesh),     private :: YTor(0:i_L1)
+   type (mesh),     private :: YPol(0:i_L1)
+   type (mesh),     private :: icYTor(0:i_L1)
+   type (mesh),     private :: icYPol(0:i_L1)
+
+   type (coll), private :: cq,cs,ct
+   type (spec), private :: sq,ss,st
+   
+ contains
+
+!------------------------------------------------------------------------
+!  initialise magnetic field
+!------------------------------------------------------------------------
+   subroutine mag_precompute()
+      call var_coll_init(mes_oc,var_H, mag_Tor)
+      call var_coll_init(mes_oc,var_H, mag_Pol)
+      call var_coll_init(mes_ic,var_H, mag_icTor)
+      call var_coll_init(mes_ic,var_H, mag_icPol)
+      call var_coll_init(mes_oc,var_H, mag_B0Tor)
+      call var_coll_init(mes_oc,var_H, mag_B0Pol)
+      call var_coll_init(mes_ic,var_H, mag_icB0Tor)
+      call var_coll_init(mes_ic,var_H, mag_icB0Pol)
+      mag_bcRe = 0d0
+      mag_bcIm = 0d0
+   end subroutine mag_precompute
+   
+   
+!------------------------------------------------------------------------
+!  precomputation of magnetic field timestepping matrices
+!------------------------------------------------------------------------
+   subroutine mag_matrices()
+      integer :: l
+
+      do l = 1, i_L1
+         call tim_iclumesh_X    ( 1d0, 1d0/d_Pm, l, XTor(l) )
+         call mag_bc_Tor        ( XTor(l), l)
+         call mes_iclu_find     ( XTor(l) )
+         call tim_mesh_Y        ( mes_oc, 1d0, 1d0/d_Pm, l,   YTor(l) )
+         call tim_mesh_Y        ( mes_ic, 1d0, 1d0/d_Pm, l, icYTor(l) )
+      end do
+
+      do l = 1, i_L1
+         call tim_iclumesh_X    ( 1d0, 1d0/d_Pm, l, XPol(l) )
+         call mag_bc_Pol        ( XPol(l), l)
+         call mes_iclu_find     ( XPol(l) )
+         call tim_mesh_Y        ( mes_oc, 1d0, 1d0/d_, l,   YPol(l) )
+         call tim_mesh_Y        ( mes_ic, 1d0, 1d0, l, icYPol(l) )
+      end do
+
+   end subroutine mag_matrices
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+   subroutine mag_bc_Tor(A,l)
+      type (iclumesh), intent(out) :: A
+      integer,         intent(in)  :: l
+      integer :: j,j_, N_, Ni, No
+      
+      Ni  = mes_ic%N
+      No  = mes_oc%N
+      N_  = Ni+No-1
+                                ! Insulating interior, BTor = 0
+      A%M(2*i_KL+1,1)   = 1d0
+                                ! insulating exterior, BTor = 0
+      A%M(2*i_KL+1,N_) = 1d0
+         			! Jump in dr BTor on icb for cic
+      if(Ni==1) return
+      do j = 2, 1+i_KL
+         j_ = j+Ni-1
+         A%M(2*i_KL+1+Ni-j_,j_) =   mes_oc%dr(1)%M(i_KL+1+ 1-j,j)
+      end do
+      do j = Ni-i_KL, Ni-1
+         A%M(2*i_KL+1+Ni-j,j) = - mes_ic%dr(1)%M(i_KL+1+Ni-j,j)
+      end do
+      A%M(2*i_KL+1,Ni) = mes_oc%dr(1)%M(i_KL+1, 1)  &
+                       - mes_ic%dr(1)%M(i_KL+1,Ni)
+
+   end subroutine mag_bc_Tor
+   
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+   subroutine mag_bc_Pol(A,l)
+      type (iclumesh), intent(out) :: A
+      integer,         intent(in)  :: l
+      integer :: j,j_, N_, Ni, No
+      
+      Ni  = mes_ic%N
+      No  = mes_oc%N
+      N_  = Ni+No-1
+                                ! Insulating interior,
+                                ! (dr - l/r) BPol = 0
+      if(Ni==1) then
+         do j = 1, 1+i_KL
+            A%M(2*i_KL+1+1-j,j) = mes_oc%dr(1)%M(i_KL+1+1-j,j)
+         end do
+         A%M(2*i_KL+1,1) = A%M(2*i_KL+1,1) - mes_oc%r(1,-1)*l
+      else
+         do j = 1, 1+i_KL
+            A%M(2*i_KL+1+1-j,j) = mes_ic%dr(1)%M(i_KL+1+1-j,j)
+         end do
+         A%M(2*i_KL+1,1) = A%M(2*i_KL+1,1) - mes_ic%r(1,-1)*l
+      end if
+                                ! insulating exterior,
+                                ! (dr + (l+1)/r) BPol = 0
+      do j = No-i_KL, No
+         j_ = j+Ni-1 
+         A%M(2*i_KL+1+N_-j_,j_) = mes_oc%dr(1)%M(i_KL+1+No-j,j)
+      end do
+      A%M(2*i_KL+1,N_) = A%M(2*i_KL+1,N_) + mes_oc%r(No,-1)*(l+1)
+         			! dr BPol cts on icb for cic
+      if(Ni==1) return
+      do j = 2, 1+i_KL
+         j_ = j+Ni-1
+         A%M(2*i_KL+1+Ni-j_,j_) =   mes_oc%dr(1)%M(i_KL+1+ 1-j,j)
+      end do
+      do j = Ni-i_KL, Ni-1
+         A%M(2*i_KL+1+Ni-j,j) = - mes_ic%dr(1)%M(i_KL+1+Ni-j,j)
+      end do
+      A%M(2*i_KL+1,Ni) = mes_oc%dr(1)%M(i_KL+1, 1)  &
+                       - mes_ic%dr(1)%M(i_KL+1,Ni)
+
+   end subroutine mag_bc_Pol
+
+
+!-------------------------------------------------------------------------
+!  set the RHS for the boundary condition
+!-------------------------------------------------------------------------
+   subroutine mag_setbc_Tor(a)
+      type (coll), intent(out) :: a
+      integer :: N_
+      N_ = mes_oc%N
+      a%Re(N_,:) = 0d0
+      a%Im(N_,:) = 0d0
+      a%Re( 1,:) = mag_bcRe(1,:)
+      a%Im( 1,:) = mag_bcIm(1,:)
+      if(tim_it/=0) then
+         a%Re(1,:) = a%Re(1,:) - mag_bcRe(2,:)
+         a%Im(1,:) = a%Im(1,:) - mag_bcIm(2,:)
+      end if
+      mag_bcRe(2,:) = mag_bcRe(1,:)
+      mag_bcIm(2,:) = mag_bcIm(1,:)
+   end subroutine mag_setbc_Tor
+
+
+!------------------------------------------------------------------------
+!  mB -> Br, Bt, Bp phys, and curl B
+!------------------------------------------------------------------------
+   subroutine mag_transform()
+      use transform
+
+      call var_coll_copy(mag_Tor, Tor)
+      call var_coll_copy(mag_Pol, Pol)
+      if(b_mag_impose) then
+         Tor%Re = Tor%Re + mag_B0Tor%Re
+         Tor%Im = Tor%Im + mag_B0Tor%Im
+         Pol%Re = Pol%Re + mag_B0Pol%Re
+         Pol%Im = Pol%Im + mag_B0Pol%Im
+      end if
+
+      call var_coll_TorPol2qst(Tor,Pol, cq,cs,ct)
+      call var_coll2spec(cq,sq, c2=cs,s2=ss, c3=ct,s3=st)
+      call tra_qst2rtp(sq,ss,st, mag_r,mag_t,mag_p)
+
+      call var_coll_qstcurl(cq,cs,ct, cq,cs,ct)
+      call var_coll2spec(cq,sq, c2=cs,s2=ss, c3=ct,s3=st)
+      call tra_qst2rtp(sq,ss,st, mag_curlr,mag_curlt,mag_curlp)
+
+   end subroutine mag_transform
+
+
+!------------------------------------------------------------------------
+!  N  := mN,                         save N at time t
+!  B  := Y mB + mN,   B := invX B,   get prediction B*
+!  mB := B                           copy prediction
+!------------------------------------------------------------------------
+   subroutine mag_predictor()
+
+      call var_coll_copy (mag_NTor, NTor)
+      call tim_multY     (.false.,YTor,mag_Tor,mag_NTor, Tor)
+      call var_coll_copy (mag_icNTor, icNTor)
+      call tim_multY     (.false.,icYTor,mag_icTor,mag_icNTor, icTor)
+      call tim_zerobc    (icTor)
+      call mag_setbc_Tor (Tor)
+      call tim_icinvX    (.false.,XTor, Tor,icTor)
+      call var_coll_copy (Tor, mag_Tor)
+      call var_coll_copy (icTor, mag_icTor)
+
+      call var_coll_copy (mag_NPol, NPol)
+      call tim_multY     (.false.,YPol,mag_Pol,mag_NPol, Pol)
+      call var_coll_copy (mag_icNPol, icNPol)
+      call tim_multY     (.false.,icYPol,mag_icPol,mag_icNPol, icPol)
+      call tim_zerobc    (icPol)
+      call tim_zerobc    (Pol)
+      call tim_icinvX    (.false.,XPol, Pol,icPol)
+      call var_coll_copy (Pol, mag_Pol)
+      call var_coll_copy (icPol, mag_icPol)
+
+   end subroutine mag_predictor
+   
+   
+!------------------------------------------------------------------------
+!  B  := c (mN - N),   	using N* get nlin correction
+!  N  := mN,
+!  B  := invX B,   	get correction to B
+!  mB := mB + B		update correction
+!------------------------------------------------------------------------
+   subroutine mag_corrector()
+
+      call tim_nlincorr (mag_NTor,NTor, Tor)
+      call var_coll_copy(mag_NTor,NTor)
+      call tim_nlincorr (mag_icNTor,icNTor, icTor)
+      call var_coll_copy(mag_icNTor,icNTor)
+      call tim_zerobc   (icTor)
+      call mag_setbc_Tor(Tor)
+      call tim_icinvX   (.false.,XTor, Tor, icTor)
+      call tim_addcorr  (Tor, mag_Tor)
+      call tim_addcorr  (icTor, mag_icTor)
+
+      call tim_nlincorr (mag_NPol,NPol, Pol)
+      call var_coll_copy(mag_NPol,NPol)
+      call tim_nlincorr (mag_icNPol,icNPol, icPol)
+      call var_coll_copy(mag_icNPol,icNPol)
+      call tim_zerobc   (icPol)
+      call tim_zerobc   (Pol)
+      call tim_icinvX   (.false.,XPol, Pol, icPol)
+      call tim_addcorr  (Pol, mag_Pol)
+      call tim_addcorr  (icPol, mag_icPol)
+
+   end subroutine mag_corrector
+   
+   
+!*************************************************************************
+ end module magnetic
+!*************************************************************************
