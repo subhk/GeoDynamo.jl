@@ -198,7 +198,6 @@ include("file_bc_loader.jl")   # File-based spectral BC loading
 
 # Integration modules
 include("integration.jl")      # Integration with field structures
-include("timestepping.jl")     # Integration with timestepping
 
 # Forward declaration needed by topography submodule (defined fully below)
 function shtns_spectral_to_physical end
