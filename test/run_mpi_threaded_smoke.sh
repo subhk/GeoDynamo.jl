@@ -10,13 +10,18 @@
 # Usage:
 #   test/run_mpi_threaded_smoke.sh
 #   JULIA=/path/to/julia NRANKS=2 NTHREADS=2 MPIEXEC_TIMEOUT=180 test/run_mpi_threaded_smoke.sh
+#
+# Phase 2 (r×θ) requires an explicit process grid at nprocs>1; default to a
+# θ-distributed / r-local grid (`NRANKSx1`, the Phase-1 layout this test was
+# validated on). Override GEODYNAMO_PROC_GRID to exercise an r-distributed grid.
 set -euo pipefail
 
 : "${JULIA:=julia}"
 : "${NRANKS:=2}"
 : "${NTHREADS:=2}"
 : "${MPIEXEC_TIMEOUT:=180}"
-export MPIEXEC_TIMEOUT NRANKS NTHREADS
+: "${GEODYNAMO_PROC_GRID:=${NRANKS}x1}"
+export MPIEXEC_TIMEOUT NRANKS NTHREADS GEODYNAMO_PROC_GRID
 
 cd "$(dirname "$0")/.."
 

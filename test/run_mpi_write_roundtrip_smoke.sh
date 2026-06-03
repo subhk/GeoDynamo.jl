@@ -11,12 +11,17 @@
 # Usage:
 #   test/run_mpi_write_roundtrip_smoke.sh
 #   JULIA=/path/to/julia NRANKS=2 MPIEXEC_TIMEOUT=180 test/run_mpi_write_roundtrip_smoke.sh
+#
+# Phase 2 (r×θ) requires an explicit process grid at nprocs>1; default to a
+# θ-distributed / r-local grid (`NRANKSx1`). Set GEODYNAMO_PROC_GRID=<θ>x<r> with
+# r>1 to also exercise the r-distributed write offset.
 set -euo pipefail
 
 : "${JULIA:=julia}"
 : "${NRANKS:=2}"
 : "${MPIEXEC_TIMEOUT:=180}"
-export MPIEXEC_TIMEOUT NRANKS
+: "${GEODYNAMO_PROC_GRID:=${NRANKS}x1}"
+export MPIEXEC_TIMEOUT NRANKS GEODYNAMO_PROC_GRID
 
 cd "$(dirname "$0")/.."
 
