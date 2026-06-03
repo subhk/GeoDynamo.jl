@@ -1,0 +1,198 @@
+!*************************************************************************
+!
+!
+!*************************************************************************
+ module composition
+!*************************************************************************
+   use variables
+   use timestep
+   implicit none
+   save
+
+   type (phys) :: cmp_gradr
+   type (phys) :: cmp_gradt
+   type (phys) :: cmp_gradp
+   type (coll) :: cmp_C
+   type (coll) :: cmp_NC
+   
+   double precision :: cmp_S(1:i_N)
+   double precision :: cmp_bcRe(2,0:i_pH1)
+   double precision :: cmp_bcIm(2,0:i_pH1)
+
+   type (coll), private :: C
+   type (coll), private :: NC
+   
+   type (lumesh), private :: XC(0:i_L1)
+   type (mesh),   private :: YC(0:i_L1)
+
+   type (coll), private :: cC
+   
+ contains
+
+!------------------------------------------------------------------------
+!  initialise codensity
+!------------------------------------------------------------------------
+   subroutine cmp_precompute()
+      call var_coll_init(mes_oc,var_H, cmp_C)
+      cmp_S    = 0d0
+      cmp_BCRe = 0d0
+      cmp_BCIm = 0d0
+   end subroutine cmp_precompute
+
+
+!------------------------------------------------------------------------
+!  precomputation of codensity timestepping matrices
+!------------------------------------------------------------------------
+   subroutine cmp_matrices()
+      integer :: l
+
+      do l = 0, i_L1
+         call tim_lumesh_X      ( mes_oc, 1d0, 1d0/d_PrC, l, XC(l) )
+         call cmp_bc_T         ( mes_oc, XC(l), l)
+         call mes_lu_find       ( mes_oc, XC(l) )
+         call tim_mesh_Y        ( mes_oc, 1d0, 1d0/d_PrC, l, YC(l) )
+      end do
+
+   end subroutine cmp_matrices
+
+
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+! i_cod_bc = 1  const C on ICB and CMB
+!          = 2  const C on ICB, flux on CMB
+!          = 3  const flux on ICB, C on CMB
+!          = 4  const flux on ICB and CMB
+! - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+   subroutine cmp_bc_C(D,A,l)
+      type (rdom),   intent(in)  :: D
+      type (lumesh), intent(out) :: A
+      integer,       intent(in)  :: l
+      integer :: j
+
+      if(i_cmp_bc==1 .or. i_cmp_bc==2) then	
+         A%M(2*i_KL+1,1)   = 1d0
+      else
+         do j = 1, 1+i_KL
+            A%M(2*i_KL+1+1-j,j) = D%dr(1)%M(i_KL+1+1-j,j)
+         end do
+      end if
+      
+      if(i_cmp_bc==1 .or. i_cmp_bc==3) then	
+         A%M(2*i_KL+1,D%N) = 1d0
+      else
+         do j = D%N-i_KL, D%N
+            A%M(2*i_KL+1+D%N-j,j) = D%dr(1)%M(i_KL+1+D%N-j,j)
+         end do
+      end if
+      
+! # Rob (14/02/12): Fix temperature so that the code knows what the temperature is when both boundaries are fixed flux
+! This is done by setting the average (i.e. l=0) mode as a BC on T rather than on dT/dr
+
+      if((i_cmp_bc==4) .and. (l==0)) then
+!         A%M(2*i_KL+1,D%N)   = 1d0
+         do j = 1, 1+i_KL
+            A%M(2*i_KL+1+1-j,j) = 0d0
+         end do
+         A%M(2*i_KL+1,1)   = 1d0
+      endif
+! ###
+      
+   end subroutine cmp_bc_C
+
+
+!-------------------------------------------------------------------------
+!  set the RHS for the boundary condition = 0
+!-------------------------------------------------------------------------
+   subroutine cmp_setbc(a)
+      type (coll), intent(inout) :: a
+      integer :: nh, n
+      n = a%D%N
+      do nh = 0, a%H%pH1
+         a%Re( 1, nh ) = cmp_bcRe(1,nh)
+         a%Re( n, nh ) = cmp_bcRe(2,nh)
+         a%Im( 1, nh ) = cmp_bcIm(1,nh)
+         a%Im( n, nh ) = cmp_bcIm(2,nh)
+      end do
+   end subroutine cmp_setbc
+
+
+!-------------------------------------------------------------------------
+!  find flux at outer boundary for no flow:  dr C  evaluated at ro, 
+!  where C solves   - q ( drr + 2/r dr ) C = S  plus boundary conditions.
+!-------------------------------------------------------------------------
+   subroutine cmp_cmbflux(q, flx)
+      double precision, intent(in)  :: q
+      double precision, intent(out) :: flx
+      double precision :: S(mes_oc%N)
+      type (lumesh) :: A
+      integer :: N, j, info
+      call tim_lumesh_X ( mes_oc, 0d0, q/d_implicit, 0, A )
+      call cmp_bc_C     ( mes_oc, A, 0)
+      call mes_lu_find  ( mes_oc, A )
+      N = mes_oc%N
+      S = cmp_S
+      S(1) = cmp_bcRe(1,0)
+      S(N) = cmp_bcRe(2,0)
+      call dgbtrs('N', N, i_KL, i_KL, 1, A%M, 3*i_KL+1,  &
+                   A%ipiv, S, N, info )
+      if(info/=0) stop 'cmp_cmbflux'
+      flx = 0d0
+      do j = N-i_KL, N
+         flx = flx  +  S(j) * mes_oc%dr(1)%M(i_KL+1+N-j,j)
+      end do
+   end subroutine cmp_cmbflux
+
+
+!------------------------------------------------------------------------
+!  cC -> (grad C)r,t,p  phys 
+!------------------------------------------------------------------------
+   subroutine cmp_transform()
+      use transform
+      type (spec) :: sC, sC_
+
+      call var_coll_meshmult(mes_oc%dr(1),cmp_C, sC)
+      call var_coll2spec(cmp_C,sC, c2=cC,s2=sC_) 
+
+      call tra_spec2phys(sC_, cmp_gradr)
+
+      call tra_grad(sC, cmp_gradt,cmp_gradp)
+      
+   end subroutine cmp_transform
+
+
+!------------------------------------------------------------------------
+!  N  := cN,                         save N at time t
+!  C  := Y cC + cN,   C := invX C,   get prediction C*
+!  cC := C                           copy prediction
+!------------------------------------------------------------------------
+   subroutine cmp_predictor()
+
+      call var_coll_copy (cmp_NC, NC)
+      call tim_multY     (.true.,YC,cmp_T,cmp_NC, C)
+      call cmp_setbc     (C)
+      call tim_invX      (.true. ,XC, C)
+      call var_coll_copy (C, cmp_C)
+      
+   end subroutine comp_predictor
+   
+   
+!------------------------------------------------------------------------
+!  C  := c (cN - N),   	using N* get nlin correction
+!  N  := cN		save last N
+!  C  := invX C,   	get correction to C, correction has 0 bc
+!  cC := cC + C		update correction
+!------------------------------------------------------------------------
+   subroutine cmp_corrector()
+
+      call tim_nlincorr (cmp_NC,NC, C)
+      call var_coll_copy(cmp_NC,NC)
+      call tim_zerobc   (C)
+      call tim_invX     (.true. ,XC, C)
+      call tim_addcorr  (C, cmp_C)
+
+   end subroutine cmp_corrector
+   
+   
+!*************************************************************************
+ end module composition
+!*************************************************************************
