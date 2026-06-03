@@ -389,6 +389,25 @@ const _P3_VECTOR_SCRATCH_CACHE = IdDict{Any, Any}()
     end
 end
 
+"""
+    _clear_p3_transform_caches!(config)
+
+Delete `config`'s entry from all five module-level Phase-3 transform caches (plan,
+scratch, m-bridge, scalar-scratch, vector-scratch) under `_DISTTRANSPOSE_LOCK`.
+Called by `clear_buffer_cache!` so transient configs (e.g. across a test suite) do
+not accumulate in these IdDicts. A missing key is a no-op (`delete!` tolerates it).
+"""
+function _clear_p3_transform_caches!(config)
+    lock(_DISTTRANSPOSE_LOCK) do
+        delete!(_DISTTRANSPOSE_PLAN_CACHE, config)
+        delete!(_DISTTRANSPOSE_SCRATCH_CACHE, config)
+        delete!(_DISTTRANSPOSE_MBRIDGE_CACHE, config)
+        delete!(_P3_SCALAR_SCRATCH_CACHE, config)
+        delete!(_P3_VECTOR_SCRATCH_CACHE, config)
+    end
+    return nothing
+end
+
 function scalar_spectral_to_physical!(
         spec::SpectralFieldType{T},
         phys::PhysicalFieldType{T}) where {T}

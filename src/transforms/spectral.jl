@@ -281,6 +281,8 @@ function clear_buffer_cache!(config)
         b.generic_slice_buffer = nothing
         b.vector_component_buffer = nothing
     end
+    # Prune this config's entries from the Phase-3 transform caches (separate lock).
+    _clear_p3_transform_caches!(config)
 end
 
 # ================================================================================
