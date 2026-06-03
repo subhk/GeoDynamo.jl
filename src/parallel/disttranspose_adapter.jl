@@ -79,8 +79,12 @@ end
 
 Build the pair of scratch `PencilArray`s used for the Alm ↔ spec_solve
 transpose, keyed by `cfg`.  Both arrays are pre-allocated once and reused.
+Also builds persistent `Transposition` plans so that `transpose!` never
+allocates MPI communication buffers on repeated calls.
 
-Returns `(; pen_alm_r, pen_solve_r, almr, solve)`.
+Returns `(; pen_alm_r, pen_solve_r, almr, solve, t_fwd, t_bwd)` where:
+- `t_fwd` : `Transposition(solve, almr)` — forward (almr → solve, for `to_spec_solve`)
+- `t_bwd` : `Transposition(almr, solve)` — backward (solve → almr, for `from_spec_solve!`)
 """
 function _build_disttranspose_scratch(cfg, plan)
     lmax  = cfg.lmax
@@ -100,7 +104,13 @@ function _build_disttranspose_scratch(cfg, plan)
     almr  = PencilArray{ComplexF64}(undef, pen_alm_r,   nml)
     solve = PencilArray{ComplexF64}(undef, pen_solve_r, nml)
 
-    return (; pen_alm_r, pen_solve_r, almr, solve)
+    # Persistent Transposition plans — bind to the specific almr/solve arrays so
+    # that repeated `transpose!(t)` calls reuse the Pencil-internal send/recv
+    # buffers without allocating a new Transposition struct each time.
+    t_fwd = PencilArrays.Transpositions.Transposition(solve, almr)  # almr → solve
+    t_bwd = PencilArrays.Transpositions.Transposition(almr, solve)  # solve → almr
+
+    return (; pen_alm_r, pen_solve_r, almr, solve, t_fwd, t_bwd)
 end
 
 # ---------------------------------------------------------------------------
@@ -116,9 +126,31 @@ on the first call.  Subsequent calls are O(1) dict-lookups.
 The plan is constructed on `cfg.pencils.θ_comm` with `nlev = nr_local`.
 """
 function get_disttranspose_plan(cfg)
+    # Fast path: plan is present after the first call — avoid lock + closure alloc.
+    p = get(_DISTTRANSPOSE_PLAN_CACHE, cfg, nothing)
+    p !== nothing && return p
     lock(_DISTTRANSPOSE_LOCK) do
         get!(_DISTTRANSPOSE_PLAN_CACHE, cfg) do
             _build_disttranspose_plan(cfg)
+        end
+    end
+end
+
+"""
+    _get_disttranspose_scratch(cfg, plan)
+
+Return the cached scratch NamedTuple for `cfg`, building it on the first call.
+Uses a fast non-locking lookup on the hot path (after warm-up the key always
+exists); falls back to the locked build path only on the first call.
+"""
+@inline function _get_disttranspose_scratch(cfg, plan)
+    # Fast path: key is present after the first call — avoid lock + closure alloc.
+    s = get(_DISTTRANSPOSE_SCRATCH_CACHE, cfg, nothing)
+    s !== nothing && return s
+    # Slow path: first call, build under lock.
+    lock(_DISTTRANSPOSE_LOCK) do
+        get!(_DISTTRANSPOSE_SCRATCH_CACHE, cfg) do
+            _build_disttranspose_scratch(cfg, plan)
         end
     end
 end
@@ -136,12 +168,7 @@ reference past the next call to `to_spec_solve` or `from_spec_solve!` on the
 same `cfg`.
 """
 function to_spec_solve(cfg, Alm, plan)
-    scratch = lock(_DISTTRANSPOSE_LOCK) do
-        get!(_DISTTRANSPOSE_SCRATCH_CACHE, cfg) do
-            _build_disttranspose_scratch(cfg, plan)
-        end
-    end
-
+    scratch  = _get_disttranspose_scratch(cfg, plan)
     lmax     = cfg.lmax
     nr_local = length(PencilArrays.range_local(cfg.pencils.r)[3])
     nml      = size(parent(Alm), 2)
@@ -154,7 +181,7 @@ function to_spec_solve(cfg, Alm, plan)
         pa[il, k, jm] = Ap[il, jm, k]
     end
 
-    PencilArrays.transpose!(scratch.solve, scratch.almr)
+    PencilArrays.transpose!(scratch.t_fwd)  # almr → solve (persistent plan, no alloc)
     return scratch.solve
 end
 
@@ -164,20 +191,23 @@ end
 Transpose the solver-orientation `PencilArray` `solve` (output of the radial
 implicit step) back into `Alm` (the DistTransposePlan layout).  Overwrites
 `Alm` in-place.
+
+`solve` MUST be `scratch.solve` (the adapter's cached solve buffer, returned by
+`to_spec_solve` or `spec_storage_to_solve!`).  The persistent `Transposition`
+plan `scratch.t_bwd` is bound to that specific array, allowing zero-alloc
+repeated use.
 """
 function from_spec_solve!(cfg, Alm, solve, plan)
-    scratch = lock(_DISTTRANSPOSE_LOCK) do
-        get!(_DISTTRANSPOSE_SCRATCH_CACHE, cfg) do
-            _build_disttranspose_scratch(cfg, plan)
-        end
-    end
-
+    scratch  = _get_disttranspose_scratch(cfg, plan)
     lmax     = cfg.lmax
     nr_local = length(PencilArrays.range_local(cfg.pencils.r)[3])
     nml      = size(parent(Alm), 2)
 
-    # Transpose back into the (l, r_local, m_bin) layout
-    PencilArrays.transpose!(scratch.almr, solve)
+    # `solve` must be scratch.solve (the persistent plan t_bwd is bound to it).
+    @assert solve === scratch.solve "from_spec_solve!: solve must be scratch.solve (the adapter's cached buffer)"
+
+    # Transpose back into the (l, r_local, m_bin) layout using the persistent plan.
+    PencilArrays.transpose!(scratch.t_bwd)  # solve → almr (no alloc)
 
     # Reorder almr parent (l, r_local, m_bin) → Alm parent (l, m_bin, r_local)
     Ap  = parent(Alm)
@@ -243,7 +273,10 @@ function _build_mbridge(cfg, plan)
               recvcounts, send, recv, vbuf, full3, local_full)
 end
 
-function _get_mbridge(cfg, plan)
+@inline function _get_mbridge(cfg, plan)
+    # Fast path: key is present after the first call — avoid lock + closure alloc.
+    mb = get(_DISTTRANSPOSE_MBRIDGE_CACHE, cfg, nothing)
+    mb !== nothing && return mb
     lock(_DISTTRANSPOSE_LOCK) do
         get!(_DISTTRANSPOSE_MBRIDGE_CACHE, cfg) do
             _build_mbridge(cfg, plan)
