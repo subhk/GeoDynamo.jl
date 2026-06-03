@@ -132,4 +132,114 @@ end
     @test maximum(abs, gout_i .- ref_i) < 1e-10
 end
 
+# ===========================================================================
+# Vector (sphtor) transform via DistTransposePlan (Phase 3 Task 3)
+# ===========================================================================
+#
+# Two paths are exercised (both must use the Phase-3 dist_*_sphtor! path):
+#   SOLVER:     vector_spectral_to_physical!  / vector_physical_to_spectral!
+#   NON-SOLVER: shtnskit_vector_synthesis!    / shtnskit_vector_analysis!
+#
+# Gate (roundtrip): seed deterministic toroidal+poloidal modes (l ≥ m, m ≤ mmax,
+#   m=0 ⇒ imag=0), synthesize the tangential (v_θ,v_φ) via dist_*_sphtor! and the
+#   radial v_r via the scalar dist_synthesis!, then analyse back.  The recovered
+#   tor/pol coefficients must match the seed to < 1e-8 (gathered over COMM_WORLD),
+#   and v_r must be finite and non-zero (domain supplied).
+#
+# Deterministic global-index seeds (distinct for tor vs pol).
+_p3_tor_seed_real(l, m, r) = sinpi(0.11 * (l + 1) + 0.05 * m - 0.017 * r)
+_p3_tor_seed_imag(l, m, r) = m == 0 ? 0.0 : cospi(0.06 * l - 0.08 * (m + 1) + 0.013 * r)
+_p3_pol_seed_real(l, m, r) = cospi(0.09 * (l + 1) - 0.04 * m + 0.021 * r)
+_p3_pol_seed_imag(l, m, r) = m == 0 ? 0.0 : sinpi(0.07 * l + 0.05 * (m + 1) - 0.011 * r)
+
+# l == 0 carries no tangential (sphtor) content — exclude it from the seed and
+# the reference so the roundtrip is the exact identity on the seeded modes.
+function _p3_seed_vector!(spec, cfg, fr, fi)
+    sr = parent(spec.data_real)
+    si = parent(spec.data_imag)
+    fill!(sr, 0.0)
+    fill!(si, 0.0)
+    r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
+    for lm_idx in GeoDynamo.local_spectral_mode_indices(cfg)
+        lm_idx <= cfg.nlm || continue
+        l = cfg.l_values[lm_idx]
+        m = cfg.m_values[lm_idx]
+        (1 <= l <= cfg.lmax && 0 <= m <= cfg.mmax && m <= l) || continue
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
+        slot === nothing && continue
+        for r_idx in r_range
+            lr = r_idx - first(r_range) + 1
+            lr > size(sr, 3) && continue
+            GeoDynamo.set_local_spectral_value!(sr, slot, lr, fr(l, m, r_idx))
+            GeoDynamo.set_local_spectral_value!(si, slot, lr, fi(l, m, r_idx))
+        end
+    end
+    return spec
+end
+
+function _p3_run_vector_roundtrip(cfg, dom, nr, comm; solver_path::Bool)
+    rank   = MPI.Comm_rank(comm)
+    nprocs = MPI.Comm_size(comm)
+
+    tor_in  = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    pol_in  = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    tor_out = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    pol_out = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    vec     = GeoDynamo.create_shtns_vector_field(Float64, cfg, dom, cfg.pencils)
+
+    _p3_seed_vector!(tor_in, cfg, _p3_tor_seed_real, _p3_tor_seed_imag)
+    _p3_seed_vector!(pol_in, cfg, _p3_pol_seed_real, _p3_pol_seed_imag)
+
+    c0 = GeoDynamo._VECTOR_DISTTRANSPOSE_COUNT[]
+    if solver_path
+        GeoDynamo.vector_spectral_to_physical!(tor_in, pol_in, vec; domain = dom)
+        GeoDynamo.vector_physical_to_spectral!(vec, tor_out, pol_out; domain = dom)
+    else
+        GeoDynamo.shtnskit_vector_synthesis!(tor_in, pol_in, vec; domain = dom)
+        GeoDynamo.shtnskit_vector_analysis!(vec, tor_out, pol_out)
+    end
+    # The Phase-3 dist_*_sphtor! path must have been used (synthesis + analysis).
+    used_p3 = GeoDynamo._VECTOR_DISTTRANSPOSE_COUNT[] == c0 + 2
+
+    gt_in_r, gt_in_i = _p3_gather_scalar(tor_in,  cfg, nr, comm)
+    gp_in_r, gp_in_i = _p3_gather_scalar(pol_in,  cfg, nr, comm)
+    gt_o_r,  gt_o_i  = _p3_gather_scalar(tor_out, cfg, nr, comm)
+    gp_o_r,  gp_o_i  = _p3_gather_scalar(pol_out, cfg, nr, comm)
+
+    tor_diff = max(maximum(abs, gt_o_r .- gt_in_r), maximum(abs, gt_o_i .- gt_in_i))
+    pol_diff = max(maximum(abs, gp_o_r .- gp_in_r), maximum(abs, gp_o_i .- gp_in_i))
+
+    # v_r: finite everywhere, non-zero somewhere (gathered max-abs over θ_comm).
+    vr_local = parent(vec.r_component.data)
+    vr_finite = all(isfinite, vr_local)
+    vr_maxabs = isempty(vr_local) ? 0.0 : maximum(abs, vr_local)
+    vr_maxabs = MPI.Allreduce(vr_maxabs, max, comm)
+    vr_allfin = MPI.Allreduce(vr_finite ? 1 : 0, min, comm)
+
+    if rank == 0
+        grid = get(ENV, "GEODYNAMO_PROC_GRID", "$(nprocs)x1")
+        path = solver_path ? "solver" : "nonsolver"
+        println("[p3-vector grid=$grid path=$path] tor_diff=$tor_diff pol_diff=$pol_diff vr_maxabs=$vr_maxabs")
+    end
+
+    return tor_diff, pol_diff, vr_maxabs, vr_allfin == 1, used_p3
+end
+
+@testset "vector spec→phys→spec roundtrip (DistTransposePlan, dealiased)" begin
+    comm = MPI.COMM_WORLD
+    lmax, mmax, nlat, nlon, nr = 8, 8, 12, 24, 8   # dealiased nlon=24 > 2*mmax+1
+    cfg = GeoDynamo.create_shtnskit_config(lmax=lmax, mmax=mmax, nlat=nlat, nlon=nlon, nr=nr)
+    dom = GeoDynamo.create_radial_domain(nr)
+
+    for solver_path in (true, false)
+        tor_diff, pol_diff, vr_maxabs, vr_finite, used_p3 =
+            _p3_run_vector_roundtrip(cfg, dom, nr, comm; solver_path)
+        @test used_p3            # Phase-3 dist_*_sphtor! path is wired in
+        @test vr_finite
+        @test tor_diff < 1e-8
+        @test pol_diff < 1e-8
+        @test vr_maxabs > 1e-8   # v_r non-trivial (poloidal seed drives it)
+    end
+end
+
 FINALIZE_MPI_P3_TRANSPOSE && MPI.Finalize()

@@ -311,6 +311,12 @@ const _SCALAR_GATHER_REDUCE_COUNT = Ref(0)
 # analysis each increment once).  Used by tests to assert the new path is wired in.
 const _SCALAR_DISTTRANSPOSE_COUNT = Ref(0)
 
+# Number of times the Phase-3 DistTransposePlan VECTOR (sphtor) path has run.  Both
+# the solver path (vector_spectral_to_physical! / vector_physical_to_spectral!) and
+# the non-solver path (shtnskit_vector_synthesis! / shtnskit_vector_analysis!)
+# increment this once per call.  Used by tests to assert the new path is wired in.
+const _VECTOR_DISTTRANSPOSE_COUNT = Ref(0)
+
 # ---------------------------------------------------------------------------
 # Phase 3 (Task 2): scalar transforms via DistTransposePlan.
 #
@@ -344,6 +350,32 @@ function _scalar_scratch(config, plan)
             solve = PencilArray{ComplexF64}(undef, scratch.pen_solve_r,
                                             size(parent(scratch.solve), 3))
             (; Alm, fspatial, solve)
+        end
+    end
+end
+
+# Module-level scratch cache for the Phase-3 VECTOR (sphtor) transform buffers,
+# keyed by config identity.  Provides two spectral Alm buffers (Slm=poloidal,
+# Tlm=toroidal), three spatial buffers (Vt, Vp tangential + Vr radial), and a
+# private `solve` buffer for the m-axis bridge (reused sequentially for S then T).
+const _P3_VECTOR_SCRATCH_CACHE = IdDict{Any, Any}()
+
+function _vector_scratch(config, plan)
+    lock(_DISTTRANSPOSE_LOCK) do
+        get!(_P3_VECTOR_SCRATCH_CACHE, config) do
+            Slm    = SHTnsKit.allocate_spectral(plan)   # spheroidal/poloidal
+            Tlm    = SHTnsKit.allocate_spectral(plan)   # toroidal
+            Vr_alm = SHTnsKit.allocate_spectral(plan)   # radial-scaled poloidal (l(l+1)/r·P)
+            Vt     = SHTnsKit.allocate_spatial(plan)    # θ-tangential (nlon, nlat_local, nlev)
+            Vp     = SHTnsKit.allocate_spatial(plan)    # φ-tangential
+            Vr     = SHTnsKit.allocate_spatial(plan)    # radial (scalar synthesis of l(l+1)/r·P)
+            scratch = get!(_DISTTRANSPOSE_SCRATCH_CACHE, config) do
+                _build_disttranspose_scratch(config, plan)
+            end
+            # Private solve buffer (do not alias to_spec_solve's scratch.solve).
+            solve = PencilArray{ComplexF64}(undef, scratch.pen_solve_r,
+                                            size(parent(scratch.solve), 3))
+            (; Slm, Tlm, Vr_alm, Vt, Vp, Vr, solve)
         end
     end
 end

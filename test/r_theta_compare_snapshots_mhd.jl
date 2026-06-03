@@ -40,8 +40,9 @@ tensor_names = [
     "mag_pol_real", "mag_pol_imag",
 ]
 
-local all_pass = true
+all_pass = true
 for (grid, file) in zip(grids[2:end], files[2:end])
+    global all_pass
     nlm, nr, tensors = read_snapshot(file)
     @assert nlm == nlm_ref && nr == nr_ref "Dimension mismatch for $grid"
     @assert length(tensors) == length(refs) "Tensor count mismatch for $grid: got $(length(tensors)), want $(length(refs))"
