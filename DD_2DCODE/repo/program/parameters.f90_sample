@@ -1,0 +1,85 @@
+!***************************************************************************
+! parameters
+!***************************************************************************
+!
+! N		n in [1,N] radial r_n
+! L		l in [0,L) theta
+! M		m in [0,M) phi
+! Mp		index m=0,1,2,.. corresponds to m=0,Mp,2Mp,...
+!
+!***************************************************************************
+#include "../parallel.h"
+ module parameters
+
+!***************************************************************************
+   implicit none
+   save
+
+   integer,	     parameter :: i_N           = 64 
+   integer,	     parameter :: i_Nic         = 1 
+   integer,          parameter :: i_L           = 32 
+   integer,          parameter :: i_M           = 32
+   integer,          parameter :: i_Mp          = 1
+
+!-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+   double precision, parameter :: d_Ro          = 1.0d-4
+   double precision, parameter :: d_Ra          = 32.5d0
+   double precision, parameter :: d_E           = 5d-4
+   double precision, parameter :: d_q           = 5.0d0
+   double precision, parameter :: d_rratio      = 0.35d0
+!-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+   logical,          parameter :: b_rot_tstep   = .false.
+   logical,          parameter :: b_vel_tstep   = .true.
+   logical,          parameter :: b_cod_tstep   = .true.
+   logical,          parameter :: b_mag_tstep   = .true.
+   logical,          parameter :: b_mag_impose  = .false.
+
+!-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+   integer,          parameter :: i_vel_bc      = 1
+   integer,          parameter :: i_cod_bc      = 1
+
+!-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+   integer,          parameter :: i_save_rate1  = 2000
+   integer,          parameter :: i_save_rate2  = 10
+   integer,          parameter :: i_maxtstep    = 100000
+   double precision, parameter :: d_cpuhours    = 1d99
+   double precision, parameter :: d_time        = 0d0
+   double precision, parameter :: d_timestep    = -1d0
+   double precision, parameter :: d_dterr       = 0.5d0
+   double precision, parameter :: d_courant     = 0.8d0
+   double precision, parameter :: d_implicit    = 0.6d0
+   double precision, parameter :: d_init_pert   = 0d0 !1d-4 !*******
+
+!-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+   integer,          parameter :: i_KL  = 3
+   integer,          parameter :: i_L1  = i_L-1
+   integer,          parameter :: i_M1  = i_M-1
+   integer,          parameter :: i_Ma  = i_M*3/2
+   integer,          parameter :: i_H   = i_L*i_M - i_Mp*i_M1*i_M/2
+   integer,          parameter :: i_Th  = i_L*3/2
+   integer,          parameter :: i_Ph  = i_Ma*2
+   integer,          parameter :: i_H1  = i_H/_Nth - 1
+   integer,          parameter :: i_pH1 = (_Nr+i_H1)/_Nr-1
+   integer,          parameter :: i_pN  = (_Nr+i_N-1)/_Nr
+   integer,          parameter :: i_pTh = (_Nth+i_Th-1)/_Nth
+   double precision, parameter :: d_PI  = 3.1415926535897931d0
+
+ contains
+
+!---------------------------------------------------------------------------
+!  check params are ok
+!---------------------------------------------------------------------------
+   subroutine par_precompute()
+      if(i_L<=i_M1*i_Mp) stop 'set L > (M-1)*Mp'
+      if(i_M>1 .and. modulo(i_M,2)==1) stop 'if(M>1) set M even'
+      if(modulo((i_M+1)/2,_Nth)/=0) stop 'require _Nth divides (M+1)/2'
+      if(i_N<_Nr) stop 'set i_N>=_Nr'
+   end subroutine par_precompute
+ 
+
+!***************************************************************************
+ end module parameters
+!***************************************************************************
+
+
+

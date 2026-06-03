@@ -338,7 +338,10 @@ const _VECTOR_DISTTRANSPOSE_COUNT = Ref(0)
 # from the SHTnsBuffers struct (which requires a registered field per key).
 const _P3_SCALAR_SCRATCH_CACHE = IdDict{Any, Any}()
 
-function _scalar_scratch(config, plan)
+@inline function _scalar_scratch(config, plan)
+    # Fast path: avoid lock + closure alloc on every call after warm-up.
+    sc = get(_P3_SCALAR_SCRATCH_CACHE, config, nothing)
+    sc !== nothing && return sc
     lock(_DISTTRANSPOSE_LOCK) do
         get!(_P3_SCALAR_SCRATCH_CACHE, config) do
             Alm      = SHTnsKit.allocate_spectral(plan)
@@ -346,9 +349,10 @@ function _scalar_scratch(config, plan)
             scratch  = get!(_DISTTRANSPOSE_SCRATCH_CACHE, config) do
                 _build_disttranspose_scratch(config, plan)
             end
-            # Private solve buffer (do not alias to_spec_solve's scratch.solve).
-            solve = PencilArray{ComplexF64}(undef, scratch.pen_solve_r,
-                                            size(parent(scratch.solve), 3))
+            # Share scratch.solve (the adapter's persistent buffer) so that
+            # from_spec_solve! can use the cached Transposition plan t_bwd.
+            # All scalar transform calls are sequential — no aliasing hazard.
+            solve = scratch.solve
             (; Alm, fspatial, solve)
         end
     end
@@ -360,7 +364,10 @@ end
 # private `solve` buffer for the m-axis bridge (reused sequentially for S then T).
 const _P3_VECTOR_SCRATCH_CACHE = IdDict{Any, Any}()
 
-function _vector_scratch(config, plan)
+@inline function _vector_scratch(config, plan)
+    # Fast path: avoid lock + closure alloc on every call after warm-up.
+    sc = get(_P3_VECTOR_SCRATCH_CACHE, config, nothing)
+    sc !== nothing && return sc
     lock(_DISTTRANSPOSE_LOCK) do
         get!(_P3_VECTOR_SCRATCH_CACHE, config) do
             Slm    = SHTnsKit.allocate_spectral(plan)   # spheroidal/poloidal
@@ -372,9 +379,11 @@ function _vector_scratch(config, plan)
             scratch = get!(_DISTTRANSPOSE_SCRATCH_CACHE, config) do
                 _build_disttranspose_scratch(config, plan)
             end
-            # Private solve buffer (do not alias to_spec_solve's scratch.solve).
-            solve = PencilArray{ComplexF64}(undef, scratch.pen_solve_r,
-                                            size(parent(scratch.solve), 3))
+            # Share scratch.solve (the adapter's persistent buffer) so that
+            # from_spec_solve! can use the cached Transposition plan t_bwd.
+            # The vector path calls from_spec_solve! twice (S then T) but always
+            # sequentially, so sharing scratch.solve is safe.
+            solve = scratch.solve
             (; Slm, Tlm, Vr_alm, Vt, Vp, Vr, solve)
         end
     end
