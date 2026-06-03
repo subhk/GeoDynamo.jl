@@ -111,20 +111,43 @@ function compute_spectral_energy_diagnostics!(diagnostics::Dict{String, Float64}
     end
 
     config = field_info.config
-    l_values = config.l_values
 
-    l_max = maximum(l_values)
+    # Use config.lmax (authoritative) rather than maximum(l_values), which is
+    # identical but avoids a redundant reduction over the full nlm list.
+    l_max = config.lmax
     l_energies = zeros(Float64, l_max + 1)
 
-    for (idx, l) in enumerate(l_values)
-        if idx <= size(real_part, 1)
-            l_energy = zero(eltype(real_part))
-            for j in axes(real_part, 2), k in axes(real_part, 3)
-
-                l_energy += real_part[idx, j, k]^2 + imag_part[idx, j, k]^2
-            end
-            l_energies[l + 1] += l_energy
+    # Map storage slots to global (l, m) via local_spectral_lm_map.  The spec
+    # pencil's dim-1 is the l-slot axis and dim-2 is the m-slot axis; lm_map
+    # has the same shape as (real_part dim-1, real_part dim-2) so indices
+    # align exactly.  Slots with lm_map value 0 are unused padding and are
+    # skipped.  This is correct for every Phase (single-rank dense nlm list,
+    # Phase-3 (lmax+1,mmax+1,nr) rectangular grid, and any future layout).
+    lm_map = local_spectral_lm_map(config)
+    for i1 in axes(real_part, 1), i2 in axes(real_part, 2)
+        # Guard: lm_map may be smaller than real_part if shapes diverge (e.g.
+        # a legacy caller passes a differently-shaped array); skip silently.
+        (i1 > size(lm_map, 1) || i2 > size(lm_map, 2)) && continue
+        mode = lm_map[i1, i2]
+        mode == 0 && continue
+        l = config.l_values[mode]
+        l_energy = zero(Float64)
+        for k in axes(real_part, 3)
+            l_energy += Float64(real_part[i1, i2, k])^2 + Float64(imag_part[i1, i2, k])^2
         end
+        l_energies[l + 1] += l_energy
+    end
+
+    # Reduce l_energies across all MPI ranks so that every rank holds the
+    # globally-summed per-degree energy.  Each rank only owns a subset of the
+    # m-slots (distributed spec pencil), so without this reduction the
+    # per-degree sums are partial and peak_l / spectral_centroid are wrong.
+    # This call is reached uniformly on all ranks (field_info.has_config is
+    # rank-uniform; no rank-divergent early return above), so the collective
+    # is safe from deadlock.
+    comm = get_comm()
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        l_energies = MPI.Allreduce(l_energies, MPI.SUM, comm)
     end
 
     total_energy = sum(l_energies)
