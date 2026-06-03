@@ -130,34 +130,6 @@ mutable struct SHTnsBuffers
     # MIE vector-transform poloidal coefficient buffers (radial-component path)
     mie_pol_coeffs_buffer::Union{AbstractArray, Nothing}
     mie_pol_coeffs_gathered::Union{AbstractArray, Nothing}
-
-    # θ-distributed PencilArray buffers for dist_synthesis / dist_analysis.
-    # Both are shaped (nθ_local, nlon) over the theta_phys pencil and are
-    # allocated once per config (cached lazily by get_cached_buffer!).
-    # theta_phys_proto is the read-only prototype passed to dist_synthesis;
-    # theta_phys_slab  is the mutable workspace filled for dist_analysis input (vt);
-    # theta_phys_slab2 is a second mutable workspace for dist_analysis input (vp).
-    theta_phys_proto::Union{PencilArray, Nothing}
-    theta_phys_slab::Union{PencilArray, Nothing}
-    theta_phys_slab2::Union{PencilArray, Nothing}
-
-    # r×θ scalar transform buffers (Phase 2).
-    # spec_transform_real/imag: PencilArrays in the transform orientation (decomp (1,3):
-    # l over θ_ranks, r over r_ranks, m LOCAL). Reused across radial loops.
-    # dense_coeffs_buffer: (lmax+1, mmax+1) ComplexF64 dense matrix for per-level
-    # θ_comm Allreduce (l-completion) before/after dist_synthesis/dist_analysis.
-    spec_transform_real::Union{PencilArray, Nothing}
-    spec_transform_imag::Union{PencilArray, Nothing}
-    dense_coeffs_buffer::Union{Matrix{ComplexF64}, Nothing}
-
-    # r×θ vector transform buffers (Phase 2, Task 5).
-    # spec_transform_pol_real/imag: same layout as spec_transform_real/imag but for the
-    # poloidal spectral field. spec_transform_real/imag serves as the toroidal buffer.
-    # dense_coeffs_buffer2: second (lmax+1, mmax+1) dense matrix so toroidal and poloidal
-    # can be Allreduced concurrently (one call each) within the same r-level loop.
-    spec_transform_pol_real::Union{PencilArray, Nothing}
-    spec_transform_pol_imag::Union{PencilArray, Nothing}
-    dense_coeffs_buffer2::Union{Matrix{ComplexF64}, Nothing}
 end
 
 """
@@ -171,10 +143,7 @@ function SHTnsBuffers()
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
-        nothing, nothing, nothing, nothing,
-        nothing, nothing, nothing,
-        nothing, nothing, nothing,
-        nothing, nothing, nothing
+        nothing, nothing, nothing, nothing
     )
 end
 
@@ -209,16 +178,7 @@ const _BUFFERS_FIELD_MAP = Dict{Symbol, Symbol}(
     :mie_spheroidal_real => :mie_spheroidal_real,
     :mie_spheroidal_imag => :mie_spheroidal_imag,
     :mie_pol_coeffs_buffer => :mie_pol_coeffs_buffer,
-    :mie_pol_coeffs_gathered => :mie_pol_coeffs_gathered,
-    :theta_phys_proto => :theta_phys_proto,
-    :theta_phys_slab => :theta_phys_slab,
-    :theta_phys_slab2 => :theta_phys_slab2,
-    :spec_transform_real => :spec_transform_real,
-    :spec_transform_imag => :spec_transform_imag,
-    :dense_coeffs_buffer => :dense_coeffs_buffer,
-    :spec_transform_pol_real => :spec_transform_pol_real,
-    :spec_transform_pol_imag => :spec_transform_pol_imag,
-    :dense_coeffs_buffer2 => :dense_coeffs_buffer2
+    :mie_pol_coeffs_gathered => :mie_pol_coeffs_gathered
 )
 
 @inline function _shtns_buffer_field(::Val{key}) where {key}
@@ -320,15 +280,6 @@ function clear_buffer_cache!(config)
         b.phi_slice_buffer = nothing
         b.generic_slice_buffer = nothing
         b.vector_component_buffer = nothing
-        b.theta_phys_proto = nothing
-        b.theta_phys_slab = nothing
-        b.theta_phys_slab2 = nothing
-        b.spec_transform_real = nothing
-        b.spec_transform_imag = nothing
-        b.dense_coeffs_buffer = nothing
-        b.spec_transform_pol_real = nothing
-        b.spec_transform_pol_imag = nothing
-        b.dense_coeffs_buffer2 = nothing
     end
 end
 
@@ -719,8 +670,8 @@ degree/order grid. Invalid `(l,m)` slots such as `m > l` are left unmapped.
 # Returns
 NamedTuple with pencil configurations:
 (:theta, :θ, :phi, :φ, :r, :spec, :mixed, :theta_phys).
-`theta_phys` is a 2D `(nlat, nlon)` θ-distributed / φ-local prototype pencil used as
-`prototype_θφ` for SHTnsKit's per-radial-level `dist_synthesis`/`dist_analysis`.
+`theta_phys` is a 2D `(nlat, nlon)` θ-distributed / φ-local prototype pencil whose
+θ-split matches `pencils.r`, useful for structural invariant checks.
 """
 function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
         sht_config::SHTnsKit.SHTConfig,
@@ -789,14 +740,6 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     spec_dims = spectral_mode_grid_dims(lmax, mmax, nr)
     pencil_spec = Pencil(topology, spec_dims, (2, 1))
 
-    # Transform orientation (used by the Phase-2 VECTOR path): l (dim1) over θ_ranks,
-    # r (dim3) over r_ranks, m (dim2) LOCAL (mmax+1).  PencilArrays.transpose!
-    # redistributes pencil_spec → this orientation globally (a 2-axis move now that
-    # pencil_spec is (2,1)); the result is still the correct (l-θ-dist, full-m,
-    # r-r-dist) layout per local r-level (full-m × l-subset), enabling the per-level
-    # dist SH vector calls.
-    pencil_spec_transform = Pencil(topology, spec_dims, (1, 3))
-
     # Compatibility alias for older call sites. Mixed spectral storage must obey
     # the same rectangular (l, m, r) ownership contract as the spectral pencil.
 
@@ -818,7 +761,6 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
         φ = pencil_phi,        # Unicode alias
         r = pencil_r,
         spec = pencil_spec,
-        spec_transform = pencil_spec_transform,
         mixed = pencil_spec,
         theta_phys = pencil_theta_phys,
         θ_comm = θ_comm,

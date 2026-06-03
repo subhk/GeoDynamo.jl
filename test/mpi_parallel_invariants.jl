@@ -124,10 +124,6 @@ end
             local_spec_r = length(GeoDynamo.range_local(pencils.spec, 3))
             @test local_spec_r == nr_even
 
-            # spec_transform pencil: l over θ_ranks, r over r_ranks, m LOCAL.
-            local_st_m = length(GeoDynamo.range_local(pencils.spec_transform, 2))
-            @test local_st_m == mmax + 1   # m is full/local in transform orientation
-
             @test haskey(plans, :θ_to_φ)
             @test haskey(plans, :φ_to_θ)
 
@@ -151,24 +147,6 @@ end
 
             @test global_sum_mid  == global_sum_src
             @test global_sum_back == global_sum_src
-        end
-
-        @testset "r<->lm transpose roundtrip is identity (multi-rank)" begin
-            cfg = GeoDynamo.create_shtnskit_config(
-                lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr_even)
-
-            # Allocate in solve orientation (spec: l-dist / m-dist / r-local)
-            a = GeoDynamo.create_pencil_array(ComplexF64, cfg.pencils.spec; init = :zero)
-            rank_offset = ComplexF64(MPI.Comm_rank(comm) + 1)
-            p = parent(a)
-            for i in eachindex(p); p[i] = rank_offset + im * ComplexF64(i); end
-            a0 = copy(parent(a))
-
-            b = GeoDynamo.create_pencil_array(ComplexF64, cfg.pencils.spec_transform; init = :zero)
-            GeoDynamo.transpose_solve_to_transform!(b, a)   # spec -> spec_transform
-            GeoDynamo.transpose_transform_to_solve!(a, b)   # back to spec
-
-            @test parent(a) == a0   # exact identity (no floating-point error)
         end
 
         @testset "spec pencil r-local: radial loops synchronized for uneven nr" begin
