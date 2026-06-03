@@ -67,17 +67,31 @@ end
             cfg = GeoDynamo.create_shtnskit_config(
                 lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr_even)
 
-            # ---- spec pencil: l over θ_ranks, m over r_ranks, r LOCAL ----
-            # Each rank should own at least 1 m-column.
-            cfg_spec_m = length(GeoDynamo.range_local(cfg.pencils.spec, 2))
+            # ---- spec pencil: Phase-3 decomp (2,1) ----
+            # dim-2 (m, 0..mmax) → axis-1 (θ_comm)  → m distributed over θ_ranks
+            # dim-1 (l, 0..lmax) → axis-2 (r_comm)  → l distributed over r_ranks
+            # dim-3 (r)          → not decomposed    → r LOCAL (full nr on every rank)
+            # Each rank should own at least 1 m-column and at least 1 l-row.
+            cfg_spec_m = length(GeoDynamo.range_local(cfg.pencils.spec, 2))  # m-slice (θ_comm split)
+            cfg_spec_l = length(GeoDynamo.range_local(cfg.pencils.spec, 1))  # l-slice (r_comm split)
             cfg_spec_elements = prod(size(parent(GeoDynamo.create_pencil_array(
                 Float64, cfg.pencils.spec; init = :zero))))
             min_cfg_spec_m = MPI.Allreduce(cfg_spec_m, MPI.MIN, comm)
             max_cfg_spec_m = MPI.Allreduce(cfg_spec_m, MPI.MAX, comm)
+            min_cfg_spec_l = MPI.Allreduce(cfg_spec_l, MPI.MIN, comm)
+            max_cfg_spec_l = MPI.Allreduce(cfg_spec_l, MPI.MAX, comm)
+            sum_cfg_spec_m = MPI.Allreduce(cfg_spec_m, MPI.SUM, comm)
+            sum_cfg_spec_l = MPI.Allreduce(cfg_spec_l, MPI.SUM, comm)
             min_cfg_spec_elements = MPI.Allreduce(cfg_spec_elements, MPI.MIN, comm)
 
+            # m partitioned over θ_comm: each rank ≥1; sum over ALL ranks = (mmax+1)*r_ranks
             @test min_cfg_spec_m > 0
             @test max_cfg_spec_m <= mmax + 1
+            @test sum_cfg_spec_m == (mmax + 1) * r_ranks  # each m column counted r_ranks times
+            # l partitioned over r_comm: each rank ≥1; sum over ALL ranks = (lmax+1)*θ_ranks
+            @test min_cfg_spec_l > 0
+            @test max_cfg_spec_l <= lmax + 1
+            @test sum_cfg_spec_l == (lmax + 1) * θ_ranks  # each l row counted θ_ranks times
             @test min_cfg_spec_elements > 0
 
             # ---- r pencil: θ-dist / φ-local / r-dist (Phase 2) ----
@@ -109,15 +123,27 @@ end
             pencils = GeoDynamo.create_pencil_topology(cfg; nr = nr_even, optimize = true)
             plans = GeoDynamo.create_transpose_plans(pencils)
 
-            local_spec_m = length(GeoDynamo.range_local(pencils.spec, 2))
+            # Phase-3 spec pencil assertions: decomp (2,1) — m→θ_comm, l→r_comm, r LOCAL.
+            local_spec_m = length(GeoDynamo.range_local(pencils.spec, 2))  # m-slice (θ_comm)
+            local_spec_l = length(GeoDynamo.range_local(pencils.spec, 1))  # l-slice (r_comm)
             local_spec_elements = prod(size(parent(GeoDynamo.create_pencil_array(
                 Float64, pencils.spec; init = :zero))))
-            min_spec_m = MPI.Allreduce(local_spec_m, MPI.MIN, comm)
-            max_spec_m = MPI.Allreduce(local_spec_m, MPI.MAX, comm)
+            min_spec_m    = MPI.Allreduce(local_spec_m, MPI.MIN, comm)
+            max_spec_m    = MPI.Allreduce(local_spec_m, MPI.MAX, comm)
+            sum_spec_m    = MPI.Allreduce(local_spec_m, MPI.SUM, comm)
+            min_spec_l    = MPI.Allreduce(local_spec_l, MPI.MIN, comm)
+            max_spec_l    = MPI.Allreduce(local_spec_l, MPI.MAX, comm)
+            sum_spec_l    = MPI.Allreduce(local_spec_l, MPI.SUM, comm)
             min_spec_elements = MPI.Allreduce(local_spec_elements, MPI.MIN, comm)
 
+            # m over θ_comm: each rank ≥1; sum = (mmax+1)*r_ranks
             @test min_spec_m > 0
             @test max_spec_m <= mmax + 1
+            @test sum_spec_m == (mmax + 1) * r_ranks
+            # l over r_comm: each rank ≥1; sum = (lmax+1)*θ_ranks
+            @test min_spec_l > 0
+            @test max_spec_l <= lmax + 1
+            @test sum_spec_l == (lmax + 1) * θ_ranks
             @test min_spec_elements > 0
 
             # spec is r-LOCAL: every rank has the full nr_even radial levels.
@@ -150,10 +176,10 @@ end
         end
 
         @testset "spec pencil r-local: radial loops synchronized for uneven nr" begin
-            # Phase 2 constraint: the SPEC pencil (solve orientation) must keep r LOCAL
-            # (every rank sees all nr radial levels) so that per-(l,m)-mode banded radial
-            # solves run without any collective synchronisation.  This must hold even when
-            # nr is not divisible by r_ranks.
+            # Phase-3 constraint: the SPEC pencil (solve orientation, decomp (2,1)) must
+            # keep r LOCAL (every rank sees all nr radial levels) so that per-(l,m)-mode
+            # banded radial solves run without any collective synchronisation.  This must
+            # hold even when nr is not divisible by r_ranks (uneven radial distribution).
             uneven_cfg = GeoDynamo.create_shtnskit_config(
                 lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr_uneven)
 

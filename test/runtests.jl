@@ -196,6 +196,11 @@ additional_tests = (
     "r_theta_equivalence.jl",
     # Legacy scalar transform migration (Phase 2 follow-up)
     "legacy_scalar_rtheta.jl",
+    # Phase-3 DistTransposePlan gate (Task 5)
+    # Runs as a np=1 smoke test inside the suite (Alm↔spec_solve roundtrip,
+    # scalar+vector dist_* roundtrip, partition-neutrality).  Multi-rank gate
+    # (2×2/2×1 p3_transpose + mpi_parallel_invariants) runs via the MPI shell runner.
+    "p3_transpose.jl",
 )
 
 previous_setting = haskey(ENV, MPI_FINALIZE_KEY) ? ENV[MPI_FINALIZE_KEY] : nothing
