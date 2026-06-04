@@ -61,6 +61,19 @@ GeoDynamo.prognostic_fields
 GeoDynamo.add_callback!
 ```
 
+## Lower-Level Solver API
+
+The procedural entry points underlying the high-level `Simulation`/`run!` API.
+
+```@docs
+GeoDynamo.initialize_simulation
+GeoDynamo.run_simulation!
+GeoDynamo.create_solver_backend
+GeoDynamo.initialize_solver_state
+GeoDynamo.solver_step!
+GeoDynamo.run_solver!
+```
+
 ## Timestep And Output API
 
 ```@docs
