@@ -54,7 +54,6 @@
 # ├── interpolation.jl        # Grid interpolation
 # ├── programmatic.jl         # Programmatic pattern generation utility
 # ├── integration.jl          # Integration with field structures
-# ├── timestepping.jl         # Integration with timestepping
 # └── topography/             # Boundary topography effects
 #
 # Matrix-embedded BC files (included by their respective field modules):

@@ -289,24 +289,27 @@ end
     # (r==0) they are forced to zero (nonlinear.jl ~230-254, incl. the r==0
     # branch at 235-243).
     @testset "geometric (1/r) factors + r=0 centre" begin
+        # Private copy so zeroing a radius below does not mutate the shared `dom`
+        # fixture (keeps this testset order-independent).
+        dom_local = deepcopy(dom)
         tlp, tlm = G.build_theta_gradient_neighbors(cfg)
         nr_local = length(G.local_range(cfg.pencils.spec, 3))
-        mkspec() = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+        mkspec() = G.create_shtns_spectral_field(Float64, cfg, dom_local, cfg.pencils.spec)
         ws = G.SolverGradientWorkspace(
             mkspec(), mkspec(), mkspec(),
             zeros(Float64, cfg.nlm, nr_local), zeros(Float64, cfg.nlm, nr_local),
             tlp, tlm)
-        temp = G.create_shtns_temperature_field(Float64, cfg, dom)
+        temp = G.create_shtns_temperature_field(Float64, cfg, dom_local)
         m20 = G.get_mode_index(cfg, 2, 0)
         s = G.local_spectral_storage_slot(cfg, m20)
-        for r in 1:dom.N
+        for r in 1:dom_local.N
             G.set_local_spectral_value!(parent(ws.∇θ_spec.data_real), s, r, 4.0)
             G.set_local_spectral_value!(parent(ws.∇φ_spec.data_real), s, r, 6.0)
         end
         # Force a ball-centre at radial index 1 by zeroing its physical radius.
-        dom.r[1, 4] = 0.0
-        rinv2 = dom.r[2, 3]
-        G.apply_geometric_factors_spectral!(ws, temp, dom)
+        dom_local.r[1, 4] = 0.0
+        rinv2 = dom_local.r[2, 3]
+        G.apply_geometric_factors_spectral!(ws, temp, dom_local)
         # centre: θ and φ gradients zeroed
         @test G.local_spectral_value(parent(ws.∇θ_spec.data_real), s, 1) == 0.0
         @test G.local_spectral_value(parent(ws.∇φ_spec.data_real), s, 1) == 0.0
