@@ -114,6 +114,7 @@ additional_tests = (
     "imex_implicit_steps.jl",
     "numerics_extended.jl",
     "tier3_kernels_extended.jl",
+    "tail_coverage_extended.jl",
     "index_mapping.jl",
     "output_scheduling.jl",
     "boundary_types.jl",
