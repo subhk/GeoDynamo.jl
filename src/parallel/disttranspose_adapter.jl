@@ -167,6 +167,24 @@ The returned `PencilArray` is a cached scratch buffer — do not retain a
 reference past the next call to `to_spec_solve` or `from_spec_solve!` on the
 same `cfg`.
 """
+# Type-stable reorder kernels (function barriers). `Ap`/`pa` come from `parent()`
+# of ::Any-typed cached scratch/Alm (IdDict{Any,Any}); indexing them inline boxes
+# every element. Passing them as plain args here forces concrete specialization.
+function _reorder_alm_to_almr!(pa, Ap, nr_local::Int, nml::Int, lmax::Int)
+    fill!(pa, zero(eltype(pa)))
+    @inbounds for k in 1:nr_local, jm in 1:nml, il in 1:(lmax + 1)
+        pa[il, k, jm] = Ap[il, jm, k]
+    end
+    return nothing
+end
+
+function _reorder_almr_to_alm!(Ap, pa, nr_local::Int, nml::Int, lmax::Int)
+    @inbounds for k in 1:nr_local, jm in 1:nml, il in 1:(lmax + 1)
+        Ap[il, jm, k] = pa[il, k, jm]
+    end
+    return nothing
+end
+
 function to_spec_solve(cfg, Alm, plan)
     scratch  = _get_disttranspose_scratch(cfg, plan)
     lmax     = cfg.lmax
@@ -174,12 +192,7 @@ function to_spec_solve(cfg, Alm, plan)
     nml      = size(parent(Alm), 2)
 
     # Reorder Alm parent (l, m_bin, r_local) → almr parent (l, r_local, m_bin)
-    Ap  = parent(Alm)
-    pa  = parent(scratch.almr)
-    fill!(pa, zero(ComplexF64))
-    @inbounds for k in 1:nr_local, jm in 1:nml, il in 1:(lmax + 1)
-        pa[il, k, jm] = Ap[il, jm, k]
-    end
+    _reorder_alm_to_almr!(parent(scratch.almr), parent(Alm), nr_local, nml, lmax)
 
     PencilArrays.transpose!(scratch.t_fwd)  # almr → solve (persistent plan, no alloc)
     return scratch.solve
@@ -210,11 +223,7 @@ function from_spec_solve!(cfg, Alm, solve, plan)
     PencilArrays.transpose!(scratch.t_bwd)  # solve → almr (no alloc)
 
     # Reorder almr parent (l, r_local, m_bin) → Alm parent (l, m_bin, r_local)
-    Ap  = parent(Alm)
-    pa  = parent(scratch.almr)
-    @inbounds for k in 1:nr_local, jm in 1:nml, il in 1:(lmax + 1)
-        Ap[il, jm, k] = pa[il, k, jm]
-    end
+    _reorder_almr_to_alm!(parent(Alm), parent(scratch.almr), nr_local, nml, lmax)
     return nothing
 end
 
