@@ -14,6 +14,14 @@ GeoDynamo.arch_zeros(g::GeoDynamo.GPU, FT::DataType, dims...) =
 
 GeoDynamo.on_architecture(::GeoDynamo.GPU, a) = CUDA.cu(a)
 
+GeoDynamo.gpu_functional() = CUDA.functional()
+GeoDynamo.gpu_synchronize() = (CUDA.synchronize(); nothing)
+
+function GeoDynamo._gpu_default_backend()
+    CUDA.functional() || error("GPU() called but CUDA.functional() is false (no usable CUDA device).")
+    return CUDA.CUDABackend()
+end
+
 function host_fill_scalar_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)
     return GeoDynamo.Solver.solver_cpu_fill_scalar_coeff_buffer!(
         coeffs_buffer,
