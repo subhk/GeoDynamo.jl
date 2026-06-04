@@ -110,6 +110,7 @@ additional_tests = (
     # Pure unit tests (no MPI)
     "banded_operators.jl",
     "banded_operations.jl",
+    "numerics_banded_and_vector.jl",
     "index_mapping.jl",
     "output_scheduling.jl",
     "boundary_types.jl",
