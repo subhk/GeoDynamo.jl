@@ -74,14 +74,6 @@ GeoDynamo.bcs.reset_boundary_conditions!
 GeoDynamo.bcs.get_boundary_condition_summary
 GeoDynamo.bcs.apply_temperature_boundaries!
 GeoDynamo.bcs.apply_composition_boundaries!
-GeoDynamo.bcs.update_boundary_conditions_for_timestep!
-GeoDynamo.bcs.apply_boundary_conditions_to_rhs!
-GeoDynamo.bcs.enforce_boundary_conditions_in_solution!
-GeoDynamo.bcs.compute_boundary_condition_residual
-GeoDynamo.bcs.log_boundary_condition_status
-GeoDynamo.bcs.get_boundary_data
-GeoDynamo.bcs.get_time_index
-GeoDynamo.bcs.get_field_from_state
 ```
 
 ## Boundary Interpolation And Programmatic API
@@ -146,14 +138,6 @@ Filter = t -> !(t in (
     GeoDynamo.bcs.get_boundary_condition_summary,
     GeoDynamo.bcs.apply_temperature_boundaries!,
     GeoDynamo.bcs.apply_composition_boundaries!,
-    GeoDynamo.bcs.update_boundary_conditions_for_timestep!,
-    GeoDynamo.bcs.apply_boundary_conditions_to_rhs!,
-    GeoDynamo.bcs.enforce_boundary_conditions_in_solution!,
-    GeoDynamo.bcs.compute_boundary_condition_residual,
-    GeoDynamo.bcs.log_boundary_condition_status,
-    GeoDynamo.bcs.get_boundary_data,
-    GeoDynamo.bcs.get_time_index,
-    GeoDynamo.bcs.get_field_from_state,
     GeoDynamo.bcs.interpolate_boundary_to_grid,
     GeoDynamo.bcs.create_interpolation_cache,
     GeoDynamo.bcs.interpolate_with_cache,
