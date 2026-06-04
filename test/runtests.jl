@@ -143,6 +143,7 @@ additional_tests = (
     "tolerance_and_timestep.jl",
     "topography_data.jl",
     "gpu_backend.jl",
+    "gpu_phase0_foundation.jl",
     "user_api.jl",
     "oceananigans_api.jl",
     # MPI-aware tests
