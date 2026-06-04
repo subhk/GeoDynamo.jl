@@ -431,12 +431,9 @@ function scalar_spectral_to_physical!(
 
     # 4. Copy fspatial (nlon, nlat_local, lev) → phys.data (nlat_local, nlon, nr_local)
     #    with the first-two-axis transpose; lev ↔ r_local are local per rank.
-    fp = parent(fspatial)
-    pd = parent(phys.data)
-    nθ = size(pd, 1); nφ = size(pd, 2); nlev = min(size(fp, 3), size(pd, 3))
-    @inbounds for k in 1:nlev, j in 1:nφ, i in 1:nθ
-        pd[i, j, k] = fp[j, i, k]
-    end
+    #    Function barrier: sc is ::Any from IdDict cache; parent(fspatial) would be
+    #    ::Any and box every element.  Pass the parents as concrete-typed args.
+    _copy_spatial_to_physical!(parent(phys.data), parent(fspatial))
 
     _SCALAR_DISTTRANSPOSE_COUNT[] += 1
     return phys
@@ -602,12 +599,9 @@ function scalar_physical_to_spectral!(
 
     # 1. Copy phys.data (nlat_local, nlon, nr_local) → fspatial (nlon, nlat_local, lev)
     #    with the first-two-axis transpose; lev ↔ r_local are local per rank.
-    pd = parent(phys.data)
-    fp = parent(fspatial)
-    nθ = size(pd, 1); nφ = size(pd, 2); nlev = min(size(fp, 3), size(pd, 3))
-    @inbounds for k in 1:nlev, j in 1:nφ, i in 1:nθ
-        fp[j, i, k] = pd[i, j, k]
-    end
+    #    Function barrier: sc is ::Any from IdDict cache; parent(fspatial) would be
+    #    ::Any and box every element.  Pass the parents as concrete-typed args.
+    _copy_physical_to_spatial!(parent(fspatial), parent(phys.data))
 
     # 2. Distributed analysis: fspatial → Alm (batched over all nr_local).
     SHTnsKit.dist_analysis!(plan, Alm, fspatial)

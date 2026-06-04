@@ -763,6 +763,67 @@ function store_zero_component!(v_component, r_local, config)
     return v_component
 end
 
+# ---------------------------------------------------------------------------
+# Phase-3 copy-loop function barriers (also used by nonlinear.jl scalar drivers)
+#
+# `_scalar_scratch` / `_vector_scratch` return from an `IdDict{Any,Any}`, so
+# every field read from the returned NamedTuple is typed `::Any`.  Indexing an
+# `::Any` array boxes every element access (~2.3 MB/call for scalar s2p at
+# nr=32).  Routing the copy loops through these concrete-typed helpers lets
+# Julia specialise on the real runtime array types and eliminate the boxing.
+# No type annotation is needed on the arguments: Julia infers the concrete
+# types from the call site.  numerics.jl is included before nonlinear.jl so
+# the definitions live here and are visible to both files.
+# ---------------------------------------------------------------------------
+
+"""    _copy_spatial_to_physical!(pd, fp)
+Copy `fp[j, i, k]` → `pd[i, j, k]` (fspatial/Vt/Vp → phys, synthesis direction).
+`pd` is (nlat, nlon, nlev_pd), `fp` is (nlon, nlat, nlev_fp).
+"""
+@inline function _copy_spatial_to_physical!(pd, fp)
+    nθ = size(pd, 1); nφ = size(pd, 2); nlev = min(size(fp, 3), size(pd, 3))
+    @inbounds for k in 1:nlev, j in 1:nφ, i in 1:nθ
+        pd[i, j, k] = fp[j, i, k]
+    end
+    return nothing
+end
+
+"""    _copy_spatial2_to_physical2!(pd1, pd2, fp1, fp2)
+Copy two spatial arrays to two physical arrays in one pass (Vt+Vp vector synthesis).
+"""
+@inline function _copy_spatial2_to_physical2!(pd1, pd2, fp1, fp2)
+    nθ = size(pd1, 1); nφ = size(pd1, 2); nlev = min(size(fp1, 3), size(pd1, 3))
+    @inbounds for k in 1:nlev, j in 1:nφ, i in 1:nθ
+        pd1[i, j, k] = fp1[j, i, k]
+        pd2[i, j, k] = fp2[j, i, k]
+    end
+    return nothing
+end
+
+"""    _copy_physical_to_spatial!(fp, pd)
+Copy `pd[i, j, k]` → `fp[j, i, k]` (phys → fspatial/Vt/Vp, analysis direction).
+`pd` is (nlat, nlon, nlev_pd), `fp` is (nlon, nlat, nlev_fp).
+"""
+@inline function _copy_physical_to_spatial!(fp, pd)
+    nθ = size(pd, 1); nφ = size(pd, 2); nlev = min(size(fp, 3), size(pd, 3))
+    @inbounds for k in 1:nlev, j in 1:nφ, i in 1:nθ
+        fp[j, i, k] = pd[i, j, k]
+    end
+    return nothing
+end
+
+"""    _copy_physical2_to_spatial2!(fp1, fp2, pd1, pd2)
+Copy two physical arrays to two spatial arrays in one pass (Vt+Vp vector analysis).
+"""
+@inline function _copy_physical2_to_spatial2!(fp1, fp2, pd1, pd2)
+    nθ = size(pd1, 1); nφ = size(pd1, 2); nlev = min(size(fp1, 3), size(pd1, 3))
+    @inbounds for k in 1:nlev, j in 1:nφ, i in 1:nθ
+        fp1[j, i, k] = pd1[i, j, k]
+        fp2[j, i, k] = pd2[i, j, k]
+    end
+    return nothing
+end
+
 function vector_spectral_to_physical!(
         toroidal::SpectralFieldType{T},
         poloidal::SpectralFieldType{T},
@@ -812,16 +873,12 @@ function vector_spectral_to_physical_disttranspose!(
 
     # 3. Copy Vt/Vp (nlon, nlat_local, lev) → v_θ/v_φ (nlat_local, nlon, nr_local)
     #    with the first-two-axis transpose; lev ↔ r_local align per rank.
+    #    Function barrier: sc is ::Any from IdDict cache; parent(Vt/Vp) would be
+    #    ::Any and box every element.  Use the concrete-typed helper.
     v_theta = parent(vector_field.θ_component.data)
     v_phi   = parent(vector_field.φ_component.data)
     v_r     = parent(vector_field.r_component.data)
-    vtp = parent(Vt); vpp = parent(Vp)
-    nθ = size(v_theta, 1); nφ = size(v_theta, 2)
-    nlev = min(size(vtp, 3), size(v_theta, 3))
-    @inbounds for k in 1:nlev, j in 1:nφ, i in 1:nθ
-        v_theta[i, j, k] = vtp[j, i, k]
-        v_phi[i, j, k]   = vpp[j, i, k]
-    end
+    _copy_spatial2_to_physical2!(v_theta, v_phi, parent(Vt), parent(Vp))
 
     # 4. Radial component v_r = (l(l+1)/r-factor)·P via scalar dist_synthesis!.
     r_range_ph = PencilArrays.range_local(vector_field.θ_component.pencil)[3]
@@ -845,10 +902,8 @@ function vector_spectral_to_physical_disttranspose!(
             end
         end
         SHTnsKit.dist_synthesis!(plan, Vr, Vr_alm)
-        vrp = parent(Vr)
-        @inbounds for k in 1:nlev, j in 1:nφ, i in 1:nθ
-            v_r[i, j, k] = vrp[j, i, k]
-        end
+        # Function barrier: Vr is ::Any from sc (IdDict); parent(Vr) would be ::Any.
+        _copy_spatial_to_physical!(v_r, parent(Vr))
     else
         fill!(v_r, zero(eltype(v_r)))
     end
@@ -887,15 +942,11 @@ function vector_physical_to_spectral_disttranspose!(
 
     # 1. Copy v_θ/v_φ (nlat_local, nlon, nr_local) → Vt/Vp (nlon, nlat_local, lev)
     #    with the first-two-axis transpose; lev ↔ r_local align per rank.
+    #    Function barrier: sc is ::Any from IdDict cache; parent(Vt/Vp) would be
+    #    ::Any and box every element.  Use the concrete-typed helper.
     v_theta = parent(vector_field.θ_component.data)
     v_phi   = parent(vector_field.φ_component.data)
-    vtp = parent(Vt); vpp = parent(Vp)
-    nθ = size(v_theta, 1); nφ = size(v_theta, 2)
-    nlev = min(size(vtp, 3), size(v_theta, 3))
-    @inbounds for k in 1:nlev, j in 1:nφ, i in 1:nθ
-        vtp[j, i, k] = v_theta[i, j, k]
-        vpp[j, i, k] = v_phi[i, j, k]
-    end
+    _copy_physical2_to_spatial2!(parent(Vt), parent(Vp), v_theta, v_phi)
 
     # 2. Distributed sphtor analysis: (Vt, Vp) → (Slm=poloidal, Tlm=toroidal).
     SHTnsKit.dist_analysis_sphtor!(plan, Slm, Tlm, Vt, Vp)
