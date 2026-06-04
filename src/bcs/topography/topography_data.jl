@@ -449,12 +449,14 @@ function load_topography_from_file(filename::String, location::BoundaryLocation;
     end
 
     NCDataset(filename, "r") do ds
-        # Read lmax
-        lmax = haskey(ds.attrib, "lmax") ? ds.attrib["lmax"] : 32
+        # Read lmax. NetCDF stores integer attributes as 32-bit, so this comes
+        # back as Int32; TopographyField's ctor requires Int — convert explicitly.
+        lmax = haskey(ds.attrib, "lmax") ? Int(ds.attrib["lmax"]) : 32
 
-        # Read radius
+        # Read radius. Likewise coerce the (possibly Float32) attribute to Float64
+        # to match the TopographyField constructor.
         r = radius !== nothing ? radius :
-            (haskey(ds.attrib, "radius") ? ds.attrib["radius"] : 1.0)
+            (haskey(ds.attrib, "radius") ? Float64(ds.attrib["radius"]) : 1.0)
 
         field = TopographyField(lmax, lmax, r, location)
 

@@ -116,6 +116,7 @@ additional_tests = (
     "tier3_kernels_extended.jl",
     "tail_coverage_extended.jl",
     "tail2_coverage_extended.jl",
+    "topography_load_attr.jl",
     "index_mapping.jl",
     "output_scheduling.jl",
     "boundary_types.jl",
