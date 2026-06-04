@@ -6,7 +6,13 @@ import KernelAbstractions
     @testset "gpu_functional gate [LOCAL]" begin
         @test GeoDynamo.gpu_functional() isa Bool
         # No CUDA GPU in CI / dev machine → false. On a GPU box this flips true.
-        @test Base.isexported(GeoDynamo, :gpu_functional)
+        @test gpu_synchronize() === nothing
+        # All Phase-0 symbols must be exported from the top-level module.
+        for s in (:gpu_functional, :gpu_synchronize, :GPUPhysicalField, :GPUSpectralField,
+                  :allocate_gpu_physical_field, :allocate_gpu_spectral_field,
+                  :field_to_host, :field_to_device)
+            @test Base.isexported(GeoDynamo, s)
+        end
     end
 
     @testset "GPU() constructor [LOCAL/GPU-BOX]" begin

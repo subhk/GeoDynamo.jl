@@ -12,7 +12,7 @@ Device-resident physical field: `data` is an `(nlat, nlon, nr)` array on the
 architecture's backend.
 """
 struct GPUPhysicalField{T, A}
-    config::Any
+    config::Any   # SHTnsKit config; kept Any to avoid an upstream parametric dependency at this layer (revisit Phase 1+)
     nlat::Int
     nlon::Int
     nr::Int
@@ -36,11 +36,12 @@ end
 
 Device-resident spectral field: `data_real`/`data_imag` are `(nlm, nr)` real
 arrays on the architecture's backend (split real/imag mirrors the CPU container).
-`T` is the real element type (e.g. `Float64`); pass `ComplexF64` as the alloc
-element type to select `Float64` storage.
+`T` is the real element type, i.e. `T = real(CT)` where `CT` is the complex type
+passed to `allocate_gpu_spectral_field`; `A` is the backend array type (e.g.
+`CuArray{Float64,2}` on CUDA, `Array{Float64,2}` on CPU).
 """
 struct GPUSpectralField{T, A}
-    config::Any
+    config::Any   # SHTnsKit config; kept Any to avoid an upstream parametric dependency at this layer (revisit Phase 1+)
     nlm::Int
     nr::Int
     data_real::A
@@ -82,12 +83,14 @@ end
 Copy host data onto `arch`'s backend, wrapped in the matching GPU field.
 """
 function field_to_device(arch::AbstractArchitecture, host_phys::AbstractArray{T, 3}, config, nr::Int) where {T}
+    @assert nr == size(host_phys, 3) "field_to_device: nr=$nr ≠ host dim-3 $(size(host_phys,3))"
     data = on_architecture(arch, host_phys)
     return GPUPhysicalField{T, typeof(data)}(config, size(host_phys, 1), size(host_phys, 2), nr, data)
 end
 
 function field_to_device(arch::AbstractArchitecture, host_spec::Tuple{<:AbstractArray, <:AbstractArray}, config, nr::Int)
     hr, hi = host_spec
+    @assert nr == size(hr, 2) "field_to_device: nr=$nr ≠ host dim-2 $(size(hr,2))"
     dr = on_architecture(arch, hr)
     di = on_architecture(arch, hi)
     return GPUSpectralField{eltype(hr), typeof(dr)}(config, size(hr, 1), nr, dr, di)
