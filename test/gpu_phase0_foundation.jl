@@ -46,8 +46,8 @@ import KernelAbstractions
         else
             f = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, GPU(), cfg, 4)
             @test f isa GeoDynamo.GPUSpectralField
-            @test size(f.data_real) == (cfg.nlm, 4)
-            @test size(f.data_imag) == (cfg.nlm, 4)
+            @test size(f.data_real) == (cfg.lmax + 1, cfg.mmax + 1, 4)
+            @test size(f.data_imag) == (cfg.lmax + 1, cfg.mmax + 1, 4)
             @test f.data_real isa CUDA.CuArray
             @test all(Array(f.data_real) .== 0) && all(Array(f.data_imag) .== 0)
         end
@@ -64,8 +64,9 @@ import KernelAbstractions
             back = GeoDynamo.field_to_host(gf)                                   # device -> host
             @test back.data == host_phys                                        # BIT-IDENTICAL
 
-            # spectral
-            hr = rand(Float64, cfg.nlm, 4); hi = rand(Float64, cfg.nlm, 4)
+            # spectral (dense (lmax+1, mmax+1, nr) — matches CPU field + gpu_synthesis)
+            hr = rand(Float64, cfg.lmax + 1, cfg.mmax + 1, 4)
+            hi = rand(Float64, cfg.lmax + 1, cfg.mmax + 1, 4)
             gs = GeoDynamo.field_to_device(GPU(), (hr, hi), cfg, 4)
             bs = GeoDynamo.field_to_host(gs)
             @test bs.data_real == hr && bs.data_imag == hi

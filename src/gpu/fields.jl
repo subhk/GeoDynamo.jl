@@ -34,15 +34,18 @@ end
 """
     GPUSpectralField{T,A}
 
-Device-resident spectral field: `data_real`/`data_imag` are `(nlm, nr)` real
-arrays on the architecture's backend (split real/imag mirrors the CPU container).
-`T` is the real element type, i.e. `T = real(CT)` where `CT` is the complex type
-passed to `allocate_gpu_spectral_field`; `A` is the backend array type (e.g.
-`CuArray{Float64,2}` on CUDA, `Array{Float64,2}` on CPU).
+Device-resident spectral field in the DENSE `(lmax+1, mmax+1, nr)` `(l, m, r)`
+layout — the same layout the CPU spectral field uses and the exact form
+SHTnsKit's `gpu_synthesis`/`gpu_analysis` consume/produce per radial level (a
+dense `(lmax+1, mmax+1)` coefficient matrix).  `data_real`/`data_imag` split the
+complex coefficients (mirrors the CPU container).  `T = real(CT)` where `CT` is
+the complex type passed to `allocate_gpu_spectral_field`; `A` is the backend
+array type (e.g. `CuArray{Float64,3}` on CUDA, `Array{Float64,3}` on CPU).
 """
 struct GPUSpectralField{T, A}
     config::Any   # SHTnsKit config; kept Any to avoid an upstream parametric dependency at this layer (revisit Phase 1+)
-    nlm::Int
+    nl::Int       # lmax + 1 (number of l-slots)
+    nm::Int       # mmax + 1 (number of m-slots)
     nr::Int
     data_real::A
     data_imag::A
@@ -51,16 +54,17 @@ end
 """
     allocate_gpu_spectral_field(CT, arch, config, nr) -> GPUSpectralField
 
-Allocate a zero-filled `(nlm, nr)` split-complex spectral field on `arch`'s
-backend.  `CT` is the complex element type (`ComplexF64`); storage is its real
-part type (`Float64`).
+Allocate a zero-filled dense `(lmax+1, mmax+1, nr)` split-complex spectral field
+on `arch`'s backend.  `CT` is the complex element type (`ComplexF64`); storage is
+its real part type (`Float64`).
 """
 function allocate_gpu_spectral_field(::Type{CT}, arch::AbstractArchitecture, config, nr::Int) where {CT}
     RT = real(CT)
-    nlm = config.nlm
-    dr = arch_zeros(arch, RT, nlm, nr)
-    di = arch_zeros(arch, RT, nlm, nr)
-    return GPUSpectralField{RT, typeof(dr)}(config, nlm, nr, dr, di)
+    nl = config.lmax + 1
+    nm = config.mmax + 1
+    dr = arch_zeros(arch, RT, nl, nm, nr)
+    di = arch_zeros(arch, RT, nl, nm, nr)
+    return GPUSpectralField{RT, typeof(dr)}(config, nl, nm, nr, dr, di)
 end
 
 """
@@ -90,8 +94,8 @@ end
 
 function field_to_device(arch::AbstractArchitecture, host_spec::Tuple{<:AbstractArray, <:AbstractArray}, config, nr::Int)
     hr, hi = host_spec
-    @assert nr == size(hr, 2) "field_to_device: nr=$nr ≠ host dim-2 $(size(hr,2))"
+    @assert nr == size(hr, 3) "field_to_device: nr=$nr ≠ host dim-3 $(size(hr,3))"
     dr = on_architecture(arch, hr)
     di = on_architecture(arch, hi)
-    return GPUSpectralField{eltype(hr), typeof(dr)}(config, size(hr, 1), nr, dr, di)
+    return GPUSpectralField{eltype(hr), typeof(dr)}(config, size(hr, 1), size(hr, 2), nr, dr, di)
 end
