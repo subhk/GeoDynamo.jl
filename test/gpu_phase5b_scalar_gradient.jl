@@ -82,4 +82,32 @@ using Random
         end
         @test gtr[li,mi,r] == dtr * rinv[r]
     end
+
+    @testset "GPU execution + GPU≈CPU parity (Phase-5b gate) [GPU-BOX]" begin
+        if !GeoDynamo.gpu_functional()
+            @test_skip "requires a functional CUDA GPU"
+        else
+            lmax, mmax, nr, bw = 6, 6, 4, 2
+            nl, nm = lmax + 1, mmax + 1
+            function band(::Type{TT}, N, bw; seed) where {TT}
+                rng = MersenneTwister(seed); dd = zeros(TT, 2bw+1, N)
+                for j in 1:N, i in max(1,j-bw):min(N,j+bw); dd[bw+1+i-j,j]=rand(rng,TT)-TT(0.5); end
+                GeoDynamo.BandedMatrix{TT}(dd, bw, N)
+            end
+            d1 = band(Float64, nr, bw; seed = 41)
+            sr = zeros(nl,nm,nr); si = zeros(nl,nm,nr); rng = MersenneTwister(43)
+            for mi in 1:nm, li in mi:nl, r in 1:nr; sr[li,mi,r]=rand(rng); si[li,mi,r]=rand(rng); end
+            mvals = Float64.(0:(nm-1)); rinv = [1.0/(0.5+0.1k) for k in 1:nr]
+            z() = zeros(Float64, nl,nm,nr)
+            c = (z(),z(),z(),z(),z(),z())
+            GeoDynamo.gpu_scalar_gradient!(c..., sr,si, d1.data, mvals, rinv, lmax, bw)
+            d(x) = GeoDynamo.on_architecture(GPU(), x)
+            g = (d(z()),d(z()),d(z()),d(z()),d(z()),d(z()))
+            GeoDynamo.gpu_scalar_gradient!(g..., d(sr),d(si), d(d1.data), d(mvals), d(rinv), lmax, bw)
+            @test g[1] isa CUDA.CuArray
+            for k in 1:6
+                @test isapprox(Array(g[k]), c[k]; atol = 1e-12, rtol = 1e-10)
+            end
+        end
+    end
 end
