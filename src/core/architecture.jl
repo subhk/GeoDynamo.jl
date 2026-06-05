@@ -33,3 +33,15 @@ Return the backend object associated with `arch`.
 """
 get_backend(::CPU) = KernelAbstractions.CPU()
 get_backend(g::GPU) = g.backend
+
+"""
+    arch_of(a) -> AbstractArchitecture
+
+The GeoDynamo architecture matching an array's compute backend.  Dispatches on
+the KernelAbstractions backend, so any CPU-backed array (`Array`, `SubArray`, …)
+maps to `CPU()` and a device array (e.g. `CuArray`) to `GPU(backend)` — robust
+to wrapped/viewed arrays (unlike an `isa Array` test).
+"""
+arch_of(a::AbstractArray) = _arch_from_ka_backend(KernelAbstractions.get_backend(a))
+_arch_from_ka_backend(::KernelAbstractions.CPU) = CPU()
+_arch_from_ka_backend(b) = GPU(b)

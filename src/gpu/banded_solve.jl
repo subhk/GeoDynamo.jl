@@ -61,7 +61,7 @@ end
     gpu_batched_banded_solve!(X, B, lu_batched, bw) -> X
 
 Solve `A_l · X[l,m,:] = B[l,m,:]` for every `(l,m)`, where `A_l`'s banded LU is
-`lu_batched[:,:,l]` (degree `l` = dim-1 index).  `X`/`B` are `(nl,nm,nr)`; in-place
+`lu_batched[:,:,l]` (degree `l` = dim-3 index; `lu_batched` is `(2bw+1,nr,nl)`).  `X`/`B` are `(nl,nm,nr)`; in-place
 `X === B` is supported.  Backend (CPU/CUDA) is inferred from `X`.
 """
 function gpu_batched_banded_solve!(X, B, lu_batched, bw::Int)
