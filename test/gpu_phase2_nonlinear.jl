@@ -38,4 +38,22 @@ using GeoDynamo
         GeoDynamo.gpu_cross_add!(ar, aθ, aφ, a_r, a_θ, a_φ, b_r, b_θ, b_φ, coeff)
         @test ar == base_r .+ rr && aθ == base_θ .+ rθ && aφ == base_φ .+ rφ
     end
+
+    @testset "Coriolis subtract [LOCAL]" begin
+        u_r, u_θ, u_φ = rnd(), rnd(), rnd()
+        sinθ = rand(Float64, nlat); cosθ = rand(Float64, nlat)
+        or, oθ, oφ = rnd(), rnd(), rnd()
+        base_r, base_θ, base_φ = copy(or), copy(oθ), copy(oφ)
+        GeoDynamo.gpu_coriolis_sub!(or, oθ, oφ, u_r, u_θ, u_φ, sinθ, cosθ)
+        rr = similar(or); rθ = similar(oθ); rφ = similar(oφ)
+        @inbounds for k in 1:nr, j in 1:nlon, i in 1:nlat
+            cr = -sinθ[i] * u_φ[i,j,k]
+            cθ = -cosθ[i] * u_φ[i,j,k]
+            cφ =  cosθ[i] * u_θ[i,j,k] + sinθ[i] * u_r[i,j,k]
+            rr[i,j,k] = base_r[i,j,k] - cr
+            rθ[i,j,k] = base_θ[i,j,k] - cθ
+            rφ[i,j,k] = base_φ[i,j,k] - cφ
+        end
+        @test or == rr && oθ == rθ && oφ == rφ
+    end
 end
