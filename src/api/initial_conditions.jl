@@ -42,6 +42,9 @@ function RandomPerturbation(;
         domain = nothing,
         seed::Union{Int, Nothing} = nothing
 )
+    lmax >= 0 || throw(ArgumentError(
+        "RandomPerturbation: lmax = $lmax must be >= 0 " *
+        "(a negative lmax excites no modes and silently produces no perturbation)"))
     return RandomPerturbation(Float64(amplitude), lmax, domain, seed)
 end
 

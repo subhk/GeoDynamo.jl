@@ -88,6 +88,28 @@ using Test
         @test objectid(model.state.implicit_matrices) != old_id
     end
 
+    @testset "Simulation accepts Δt alias and Real stop_time" begin
+        using MPI
+        if !MPI.Initialized()
+            MPI.Init()
+        end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 16, nr_inner = 4)
+        model = GeoDynamo.GeodynamoModel(grid;
+            Ek = 1e-2, Ra = 1e4, include_magnetic = false, include_composition = false)
+        # Δt is a convenience alias for the canonical dt (docs / Oceananigans use Δt).
+        s1 = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 1)
+        @test s1 isa GeoDynamo.Simulation
+        @test s1.dt == 1e-4
+        # An integer stop_time must convert (was stop_time::Float64 -> TypeError).
+        s2 = GeoDynamo.Simulation(model; dt = 1e-4, stop_time = 1, stop_iteration = 1)
+        @test s2.stop_time === 1.0
+        # Passing both dt and Δt is ambiguous -> error.
+        @test_throws ArgumentError GeoDynamo.Simulation(model; dt = 1e-4, Δt = 2e-4)
+        # Neither dt nor Δt -> error (a timestep is required).
+        @test_throws Exception GeoDynamo.Simulation(model)
+    end
+
     @testset "OrderedDict writers/callbacks + add_callback!" begin
         using MPI
         if !MPI.Initialized()

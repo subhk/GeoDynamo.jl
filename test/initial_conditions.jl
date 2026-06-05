@@ -77,23 +77,48 @@ end
         @test parent(temp_a.spectral.data_imag) == parent(temp_b.spectral.data_imag)
     end
 
-    @testset "Placeholder load/save behavior stays explicit" begin
+    @testset "NetCDF initial-condition save/load roundtrip" begin
         temp = GeoDynamo.create_shtns_temperature_field(Float64, cfg, shell)
 
+        # Missing file is a hard error, not a silent fallback.
         missing_path = joinpath(mktempdir(), "missing_initial_conditions.nc")
         @test_throws ArgumentError GeoDynamo.load_initial_conditions!(temp, :temperature, missing_path)
 
-        existing_path, io = mktemp()
-        close(io)
+        # Scalar (temperature) roundtrip: save actually writes a file, and load
+        # reproduces the spectral coefficients exactly.
+        src = GeoDynamo.create_shtns_temperature_field(Float64, cfg, shell)
+        GeoDynamo.set_analytical_initial_conditions!(
+            src, :temperature, :conductive; amplitude = 1.0)
+        save_path = joinpath(mktempdir(), "temp_ic.nc")
+        returned = GeoDynamo.save_initial_conditions(src, :temperature, save_path)
+        @test returned == save_path
+        @test isfile(save_path)
 
-        loaded = @test_logs (:warn, r"NetCDF loading not implemented") GeoDynamo.load_initial_conditions!(
-            temp, :temperature, existing_path)
-        @test loaded === temp
+        dst = GeoDynamo.create_shtns_temperature_field(Float64, cfg, shell)
+        loaded = GeoDynamo.load_initial_conditions!(dst, :temperature, save_path)
+        @test loaded === dst
+        @test parent(dst.spectral.data_real) == parent(src.spectral.data_real)
+        @test parent(dst.spectral.data_imag) == parent(src.spectral.data_imag)
 
-        save_path = joinpath(mktempdir(), "saved_initial_conditions.nc")
-        saved = @test_logs (:warn, r"NetCDF saving not implemented") GeoDynamo.save_initial_conditions(
-            temp, :temperature, save_path)
-        @test saved == save_path
+        # A file that is not a valid IC NetCDF must error, not fall back.
+        bad_path = joinpath(mktempdir(), "garbage_ic.nc")
+        write(bad_path, "definitely not netcdf")
+        @test_throws Exception GeoDynamo.load_initial_conditions!(dst, :temperature, bad_path)
+
+        # Vector (magnetic) roundtrip across toroidal+poloidal components.
+        msrc = GeoDynamo.create_shtns_magnetic_fields(Float64, cfg, shell, shell)
+        GeoDynamo.set_analytical_initial_conditions!(
+            msrc, :magnetic, :dipole; amplitude = 1.0)
+        mag_path = joinpath(mktempdir(), "mag_ic.nc")
+        GeoDynamo.save_initial_conditions(msrc, :magnetic, mag_path)
+        @test isfile(mag_path)
+
+        mdst = GeoDynamo.create_shtns_magnetic_fields(Float64, cfg, shell, shell)
+        GeoDynamo.load_initial_conditions!(mdst, :magnetic, mag_path)
+        @test parent(mdst.toroidal.data_real) == parent(msrc.toroidal.data_real)
+        @test parent(mdst.poloidal.data_real) == parent(msrc.poloidal.data_real)
+        @test parent(mdst.toroidal.data_imag) == parent(msrc.toroidal.data_imag)
+        @test parent(mdst.poloidal.data_imag) == parent(msrc.poloidal.data_imag)
     end
 
     @testset "Ball analytical presets preserve regularity at r=0" begin

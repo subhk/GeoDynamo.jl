@@ -10,10 +10,10 @@
 # Public types
 # ------------
 #   Callback           — wraps an arbitrary callable
-#   EnergyDiagnostics  — logs kinetic energy
-#   SolenoidalMonitor  — placeholder for divergence checks
+#   EnergyDiagnostics  — logs kinetic (and magnetic) energy
+#   SolenoidalMonitor  — runs the solver divergence diagnostic, threshold-warns
 #   SimulationProgress — logs simulation time / step count
-#   HealthCheck        — placeholder for NaN/Inf detection
+#   HealthCheck        — scans fields for NaN/Inf, optionally aborts
 #
 # Internal helpers
 # ----------------
@@ -43,9 +43,8 @@ Callback(f; schedule) = Callback(f, schedule)
 """
     EnergyDiagnostics(; schedule)
 
-Logs kinetic energy at each scheduled interval.  Calls
-`compute_kinetic_energy` when the model exposes velocity fields and a
-radial domain; otherwise emits a placeholder log message.
+Logs the kinetic energy (and magnetic energy, when a magnetic field is present)
+at each scheduled interval, computed from the model's spectral coefficients.
 """
 struct EnergyDiagnostics{S <: AbstractSchedule}
     schedule::S
@@ -55,8 +54,9 @@ EnergyDiagnostics(; schedule) = EnergyDiagnostics(schedule)
 """
     SolenoidalMonitor(; schedule, threshold=1e-10)
 
-Checks divergence of the velocity field against `threshold` at each
-scheduled interval.  Currently a placeholder — logs a note and returns.
+Runs the solver's solenoidal-constraint diagnostic at each scheduled interval,
+logging the velocity (and magnetic) divergence norms and warning when the L∞
+divergence exceeds `threshold`.
 """
 struct SolenoidalMonitor{S <: AbstractSchedule}
     schedule::S
@@ -77,9 +77,9 @@ SimulationProgress(; schedule) = SimulationProgress(schedule)
 """
     HealthCheck(; schedule, abort=true)
 
-Checks for NaN/Inf in simulation fields at each scheduled interval.
-Currently a placeholder — NaN detection wiring is deferred.
-If `abort=true` the simulation should be halted upon detecting a NaN.
+Scans all simulation fields for NaN/Inf at each scheduled interval.  When a
+non-finite value is found a warning is logged and, if `abort=true`, the
+simulation is halted by throwing.
 """
 struct HealthCheck{S <: AbstractSchedule}
     schedule::S
@@ -132,41 +132,123 @@ function _fire_callback!(cb::SimulationProgress, sim)
 end
 
 """
+    _energy_diagnostics(model) -> (kinetic, magnetic)
+
+Compute the global kinetic energy (and magnetic energy, if the model carries a
+magnetic field) from the current solver state's spectral coefficients.  Returns
+a `NamedTuple` of `Float64` energies; `magnetic` is `0.0` when no magnetic field
+is present.
+"""
+function _energy_diagnostics(model)
+    state = model.state
+    domain = state.backend.outer_core_domain
+    kinetic = compute_kinetic_energy(state.fields.velocity, domain)
+    magnetic = state.fields.magnetic === nothing ? 0.0 :
+               compute_magnetic_energy(state.fields.magnetic, domain)
+    return (kinetic = kinetic, magnetic = magnetic)
+end
+
+"""
     _fire_callback!(cb::EnergyDiagnostics, sim)
 
-Calls `compute_kinetic_energy` if the model exposes `velocity_fields` and
-`domain`; otherwise emits a placeholder info message.
+Compute and log the current kinetic (and magnetic) energy of the model from its
+spectral toroidal-poloidal coefficients.
 """
 function _fire_callback!(cb::EnergyDiagnostics, sim)
-    model = sim.model
-    if hasproperty(model, :velocity_fields) && hasproperty(model, :domain)
-        ke = compute_kinetic_energy(model.velocity_fields, model.domain)
-        @info "EnergyDiagnostics" step=sim.model.clock.iteration time=sim.model.clock.time kinetic_energy=ke
-    else
-        @info "EnergyDiagnostics (placeholder)" step=sim.model.clock.iteration time=sim.model.clock.time kinetic_energy="unavailable"
-    end
+    e = _energy_diagnostics(sim.model)
+    @info "EnergyDiagnostics" step=sim.model.clock.iteration time=sim.model.clock.time kinetic_energy=e.kinetic magnetic_energy=e.magnetic
     return nothing
+end
+
+"""
+    _solenoidal_diagnostics(model) -> (velocity_l2, velocity_linf, magnetic_l2, magnetic_linf)
+
+Run the solver's solenoidal-constraint diagnostic against the current state and
+return the freshly recorded divergence norms for the velocity (and magnetic)
+fields.  This records one sample into `model.state.solenoidal_monitor`.
+
+NOTE: the divergence norms come from `compute_divergence_spectral`, which is
+currently a deferred solver stub returning zero; the toroidal-poloidal
+representation is solenoidal by construction so this metric is ~0 until that
+primitive is implemented.  The callback itself is fully wired: it runs the real
+diagnostic pipeline and threshold-checks the recorded values.
+"""
+function _solenoidal_diagnostics(model)
+    state = model.state
+    check_solenoidal_constraint!(state)
+    mon = state.solenoidal_monitor
+    last_or_zero(v) = isempty(v) ? 0.0 : v[end]
+    return (velocity_l2 = last_or_zero(mon.velocity_div_l2),
+        velocity_linf = last_or_zero(mon.velocity_div_linf),
+        magnetic_l2 = last_or_zero(mon.magnetic_div_l2),
+        magnetic_linf = last_or_zero(mon.magnetic_div_linf))
 end
 
 """
     _fire_callback!(cb::SolenoidalMonitor, sim)
 
-Placeholder — divergence-checking requires spectral field access that is
-not yet wired through the public API.  Logs a note and returns.
+Run the solver's solenoidal-constraint diagnostic and log the divergence norms,
+warning when the velocity (or magnetic) L∞ divergence exceeds `cb.threshold`.
 """
 function _fire_callback!(cb::SolenoidalMonitor, sim)
-    @info "SolenoidalMonitor (placeholder)" step=sim.model.clock.iteration time=sim.model.clock.time threshold=cb.threshold
+    d = _solenoidal_diagnostics(sim.model)
+    @info "SolenoidalMonitor" step=sim.model.clock.iteration time=sim.model.clock.time velocity_div_linf=d.velocity_linf magnetic_div_linf=d.magnetic_linf threshold=cb.threshold
+    if d.velocity_linf > cb.threshold
+        @warn "SolenoidalMonitor: velocity divergence exceeds threshold" linf=d.velocity_linf threshold=cb.threshold
+    end
+    if d.magnetic_linf > cb.threshold
+        @warn "SolenoidalMonitor: magnetic divergence exceeds threshold" linf=d.magnetic_linf threshold=cb.threshold
+    end
     return nothing
+end
+
+"""
+    _health_check(model) -> (has_issue, fields)
+
+Scan every spectral field of the model (velocity, temperature, and magnetic /
+composition when present) for NaN/Inf values.  Returns a `NamedTuple` with
+`has_issue::Bool` and `fields::Vector{String}` naming the offending components.
+"""
+function _health_check(model)
+    state = model.state
+    issues = String[]
+    scan!(field, name) = begin
+        any(!isfinite, parent(field.data_real)) && push!(issues, "$(name)_real")
+        any(!isfinite, parent(field.data_imag)) && push!(issues, "$(name)_imag")
+        return nothing
+    end
+
+    scan!(state.fields.velocity.toroidal, "velocity_toroidal")
+    scan!(state.fields.velocity.poloidal, "velocity_poloidal")
+    scan!(state.fields.temperature.spectral, "temperature")
+    if state.fields.magnetic !== nothing
+        scan!(state.fields.magnetic.toroidal, "magnetic_toroidal")
+        scan!(state.fields.magnetic.poloidal, "magnetic_poloidal")
+    end
+    if state.fields.composition !== nothing
+        scan!(state.fields.composition.spectral, "composition")
+    end
+
+    return (has_issue = !isempty(issues), fields = issues)
 end
 
 """
     _fire_callback!(cb::HealthCheck, sim)
 
-Placeholder — NaN/Inf detection requires per-field iteration that is not
-yet wired through the public API.  Logs a note and returns.
+Scan all fields for NaN/Inf.  If any are found, log a warning; when `cb.abort`
+is true, throw to halt the simulation.
 """
 function _fire_callback!(cb::HealthCheck, sim)
-    @info "HealthCheck (placeholder)" step=sim.model.clock.iteration time=sim.model.clock.time abort=cb.abort
+    r = _health_check(sim.model)
+    if r.has_issue
+        @warn "HealthCheck: non-finite values detected" step=sim.model.clock.iteration time=sim.model.clock.time fields=r.fields
+        if cb.abort
+            error("HealthCheck: non-finite values detected in fields $(r.fields) " *
+                  "at step $(sim.model.clock.iteration); aborting simulation")
+        end
+    else
+        @info "HealthCheck: all fields finite" step=sim.model.clock.iteration time=sim.model.clock.time
+    end
     return nothing
 end
 

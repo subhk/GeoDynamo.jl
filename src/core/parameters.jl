@@ -153,6 +153,17 @@ function _parameter_errors_warnings(params::SolverParameters)
     if params.geometry === :shell && params.nr_inner < 2
         push!(errors, "nr_inner = $(params.nr_inner) must be >= 2 for shell geometry")
     end
+    if params.geometry === :shell && params.nr_inner >= params.nr
+        push!(errors,
+            "nr_inner = $(params.nr_inner) must be < nr = $(params.nr) " *
+            "(inner-core points are a subset of the radial grid)")
+    end
+
+    if params.courant <= 0.0
+        push!(errors, "courant = $(params.courant) must be positive")
+    elseif params.courant > 1.0
+        push!(warnings, "courant = $(params.courant) > 1; CFL safety factor is usually <= 1")
+    end
 
     if !(params.magnetic_inner_bc in (:insulating, :conducting_inner_core))
         push!(errors,
@@ -417,14 +428,14 @@ function _parameter_assignments_from_file(config_file::String)
         end
 
         if param_name ∉ fieldnames(SolverParameters)
-            @debug "Ignoring unknown solver parameter $param_name"
+            @warn "Ignoring unknown solver parameter `$param_name` in $config_file"
             continue
         end
 
         try
             param_dict[param_name] = safe_parse_value(param_value_str, param_dict)
         catch e
-            @debug "Could not parse parameter $param_name = $param_value_str: $e"
+            @warn "Could not parse parameter `$param_name = $param_value_str` in $config_file (kept default): $e"
         end
     end
 

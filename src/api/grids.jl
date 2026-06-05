@@ -1,3 +1,18 @@
+# Validate the spectral truncation and physical grid sizing shared by both
+# geometries. Catches degenerate configurations at construction time with a
+# clear message rather than letting them fail cryptically deep in the transform
+# setup (e.g. nlat=1 only surfacing later as "nlat must be >= lmax+1").
+function _validate_spectral_grid(lmax::Int, mmax::Int, nlat::Int, nlon::Int)
+    lmax >= 1 || throw(ArgumentError("lmax must be >= 1 (got $lmax)"))
+    0 <= mmax <= lmax ||
+        throw(ArgumentError("mmax must satisfy 0 <= mmax <= lmax (got mmax=$mmax, lmax=$lmax)"))
+    nlat >= lmax + 1 ||
+        throw(ArgumentError("nlat must be >= lmax+1 = $(lmax + 1) for the transform (got nlat=$nlat)"))
+    nlon >= 2 * mmax + 1 ||
+        throw(ArgumentError("nlon must be >= 2*mmax+1 = $(2 * mmax + 1) (Nyquist) (got nlon=$nlon)"))
+    return nothing
+end
+
 """
     SphericalShellGrid(arch=CPU(); lmax, nr, mmax=lmax, nlat=3lmax÷2,
                        nlon=2nlat, nr_inner=max(2, nr÷4),
@@ -43,10 +58,10 @@ function SphericalShellGrid(arch::AbstractArchitecture;
         nr_inner::Int = max(2, nr ÷ 4),
         r_inner::Float64 = 0.35,
         r_outer::Float64 = 1.0)
-    nlat > 0 || throw(ArgumentError("nlat must be > 0"))
-    nlon > 0 || throw(ArgumentError("nlon must be > 0"))
-    nr > 0 || throw(ArgumentError("nr must be > 0"))
-    nr_inner > 1 || throw(ArgumentError("nr_inner must be > 1"))
+    _validate_spectral_grid(lmax, mmax, nlat, nlon)
+    nr >= 2 || throw(ArgumentError("nr must be >= 2 (got $nr); a single radial point is degenerate"))
+    nr_inner > 1 || throw(ArgumentError("nr_inner must be > 1 (got $nr_inner)"))
+    nr_inner < nr || throw(ArgumentError("nr_inner must be < nr (got nr_inner=$nr_inner, nr=$nr)"))
     0.0 < r_inner < r_outer || throw(ArgumentError("need 0 < r_inner < r_outer"))
     return SphericalShellGrid(arch, lmax, mmax, nlat, nlon, nr, nr_inner, r_inner, r_outer)
 end
@@ -101,9 +116,8 @@ function SphericalBallGrid(arch::AbstractArchitecture;
         nlat::Int = 3 * lmax ÷ 2,
         nlon::Int = 2 * nlat,
         nr::Int)
-    nlat > 0 || throw(ArgumentError("nlat must be > 0"))
-    nlon > 0 || throw(ArgumentError("nlon must be > 0"))
-    nr > 0 || throw(ArgumentError("nr must be > 0"))
+    _validate_spectral_grid(lmax, mmax, nlat, nlon)
+    nr >= 2 || throw(ArgumentError("nr must be >= 2 (got $nr); a single radial point is degenerate"))
     return SphericalBallGrid(arch, lmax, mmax, nlat, nlon, nr)
 end
 

@@ -209,6 +209,9 @@ end
 Return `true` when a history/output write should occur at `current_time`.
 """
 function should_output_now(tracker::TimeTracker, current_time::Float64, config::OutputConfig)
+    # An infinite interval means "never on a timer" — guard against the Inf
+    # arithmetic that would otherwise make `Inf >= Inf` fire on the first call.
+    isfinite(config.output_interval) || return false
     time_since_output = current_time - tracker.last_output_time
     return (time_since_output >= config.output_interval - config.time_tolerance &&
             current_time <= config.max_output_time)
@@ -220,6 +223,10 @@ end
 Return `true` when a restart/checkpoint write should occur at `current_time`.
 """
 function should_restart_now(tracker::TimeTracker, current_time::Float64, config::OutputConfig)
+    # An infinite interval means "never" — without this guard `Inf >= Inf` is
+    # true and a writer that opted out of restarts (restart_interval = Inf)
+    # would still emit a restart file on the first call.
+    isfinite(config.restart_interval) || return false
     time_since_restart = current_time - tracker.last_restart_time
     return time_since_restart >= config.restart_interval - config.time_tolerance
 end

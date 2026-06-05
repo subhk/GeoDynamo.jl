@@ -333,10 +333,14 @@ end
 """
     find_restart_files(restart_dir, target_time)
 
-Return restart NetCDF files in newest-first order.
+Return restart NetCDF files ordered best-match first.
 
-`target_time` is accepted for API compatibility; current restart filenames are
-counter-based, so modification time is used as the selection proxy.
+`target_time <= 0` is the "restart from the latest checkpoint" sentinel and
+orders files newest-first by modification time (cheap; no files opened). A
+positive `target_time` is honored: each checkpoint's stored simulation `time`
+is read and files are ordered by closeness to `target_time`, so a requested
+restart time actually selects the nearest snapshot rather than the newest file.
+Files whose stored time cannot be read fall back to the end (newest-first).
 """
 function find_restart_files(restart_dir::String, target_time::Float64)
     files = readdir(restart_dir)
@@ -347,8 +351,34 @@ function find_restart_files(restart_dir::String, target_time::Float64)
         return String[]
     end
 
-    # Sort by modification time (most recent first) as a proxy for closest time
     full_paths = [joinpath(restart_dir, f) for f in restart_files]
-    sort!(full_paths, by = mtime, rev = true)
-    return full_paths
+
+    # Sentinel: caller wants the most recent checkpoint, no need to open files.
+    if target_time <= 0
+        sort!(full_paths, by = mtime, rev = true)
+        return full_paths
+    end
+
+    # Honor a meaningful target_time by reading each checkpoint's stored time.
+    stored_time = function (path)
+        try
+            return NCDataset(path, "r") do ds
+                if haskey(ds, "time")
+                    return Float64(ds["time"][1])
+                elseif haskey(ds.attrib, "current_time")
+                    return Float64(ds.attrib["current_time"])
+                end
+                return nothing
+            end
+        catch
+            return nothing
+        end
+    end
+
+    times = Dict(p => stored_time(p) for p in full_paths)
+    known = [p for p in full_paths if times[p] !== nothing]
+    unknown = [p for p in full_paths if times[p] === nothing]
+    sort!(known, by = p -> abs(times[p] - target_time))
+    sort!(unknown, by = mtime, rev = true)
+    return vcat(known, unknown)
 end

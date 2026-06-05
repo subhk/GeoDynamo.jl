@@ -33,7 +33,7 @@ independent_output_files = true
 output_interval = 1.0
 restart_interval = 0.0
 
-include_magnetic_field = false
+include_magnetic = false
 include_composition = true
 impose_magnetic_field = false
 

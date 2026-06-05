@@ -116,8 +116,8 @@ function _run_output_writer!(ow::FieldWriter, sim, ctx::_ScheduleContext)
         Float64,        # output_precision
         -1,             # spectral_lmax_output (-1 = all)
         true,           # overwrite_files
-        Inf,            # output_interval (always write when called)
-        Inf,            # restart_interval (no restart from FieldWriter)
+        0.0,            # output_interval = 0 -> write on every call
+        Inf,            # restart_interval = Inf -> never restart from a FieldWriter
         Inf,            # max_output_time
         1e-10          # time_tolerance
     )
