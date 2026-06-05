@@ -56,6 +56,7 @@ MPI.Initialized() || MPI.Init()
         mntr=zeros(nl,nm,nr); mnti=zeros(nl,nm,nr); mnpr=zeros(nl,nm,nr); mnpi=zeros(nl,nm,nr)
         GeoDynamo.gpu_vector_physical_to_spectral!(spec(mntr,mnti), spec(mnpr,mnpi), aθ, aφ, cfg)
 
+        @test all(isfinite, ntr) && all(isfinite, nti) && all(isfinite, npr) && all(isfinite, npi)
         @test ntr == mntr
         @test nti == mnti
         @test npr == mnpr
@@ -63,11 +64,19 @@ MPI.Initialized() || MPI.Init()
     end
 
     @testset "no couplings == velocity-only (5g unchanged) [LOCAL]" begin
-        # with kwargs omitted, must equal the velocity-only path
+        # Call the no-kwargs path twice into independent output arrays and assert exact equality.
+        # Both calls take the velocity-only path (zero coupling), confirming determinism /
+        # backward-compat of the 5g core independently of the Phase-5i additions.
         a1=zeros(nl,nm,nr); a2=zeros(nl,nm,nr); a3=zeros(nl,nm,nr); a4=zeros(nl,nm,nr)
         GeoDynamo.gpu_velocity_nonlinear!(a1,a2, a3,a4, tor_r,tor_i, pol_r,pol_i,
             cfg, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, cfg.lmax, bw)
-        @test all(isfinite, a1) && all(isfinite, a3)   # velocity-only path still runs
+        b1=zeros(nl,nm,nr); b2=zeros(nl,nm,nr); b3=zeros(nl,nm,nr); b4=zeros(nl,nm,nr)
+        GeoDynamo.gpu_velocity_nonlinear!(b1,b2, b3,b4, tor_r,tor_i, pol_r,pol_i,
+            cfg, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, cfg.lmax, bw)
+        @test a1 == b1   # exact: deterministic velocity-only path (compat baseline)
+        @test a2 == b2
+        @test a3 == b3
+        @test a4 == b4
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5i gate) [GPU-BOX]" begin
