@@ -99,7 +99,9 @@ MPI.Initialized() || MPI.Init()
             gS_r = d(similar(S_old_r)); gS_i = d(similar(S_old_i))
             GeoDynamo.gpu_reconstruct_inner_core!(gS_r, gS_i, d(copy(S_old_r)), d(copy(S_old_i)), d(g_r), d(g_i), gic)
             @test gφ_r isa CUDA.CuArray
+            @test gφ_i isa CUDA.CuArray
             @test gS_r isa CUDA.CuArray
+            @test gS_i isa CUDA.CuArray
             @test isapprox(Array(gφ_r), cφ_r; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gφ_i), cφ_i; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gS_r), cS_r; atol = 1e-9, rtol = 1e-8)
