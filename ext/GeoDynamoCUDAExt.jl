@@ -18,6 +18,8 @@ GeoDynamo.gpu_functional() = CUDA.functional()
 GeoDynamo.gpu_synchronize() = (CUDA.synchronize(); nothing)
 
 # Phase 1: route CuArray coefficient/spatial matrices through SHTnsKit's GPU transform.
+# Uses raw gpu_synthesis/gpu_analysis (no OOM CPU-fallback); switch to the *_safe
+# variants if graceful OOM degradation is wanted in a later phase.
 GeoDynamo._scalar_synth(cfg_sht, alm::CUDA.CuArray) = SHTnsKit.gpu_synthesis(cfg_sht, alm; real_output = true)
 GeoDynamo._scalar_anal(cfg_sht, f::CUDA.CuArray)    = SHTnsKit.gpu_analysis(cfg_sht, f)
 
