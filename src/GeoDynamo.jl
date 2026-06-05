@@ -491,6 +491,7 @@ export gpu_phi_gradient!, gpu_theta_gradient!, gpu_scalar_gradient!
 export gpu_batched_banded_matvec_perl!, gpu_build_rhs_cnab2!
 export gpu_apply_bc_rows!, gpu_implicit_solve_field!
 export gpu_scalar_nonlinear!
+export gpu_scalar_field_step!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
@@ -535,6 +536,7 @@ include("gpu/scalar_gradient.jl")
 include("gpu/cnab2_rhs.jl")
 include("gpu/implicit_solve.jl")
 include("gpu/scalar_nonlinear.jl")
+include("gpu/scalar_step.jl")
 
 # User-facing choice objects are needed by SolverParameters so the internal
 # configuration stores the same objects users pass at construction time.
