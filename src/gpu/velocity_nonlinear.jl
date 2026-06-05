@@ -23,6 +23,8 @@ nonlinear spectral.  `d1`/`d2` radial derivative ops, `lfac=l(l+1)`, `rinv=1/r`,
 """
 function gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, tor_i, pol_r, pol_i,
         config, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, lmax::Int, bw::Int)
+    # lmax kept for interface symmetry with the other field orchestrators; the spectral
+    # bounds are encoded in lfac/rinv/config, so it isn't forwarded to the sub-calls here.
     arch = arch_of(tor_r)
     sz = size(tor_r); nr = sz[3]
     spec(a, b) = GPUSpectralField{eltype(a), typeof(a)}(config, sz[1], sz[2], nr, a, b)
