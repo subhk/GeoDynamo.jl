@@ -42,4 +42,35 @@ using Random
             @test x_i[l, m, :] == ti
         end
     end
+
+    @testset "GPU execution + GPU≈CPU parity (Phase-5d gate) [GPU-BOX]" begin
+        if !GeoDynamo.gpu_functional()
+            @test_skip "requires a functional CUDA GPU"
+        else
+            nr, bw, nl, nm = 10, 2, 4, 3
+            function band(::Type{T}, N, bw; seed) where {T}
+                rng = MersenneTwister(seed); dd = zeros(T, 2bw+1, N)
+                for j in 1:N, i in max(1,j-bw):min(N,j+bw)
+                    dd[bw+1+i-j,j] = (i==j) ? (T(2bw)+rand(rng,T)) : (rand(rng,T)-T(0.5))
+                end
+                GeoDynamo.BandedMatrix{T}(dd, bw, N)
+            end
+            lus = [GeoDynamo.factorize_banded(band(Float64, nr, bw; seed = 95 + l)) for l in 1:nl]
+            rng = MersenneTwister(96)
+            rhs_r = rand(rng,nl,nm,nr); rhs_i = rand(rng,nl,nm,nr)
+            bir = rand(rng,nl,nm); bii = rand(rng,nl,nm); bor = rand(rng,nl,nm); boi = rand(rng,nl,nm)
+            # CPU
+            club = GeoDynamo.gpu_pack_banded_lu(lus, CPU())
+            cxr = copy(rhs_r); cxi = copy(rhs_i)
+            GeoDynamo.gpu_implicit_solve_field!(cxr, cxi, club, bir, bii, bor, boi, bw)
+            # GPU
+            d(x) = GeoDynamo.on_architecture(GPU(), x)
+            glub = GeoDynamo.gpu_pack_banded_lu(lus, GPU())
+            gxr = d(copy(rhs_r)); gxi = d(copy(rhs_i))
+            GeoDynamo.gpu_implicit_solve_field!(gxr, gxi, glub, d(bir), d(bii), d(bor), d(boi), bw)
+            @test gxr isa CUDA.CuArray
+            @test isapprox(Array(gxr), cxr; atol = 1e-12, rtol = 1e-10)
+            @test isapprox(Array(gxi), cxi; atol = 1e-12, rtol = 1e-10)
+        end
+    end
 end
