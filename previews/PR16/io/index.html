@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Data Output · GeoDynamo.jl</title><meta name="title" content="Data Output · GeoDynamo.jl"/><meta property="og:title" content="Data Output · GeoDynamo.jl"/><meta property="twitter:title" content="Data Output · GeoDynamo.jl"/><meta name="description" content="Documentation for GeoDynamo.jl."/><meta property="og:description" content="Documentation for GeoDynamo.jl."/><meta property="twitter:description" content="Documentation for GeoDynamo.jl."/><meta property="og:url" content="https://subhk.github.io/GeoDynamo.jl/stable/io/"/><meta property="twitter:url" content="https://subhk.github.io/GeoDynamo.jl/stable/io/"/><link rel="canonical" href="https://subhk.github.io/GeoDynamo.jl/stable/io/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script><link href="../assets/custom.css" rel="stylesheet" type="text/css"/></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">GeoDynamo.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><a class="tocitem" href="../getting-started/">Getting Started</a></li><li><a class="tocitem" href="../configuration/">Configuration</a></li><li><a class="tocitem" href="../timestepping/">Time Integration</a></li><li><a class="tocitem" href="../shtnskit/">Spherical Harmonics</a></li><li><a class="tocitem" href="../topography/">Boundary Topography</a></li><li class="is-active"><a class="tocitem" href>Data Output</a><ul class="internal"><li><a class="tocitem" href="#Architecture-Overview"><span>Architecture Overview</span></a></li><li><a class="tocitem" href="#OutputConfig"><span>OutputConfig</span></a></li><li><a class="tocitem" href="#File-Layout"><span>File Layout</span></a></li><li><a class="tocitem" href="#Time-Tracking"><span>Time Tracking</span></a></li><li><a class="tocitem" href="#Writing-Simulation-Data"><span>Writing Simulation Data</span></a></li><li><a class="tocitem" href="#Restart-Files"><span>Restart Files</span></a></li><li><a class="tocitem" href="#Boundary-Condition-I/O"><span>Boundary Condition I/O</span></a></li><li><a class="tocitem" href="#Diagnostics"><span>Diagnostics</span></a></li><li><a class="tocitem" href="#MPI-Parallel-I/O"><span>MPI Parallel I/O</span></a></li><li><a class="tocitem" href="#Post-Processing-Tools"><span>Post-Processing Tools</span></a></li><li><a class="tocitem" href="#Performance"><span>Performance</span></a></li><li><a class="tocitem" href="#Troubleshooting"><span>Troubleshooting</span></a></li><li><a class="tocitem" href="#Complete-Example"><span>Complete Example</span></a></li><li><a class="tocitem" href="#Next-Steps"><span>Next Steps</span></a></li></ul></li><li><a class="tocitem" href="../developer/">Developer Guide</a></li><li><span class="tocitem">API Reference</span><ul><li><a class="tocitem" href="../api/">Overview</a></li><li><a class="tocitem" href="../api/solver/">Solver &amp; Timestep</a></li><li><a class="tocitem" href="../api/fields/">Physics &amp; Fields</a></li><li><a class="tocitem" href="../api/transforms/">Transforms &amp; Spectral</a></li><li><a class="tocitem" href="../api/internals/">Internals</a></li><li><a class="tocitem" href="../api/boundary-conditions/">Boundary Conditions</a></li><li><a class="tocitem" href="../api/topography/">Boundary Topography</a></li><li><a class="tocitem" href="../api/initial-conditions/">Initial Conditions</a></li><li><a class="tocitem" href="../api/shell/">Shell Geometry</a></li><li><a class="tocitem" href="../api/ball/">Ball Geometry</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Data Output</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Data Output</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/subhk/GeoDynamo.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/subhk/GeoDynamo.jl/blob/main/docs/src/io.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Data-Output-and-Restart-Files"><a class="docs-heading-anchor" href="#Data-Output-and-Restart-Files">Data Output &amp; Restart Files</a><a id="Data-Output-and-Restart-Files-1"></a><a class="docs-heading-anchor-permalink" href="#Data-Output-and-Restart-Files" title="Permalink"></a></h1><p>GeoDynamo.jl provides a parallel NetCDF-based I/O system using MPI-IO. All ranks write concurrently to a single shared file per timestep via <code>NCDatasets.jl</code> with parallel HDF5. The system handles simulation snapshots, restart files, diagnostics, and boundary condition data.</p><div class="admonition is-success" id="Quick-Start-bcf1c50679864867"><header class="admonition-header">Quick Start<a class="admonition-anchor" href="#Quick-Start-bcf1c50679864867" title="Permalink"></a></header><div class="admonition-body"><pre><code class="language-julia hljs">config = default_config(precision=Float64)
+tracker = create_time_tracker(config, 0.0)
+write_fields!(fields, tracker, metadata, config, shtns_config, pencils)</code></pre></div></div><hr/><h2 id="Architecture-Overview"><a class="docs-heading-anchor" href="#Architecture-Overview">Architecture Overview</a><a id="Architecture-Overview-1"></a><a class="docs-heading-anchor-permalink" href="#Architecture-Overview" title="Permalink"></a></h2><pre><code class="nohighlight hljs">┌─────────────────────────────────────────────────────────────────┐
+│                    GeoDynamo I/O System                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐        │
+│  │ Simulation  │────▶│ TimeTracker │────▶│  write_     │        │
+│  │    Loop     │     │             │     │  fields!    │        │
+│  └─────────────┘     └─────────────┘     └───────┬─────┘        │
+│                                                  │              │
+│         ┌────────────────────────────────────────┼──────┐       │
+│         │                                        ▼      │       │
+│         │  ┌─────────────┐  ┌─────────────┐  ┌───────┐  │       │
+│         │  │ Grid File   │  │ History     │  │Restart│  │       │
+│         │  │ (rank 0)    │  │ (shared)    │  │ Files │  │       │
+│         │  └─────────────┘  └─────────────┘  └───────┘  │       │
+│         │      Parallel NetCDF (MPI-IO) Output Layer     │       │
+│         └───────────────────────────────────────────────┘       │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘</code></pre><h3 id="Design-Principles"><a class="docs-heading-anchor" href="#Design-Principles">Design Principles</a><a id="Design-Principles-1"></a><a class="docs-heading-anchor-permalink" href="#Design-Principles" title="Permalink"></a></h3><table><tr><th style="text-align: left">Principle</th><th style="text-align: left">Description</th></tr><tr><td style="text-align: left"><strong>Parallel I/O</strong></td><td style="text-align: left">All ranks write concurrently to a single shared NetCDF file via MPI-IO</td></tr><tr><td style="text-align: left"><strong>Mixed-space output</strong></td><td style="text-align: left">Spectral data for velocity/magnetic, physical for T/C</td></tr><tr><td style="text-align: left"><strong>Memory safe</strong></td><td style="text-align: left">Each rank holds only its local pencil slice; no gathering</td></tr><tr><td style="text-align: left"><strong>Time-based scheduling</strong></td><td style="text-align: left">Automatic output at specified intervals</td></tr></table><hr/><h2 id="OutputConfig"><a class="docs-heading-anchor" href="#OutputConfig">OutputConfig</a><a id="OutputConfig-1"></a><a class="docs-heading-anchor-permalink" href="#OutputConfig" title="Permalink"></a></h2><p>The <code>OutputConfig</code> struct controls all aspects of data output.</p><h3 id="Creating-Configurations"><a class="docs-heading-anchor" href="#Creating-Configurations">Creating Configurations</a><a id="Creating-Configurations-1"></a><a class="docs-heading-anchor-permalink" href="#Creating-Configurations" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Method 1: From defaults
+config = default_config(precision=Float64)
+
+# Method 2: From simulation parameters
+config = output_config_from_parameters()
+
+# Method 3: Modify existing config
+config = with_output_precision(config, Float32)</code></pre><h3 id="Configuration-Options"><a class="docs-heading-anchor" href="#Configuration-Options">Configuration Options</a><a id="Configuration-Options-1"></a><a class="docs-heading-anchor-permalink" href="#Configuration-Options" title="Permalink"></a></h3><table><tr><th style="text-align: left">Field</th><th style="text-align: left">Type</th><th style="text-align: left">Default</th><th style="text-align: left">Description</th></tr><tr><td style="text-align: left"><code>output_space</code></td><td style="text-align: left">OutputSpace</td><td style="text-align: left"><code>MIXED_FIELDS</code></td><td style="text-align: left">Data representation mode</td></tr><tr><td style="text-align: left"><code>output_dir</code></td><td style="text-align: left">String</td><td style="text-align: left"><code>&quot;./output&quot;</code></td><td style="text-align: left">Output directory</td></tr><tr><td style="text-align: left"><code>filename_prefix</code></td><td style="text-align: left">String</td><td style="text-align: left"><code>&quot;geodynamo&quot;</code></td><td style="text-align: left">File prefix</td></tr><tr><td style="text-align: left"><code>include_metadata</code></td><td style="text-align: left">Bool</td><td style="text-align: left"><code>true</code></td><td style="text-align: left">Include simulation metadata</td></tr><tr><td style="text-align: left"><code>include_grid</code></td><td style="text-align: left">Bool</td><td style="text-align: left"><code>true</code></td><td style="text-align: left">Include coordinate arrays</td></tr><tr><td style="text-align: left"><code>include_diagnostics</code></td><td style="text-align: left">Bool</td><td style="text-align: left"><code>true</code></td><td style="text-align: left">Include diagnostic scalars</td></tr><tr><td style="text-align: left"><code>output_precision</code></td><td style="text-align: left">DataType</td><td style="text-align: left"><code>Float64</code></td><td style="text-align: left">Precision for field data</td></tr><tr><td style="text-align: left"><code>spectral_lmax_output</code></td><td style="text-align: left">Int</td><td style="text-align: left"><code>-1</code></td><td style="text-align: left">Max ℓ to output (-1 = all)</td></tr><tr><td style="text-align: left"><code>overwrite_files</code></td><td style="text-align: left">Bool</td><td style="text-align: left"><code>true</code></td><td style="text-align: left">Overwrite existing files</td></tr><tr><td style="text-align: left"><code>output_interval</code></td><td style="text-align: left">Float64</td><td style="text-align: left"><code>0.1</code></td><td style="text-align: left">Time between snapshots</td></tr><tr><td style="text-align: left"><code>restart_interval</code></td><td style="text-align: left">Float64</td><td style="text-align: left"><code>1.0</code></td><td style="text-align: left">Time between restarts</td></tr><tr><td style="text-align: left"><code>max_output_time</code></td><td style="text-align: left">Float64</td><td style="text-align: left"><code>Inf</code></td><td style="text-align: left">Stop output after this time</td></tr><tr><td style="text-align: left"><code>time_tolerance</code></td><td style="text-align: left">Float64</td><td style="text-align: left"><code>1e-10</code></td><td style="text-align: left">Tolerance for time comparisons</td></tr></table><h3 id="Output-Space-Modes"><a class="docs-heading-anchor" href="#Output-Space-Modes">Output Space Modes</a><a id="Output-Space-Modes-1"></a><a class="docs-heading-anchor-permalink" href="#Output-Space-Modes" title="Permalink"></a></h3><pre><code class="language-julia hljs">@enum OutputSpace begin
+    MIXED_FIELDS      # Spectral for velocity/magnetic, physical for T/C
+    PHYSICAL_ONLY     # All fields in physical (θ, φ, r) space
+    SPECTRAL_ONLY     # All fields in spectral (l, m, r) space
+end</code></pre><div class="admonition is-success" id="Recommended-Mode-ac084cf34d6003d5"><header class="admonition-header">Recommended Mode<a class="admonition-anchor" href="#Recommended-Mode-ac084cf34d6003d5" title="Permalink"></a></header><div class="admonition-body"><p><code>MIXED_FIELDS</code> balances compact spectral storage for divergence-free fields with intuitive physical representation for scalars.</p></div></div><hr/><h2 id="File-Layout"><a class="docs-heading-anchor" href="#File-Layout">File Layout</a><a id="File-Layout-1"></a><a class="docs-heading-anchor-permalink" href="#File-Layout" title="Permalink"></a></h2><h3 id="Naming-Convention"><a class="docs-heading-anchor" href="#Naming-Convention">Naming Convention</a><a id="Naming-Convention-1"></a><a class="docs-heading-anchor-permalink" href="#Naming-Convention" title="Permalink"></a></h3><p>All ranks write to a single shared file per timestep:</p><pre><code class="nohighlight hljs">{prefix}_{geometry}_{type}_{N}.nc</code></pre><p><strong>Examples:</strong></p><pre><code class="nohighlight hljs">geodynamo_shell_hist_1.nc       # History snapshot 1 (all ranks)
+geodynamo_shell_hist_42.nc      # History snapshot 42 (all ranks)
+geodynamo_shell_restart_3.nc    # Restart file 3 (all ranks)
+geodynamo_shell_grid.nc         # Grid file (rank 0 only)</code></pre><h3 id="NetCDF-Structure"><a class="docs-heading-anchor" href="#NetCDF-Structure">NetCDF Structure</a><a id="NetCDF-Structure-1"></a><a class="docs-heading-anchor-permalink" href="#NetCDF-Structure" title="Permalink"></a></h3><pre><code class="nohighlight hljs">NetCDF File Structure
+├── Dimensions
+│   ├── theta         (nlat)
+│   ├── phi           (nlon)
+│   ├── r             (nr)
+│   ├── spectral_mode (nlm)
+│   ├── time          (1)
+│   ├── scalar        (1)
+│   └── meta          (1)
+│
+├── Coordinate Variables
+│   ├── theta[theta]        : Colatitude (radians, 0 to π)
+│   ├── phi[phi]            : Longitude (radians, 0 to 2π)
+│   ├── r[r]                : Radial coordinate (dimensionless)
+│   ├── l_values[spectral]  : Spherical harmonic degree
+│   ├── m_values[spectral]  : Spherical harmonic order
+│   ├── time[time]          : Simulation time
+│   └── step[time]          : Timestep number
+│
+├── Physical Fields (MIXED_FIELDS or PHYSICAL_ONLY)
+│   ├── temperature[theta,phi,r]
+│   └── composition[theta,phi,r]
+│
+├── Spectral Fields (MIXED_FIELDS or SPECTRAL_ONLY)
+│   ├── velocity_toroidal_real[spectral,r]
+│   ├── velocity_toroidal_imag[spectral,r]
+│   ├── velocity_poloidal_real[spectral,r]
+│   ├── velocity_poloidal_imag[spectral,r]
+│   ├── magnetic_toroidal_real[spectral,r]
+│   ├── magnetic_poloidal_real[spectral,r]
+│   └── (optional) temperature_spectral_*, composition_spectral_*
+│
+├── Diagnostics
+│   ├── diag_temp_mean, diag_temp_std, diag_temp_min, diag_temp_max
+│   ├── diag_velocity_toroidal_energy, diag_velocity_toroidal_rms
+│   ├── diag_magnetic_toroidal_energy, diag_magnetic_poloidal_energy
+│   └── diag_*_peak_l, diag_*_spectral_centroid
+│
+└── Global Attributes
+    ├── title, source, history, Conventions
+    ├── mpi_total_ranks
+    ├── geometry (shell/ball)
+    └── simulation parameters...</code></pre><h3 id="Grid-File"><a class="docs-heading-anchor" href="#Grid-File">Grid File</a><a id="Grid-File-1"></a><a class="docs-heading-anchor-permalink" href="#Grid-File" title="Permalink"></a></h3><p>The grid file (<code>{prefix}_{geometry}_grid.nc</code>) is written once by rank 0 and contains:</p><ul><li>Full coordinate arrays at highest precision</li><li>Gauss-Legendre quadrature weights</li><li>SHTnsKit configuration metadata</li><li>Grid type descriptors</li></ul><div class="admonition is-info" id="Note-d0e0b330a7987aa5"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-d0e0b330a7987aa5" title="Permalink"></a></header><div class="admonition-body"><p>This allows post-processing tools to reconstruct the full grid without duplicating coordinates in every history file.</p></div></div><hr/><h2 id="Time-Tracking"><a class="docs-heading-anchor" href="#Time-Tracking">Time Tracking</a><a id="Time-Tracking-1"></a><a class="docs-heading-anchor-permalink" href="#Time-Tracking" title="Permalink"></a></h2><p>The <code>TimeTracker</code> manages output scheduling:</p><pre><code class="language-julia hljs"># Create tracker starting at t=0
+tracker = create_time_tracker(config, 0.0)
+
+# In simulation loop
+if should_output_now(tracker, current_time, config)
+    write_fields!(fields, tracker, metadata, config)
+end
+
+# Query next output time for adaptive timestep
+dt_to_output = time_to_next_output(tracker, current_time, config)</code></pre><h3 id="TimeTracker-Fields"><a class="docs-heading-anchor" href="#TimeTracker-Fields">TimeTracker Fields</a><a id="TimeTracker-Fields-1"></a><a class="docs-heading-anchor-permalink" href="#TimeTracker-Fields" title="Permalink"></a></h3><table><tr><th style="text-align: left">Field</th><th style="text-align: left">Type</th><th style="text-align: left">Description</th></tr><tr><td style="text-align: left"><code>last_output_time</code></td><td style="text-align: left">Float64</td><td style="text-align: left">Time of last snapshot</td></tr><tr><td style="text-align: left"><code>last_restart_time</code></td><td style="text-align: left">Float64</td><td style="text-align: left">Time of last restart</td></tr><tr><td style="text-align: left"><code>output_count</code></td><td style="text-align: left">Int</td><td style="text-align: left">Total snapshots written</td></tr><tr><td style="text-align: left"><code>restart_count</code></td><td style="text-align: left">Int</td><td style="text-align: left">Total restarts written</td></tr><tr><td style="text-align: left"><code>next_output_time</code></td><td style="text-align: left">Float64</td><td style="text-align: left">Scheduled next snapshot</td></tr><tr><td style="text-align: left"><code>next_restart_time</code></td><td style="text-align: left">Float64</td><td style="text-align: left">Scheduled next restart</td></tr><tr><td style="text-align: left"><code>grid_file_written</code></td><td style="text-align: left">Bool</td><td style="text-align: left">Whether grid file exists</td></tr></table><h3 id="Adaptive-Timestep-Integration"><a class="docs-heading-anchor" href="#Adaptive-Timestep-Integration">Adaptive Timestep Integration</a><a id="Adaptive-Timestep-Integration-1"></a><a class="docs-heading-anchor-permalink" href="#Adaptive-Timestep-Integration" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Adjust timestep to hit exact output times
+time_to_next = time_to_next_output(tracker, t, config)
+if 0 &lt; time_to_next &lt; dt
+    dt = time_to_next  # Shorten step to hit output exactly
+end</code></pre><hr/><h2 id="Writing-Simulation-Data"><a class="docs-heading-anchor" href="#Writing-Simulation-Data">Writing Simulation Data</a><a id="Writing-Simulation-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Writing-Simulation-Data" title="Permalink"></a></h2><h3 id="Main-Output-Function"><a class="docs-heading-anchor" href="#Main-Output-Function">Main Output Function</a><a id="Main-Output-Function-1"></a><a class="docs-heading-anchor-permalink" href="#Main-Output-Function" title="Permalink"></a></h3><pre><code class="language-julia hljs">function write_fields!(
+    fields::Dict{String,Any},
+    tracker::TimeTracker,
+    metadata::Dict{String,Any},
+    config::OutputConfig = output_config_from_parameters(),
+    shtns_config::Union{SHTnsKitConfig,Nothing} = nothing,
+    pencils::Union{NamedTuple,Nothing} = nothing
+) -&gt; Bool</code></pre><p>Returns <code>true</code> if output was written.</p><h3 id="Field-Data-Format"><a class="docs-heading-anchor" href="#Field-Data-Format">Field Data Format</a><a id="Field-Data-Format-1"></a><a class="docs-heading-anchor-permalink" href="#Field-Data-Format" title="Permalink"></a></h3><pre><code class="language-julia hljs">fields = Dict(
+    # Physical space fields (θ × φ × r arrays)
+    &quot;temperature&quot; =&gt; Array{Float64,3}(nlat, nlon, nr),
+    &quot;composition&quot; =&gt; Array{Float64,3}(nlat, nlon, nr),
+
+    # Spectral fields (real/imag pairs)
+    &quot;velocity_toroidal&quot; =&gt; Dict(
+        &quot;real&quot; =&gt; Array{Float64,3}(lmax + 1, mmax + 1, nr),
+        &quot;imag&quot; =&gt; Array{Float64,3}(lmax + 1, mmax + 1, nr)
+    ),
+    &quot;velocity_poloidal&quot; =&gt; Dict(&quot;real&quot; =&gt; ..., &quot;imag&quot; =&gt; ...),
+    &quot;magnetic_toroidal&quot; =&gt; Dict(&quot;real&quot; =&gt; ..., &quot;imag&quot; =&gt; ...),
+    &quot;magnetic_poloidal&quot; =&gt; Dict(&quot;real&quot; =&gt; ..., &quot;imag&quot; =&gt; ...)
+)</code></pre><h3 id="Metadata-Dictionary"><a class="docs-heading-anchor" href="#Metadata-Dictionary">Metadata Dictionary</a><a id="Metadata-Dictionary-1"></a><a class="docs-heading-anchor-permalink" href="#Metadata-Dictionary" title="Permalink"></a></h3><pre><code class="language-julia hljs">metadata = Dict{String,Any}(
+    &quot;current_time&quot; =&gt; t,
+    &quot;current_step&quot; =&gt; step,
+    &quot;current_dt&quot; =&gt; dt,
+    &quot;Rayleigh_number&quot; =&gt; Ra,
+    &quot;Ekman_number&quot; =&gt; E,
+    &quot;Prandtl_number&quot; =&gt; Pr,
+    &quot;magnetic_Prandtl&quot; =&gt; Pm,
+    &quot;geometry&quot; =&gt; &quot;shell&quot;  # or &quot;ball&quot;
+)</code></pre><hr/><h2 id="Restart-Files"><a class="docs-heading-anchor" href="#Restart-Files">Restart Files</a><a id="Restart-Files-1"></a><a class="docs-heading-anchor-permalink" href="#Restart-Files" title="Permalink"></a></h2><h3 id="Writing-Restarts"><a class="docs-heading-anchor" href="#Writing-Restarts">Writing Restarts</a><a id="Writing-Restarts-1"></a><a class="docs-heading-anchor-permalink" href="#Writing-Restarts" title="Permalink"></a></h3><p>Restart files are automatically written at <code>restart_interval</code> using parallel I/O:</p><pre><code class="language-julia hljs">write_restart!(fields, tracker, metadata, config, pencils)</code></pre><p>Restart files include:</p><ul><li>All field data (same as history files)</li><li>Tracker state (<code>last_output_time</code>, <code>output_count</code>, etc.)</li><li><code>grid_file_written</code> flag for consistency</li></ul><h3 id="Reading-Restarts"><a class="docs-heading-anchor" href="#Reading-Restarts">Reading Restarts</a><a id="Reading-Restarts-1"></a><a class="docs-heading-anchor-permalink" href="#Reading-Restarts" title="Permalink"></a></h3><pre><code class="language-julia hljs"># From directory (finds most recent restart)
+restart_data, metadata = read_restart!(tracker, &quot;output&quot;, target_time, config, pencils)
+
+# From specific file
+restart_data, metadata = _load_restart_file(filepath, tracker, config; pencils=pencils)
+
+# Access fields (each rank gets its local slice)
+temperature = restart_data[&quot;temperature&quot;]       # local θ×φ×r slice
+velocity_tor = restart_data[&quot;velocity_toroidal&quot;] # local lm×r slice
+
+# Access simulation state
+t = metadata[&quot;current_time&quot;]
+step = metadata[&quot;current_step&quot;]</code></pre><div class="admonition is-success" id="Restart-Tips-ebaf58b1a073f4cf"><header class="admonition-header">Restart Tips<a class="admonition-anchor" href="#Restart-Tips-ebaf58b1a073f4cf" title="Permalink"></a></header><div class="admonition-body"><ul><li>Set <code>restart_interval</code> longer than <code>output_interval</code> unless frequent checkpointing is needed</li><li>All ranks open the restart file collectively; each reads only its local pencil slice</li><li>To change precision: load restart, apply <code>with_output_precision</code>, then continue</li></ul></div></div><hr/><h2 id="Boundary-Condition-I/O"><a class="docs-heading-anchor" href="#Boundary-Condition-I/O">Boundary Condition I/O</a><a id="Boundary-Condition-I/O-1"></a><a class="docs-heading-anchor-permalink" href="#Boundary-Condition-I/O" title="Permalink"></a></h2><h3 id="Reading-Boundary-Data"><a class="docs-heading-anchor" href="#Reading-Boundary-Data">Reading Boundary Data</a><a id="Reading-Boundary-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Reading-Boundary-Data" title="Permalink"></a></h3><pre><code class="language-julia hljs">using GeoDynamo.bcs
+
+# Read from NetCDF
+bc_data = read_netcdf_boundary_data(&quot;boundary_temperature.nc&quot;; precision=Float64)
+
+# Access fields
+bc_data.values       # The boundary values
+bc_data.theta        # Colatitude coordinates
+bc_data.phi          # Longitude coordinates
+bc_data.time         # Time values (if time-dependent)</code></pre><h3 id="Writing-Boundary-Data"><a class="docs-heading-anchor" href="#Writing-Boundary-Data">Writing Boundary Data</a><a id="Writing-Boundary-Data-1"></a><a class="docs-heading-anchor-permalink" href="#Writing-Boundary-Data" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Create boundary data structure
+bc = create_boundary_data(
+    values_array, &quot;temperature&quot;;
+    theta=theta_grid, phi=phi_grid, time=time_series,
+    units=&quot;K&quot;, description=&quot;Surface temperature&quot;
+)
+
+# Write to file
+write_netcdf_boundary_data(&quot;boundary_out.nc&quot;, bc)</code></pre><h3 id="Validating-Boundary-Files"><a class="docs-heading-anchor" href="#Validating-Boundary-Files">Validating Boundary Files</a><a id="Validating-Boundary-Files-1"></a><a class="docs-heading-anchor-permalink" href="#Validating-Boundary-Files" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Check file structure
+validate_netcdf_boundary_file(&quot;boundary.nc&quot;)
+
+# Get file information
+info = get_netcdf_file_info(&quot;boundary.nc&quot;)
+println(&quot;Grid: $(info[&quot;nlat&quot;]) × $(info[&quot;nlon&quot;])&quot;)
+println(&quot;Time-dependent: $(info[&quot;is_time_dependent&quot;])&quot;)</code></pre><h3 id="Boundary-File-Format"><a class="docs-heading-anchor" href="#Boundary-File-Format">Boundary File Format</a><a id="Boundary-File-Format-1"></a><a class="docs-heading-anchor-permalink" href="#Boundary-File-Format" title="Permalink"></a></h3><pre><code class="nohighlight hljs">boundary_temperature.nc
+├── Dimensions
+│   ├── theta (nlat)
+│   ├── phi (nlon)
+│   └── time (ntime)  # optional
+│
+├── Coordinates
+│   ├── theta[theta]   : 0 to π
+│   ├── phi[phi]       : 0 to 2π
+│   └── time[time]     : simulation times
+│
+└── Field
+    └── temperature[theta,phi] or temperature[theta,phi,time]</code></pre><hr/><h2 id="Diagnostics"><a class="docs-heading-anchor" href="#Diagnostics">Diagnostics</a><a id="Diagnostics-1"></a><a class="docs-heading-anchor-permalink" href="#Diagnostics" title="Permalink"></a></h2><h3 id="Automatic-Diagnostics"><a class="docs-heading-anchor" href="#Automatic-Diagnostics">Automatic Diagnostics</a><a id="Automatic-Diagnostics-1"></a><a class="docs-heading-anchor-permalink" href="#Automatic-Diagnostics" title="Permalink"></a></h3><p>Each output file includes computed diagnostics:</p><p><strong>Scalar Field Statistics:</strong></p><table><tr><th style="text-align: left">Diagnostic</th><th style="text-align: left">Description</th></tr><tr><td style="text-align: left"><code>diag_temp_mean</code></td><td style="text-align: left">Volume-averaged temperature</td></tr><tr><td style="text-align: left"><code>diag_temp_std</code></td><td style="text-align: left">Temperature standard deviation</td></tr><tr><td style="text-align: left"><code>diag_temp_min</code>, <code>diag_temp_max</code></td><td style="text-align: left">Temperature extrema</td></tr><tr><td style="text-align: left"><code>diag_temp_radial_variation</code></td><td style="text-align: left">Radial temperature variation</td></tr></table><p><strong>Spectral Field Diagnostics:</strong></p><table><tr><th style="text-align: left">Diagnostic</th><th style="text-align: left">Description</th></tr><tr><td style="text-align: left"><code>diag_{field}_energy</code></td><td style="text-align: left">Total spectral energy</td></tr><tr><td style="text-align: left"><code>diag_{field}_rms</code></td><td style="text-align: left">RMS amplitude</td></tr><tr><td style="text-align: left"><code>diag_{field}_max</code></td><td style="text-align: left">Maximum coefficient magnitude</td></tr><tr><td style="text-align: left"><code>diag_{field}_peak_l</code></td><td style="text-align: left">Degree with maximum energy</td></tr><tr><td style="text-align: left"><code>diag_{field}_spectral_centroid</code></td><td style="text-align: left">Energy-weighted mean degree</td></tr><tr><td style="text-align: left"><code>diag_{field}_low_mode_fraction</code></td><td style="text-align: left">Energy fraction in ℓ ≤ 10</td></tr></table><h3 id="Custom-Diagnostics"><a class="docs-heading-anchor" href="#Custom-Diagnostics">Custom Diagnostics</a><a id="Custom-Diagnostics-1"></a><a class="docs-heading-anchor-permalink" href="#Custom-Diagnostics" title="Permalink"></a></h3><pre><code class="language-julia hljs">function compute_diagnostics(fields::Dict{String,Any}, field_info::FieldInfo)
+    diagnostics = Dict{String, Float64}()
+
+    if haskey(fields, &quot;temperature&quot;)
+        T = fields[&quot;temperature&quot;]
+        diagnostics[&quot;temp_nusselt&quot;] = compute_nusselt(T, field_info)
+    end
+
+    return diagnostics
+end</code></pre><hr/><h2 id="MPI-Parallel-I/O"><a class="docs-heading-anchor" href="#MPI-Parallel-I/O">MPI Parallel I/O</a><a id="MPI-Parallel-I/O-1"></a><a class="docs-heading-anchor-permalink" href="#MPI-Parallel-I/O" title="Permalink"></a></h2><h3 id="How-It-Works"><a class="docs-heading-anchor" href="#How-It-Works">How It Works</a><a id="How-It-Works-1"></a><a class="docs-heading-anchor-permalink" href="#How-It-Works" title="Permalink"></a></h3><p>All MPI ranks collectively open a single NetCDF file using parallel HDF5 (MPI-IO). Each rank writes only its local pencil slice at the correct global offset. No data gathering is required.</p><pre><code class="language-julia hljs"># File is opened collectively by all ranks
+ds = NCDataset(filename, &quot;c&quot;; comm=comm, info=MPI.Info())
+
+# Each rank writes its portion using pencil ranges
+θ_range = range_local(pencils.r, 1)   # local theta indices in global array
+φ_range = range_local(pencils.r, 2)   # local phi indices in global array
+ds[&quot;temperature&quot;][θ_range, φ_range, :] = local_temperature
+
+mode_indices = local_spectral_mode_indices(shtns_config) # local spectral mode indices
+r_range = range_local(pencils.spec, 3)                    # local radial indices
+write_local_spectral_coefficients!(ds[&quot;velocity_toroidal_real&quot;], mode_indices, r_range, local_vel_tor_real)</code></pre><h3 id="Pencil-to-Global-Index-Mapping"><a class="docs-heading-anchor" href="#Pencil-to-Global-Index-Mapping">Pencil-to-Global Index Mapping</a><a id="Pencil-to-Global-Index-Mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Pencil-to-Global-Index-Mapping" title="Permalink"></a></h3><table><tr><th style="text-align: left">Field Type</th><th style="text-align: left">Pencil</th><th style="text-align: left">Local Dims</th><th style="text-align: left">Write Pattern</th></tr><tr><td style="text-align: left">Temperature/Composition</td><td style="text-align: left"><code>pencils.r</code></td><td style="text-align: left">r local, (θ,φ) distributed</td><td style="text-align: left"><code>ds[&quot;temperature&quot;][θ_range, φ_range, :]</code></td></tr><tr><td style="text-align: left">Spectral fields</td><td style="text-align: left"><code>pencils.spec</code></td><td style="text-align: left">(lm, r) distributed</td><td style="text-align: left"><code>ds[&quot;vel_tor_real&quot;][lm_range, r_range]</code></td></tr></table><h3 id="Runtime-Check"><a class="docs-heading-anchor" href="#Runtime-Check">Runtime Check</a><a id="Runtime-Check-1"></a><a class="docs-heading-anchor-permalink" href="#Runtime-Check" title="Permalink"></a></h3><p>At initialization, the system verifies that parallel HDF5 is available:</p><pre><code class="language-julia hljs">check_parallel_netcdf_support(comm)</code></pre><p>This will error immediately if parallel NetCDF is not supported, with instructions on how to install a parallel-enabled HDF5.</p><h3 id="Verification"><a class="docs-heading-anchor" href="#Verification">Verification</a><a id="Verification-1"></a><a class="docs-heading-anchor-permalink" href="#Verification" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Verify the shared output file exists and has correct dimensions
+success, missing, info = verify_all_ranks_wrote(
+    &quot;output&quot;, hist_number;
+    geometry=&quot;shell&quot;,
+    expected_dims=Dict(&quot;theta&quot; =&gt; 64, &quot;phi&quot; =&gt; 128, &quot;r&quot; =&gt; 20)
+)</code></pre><hr/><h2 id="Post-Processing-Tools"><a class="docs-heading-anchor" href="#Post-Processing-Tools">Post-Processing Tools</a><a id="Post-Processing-Tools-1"></a><a class="docs-heading-anchor-permalink" href="#Post-Processing-Tools" title="Permalink"></a></h2><h3 id="Spectral-to-Physical-Conversion"><a class="docs-heading-anchor" href="#Spectral-to-Physical-Conversion">Spectral to Physical Conversion</a><a id="Spectral-to-Physical-Conversion-1"></a><a class="docs-heading-anchor-permalink" href="#Spectral-to-Physical-Conversion" title="Permalink"></a></h3><pre><code class="language-bash hljs">julia --project extras/spectral_to_physical.jl \
+    --input output \
+    --output physical \
+    --precision Float64</code></pre><h3 id="File-Analysis-Utilities"><a class="docs-heading-anchor" href="#File-Analysis-Utilities">File Analysis Utilities</a><a id="File-Analysis-Utilities-1"></a><a class="docs-heading-anchor-permalink" href="#File-Analysis-Utilities" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Get available time series from output directory
+times = get_time_series(&quot;output&quot;)
+
+# Get file information
+info = get_file_info(&quot;geodynamo_shell_hist_1.nc&quot;)
+println(&quot;Time: $(info[&quot;time&quot;]), Step: $(info[&quot;step&quot;])&quot;)
+println(&quot;Dimensions: $(info[&quot;dimensions&quot;])&quot;)
+println(&quot;Variables: $(info[&quot;variables&quot;])&quot;)</code></pre><h3 id="Cleanup-Old-Files"><a class="docs-heading-anchor" href="#Cleanup-Old-Files">Cleanup Old Files</a><a id="Cleanup-Old-Files-1"></a><a class="docs-heading-anchor-permalink" href="#Cleanup-Old-Files" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Keep only last 10 time snapshots
+cleanup_old_files(&quot;output&quot;, 10)</code></pre><h3 id="Reading-Output-Files"><a class="docs-heading-anchor" href="#Reading-Output-Files">Reading Output Files</a><a id="Reading-Output-Files-1"></a><a class="docs-heading-anchor-permalink" href="#Reading-Output-Files" title="Permalink"></a></h3><p>Since all data is in a single file per timestep, reading is straightforward:</p><pre><code class="language-julia hljs">using NCDatasets
+
+NCDataset(&quot;output/geodynamo_shell_hist_5.nc&quot;, &quot;r&quot;) do ds
+    temperature = Array(ds[&quot;temperature&quot;][:, :, :])   # Full global array
+    vel_tor_real = Array(ds[&quot;velocity_toroidal_real&quot;][:, :])  # (nlm, nr)
+    println(&quot;Dimensions: theta=$(ds.dim[&quot;theta&quot;]), phi=$(ds.dim[&quot;phi&quot;]), r=$(ds.dim[&quot;r&quot;])&quot;)
+end</code></pre><hr/><h2 id="Performance"><a class="docs-heading-anchor" href="#Performance">Performance</a><a id="Performance-1"></a><a class="docs-heading-anchor-permalink" href="#Performance" title="Permalink"></a></h2><h3 id="Precision-vs-Size"><a class="docs-heading-anchor" href="#Precision-vs-Size">Precision vs Size</a><a id="Precision-vs-Size-1"></a><a class="docs-heading-anchor-permalink" href="#Precision-vs-Size" title="Permalink"></a></h3><table><tr><th style="text-align: left">Precision</th><th style="text-align: left">Bytes/Element</th><th style="text-align: left">Relative Size</th></tr><tr><td style="text-align: left">Float64</td><td style="text-align: left">8</td><td style="text-align: left">100%</td></tr><tr><td style="text-align: left">Float32</td><td style="text-align: left">4</td><td style="text-align: left">50%</td></tr></table><div class="admonition is-success" id="Recommendation-47d3ceb07c96ad10"><header class="admonition-header">Recommendation<a class="admonition-anchor" href="#Recommendation-47d3ceb07c96ad10" title="Permalink"></a></header><div class="admonition-body"><p>Use <code>Float32</code> for history files, <code>Float64</code> for restart files:</p><pre><code class="language-julia hljs">history_config = with_output_precision(default_config(), Float32)
+restart_config = with_output_precision(default_config(), Float64)</code></pre></div></div><h3 id="Memory-Efficient-Output"><a class="docs-heading-anchor" href="#Memory-Efficient-Output">Memory-Efficient Output</a><a id="Memory-Efficient-Output-1"></a><a class="docs-heading-anchor-permalink" href="#Memory-Efficient-Output" title="Permalink"></a></h3><p>For large arrays, the system automatically uses optimized copying:</p><pre><code class="language-julia hljs">if length(data) &gt; 10000
+    data_out = similar(data, output_precision)
+    copyto!(data_out, data)  # Efficient in-place conversion
+else
+    data_out = output_precision.(data)  # Direct broadcast
+end</code></pre><hr/><h2 id="Troubleshooting"><a class="docs-heading-anchor" href="#Troubleshooting">Troubleshooting</a><a id="Troubleshooting-1"></a><a class="docs-heading-anchor-permalink" href="#Troubleshooting" title="Permalink"></a></h2><h3 id="Files-Not-Created"><a class="docs-heading-anchor" href="#Files-Not-Created">Files Not Created</a><a id="Files-Not-Created-1"></a><a class="docs-heading-anchor-permalink" href="#Files-Not-Created" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Check directory exists and is writable
+mkpath(config.output_dir)
+@assert isdir(config.output_dir) &amp;&amp; iswritable(config.output_dir)
+
+# Verify parallel HDF5 is available
+check_parallel_netcdf_support(MPI.COMM_WORLD)</code></pre><h3 id="Output-File-Verification"><a class="docs-heading-anchor" href="#Output-File-Verification">Output File Verification</a><a id="Output-File-Verification-1"></a><a class="docs-heading-anchor-permalink" href="#Output-File-Verification" title="Permalink"></a></h3><pre><code class="language-julia hljs">success, missing, info = verify_all_ranks_wrote(&quot;output&quot;, 1;
+    expected_dims=Dict(&quot;theta&quot; =&gt; nlat, &quot;phi&quot; =&gt; nlon, &quot;r&quot; =&gt; nr))
+if !success
+    @warn &quot;Output verification failed: $missing&quot;
+end</code></pre><h3 id="Dimension-Mismatches"><a class="docs-heading-anchor" href="#Dimension-Mismatches">Dimension Mismatches</a><a id="Dimension-Mismatches-1"></a><a class="docs-heading-anchor-permalink" href="#Dimension-Mismatches" title="Permalink"></a></h3><pre><code class="language-julia hljs">validate_output_compatibility(field_info, shtns_config)</code></pre><h3 id="NaN-in-Output"><a class="docs-heading-anchor" href="#NaN-in-Output">NaN in Output</a><a id="NaN-in-Output-1"></a><a class="docs-heading-anchor-permalink" href="#NaN-in-Output" title="Permalink"></a></h3><pre><code class="language-julia hljs">if any(isnan, temperature)
+    @warn &quot;NaN detected in temperature field!&quot;
+end</code></pre><h3 id="Debug-Mode"><a class="docs-heading-anchor" href="#Debug-Mode">Debug Mode</a><a id="Debug-Mode-1"></a><a class="docs-heading-anchor-permalink" href="#Debug-Mode" title="Permalink"></a></h3><pre><code class="language-julia hljs"># Enable verbose output
+ENV[&quot;GEODYNAMO_IO_DEBUG&quot;] = &quot;true&quot;
+
+# Check each rank&#39;s status
+rank = MPI.Comm_rank(MPI.COMM_WORLD)
+println(&quot;Rank $rank: Writing to $(config.output_dir)&quot;)</code></pre><hr/><h2 id="Complete-Example"><a class="docs-heading-anchor" href="#Complete-Example">Complete Example</a><a id="Complete-Example-1"></a><a class="docs-heading-anchor-permalink" href="#Complete-Example" title="Permalink"></a></h2><pre><code class="language-julia hljs">using GeoDynamo
+using MPI
+
+MPI.Init()
+
+# Configuration
+config = OutputConfig(
+    MIXED_FIELDS,       # output space mode
+    &quot;./output&quot;,         # output directory
+    &quot;dynamo&quot;,           # filename prefix
+    true, true, true,   # metadata, grid, diagnostics
+    Float32,            # output precision
+    -1,                 # all spectral modes
+    true,               # overwrite files
+    0.05, 0.5,          # output, restart intervals
+    10.0, 1e-12         # max time, tolerance
+)
+
+# Verify parallel HDF5 support (call once at startup)
+check_parallel_netcdf_support(MPI.COMM_WORLD)
+
+# Initialize tracker
+tracker = create_time_tracker(config, 0.0)
+t, dt, step = 0.0, 0.001, 0
+
+# Simulation loop
+while t &lt; 2.0
+    t += dt
+    step += 1
+
+    # ... physics update ...
+
+    # Prepare output data
+    fields = Dict(
+        &quot;temperature&quot; =&gt; T_physical,
+        &quot;velocity_toroidal&quot; =&gt; Dict(&quot;real&quot; =&gt; vT_real, &quot;imag&quot; =&gt; vT_imag),
+        &quot;velocity_poloidal&quot; =&gt; Dict(&quot;real&quot; =&gt; vP_real, &quot;imag&quot; =&gt; vP_imag),
+        &quot;magnetic_toroidal&quot; =&gt; Dict(&quot;real&quot; =&gt; bT_real, &quot;imag&quot; =&gt; bT_imag),
+        &quot;magnetic_poloidal&quot; =&gt; Dict(&quot;real&quot; =&gt; bP_real, &quot;imag&quot; =&gt; bP_imag)
+    )
+
+    metadata = Dict{String,Any}(
+        &quot;current_time&quot; =&gt; t,
+        &quot;current_step&quot; =&gt; step,
+        &quot;current_dt&quot; =&gt; dt
+    )
+
+    # Time-based output
+    if write_fields!(fields, tracker, metadata, config, shtns_config, pencils)
+        rank = MPI.Comm_rank(MPI.COMM_WORLD)
+        rank == 0 &amp;&amp; println(&quot;Output at t=$t&quot;)
+    end
+
+    # Adaptive timestep for exact output times
+    dt_next = time_to_next_output(tracker, t, config)
+    if 0 &lt; dt_next &lt; dt
+        dt = dt_next
+    end
+end
+
+MPI.Finalize()</code></pre><hr/><h2 id="Next-Steps"><a class="docs-heading-anchor" href="#Next-Steps">Next Steps</a><a id="Next-Steps-1"></a><a class="docs-heading-anchor-permalink" href="#Next-Steps" title="Permalink"></a></h2><table><tr><th style="text-align: left">Goal</th><th style="text-align: left">Resource</th></tr><tr><td style="text-align: left">Configure simulation parameters</td><td style="text-align: left"><a href="../configuration/">Configuration &amp; Parameters</a></td></tr><tr><td style="text-align: left">Understand time integration</td><td style="text-align: left"><a href="../timestepping/">Time Integration</a></td></tr><tr><td style="text-align: left">Set up boundary conditions</td><td style="text-align: left"><a href="../topography/">Boundary Topography</a></td></tr><tr><td style="text-align: left">Contribute to development</td><td style="text-align: left"><a href="../developer/">Developer Guide</a></td></tr></table></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../topography/">« Boundary Topography</a><a class="docs-footer-nextpage" href="../developer/">Developer Guide »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Friday 5 June 2026 21:44">Friday 5 June 2026</span>. Using Julia version 1.11.9.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
