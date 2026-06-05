@@ -17,20 +17,19 @@ product back to spectral.  `nl_*`/`s_*` are dense `(nl,nm,nr)`; `u_*` physical
 same backend; `nl_*` distinct from `s_*`.  (Per-call scratch — Phase-6 may cache.)
 """
 function gpu_scalar_nonlinear!(nl_r, nl_i, s_r, s_i, u_r, u_θ, u_φ, config, d1, mvals, rinv, lmax::Int, bw::Int)
-    nl_size = size(s_r)
-    nr = nl_size[3]
-    arch = u_r isa Array ? CPU() : GPU()
+    spec_size = size(s_r)
+    nr = spec_size[3]
+    arch = arch_of(u_r)
     # 1. gradient (spectral)
     gr_r = similar(s_r); gr_i = similar(s_i)
     gt_r = similar(s_r); gt_i = similar(s_i)
     gp_r = similar(s_r); gp_i = similar(s_i)
     gpu_scalar_gradient!(gr_r, gr_i, gt_r, gt_i, gp_r, gp_i, s_r, s_i, d1, mvals, rinv, lmax, bw)
-    # 2. transform each ∇ component to physical (wrap in Phase-0 containers)
-    spec(a, b) = GPUSpectralField{eltype(a), typeof(a)}(config, nl_size[1], nl_size[2], nr, a, b)
+    # 2. transform each ∇ component to physical (wrap raw arrays in Phase-0 containers)
+    spec(a, b) = GPUSpectralField{eltype(a), typeof(a)}(config, spec_size[1], spec_size[2], nr, a, b)
     grP = allocate_gpu_physical_field(eltype(u_r), arch, config, nr)
     gtP = allocate_gpu_physical_field(eltype(u_r), arch, config, nr)
     gpP = allocate_gpu_physical_field(eltype(u_r), arch, config, nr)
-    # Note: signature is gpu_scalar_spectral_to_physical!(phys, spec, config) — phys first
     gpu_scalar_spectral_to_physical!(grP, spec(gr_r, gr_i), config)
     gpu_scalar_spectral_to_physical!(gtP, spec(gt_r, gt_i), config)
     gpu_scalar_spectral_to_physical!(gpP, spec(gp_r, gp_i), config)
@@ -38,7 +37,6 @@ function gpu_scalar_nonlinear!(nl_r, nl_i, s_r, s_i, u_r, u_θ, u_φ, config, d1
     adv = allocate_gpu_physical_field(eltype(u_r), arch, config, nr)
     gpu_scalar_advection!(adv.data, u_r, u_θ, u_φ, grP.data, gtP.data, gpP.data)
     # 4. analyze the product back to spectral → nl
-    # Note: signature is gpu_scalar_physical_to_spectral!(spec, phys, config) — spec first
     gpu_scalar_physical_to_spectral!(spec(nl_r, nl_i), adv, config)
     return nothing
 end
