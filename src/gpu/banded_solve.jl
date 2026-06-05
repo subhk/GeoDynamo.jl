@@ -15,12 +15,14 @@ batched array `lu_batched[:, :, l] = lus[l].lu`, on `arch`'s backend.  All facto
 must share the same bandwidth `bw` and size `nr`.
 """
 function gpu_pack_banded_lu(lus::AbstractVector, arch::AbstractArchitecture)
+    isempty(lus) && throw(ArgumentError("gpu_pack_banded_lu: lus must be non-empty"))
     nl = length(lus)
     bw = lus[1].bandwidth
     nr = lus[1].size
     host = Array{eltype(lus[1].lu)}(undef, 2bw + 1, nr, nl)
     for l in 1:nl
-        @assert lus[l].bandwidth == bw && lus[l].size == nr "gpu_pack_banded_lu: factors must share bw/size"
+        (lus[l].bandwidth == bw && lus[l].size == nr) ||
+            throw(ArgumentError("gpu_pack_banded_lu: all factors must share bandwidth=$bw size=$nr"))
         host[:, :, l] .= lus[l].lu
     end
     return on_architecture(arch, host)
@@ -33,6 +35,10 @@ end
 @kernel function _banded_solve_kernel!(X, @Const(B), @Const(lu_batched), bw::Int, nr::Int)
     li, mi = @index(Global, NTuple)
     T = eltype(X)
+    # @Const(B) + in-place X===B safety: B[li,mi,i] is read ONCE at step i, BEFORE
+    # X[li,mi,i] is written; the back sweep reads only X, never B. So no written
+    # location is re-read through the B pointer → the read-only cache (__ldg on CUDA)
+    # never sees a stale value, even when X===B. Do NOT move the B read after the X write.
     # Forward: L y = b  (unit diagonal)
     @inbounds for i in 1:nr
         s = zero(T)
@@ -62,6 +68,6 @@ function gpu_batched_banded_solve!(X, B, lu_batched, bw::Int)
     nl, nm, nr = size(X)
     backend = KernelAbstractions.get_backend(X)
     _banded_solve_kernel!(backend)(X, B, lu_batched, bw, nr; ndrange = (nl, nm))
-    KernelAbstractions.synchronize(backend)
+    KernelAbstractions.synchronize(backend)  # eager sync for correctness; Phase 5 may hoist to caller for pipelining
     return X
 end

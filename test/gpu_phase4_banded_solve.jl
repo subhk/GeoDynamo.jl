@@ -4,10 +4,10 @@ using Random
 
 # Build a non-singular banded matrix (diagonally dominant) in BandedLU storage.
 function _rand_banded(::Type{T}, N, bw; seed) where {T}
-    import_rng = MersenneTwister(seed)
+    rng = MersenneTwister(seed)
     data = zeros(T, 2bw+1, N)
     for j in 1:N, i in max(1,j-bw):min(N,j+bw)
-        data[bw+1+i-j, j] = (i == j) ? (T(2bw) + rand(import_rng, T)) : (rand(import_rng, T) - T(0.5))
+        data[bw+1+i-j, j] = (i == j) ? (T(2bw) + rand(rng, T)) : (rand(rng, T) - T(0.5))
     end
     return GeoDynamo.BandedMatrix{T}(data, bw, N)
 end
@@ -40,7 +40,7 @@ end
         end
     end
 
-    @testset "in-place X===B + bandwidth 1 + single l [LOCAL]" begin
+    @testset "in-place (X===B) + bandwidth 1 [LOCAL]" begin
         # in-place aliasing (X === B) must match the out-of-place result
         N, bw, nl, nm = 9, 2, 2, 2
         lus = [GeoDynamo.factorize_banded(_rand_banded(Float64, N, bw; seed = 200 + l)) for l in 1:nl]
