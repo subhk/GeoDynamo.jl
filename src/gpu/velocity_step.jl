@@ -30,6 +30,11 @@ carry the mass coefficient `E` (so 5c reproduces the velocity RHS); `linear_weig
 to [`gpu_velocity_nonlinear!`](@ref); omit them for the velocity-only step.  All
 arrays on the same backend.
 
+ROTATING INNER CORE: the toroidal `bc_in_*`/`bc_out_*` rows are applied verbatim by
+the implicit solve; for a rotating inner core the caller must set the `l=1, m=0` inner
+BC slot to the prescribed rotation value (`rot_omega·r_inner`, incremental) BEFORE
+calling — this function does not assemble it.
+
 ORDERING INVARIANT (as in `gpu_scalar_field_step!`): the nonlinear and BOTH
 `build_rhs` calls read the OLD `*.spec_*`; the spec is overwritten with the
 solution ONLY after every such read.  Do not move the field-update copies earlier.
@@ -54,6 +59,7 @@ function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
 
     # 2. toroidal CNAB2 RHS (5c) from OLD tor spec, then implicit solve (5d).
     rt_r = similar(tor.spec_r); rt_i = similar(tor.spec_i)     # Phase-6: workspace
+    # rt ≠ tor.spec is REQUIRED — build_rhs reads tor.spec as input (ORDERING INVARIANT).
     gpu_build_rhs_cnab2!(rt_r, rt_i, tor.spec_r, tor.spec_i, nlt_r, nlt_i,
         tor.prev_nl_r, tor.prev_nl_i, tor.lin, inv_dt, linear_weight, bw)
     gpu_implicit_solve_field!(rt_r, rt_i, tor.lu,
@@ -62,6 +68,7 @@ function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
     # 3. poloidal CNAB2 RHS (5c) from OLD pol spec, implicit solve (5d), then the
     #    2×2 influence correction (5j) on the poloidal solution.
     rp_r = similar(pol.spec_r); rp_i = similar(pol.spec_i)     # Phase-6: workspace
+    # rp ≠ pol.spec is REQUIRED — build_rhs reads pol.spec as input (ORDERING INVARIANT).
     gpu_build_rhs_cnab2!(rp_r, rp_i, pol.spec_r, pol.spec_i, nlp_r, nlp_i,
         pol.prev_nl_r, pol.prev_nl_i, pol.lin, inv_dt, linear_weight, bw)
     gpu_implicit_solve_field!(rp_r, rp_i, pol.lu,

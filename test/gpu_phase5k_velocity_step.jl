@@ -105,7 +105,8 @@ MPI.Initialized() || MPI.Init()
         @test tor.prev_nl_i == nlt_i
         @test pol.prev_nl_r == nlp_r
         @test pol.prev_nl_i == nlp_i
-        @test all(isfinite, tor.spec_r) && all(isfinite, pol.spec_r)
+        @test all(isfinite, tor.spec_r) && all(isfinite, tor.spec_i) &&
+              all(isfinite, pol.spec_r) && all(isfinite, pol.spec_i)
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5k gate) [GPU-BOX]" begin
@@ -140,10 +141,15 @@ MPI.Initialized() || MPI.Init()
             GeoDynamo.gpu_velocity_field_step!(gtor, gpol, cfg,
                 gnlops, (; Gre_b = gGre, invG_b = ginvG), inv_dt, linear_weight, cfg.lmax, bw)
             @test gtor.spec_r isa CUDA.CuArray
+            @test gpol.spec_r isa CUDA.CuArray
             @test isapprox(Array(gtor.spec_r), ctor.spec_r; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gpol.spec_r), cpol.spec_r; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gtor.prev_nl_r), ctor.prev_nl_r; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gpol.prev_nl_i), cpol.prev_nl_i; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gtor.spec_i), ctor.spec_i; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gpol.spec_i), cpol.spec_i; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gtor.prev_nl_i), ctor.prev_nl_i; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gpol.prev_nl_r), cpol.prev_nl_r; atol = 1e-9, rtol = 1e-8)
         end
     end
 end
