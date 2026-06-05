@@ -153,6 +153,7 @@ additional_tests = (
     "gpu_phase5c_cnab2_rhs.jl",
     "gpu_phase5d_implicit_solve.jl",
     "gpu_phase5e_scalar_nonlinear.jl",
+    "gpu_phase5f_scalar_step.jl",
     "user_api.jl",
     "oceananigans_api.jl",
     # MPI-aware tests
