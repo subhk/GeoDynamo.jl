@@ -1,5 +1,6 @@
 using Test
 using GeoDynamo
+include(joinpath(@__DIR__, "gpu_test_preamble.jl"))
 using MPI
 using Random
 
