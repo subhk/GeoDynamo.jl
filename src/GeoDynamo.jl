@@ -479,7 +479,12 @@ export generate_random_initial_conditions!, set_analytical_initial_conditions!
 export load_parameters, save_parameters, create_parameter_template
 
 # New Oceananigans-style user API
-export AbstractArchitecture, CPU, GPU, arch_zeros, on_architecture, get_backend
+export AbstractArchitecture, CPU, GPU, arch_zeros, on_architecture, get_backend, gpu_functional, gpu_synchronize
+export GPUPhysicalField, GPUSpectralField, allocate_gpu_physical_field,
+       allocate_gpu_spectral_field, field_to_host, field_to_device
+export gpu_scalar_spectral_to_physical!, gpu_scalar_physical_to_spectral!
+export gpu_scalar_advection!, gpu_cross!, gpu_cross_add!, gpu_coriolis_sub!, gpu_buoyancy_add!
+export gpu_vr_scale!, gpu_vector_spectral_to_physical!, gpu_vector_physical_to_spectral!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
@@ -513,6 +518,11 @@ rcond_fallback_tol(::Type{T}) where {T} = sqrt(eps(T))
 
 # Architecture type hierarchy — must be first so all subsequent includes can use AbstractArchitecture
 include("core/architecture.jl")
+include("gpu/device.jl")
+include("gpu/fields.jl")
+include("gpu/scalar_transform.jl")
+include("gpu/nonlinear.jl")
+include("gpu/vector_transform.jl")
 
 # User-facing choice objects are needed by SolverParameters so the internal
 # configuration stores the same objects users pass at construction time.

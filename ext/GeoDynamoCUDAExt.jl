@@ -14,6 +14,26 @@ GeoDynamo.arch_zeros(g::GeoDynamo.GPU, FT::DataType, dims...) =
 
 GeoDynamo.on_architecture(::GeoDynamo.GPU, a) = CUDA.cu(a)
 
+GeoDynamo.gpu_functional() = CUDA.functional()
+GeoDynamo.gpu_synchronize() = (CUDA.synchronize(); nothing)
+
+# Phase 1: route CuArray coefficient/spatial matrices through SHTnsKit's GPU transform.
+# Uses raw gpu_synthesis/gpu_analysis (no OOM CPU-fallback); switch to the *_safe
+# variants if graceful OOM degradation is wanted in a later phase.
+GeoDynamo._scalar_synth(cfg_sht, alm::CUDA.CuArray) = SHTnsKit.gpu_synthesis(cfg_sht, alm; real_output = true)
+GeoDynamo._scalar_anal(cfg_sht, f::CUDA.CuArray)    = SHTnsKit.gpu_analysis(cfg_sht, f)
+
+# Phase 3: route CuArray sphtor coefficient/spatial matrices through SHTnsKit's GPU transform.
+GeoDynamo._vector_synth_sphtor(cfg_sht, S::CUDA.CuArray, T::CUDA.CuArray) =
+    SHTnsKit.gpu_synthesis_sphtor(cfg_sht, S, T; real_output = true)
+GeoDynamo._vector_anal_sphtor(cfg_sht, vt::CUDA.CuArray, vp::CUDA.CuArray) =
+    SHTnsKit.gpu_analysis_sphtor(cfg_sht, vt, vp)
+
+function GeoDynamo._gpu_default_backend()
+    CUDA.functional() || error("GPU() called but CUDA.functional() is false (no usable CUDA device).")
+    return CUDA.CUDABackend()
+end
+
 function host_fill_scalar_coeff_buffer(coeffs_buffer, spec_real, spec_imag, r_local, config)
     return GeoDynamo.Solver.solver_cpu_fill_scalar_coeff_buffer!(
         coeffs_buffer,
