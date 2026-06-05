@@ -1,5 +1,6 @@
 using Test
 using GeoDynamo
+include(joinpath(@__DIR__, "gpu_test_preamble.jl"))
 using Random
 
 # A banded matrix in (2bw+1, N) storage (NOT necessarily invertible — it's a derivative op).

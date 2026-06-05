@@ -1,5 +1,6 @@
 using Test
 using GeoDynamo
+include(joinpath(@__DIR__, "gpu_test_preamble.jl"))
 
 @testset "GPU Phase 2 — Nonlinear Kernels" begin
     nlat, nlon, nr = 6, 8, 3

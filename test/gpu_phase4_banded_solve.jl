@@ -1,5 +1,6 @@
 using Test
 using GeoDynamo
+include(joinpath(@__DIR__, "gpu_test_preamble.jl"))
 using Random
 
 # Build a non-singular banded matrix (diagonally dominant) in BandedLU storage.

@@ -88,7 +88,10 @@ function _build_geodynamo_model(
         ocb_topography_file = ocb_topography_file,
         magnetic_inner_bc = magnetic_inner_bc
     )
-    state = initialize_solver_state(T; params = params)
+    # Pass the grid's concrete architecture object so a real backend (e.g.
+    # `GPU(CUDABackend())`) is preserved end-to-end instead of being flattened
+    # to `arch_sym` and rebuilt lossily as `GPU(nothing)`.
+    state = initialize_solver_state(T; params = params, arch = grid.arch)
     clock = Clock{T}(T(state.time), state.step, 0, zero(T))
     model = GeodynamoModel{T, typeof(state.backend.architecture), typeof(grid)}(state, grid, clock)
     if !isnothing(initial_conditions)

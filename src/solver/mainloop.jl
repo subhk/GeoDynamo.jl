@@ -8,12 +8,17 @@ builds the backend/runtime objects, activates topography, and prepares the
 field views and timestep caches used by the main loop.
 """
 function initialize_solver_state(::Type{T} = Float64;
-        params::SolverParameters = create_solver_parameters()) where {T}
+        params::SolverParameters = create_solver_parameters(),
+        arch::Union{Nothing, AbstractArchitecture} = nothing) where {T}
 
     # Keep the package-level parameter view in sync while the new solver stack
     # still shares a few kernels and file-loading paths with the older runtime.
     apply_solver_parameters!(params)
-    backend = create_solver_backend(params)
+    # When the caller hands us a concrete architecture object (e.g. the grid's
+    # `GPU(CUDABackend())`), thread it through verbatim so the live backend is
+    # preserved rather than rebuilt — lossily — from `params.architecture`.
+    backend = isnothing(arch) ? create_solver_backend(params) :
+              create_solver_backend(arch, params)
     implicit_matrices, magnetic_ic_admittance = create_solver_implicit_matrices(T, backend)
     runtime = create_solver_runtime(
         T,

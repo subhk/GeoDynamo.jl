@@ -215,7 +215,9 @@ end
 
 function architecture_from_symbol(architecture::Symbol)
     architecture === :cpu && return CPU()
-    architecture === :gpu && return GPU(nothing)
+    # `GPU()` binds the default functional backend and errors when CUDA is not
+    # loaded — never silently downgrade `:gpu` to a CPU-backed `GPU(nothing)`.
+    architecture === :gpu && return GPU()
     throw(ArgumentError("architecture = $(architecture) must be :cpu or :gpu"))
 end
 
