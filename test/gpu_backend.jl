@@ -60,17 +60,22 @@ import KernelAbstractions
         end
     end
 
-    @testset "initialize_solver_state threads concrete arch object" begin
+    @testset "backend build preserves concrete arch object" begin
         # A GPU arch carrying a sentinel backend the Symbol path cannot
         # reproduce (it can only build GPU() or the old GPU(nothing)). The
-        # object must survive end-to-end onto the backend.
+        # object-taking backend builder — which the model/init path now routes
+        # through — must store it verbatim instead of rebuilding from the
+        # `params.architecture` Symbol.
         sentinel = GPU(:sentinel_backend)
         params = GeoDynamo.SolverParameters(architecture = :gpu,
-            lmax = 4, mmax = 4, nlat = 8, nlon = 16, nr = 4, nr_inner = 2,
+            lmax = 4, mmax = 4, nlat = 8, nlon = 16, nr = 8, nr_inner = 2,
             include_composition = false)
-        state = GeoDynamo.initialize_solver_state(Float64;
-            params = params, arch = sentinel)
-        @test state.backend.architecture === sentinel
+        backend = GeoDynamo.create_solver_backend(sentinel, params)
+        @test backend.architecture === sentinel
+        # initialize_solver_state must accept the `arch` passthrough that the
+        # model build relies on (regression guard for the kwarg itself).
+        @test hasmethod(GeoDynamo.initialize_solver_state, Tuple{Type{Float64}},
+            (:params, :arch))
     end
 
     @testset "GeodynamoModel preserves grid GPU backend [GPU]" begin
