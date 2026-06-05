@@ -66,7 +66,9 @@ MPI.Initialized() || MPI.Init()
                 d(u_r),d(u_θ),d(u_φ), cfg, d(d1), d(d2), d(lfac), d(rinv), d(rinv2), d(rscale), cfg.lmax, bw)
             @test gntr isa CUDA.CuArray
             @test isapprox(Array(gntr), cntr; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gnti), cnti; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gnpr), cnpr; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gnpi), cnpi; atol = 1e-9, rtol = 1e-8)
         end
     end
 end

@@ -19,6 +19,8 @@ as in the curl/transform.  All on the same backend; outputs distinct from inputs
 """
 function gpu_magnetic_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, B_tor_r, B_tor_i, B_pol_r, B_pol_i,
         u_r, u_θ, u_φ, config, d1, d2, lfac, rinv, rinv2, rscale, lmax::Int, bw::Int)
+    # lmax kept for interface symmetry with the other field orchestrators; spectral
+    # bounds are encoded in lfac/rinv/config, so it isn't forwarded to the sub-calls here.
     arch = arch_of(B_tor_r)
     sz = size(B_tor_r); nr = sz[3]
     spec(a, b) = GPUSpectralField{eltype(a), typeof(a)}(config, sz[1], sz[2], nr, a, b)
