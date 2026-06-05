@@ -158,6 +158,7 @@ additional_tests = (
     "gpu_phase5g_velocity_nonlinear.jl",
     "gpu_phase5h_magnetic_nonlinear.jl",
     "gpu_phase5i_coupled_velocity.jl",
+    "gpu_phase5j_influence_correction.jl",
     "user_api.jl",
     "oceananigans_api.jl",
     "api_codex_fixes.jl",
