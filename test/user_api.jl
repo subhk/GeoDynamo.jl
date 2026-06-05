@@ -43,6 +43,34 @@ using Test
               3
     end
 
+    @testset "FieldWriter field selection filters output dict" begin
+        all_fields = Dict{String, Any}(
+            "velocity_toroidal" => Dict("real" => [1.0], "imag" => [0.0]),
+            "velocity_poloidal" => Dict("real" => [1.0], "imag" => [0.0]),
+            "magnetic_toroidal" => Dict("real" => [1.0], "imag" => [0.0]),
+            "magnetic_poloidal" => Dict("real" => [1.0], "imag" => [0.0]),
+            "temperature" => [1.0],
+            "temperature_spectral" => Dict("real" => [1.0], "imag" => [0.0]),
+            "composition" => [1.0],
+            "composition_spectral" => Dict("real" => [1.0], "imag" => [0.0]),
+        )
+
+        only_temp = GeoDynamo._select_output_fields(all_fields, [:temperature])
+        @test Set(keys(only_temp)) == Set(["temperature", "temperature_spectral"])
+
+        vel_mag = GeoDynamo._select_output_fields(all_fields, [:velocity, :magnetic])
+        @test Set(keys(vel_mag)) == Set([
+            "velocity_toroidal", "velocity_poloidal",
+            "magnetic_toroidal", "magnetic_poloidal"])
+
+        # Empty selection means "everything".
+        @test Set(keys(GeoDynamo._select_output_fields(all_fields, Symbol[]))) ==
+              Set(keys(all_fields))
+
+        # Unknown selectors contribute nothing; missing keys are skipped silently.
+        @test isempty(GeoDynamo._select_output_fields(all_fields, [:bogus]))
+    end
+
     @testset "Schedule types" begin
         ctx = GeoDynamo._ScheduleContext(1.0, 100, 5.0)
         @test GeoDynamo.should_fire(GeoDynamo.IterationInterval(100), ctx) == true

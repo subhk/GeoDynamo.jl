@@ -58,6 +58,35 @@ end
 # Internal dispatch
 # ================================================================================
 
+# Map user-facing field selectors to the dict keys produced by
+# `extract_all_fields`. A FieldWriter `fields=[:temperature]` should write only
+# the temperature entries, not the full state.
+const _FIELD_KEY_GROUPS = Dict{Symbol, Tuple{Vararg{String}}}(
+    :velocity => ("velocity_toroidal", "velocity_poloidal"),
+    :temperature => ("temperature", "temperature_spectral"),
+    :magnetic => ("magnetic_toroidal", "magnetic_poloidal"),
+    :composition => ("composition", "composition_spectral"),
+)
+
+"""
+    _select_output_fields(all_fields, selectors)
+
+Return the subset of `all_fields` (the dict from `extract_all_fields`) selected
+by `selectors` (e.g. `[:velocity, :temperature]`). An empty selector list means
+"write everything". Unknown selectors and keys absent from `all_fields` are
+skipped silently.
+"""
+function _select_output_fields(all_fields::AbstractDict, selectors)
+    isempty(selectors) && return all_fields
+    keep = Dict{String, Any}()
+    for s in selectors
+        for k in get(_FIELD_KEY_GROUPS, s, ())
+            haskey(all_fields, k) && (keep[k] = all_fields[k])
+        end
+    end
+    return keep
+end
+
 """
     _run_output_writer!(ow::FieldWriter, sim, ctx)
 
@@ -100,9 +129,17 @@ function _run_output_writer!(ow::FieldWriter, sim, ctx::_ScheduleContext)
     )
 
     try
-        write_fields!(state, tracker, metadata, config,
+        # Honor the writer's field selection: filter the extracted dict and call
+        # the Dict-based write_fields! so only requested fields are written.
+        # extract_field_info / compute_diagnostics / setup_variables! all guard
+        # on haskey, so a partial dict is safe.
+        selected = _select_output_fields(extract_all_fields(state), ow.fields)
+        write_fields!(selected, tracker, metadata, config,
             state.runtime.shtns_config,
-            state.runtime.shtns_config.pencils)
+            state.runtime.shtns_config.pencils;
+            geometry = state.parameters.geometry,
+            radius_ratio = state.parameters.radius_ratio,
+            radial_grid = Float64.(state.runtime.outer_core_domain.r[1:state.runtime.outer_core_domain.N, 4]))
     catch e
         @warn "FieldWriter: write_fields! failed" exception=e path=ow.path
     end
@@ -154,6 +191,8 @@ function _run_output_writer!(ow::CheckpointWriter, sim, ctx::_ScheduleContext)
         write_restart!(fields, tracker, metadata, config,
             state.runtime.shtns_config.pencils;
             shtns_config = state.runtime.shtns_config,
+            geometry = state.parameters.geometry,
+            radius_ratio = state.parameters.radius_ratio,
             radial_grid = Float64.(state.runtime.outer_core_domain.r[1:state.runtime.outer_core_domain.N, 4]))
     catch e
         @warn "CheckpointWriter: write_restart! failed" exception=e path=ow.path

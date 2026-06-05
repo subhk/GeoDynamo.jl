@@ -125,6 +125,13 @@ function _resolve_timestepper(
     # timestepper carried on the parameters. SolverParameters stores the
     # timestepper as a struct, so scheme/theta/krylov are derived from it.
     effective = if !isnothing(timestepper)
+        # The high-level API is lenient: a bare scheme Symbol passed as
+        # `timestepper` is converted to its struct so an AbstractTimestepper —
+        # never a Symbol — reaches SolverParameters. (The low-level
+        # SolverParameters(timestepper=…) field still requires a struct.)
+        timestepper isa Symbol ?
+        _timestepper_from_scheme(timestepper, implicit_theta,
+            etd_krylov_dimension, krylov_tolerance) :
         timestepper
     elseif !isnothing(timestep_scheme)
         _timestepper_from_scheme(timestep_scheme, implicit_theta,

@@ -82,6 +82,28 @@ using Test
         @test_throws MethodError GeoDynamo.SolverParameters(timestepper = :rk4)
     end
 
+    @testset "Simulation timestepper accepts a scheme symbol" begin
+        # The high-level `Simulation`/`_resolve_timestepper` path is lenient: a
+        # bare scheme Symbol passed as `timestepper` is converted to its struct
+        # so the result carries an AbstractTimestepper (not a Symbol) into
+        # SolverParameters.
+        params = GeoDynamo.SolverParameters()
+        opts = GeoDynamo._resolve_timestepper(:cnab2, nothing, nothing, nothing, nothing, params)
+        @test opts.timestepper isa GeoDynamo.CNAB2
+        @test opts.timestepper isa GeoDynamo.AbstractTimestepper
+        @test opts.timestep_scheme === :cnab2
+
+        opts_erk = GeoDynamo._resolve_timestepper(:erk2, nothing, nothing, nothing, nothing, params)
+        @test opts_erk.timestepper isa GeoDynamo.ERK2
+
+        # An explicit struct still works unchanged.
+        opts_struct = GeoDynamo._resolve_timestepper(GeoDynamo.ERK2(), nothing, nothing, nothing, nothing, params)
+        @test opts_struct.timestepper isa GeoDynamo.ERK2
+
+        # An unknown scheme symbol is still rejected with a clear error.
+        @test_throws ArgumentError GeoDynamo._resolve_timestepper(:rk4, nothing, nothing, nothing, nothing, params)
+    end
+
     @testset "Strict mode throws on invalid params" begin
         params = GeoDynamo.SolverParameters(Ek = -1.0)
         @test_throws ErrorException GeoDynamo.validate_parameters(params; strict = true)

@@ -138,10 +138,10 @@ opt-in via the `magnetic_inner_bc` parameter.
 
 ```julia
 # Default: insulating magnetic BCs (applied automatically)
-params = SolverParameters(; include_magnetic_field = true, geometry = :shell, ...)
+params = SolverParameters(; include_magnetic = true, geometry = :shell, ...)
 
 # Opt in to a conducting inner core (shell geometry, CNAB2 timestepper):
-params = SolverParameters(; include_magnetic_field = true, geometry = :shell,
+params = SolverParameters(; include_magnetic = true, geometry = :shell,
                             magnetic_inner_bc = :conducting_inner_core, ...)
 ```
 

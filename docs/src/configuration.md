@@ -110,7 +110,7 @@ See [Spherical Harmonics](shtnskit.md) for the complete transform API.
 
 | Parameter | Type | Description |
 |:----------|:-----|:------------|
-| `include_magnetic_field` | Bool | Enable magnetic field evolution |
+| `include_magnetic` | Bool | Enable magnetic field evolution |
 | `impose_magnetic_field` | Bool | Enable imposed background magnetic field |
 
 ---
