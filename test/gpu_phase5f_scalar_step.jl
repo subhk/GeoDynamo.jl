@@ -47,8 +47,10 @@ MPI.Initialized() || MPI.Init()
         GeoDynamo.gpu_implicit_solve_field!(rhs_r, rhs_i, lub, bir, bii, bor, boi, bw)
         msr .= rhs_r; msi .= rhs_i; mpr .= mnl_r; mpi .= mnl_i
 
-        @test sr == msr && si == msi           # updated field
-        @test pr == mpr && pi_ == mpi          # rolled-over nl_prev (= this step's nl)
+        @test sr == msr                        # updated field (real)
+        @test si == msi                        # updated field (imag)
+        @test pr == mpr                        # rolled-over nl_prev (= this step's nl, real)
+        @test pi_ == mpi                       # rolled-over nl_prev (imag)
         @test all(isfinite, sr) && all(isfinite, pr)
     end
 
