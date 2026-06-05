@@ -69,4 +69,29 @@ using GeoDynamo
         end
         @test force_r == ref
     end
+
+    @testset "GPU execution + GPU≈CPU parity (Phase-2 gate) [GPU-BOX]" begin
+        if !GeoDynamo.gpu_functional()
+            @test_skip "requires a functional CUDA GPU"
+        else
+            # scalar advection: CPU(Array) reference vs GPU(CuArray)
+            u_r, u_θ, u_φ = rnd(), rnd(), rnd(); gr, gθ, gφ = rnd(), rnd(), rnd()
+            cout = zeros(Float64, nlat, nlon, nr)
+            GeoDynamo.gpu_scalar_advection!(cout, u_r, u_θ, u_φ, gr, gθ, gφ)        # CPU
+            d(x) = GeoDynamo.on_architecture(GPU(), x)
+            gout = d(zeros(Float64, nlat, nlon, nr))
+            GeoDynamo.gpu_scalar_advection!(gout, d(u_r), d(u_θ), d(u_φ), d(gr), d(gθ), d(gφ))
+            @test gout isa CUDA.CuArray
+            @test isapprox(Array(gout), cout; atol = 1e-13, rtol = 1e-12)
+
+            # cross product
+            a = (rnd(), rnd(), rnd()); b = (rnd(), rnd(), rnd()); coeff = 0.42
+            cr, cθ, cφ = zeros(nlat,nlon,nr), zeros(nlat,nlon,nr), zeros(nlat,nlon,nr)
+            GeoDynamo.gpu_cross!(cr, cθ, cφ, a..., b..., coeff)
+            gr3 = (d(zeros(nlat,nlon,nr)), d(zeros(nlat,nlon,nr)), d(zeros(nlat,nlon,nr)))
+            GeoDynamo.gpu_cross!(gr3..., d.(a)..., d.(b)..., coeff)
+            @test isapprox(Array(gr3[1]), cr; atol = 1e-13)
+            @test isapprox(Array(gr3[3]), cφ; atol = 1e-13)
+        end
+    end
 end

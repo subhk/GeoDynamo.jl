@@ -145,6 +145,7 @@ additional_tests = (
     "gpu_backend.jl",
     "gpu_phase0_foundation.jl",
     "gpu_phase1_scalar_transform.jl",
+    "gpu_phase2_nonlinear.jl",
     "user_api.jl",
     "oceananigans_api.jl",
     # MPI-aware tests
