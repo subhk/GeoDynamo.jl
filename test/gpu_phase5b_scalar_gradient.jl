@@ -70,6 +70,7 @@ using Random
         # ∇φ reference: i·m·s, then ×1/r
         for li in 1:nl, mi in 1:nm, r in 1:nr
             @test gpr[li,mi,r] == (-(mvals[mi]) * si[li,mi,r]) * rinv[r]
+            @test gpi[li,mi,r] == (mvals[mi] * sr[li,mi,r]) * rinv[r]
         end
         # ∇θ reference: recurrence × 1/r (spot-check a valid mode)
         li, mi, r = 4, 2, 2; l = li-1; m = mi-1

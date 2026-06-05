@@ -14,6 +14,8 @@ Longitudinal gradient `∂s/∂φ = i·m·s`: `gφ_r = −m·s_i`, `gφ_i = m·s
 """
 function gpu_phi_gradient!(gφ_r, gφ_i, s_r, s_i, mvals)
     mm = reshape(mvals, 1, :, 1)            # (1, nm, 1) — m over the m-slot axis
+    # mvals is typically Float64; the broadcast promotes to the output element type
+    # (Float32-safe — no allocation beyond the lazy reshape).
     @. gφ_r = -mm * s_i
     @. gφ_i = mm * s_r
     return nothing
