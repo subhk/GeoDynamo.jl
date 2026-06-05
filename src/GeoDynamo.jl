@@ -484,6 +484,7 @@ export GPUPhysicalField, GPUSpectralField, allocate_gpu_physical_field,
        allocate_gpu_spectral_field, field_to_host, field_to_device
 export gpu_scalar_spectral_to_physical!, gpu_scalar_physical_to_spectral!
 export gpu_scalar_advection!, gpu_cross!, gpu_cross_add!, gpu_coriolis_sub!, gpu_buoyancy_add!
+export gpu_vr_scale!, gpu_vector_spectral_to_physical!, gpu_vector_physical_to_spectral!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
@@ -521,6 +522,7 @@ include("gpu/device.jl")
 include("gpu/fields.jl")
 include("gpu/scalar_transform.jl")
 include("gpu/nonlinear.jl")
+include("gpu/vector_transform.jl")
 
 # User-facing choice objects are needed by SolverParameters so the internal
 # configuration stores the same objects users pass at construction time.

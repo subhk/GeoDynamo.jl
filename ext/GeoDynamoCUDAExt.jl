@@ -23,6 +23,12 @@ GeoDynamo.gpu_synchronize() = (CUDA.synchronize(); nothing)
 GeoDynamo._scalar_synth(cfg_sht, alm::CUDA.CuArray) = SHTnsKit.gpu_synthesis(cfg_sht, alm; real_output = true)
 GeoDynamo._scalar_anal(cfg_sht, f::CUDA.CuArray)    = SHTnsKit.gpu_analysis(cfg_sht, f)
 
+# Phase 3: route CuArray sphtor coefficient/spatial matrices through SHTnsKit's GPU transform.
+GeoDynamo._vector_synth_sphtor(cfg_sht, S::CUDA.CuArray, T::CUDA.CuArray) =
+    SHTnsKit.gpu_synthesis_sphtor(cfg_sht, S, T; real_output = true)
+GeoDynamo._vector_anal_sphtor(cfg_sht, vt::CUDA.CuArray, vp::CUDA.CuArray) =
+    SHTnsKit.gpu_analysis_sphtor(cfg_sht, vt, vp)
+
 function GeoDynamo._gpu_default_backend()
     CUDA.functional() || error("GPU() called but CUDA.functional() is false (no usable CUDA device).")
     return CUDA.CUDABackend()
