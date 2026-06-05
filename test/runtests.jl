@@ -150,6 +150,7 @@ additional_tests = (
     "gpu_phase4_banded_solve.jl",
     "gpu_phase5a_spectral_curl.jl",
     "gpu_phase5b_scalar_gradient.jl",
+    "gpu_phase5c_cnab2_rhs.jl",
     "user_api.jl",
     "oceananigans_api.jl",
     # MPI-aware tests
