@@ -17,6 +17,10 @@ GeoDynamo.on_architecture(::GeoDynamo.GPU, a) = CUDA.cu(a)
 GeoDynamo.gpu_functional() = CUDA.functional()
 GeoDynamo.gpu_synchronize() = (CUDA.synchronize(); nothing)
 
+# Phase 1: route CuArray coefficient/spatial matrices through SHTnsKit's GPU transform.
+GeoDynamo._scalar_synth(cfg_sht, alm::CUDA.CuArray) = SHTnsKit.gpu_synthesis(cfg_sht, alm; real_output = true)
+GeoDynamo._scalar_anal(cfg_sht, f::CUDA.CuArray)    = SHTnsKit.gpu_analysis(cfg_sht, f)
+
 function GeoDynamo._gpu_default_backend()
     CUDA.functional() || error("GPU() called but CUDA.functional() is false (no usable CUDA device).")
     return CUDA.CUDABackend()

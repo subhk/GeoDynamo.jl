@@ -482,6 +482,7 @@ export load_parameters, save_parameters, create_parameter_template
 export AbstractArchitecture, CPU, GPU, arch_zeros, on_architecture, get_backend, gpu_functional, gpu_synchronize
 export GPUPhysicalField, GPUSpectralField, allocate_gpu_physical_field,
        allocate_gpu_spectral_field, field_to_host, field_to_device
+export gpu_scalar_spectral_to_physical!, gpu_scalar_physical_to_spectral!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
@@ -517,6 +518,7 @@ rcond_fallback_tol(::Type{T}) where {T} = sqrt(eps(T))
 include("core/architecture.jl")
 include("gpu/device.jl")
 include("gpu/fields.jl")
+include("gpu/scalar_transform.jl")
 
 # User-facing choice objects are needed by SolverParameters so the internal
 # configuration stores the same objects users pass at construction time.
