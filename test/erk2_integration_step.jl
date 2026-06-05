@@ -1,6 +1,5 @@
 using Test
 using MPI
-using Random
 
 # Full-physics ERK2 integration-step coverage.
 #
@@ -52,10 +51,13 @@ using Random
     @test params.include_composition == true
 
     state = GeoDynamo.initialize_simulation(Float64, params)
-    # Seed the global RNG so the random initial condition is deterministic
-    # regardless of suite order (prior tests otherwise leave the RNG in a
-    # varying state, which can perturb the IC amplitude into a non-finite step).
-    Random.seed!(20260604)
+    # The initial condition is already deterministic and suite-order independent:
+    # initialize_fields! -> initialize_solver_fields! re-seeds the global RNG
+    # internally (Random.seed!(42 + rank), src/timestep/driver.jl) before every
+    # field init, so no external seed is needed or effective here. In isolation
+    # this step is bit-stable and finite; any non-finite result observed only
+    # under the full suite is FP/BLAS-threading + library-version sensitivity on
+    # the borderline-conditioned lmax=2 magnetic-poloidal solve, not IC variation.
     GeoDynamo.initialize_fields!(state)
 
     # Both optional field sets must actually exist for the magnetic/composition
