@@ -493,6 +493,7 @@ export gpu_apply_bc_rows!, gpu_implicit_solve_field!
 export gpu_scalar_nonlinear!
 export gpu_scalar_field_step!
 export gpu_velocity_nonlinear!
+export gpu_magnetic_nonlinear!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
@@ -539,6 +540,7 @@ include("gpu/implicit_solve.jl")
 include("gpu/scalar_nonlinear.jl")
 include("gpu/scalar_step.jl")
 include("gpu/velocity_nonlinear.jl")
+include("gpu/magnetic_nonlinear.jl")
 
 # User-facing choice objects are needed by SolverParameters so the internal
 # configuration stores the same objects users pass at construction time.
