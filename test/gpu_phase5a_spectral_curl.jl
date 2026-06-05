@@ -40,14 +40,16 @@ end
         GeoDynamo.gpu_spectral_curl!(dtr, dti, dpr, dpi, str, sti, spr, spi, d1.data, d2.data, lfac, rinv, rinv2, bw)
         # independent reference per (l,m): d1·P, d2·P via apply_radial_derivative!, then the formula
         for l in 1:nl, m in 1:nm
-            d1P = zeros(N); d2P = zeros(N)
-            GeoDynamo.apply_radial_derivative!(d1P, d1, collect(spr[l,m,:]))
-            GeoDynamo.apply_radial_derivative!(d2P, d2, collect(spr[l,m,:]))
+            d1Pr = zeros(N); d2Pr = zeros(N); d1Pi = zeros(N); d2Pi = zeros(N)
+            GeoDynamo.apply_radial_derivative!(d1Pr, d1, collect(spr[l,m,:]))
+            GeoDynamo.apply_radial_derivative!(d2Pr, d2, collect(spr[l,m,:]))
+            GeoDynamo.apply_radial_derivative!(d1Pi, d1, collect(spi[l,m,:]))
+            GeoDynamo.apply_radial_derivative!(d2Pi, d2, collect(spi[l,m,:]))
             for r in 1:N
-                tor_ref = lfac[l]*rinv2[r]*spr[l,m,r] - d2P[r] - 2.0*rinv[r]*d1P[r]
-                pol_ref = -lfac[l]*rinv2[r]*str[l,m,r]
-                @test dtr[l,m,r] == tor_ref
-                @test dpr[l,m,r] == pol_ref
+                @test dtr[l,m,r] == lfac[l]*rinv2[r]*spr[l,m,r] - d2Pr[r] - 2.0*rinv[r]*d1Pr[r]
+                @test dti[l,m,r] == lfac[l]*rinv2[r]*spi[l,m,r] - d2Pi[r] - 2.0*rinv[r]*d1Pi[r]
+                @test dpr[l,m,r] == -lfac[l]*rinv2[r]*str[l,m,r]
+                @test dpi[l,m,r] == -lfac[l]*rinv2[r]*sti[l,m,r]
             end
         end
     end
@@ -72,7 +74,9 @@ end
                                          d(d1.data),d(d2.data), d(lfac),d(rinv),d(rinv2), bw)
             @test gdtr isa CUDA.CuArray
             @test isapprox(Array(gdtr), cdtr; atol = 1e-12, rtol = 1e-10)
+            @test isapprox(Array(gdti), cdti; atol = 1e-12, rtol = 1e-10)
             @test isapprox(Array(gdpr), cdpr; atol = 1e-12, rtol = 1e-10)
+            @test isapprox(Array(gdpi), cdpi; atol = 1e-12, rtol = 1e-10)
         end
     end
 end

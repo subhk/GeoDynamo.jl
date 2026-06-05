@@ -34,7 +34,7 @@ function gpu_batched_banded_matvec!(Y, X, mat, bw::Int)
     nl, nm, nr = size(Y)
     backend = KernelAbstractions.get_backend(Y)
     _banded_matvec_kernel!(backend)(Y, X, mat, bw, nr; ndrange = (nl, nm))
-    KernelAbstractions.synchronize(backend)
+    KernelAbstractions.synchronize(backend)  # eager sync; gpu_spectral_curl! calls this 4×/curl — Phase-5c: hoist to caller
     return Y
 end
 
@@ -48,10 +48,14 @@ current `∇×B` from magnetic — the same operator):
   `dst_tor = lfac·rinv2·P − d2·P − 2·rinv·d1·P`,  `dst_pol = −lfac·rinv2·T`,
 with `P`=`src_pol`, `T`=`src_tor`.  `lfac[l+1]=l(l+1)` (length `nl`); `rinv`/`rinv2`
 length `nr`; `d1`/`d2` banded `(2bw+1,nr)`.  All arrays on the same backend.
-Real/imag handled independently (curl is real-linear).
+Real/imag handled independently (curl is real-linear).  The `dst_*` arrays must
+NOT alias any `src_*` array.
 """
 function gpu_spectral_curl!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
         src_tor_r, src_tor_i, src_pol_r, src_pol_i, d1, d2, lfac, rinv, rinv2, bw::Int)
+    # 4 mat-vec launches, each with its own synchronize (= 4 barriers/curl).
+    # Phase-5c: accept caller-owned scratch (d1P*/d2P*) + hoist a single barrier
+    # after all 4 launches (the 4 outputs are independent, no inter-dependency).
     d1Pr = similar(src_pol_r); d1Pi = similar(src_pol_i)
     d2Pr = similar(src_pol_r); d2Pi = similar(src_pol_i)
     gpu_batched_banded_matvec!(d1Pr, src_pol_r, d1, bw)
@@ -61,8 +65,9 @@ function gpu_spectral_curl!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
     lf  = reshape(lfac, :, 1, 1)
     ri  = reshape(rinv, 1, 1, :)
     ri2 = reshape(rinv2, 1, 1, :)
-    @. dst_tor_r = lf * ri2 * src_pol_r - d2Pr - 2.0 * ri * d1Pr
-    @. dst_tor_i = lf * ri2 * src_pol_i - d2Pi - 2.0 * ri * d1Pi
+    # `2 * ri` (Int literal) promotes to the array element type → Float32-safe.
+    @. dst_tor_r = lf * ri2 * src_pol_r - d2Pr - 2 * ri * d1Pr
+    @. dst_tor_i = lf * ri2 * src_pol_i - d2Pi - 2 * ri * d1Pi
     @. dst_pol_r = -lf * ri2 * src_tor_r
     @. dst_pol_i = -lf * ri2 * src_tor_i
     return nothing
