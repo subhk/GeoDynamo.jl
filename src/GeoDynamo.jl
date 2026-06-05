@@ -488,6 +488,7 @@ export gpu_vr_scale!, gpu_vector_spectral_to_physical!, gpu_vector_physical_to_s
 export gpu_pack_banded_lu, gpu_batched_banded_solve!
 export gpu_batched_banded_matvec!, gpu_spectral_curl!
 export gpu_phi_gradient!, gpu_theta_gradient!, gpu_scalar_gradient!
+export gpu_batched_banded_matvec_perl!, gpu_build_rhs_cnab2!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
@@ -529,6 +530,7 @@ include("gpu/vector_transform.jl")
 include("gpu/banded_solve.jl")
 include("gpu/spectral_curl.jl")
 include("gpu/scalar_gradient.jl")
+include("gpu/cnab2_rhs.jl")
 
 # User-facing choice objects are needed by SolverParameters so the internal
 # configuration stores the same objects users pass at construction time.
