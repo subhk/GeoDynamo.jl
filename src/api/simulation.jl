@@ -130,7 +130,7 @@ function Simulation(model::GeodynamoModel;
         krylov_tolerance,
         p
     )
-    model.state.parameters = SolverParameters(;
+    new_params = SolverParameters(;
         (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
         timestep = dt_f,
         end_time = stop_time_f,
@@ -138,6 +138,15 @@ function Simulation(model::GeodynamoModel;
         timestepper = timestep_options.timestepper,
         courant = Float64(something(courant, p.courant))
     )
+    # Validate the run controls the caller just set (courant, stop_iteration,
+    # stop_time/end_time) instead of silently accepting invalid values that
+    # would only surface later. Use the non-printing checker so a normal
+    # construction does not spam validation warnings. The model's own params
+    # were already valid.
+    control_errors, _ = _parameter_errors_warnings(new_params)
+    isempty(control_errors) || throw(ArgumentError(
+        "Simulation: invalid run controls: " * join(control_errors, "; ")))
+    model.state.parameters = new_params
     if dt_f != old_timestep
         rebuild_solver_implicit_matrices!(model.state, dt_f)
         model.state.runtime.timestep_state.dt = dt_f

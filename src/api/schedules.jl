@@ -1,7 +1,9 @@
 abstract type AbstractSchedule end
 
-struct TimeInterval{T} <: AbstractSchedule
+mutable struct TimeInterval{T} <: AbstractSchedule
     interval::T
+    _fired::Int   # count of the highest interval-multiple already fired
+    TimeInterval(x) = new{typeof(x)}(x, 0)
 end
 TimeInterval() = TimeInterval(0.0)
 
@@ -25,7 +27,18 @@ end
 function should_fire(s::TimeInterval, ctx::_ScheduleContext)
     s.interval <= 0 && return false
     ctx.time <= 0 && return false
-    return mod(ctx.time, s.interval) < 1e-10 * s.interval
+    # Fire once for every interval boundary the simulation time has crossed,
+    # not only when `time` lands exactly on a multiple. With a dt that does not
+    # divide the interval (e.g. dt=0.03, interval=0.1) the time never equals a
+    # multiple, so the old `mod(time, interval) < tol` test never fired. `n` is
+    # the count of multiples k*interval <= time; firing when it advances catches
+    # every crossing even if a single step overshoots one.
+    n = floor(Int, ctx.time / s.interval + 1e-10)
+    if n > s._fired
+        s._fired = n
+        return true
+    end
+    return false
 end
 
 function should_fire(s::IterationInterval, ctx::_ScheduleContext)

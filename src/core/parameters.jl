@@ -156,7 +156,8 @@ function _parameter_errors_warnings(params::SolverParameters)
     if params.geometry === :shell && params.nr_inner >= params.nr
         push!(errors,
             "nr_inner = $(params.nr_inner) must be < nr = $(params.nr) " *
-            "(inner-core points are a subset of the radial grid)")
+            "(inner-core points are a strict subset of the radial grid; " *
+            "matches the SphericalShellGrid constructor)")
     end
 
     if params.courant <= 0.0
@@ -181,12 +182,19 @@ function _parameter_errors_warnings(params::SolverParameters)
         push!(errors, "mmax = $(params.mmax) must be in range [0, lmax=$(params.lmax)]")
     end
 
-    if params.nlat < 2 * params.lmax
+    # The transform itself requires nlat >= lmax+1 and nlon >= 2*mmax+1 (Nyquist);
+    # below that the grid is invalid (not merely aliased) and initialize_solver_state
+    # would throw deep in the transform setup. Report it as an error here.
+    if params.nlat < params.lmax + 1
+        push!(errors,
+            "nlat = $(params.nlat) must be >= lmax+1 = $(params.lmax + 1) for the transform")
+    elseif params.nlat < 2 * params.lmax
         push!(warnings, "nlat = $(params.nlat) < 2*lmax = $(2 * params.lmax); may cause aliasing")
     end
 
-    if params.nlon < 2 * params.mmax
-        push!(warnings, "nlon = $(params.nlon) < 2*mmax = $(2 * params.mmax); may cause aliasing")
+    if params.nlon < 2 * params.mmax + 1
+        push!(errors,
+            "nlon = $(params.nlon) must be >= 2*mmax+1 = $(2 * params.mmax + 1) (Nyquist) for the transform")
     end
 
     if !(params.geometry in (:shell, :ball))

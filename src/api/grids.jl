@@ -52,7 +52,7 @@ end
 function SphericalShellGrid(arch::AbstractArchitecture;
         lmax::Int,
         mmax::Int = lmax,
-        nlat::Int = 3 * lmax ÷ 2,
+        nlat::Int = max(lmax + 1, 3 * lmax ÷ 2),
         nlon::Int = 2 * nlat,
         nr::Int,
         nr_inner::Int = max(2, nr ÷ 4),
@@ -113,7 +113,7 @@ end
 function SphericalBallGrid(arch::AbstractArchitecture;
         lmax::Int,
         mmax::Int = lmax,
-        nlat::Int = 3 * lmax ÷ 2,
+        nlat::Int = max(lmax + 1, 3 * lmax ÷ 2),
         nlon::Int = 2 * nlat,
         nr::Int)
     _validate_spectral_grid(lmax, mmax, nlat, nlon)
