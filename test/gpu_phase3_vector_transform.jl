@@ -71,13 +71,15 @@ import SHTnsKit
         for k in 1:nr
             pol.data_real[3,1,k] = Float64(k); tor.data_real[4,2,k] = 0.5; tor.data_imag[4,2,k] = -0.25
         end
-        pol0r = copy(pol.data_real); tor0r = copy(tor.data_real); tor0i = copy(tor.data_imag)
+        pol0r = copy(pol.data_real); pol0i = copy(pol.data_imag)
+        tor0r = copy(tor.data_real); tor0i = copy(tor.data_imag)
         lfac = Float64[l*(l+1) for l in 0:cfg.lmax]; rscale = [1.0/(0.5+0.1k) for k in 1:nr]
         GeoDynamo.gpu_vector_spectral_to_physical!(vr, vθ, vφ, tor, pol, cfg, lfac, rscale)
         fill!(pol.data_real,0.0); fill!(pol.data_imag,0.0); fill!(tor.data_real,0.0); fill!(tor.data_imag,0.0)
         GeoDynamo.gpu_vector_physical_to_spectral!(tor, pol, vθ, vφ, cfg)
         # analysis_sphtor recovers (S=poloidal, T=toroidal) from (vθ,vφ); v_r not consumed.
         @test isapprox(pol.data_real, pol0r; atol = 1e-10)
+        @test isapprox(pol.data_imag, pol0i; atol = 1e-10)
         @test isapprox(tor.data_real, tor0r; atol = 1e-10)
         @test isapprox(tor.data_imag, tor0i; atol = 1e-10)
     end
@@ -104,7 +106,9 @@ import SHTnsKit
             d!(gtor, ctor); d!(gpol, cpol)
             glfac = GeoDynamo.on_architecture(GPU(), lfac); grscale = GeoDynamo.on_architecture(GPU(), rscale)
             GeoDynamo.gpu_vector_spectral_to_physical!(gvr, gvθ, gvφ, gtor, gpol, cfg, glfac, grscale)  # GPU
+            @test gvr.data isa CUDA.CuArray
             @test gvθ.data isa CUDA.CuArray
+            @test gvφ.data isa CUDA.CuArray
             @test isapprox(Array(gvr.data), cvr.data; atol = 1e-12, rtol = 1e-10)
             @test isapprox(Array(gvθ.data), cvθ.data; atol = 1e-12, rtol = 1e-10)
             @test isapprox(Array(gvφ.data), cvφ.data; atol = 1e-12, rtol = 1e-10)

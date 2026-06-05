@@ -1,6 +1,7 @@
 # =============================================================================
 # GPU Phase 3 — vector (velocity/magnetic, toroidal-poloidal) transform.
-# Mirrors the CPU transform (numerics.jl:846-966), which is PURELY ALGEBRAIC:
+# Mirrors the CPU per-level vector transform (numerics.jl `vector_spectral_to_
+# physical_disttranspose!` / fields/transforms.jl), which is PURELY ALGEBRAIC:
 #   tangential (v_θ,v_φ) = synthesis_sphtor(S=poloidal, T=toroidal)   [no ∂/∂r]
 #   radial     v_r       = scalar_synth(poloidal · l(l+1)/r)          [per-(l,r) factor]
 # The AbstractMatrix methods call the always-available serial CPU sphtor transform;
@@ -20,6 +21,8 @@ _vector_anal_sphtor(cfg_sht, vt::AbstractMatrix, vp::AbstractMatrix) =
 Scale the (split-complex) poloidal coefficients into the v_r source coefficients:
 `vr_alm[l,m,r] = pol[l,m,r] · lfac[l] · rscale[r]`.  `lfac[l+1]=l(l+1)` (length
 `lmax+1`); `rscale` is `1/r_val` (solver) or `1/r_val²` (MIE), length `nr`.
+`lfac`/`rscale` must reside on the same backend as the coefficient arrays —
+mixing host and device arrays errors at broadcast time (use `on_architecture`).
 """
 function gpu_vr_scale!(vr_alm_r, vr_alm_i, pol_r, pol_i, lfac, rscale)
     lf = reshape(lfac, :, 1, 1)
@@ -36,6 +39,7 @@ end
 Synthesize a toroidal–poloidal vector field to physical components.  Tangential
 `(vθ, vφ)` per level via `synthesis_sphtor(poloidal, toroidal)`; radial `vr` per
 level via scalar synthesis of `poloidal · lfac[l] · rscale[r]` (see `gpu_vr_scale!`).
+`lfac`/`rscale` must be on the same backend as the fields (use `on_architecture`).
 """
 function gpu_vector_spectral_to_physical!(vr::GPUPhysicalField, vθ::GPUPhysicalField,
         vφ::GPUPhysicalField, tor::GPUSpectralField, pol::GPUSpectralField, config, lfac, rscale)
@@ -45,6 +49,9 @@ function gpu_vector_spectral_to_physical!(vr::GPUPhysicalField, vθ::GPUPhysical
     vr_alm_r = similar(pol.data_real); vr_alm_i = similar(pol.data_imag)
     gpu_vr_scale!(vr_alm_r, vr_alm_i, pol.data_real, pol.data_imag, lfac, rscale)
     for k in 1:nr
+        # `complex.(view, view)` materializes a fresh (nl,nm) array on the field's
+        # backend (a CuArray when on-device) → the ::CuArray sphtor/scalar method
+        # fires, NOT the AbstractMatrix CPU fallback. (A bare @view would NOT.)
         S_k = complex.(view(pol.data_real, :, :, k), view(pol.data_imag, :, :, k))
         T_k = complex.(view(tor.data_real, :, :, k), view(tor.data_imag, :, :, k))
         vt, vp = _vector_synth_sphtor(sht, S_k, T_k)
