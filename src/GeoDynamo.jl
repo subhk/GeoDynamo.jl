@@ -494,6 +494,7 @@ export gpu_scalar_nonlinear!
 export gpu_scalar_field_step!
 export gpu_velocity_nonlinear!
 export gpu_magnetic_nonlinear!
+export gpu_pack_influence, gpu_velocity_poloidal_influence_correction!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
@@ -613,6 +614,7 @@ include("api/schedules.jl")
 include("Shell/Shell.jl")
 include("Ball/Ball.jl")
 include("solver.jl")
+include("gpu/influence_correction.jl")
 include("api/clock.jl")
 include("api/model.jl")
 include("api/initial_conditions.jl")
