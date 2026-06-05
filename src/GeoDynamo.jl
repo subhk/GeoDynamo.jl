@@ -485,6 +485,8 @@ export GPUPhysicalField, GPUSpectralField, allocate_gpu_physical_field,
 export gpu_scalar_spectral_to_physical!, gpu_scalar_physical_to_spectral!
 export gpu_scalar_advection!, gpu_cross!, gpu_cross_add!, gpu_coriolis_sub!, gpu_buoyancy_add!
 export gpu_vr_scale!, gpu_vector_spectral_to_physical!, gpu_vector_physical_to_spectral!
+export gpu_pack_banded_lu, gpu_batched_banded_solve!
+export gpu_batched_banded_matvec!, gpu_spectral_curl!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
@@ -523,6 +525,8 @@ include("gpu/fields.jl")
 include("gpu/scalar_transform.jl")
 include("gpu/nonlinear.jl")
 include("gpu/vector_transform.jl")
+include("gpu/banded_solve.jl")
+include("gpu/spectral_curl.jl")
 
 # User-facing choice objects are needed by SolverParameters so the internal
 # configuration stores the same objects users pass at construction time.
