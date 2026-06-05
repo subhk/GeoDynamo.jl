@@ -196,7 +196,7 @@ model = GeodynamoModel(grid; Ek=1e-5, Pr=1, Pm=2, Sc=1, Ra=1e7)
 
 simulation = Simulation(
     model;
-    Δt=1e-5,
+    dt=1e-5,
     timestepper=CNAB2(theta=0.5),
 )
 ```
@@ -251,7 +251,7 @@ model = GeodynamoModel(grid; Ek=1e-5, Pr=1, Pm=2, Sc=1, Ra=1e7)
 
 simulation = Simulation(
     model;
-    Δt=1e-5,
+    dt=1e-5,
     timestepper=EAB2(krylov_dimension=20, tolerance=1e-8),
 )
 ```
@@ -477,7 +477,7 @@ end
 
 | Action | Details |
 |:-------|:--------|
-| Reduce timestep | Recreate `Simulation(model; Δt = old_Δt / 2)` |
+| Reduce timestep | Recreate `Simulation(model; dt = old_dt / 2)` |
 | Check CFL | Enable `compute_cfl_timestep!` monitoring |
 | Increase damping | For CNAB2, try `CNAB2(theta = 0.6)` |
 | Check BCs | Ensure consistent boundary condition application |
