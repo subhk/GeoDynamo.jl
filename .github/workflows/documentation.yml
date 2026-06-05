@@ -8,8 +8,12 @@ on:
   pull_request:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # All gh-pages deploys (main push + every tag push) share ONE group so they
+  # serialize instead of racing the gh-pages push (a per-ref group let a tag
+  # build and a main build deploy at once -> non-fast-forward rejection). PRs
+  # keep a per-ref group and cancel stale runs.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
