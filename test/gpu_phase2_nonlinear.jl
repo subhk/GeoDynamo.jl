@@ -91,6 +91,7 @@ using GeoDynamo
             gr3 = (d(zeros(nlat,nlon,nr)), d(zeros(nlat,nlon,nr)), d(zeros(nlat,nlon,nr)))
             GeoDynamo.gpu_cross!(gr3..., d.(a)..., d.(b)..., coeff)
             @test isapprox(Array(gr3[1]), cr; atol = 1e-13)
+            @test isapprox(Array(gr3[2]), cθ; atol = 1e-13)
             @test isapprox(Array(gr3[3]), cφ; atol = 1e-13)
         end
     end

@@ -46,29 +46,36 @@ end
 """
     gpu_coriolis_sub!(out_r, out_θ, out_φ, u_r, u_θ, u_φ, sinθ, cosθ) -> nothing
 
-Subtract the Coriolis term `ẑ×u` from the accumulator (CPU: `adv_i -= (ẑ×u)_i`):
-`(ẑ×u)_r=-sinθ·u_φ`, `(ẑ×u)_θ=-cosθ·u_φ`, `(ẑ×u)_φ=cosθ·u_θ+sinθ·u_r`.
-`sinθ`,`cosθ` are length-`nlat` (latitude = dim 1).  The `2Ω` factor is absorbed
+Subtract the Coriolis term `ẑ×u` from the accumulator (CPU: `adv_i -= (ẑ×u)_i`),
+where `(ẑ×u)_r=-sinθ·u_φ`, `(ẑ×u)_θ=-cosθ·u_φ`, `(ẑ×u)_φ=cosθ·u_θ+sinθ·u_r`. The
+net effect is `out_r += sinθ·u_φ`, `out_θ += cosθ·u_φ`, `out_φ -= cosθ·u_θ+sinθ·u_r`.
+`sinθ`,`cosθ` are length-`nlat` (latitude = dim 1). The `2Ω` factor is absorbed
 into the nondimensional coefficients upstream (Ekman number), matching the CPU.
+All arrays (including `sinθ`/`cosθ`) must live on the same backend — mixing host
+and device arrays errors at broadcast time.
 """
 function gpu_coriolis_sub!(out_r, out_θ, out_φ, u_r, u_θ, u_φ, sinθ, cosθ)
     s = reshape(sinθ, :, 1, 1)
     c = reshape(cosθ, :, 1, 1)
-    @. out_r -= (-s * u_φ)
-    @. out_θ -= (-c * u_φ)
-    @. out_φ -= (c * u_θ + s * u_r)
+    # Net effect of `out -= (ẑ×u)` (mirrors CPU numerics.jl:1222-1228):
+    #   out_r -= (-sinθ·u_φ) ⇒ += sinθ·u_φ ;  out_θ -= (-cosθ·u_φ) ⇒ += cosθ·u_φ
+    @. out_r += s * u_φ
+    @. out_θ += c * u_φ
+    @. out_φ -= c * u_θ + s * u_r
     return nothing
 end
 
 """
-    gpu_buoyancy_add!(force_r, s, r_vec, factor) -> nothing
+    gpu_buoyancy_add!(force_r, s, r_vec, factor) -> force_r
 
 Add the radial buoyancy/codensity force `force_r += factor·r·s`, with `r` per
 radial level (`r_vec` length-`nr`, radial = dim 3).  Use `factor=(Pm/Pr)·Ra` for
 thermal buoyancy or `factor=(Pm/Sc)·Ra_C` for compositional (matching the CPU).
+All arrays (including `r_vec`) must live on the same backend — mixing host and
+device arrays errors at broadcast time.
 """
 function gpu_buoyancy_add!(force_r, s, r_vec, factor)
     rr = reshape(r_vec, 1, 1, :)
     @. force_r += factor * rr * s
-    return nothing
+    return force_r
 end
