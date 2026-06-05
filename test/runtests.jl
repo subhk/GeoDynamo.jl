@@ -160,6 +160,7 @@ additional_tests = (
     "gpu_phase5i_coupled_velocity.jl",
     "gpu_phase5j_influence_correction.jl",
     "gpu_phase5k_velocity_step.jl",
+    "gpu_phase5l_inner_core.jl",
     "user_api.jl",
     "oceananigans_api.jl",
     "api_codex_fixes.jl",
