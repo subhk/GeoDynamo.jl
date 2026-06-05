@@ -7,7 +7,6 @@ MPI.Initialized() || MPI.Init()
 
 @testset "GPU Phase 5j — Velocity Poloidal Influence Correction (2×2)" begin
     nl, nm, nr = 5, 4, 6          # degrees 0..4, orders 0..3
-    bw_unused = 0                  # not a banded op; kept for symmetry of mental model
     rng = MersenneTwister(5)
 
     # Per-degree influence ops for degrees 1,2,3 (NOT 0, NOT 4 → those stay no-op).
@@ -67,6 +66,12 @@ MPI.Initialized() || MPI.Init()
         @test x_r[1, :, :] == x_r0[1, :, :]
         @test x_r[5, :, :] == x_r0[5, :, :]
         @test x_i[1, :, :] == x_i0[1, :, :]
+        @test x_i[5, :, :] == x_i0[5, :, :]
+    end
+
+    @testset "packer rejects wrong-shaped op [LOCAL]" begin
+        bad = Dict(1 => GeoDynamo.ERK2InfluenceOp{Float64}(rand(nr+1, 2), rand(2, 2), 1))
+        @test_throws ArgumentError GeoDynamo.gpu_pack_influence(bad, nl, nr, CPU())
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5j gate) [GPU-BOX]" begin
@@ -78,6 +83,7 @@ MPI.Initialized() || MPI.Init()
             gx_r = d(copy(x_r0)); gx_i = d(copy(x_i0))
             GeoDynamo.gpu_velocity_poloidal_influence_correction!(gx_r, gx_i, Gre_b, invG_b)
             @test gx_r isa CUDA.CuArray
+            @test gx_i isa CUDA.CuArray
             @test isapprox(Array(gx_r), ref_r; atol = 1e-12, rtol = 1e-10)
             @test isapprox(Array(gx_i), ref_i; atol = 1e-12, rtol = 1e-10)
         end

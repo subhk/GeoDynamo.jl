@@ -27,8 +27,10 @@ function gpu_pack_influence(influence::AbstractDict{Int, ERK2InfluenceOp{T}},
     for (l, op) in influence
         slot = l + 1                      # degree l (0-based) → dim-3 slot
         (1 <= slot <= nl) || continue
-        size(op.Gre, 1) == nr ||
-            throw(ArgumentError("gpu_pack_influence: Gre has $(size(op.Gre,1)) rows, expected nr=$nr"))
+        size(op.Gre) == (nr, 2) ||
+            throw(ArgumentError("gpu_pack_influence: Gre must be ($nr,2), got $(size(op.Gre))"))
+        size(op.invG) == (2, 2) ||
+            throw(ArgumentError("gpu_pack_influence: invG must be (2,2), got $(size(op.invG))"))
         Gre_b[:, :, slot]  .= op.Gre
         invG_b[:, :, slot] .= op.invG
     end
