@@ -13,6 +13,8 @@ module InitialConditions
 using LinearAlgebra
 using Random
 using SHTnsKit
+using NCDatasets
+using MPI
 
 # Import functions from parent module (GeoDynamo)
 # These will be available when the module is included in GeoDynamo.jl
@@ -20,6 +22,8 @@ import ..get_local_range
 import ..local_spectral_storage_slot
 import ..set_local_spectral_value!
 import ..local_spectral_value
+import ..get_comm
+import ..size_global
 
 const GEODYNAMO_PARENT = parentmodule(@__MODULE__)
 
@@ -219,62 +223,137 @@ function load_initial_conditions!(field, field_type::Symbol, file_path::String)
     return field
 end
 
+# ================================================================================
+# NetCDF spectral I/O helpers (shared by load_* and save_initial_conditions)
+# ================================================================================
+
+# Map a field type to the `(netcdf_variable_base, spectral_field)` components it
+# stores. Scalars carry one spectral field; vectors carry toroidal + poloidal.
+function _ic_components(field_type::Symbol, field)
+    if field_type === :temperature || field_type === :composition
+        return ((string(field_type), getproperty(field, :spectral)),)
+    elseif field_type === :magnetic || field_type === :velocity
+        base = string(field_type)
+        return ((base * "_toroidal", getproperty(field, :toroidal)),
+            (base * "_poloidal", getproperty(field, :poloidal)))
+    else
+        throw(ArgumentError("Unknown field type for NetCDF initial conditions: $field_type"))
+    end
+end
+
+# Gather a distributed spectral field into dense `(nlm, nr)` real/imag matrices
+# replicated on every rank. Each (l,m,r) coefficient is owned by exactly one
+# rank, so a sum-reduction over the comm reassembles the global arrays.
+function _gather_full_spectral(spec)
+    config = spec.config
+    nlm = config.nlm
+    nr = size_global(spec.pencil)[3]
+    real3 = parent(spec.data_real)
+    imag3 = parent(spec.data_imag)
+    r_range = get_local_range(spec.pencil, 3)
+    full_real = zeros(Float64, nlm, nr)
+    full_imag = zeros(Float64, nlm, nr)
+    for global_lm in 1:nlm
+        slot = local_spectral_storage_slot(config, global_lm)
+        slot === nothing && continue
+        for (local_r, global_r) in enumerate(r_range)
+            local_r <= size(real3, 3) || continue
+            full_real[global_lm, global_r] = Float64(local_spectral_value(real3, slot, local_r))
+            full_imag[global_lm, global_r] = Float64(local_spectral_value(imag3, slot, local_r))
+        end
+    end
+    comm = get_comm()
+    if MPI.Initialized() && MPI.Comm_size(comm) > 1
+        MPI.Allreduce!(full_real, +, comm)
+        MPI.Allreduce!(full_imag, +, comm)
+    end
+    return full_real, full_imag
+end
+
+# Scatter dense `(nlm, nr)` real/imag matrices back into a distributed spectral
+# field, writing only the coefficients this rank owns.
+function _scatter_full_spectral!(spec, full_real, full_imag)
+    config = spec.config
+    nlm = config.nlm
+    real3 = parent(spec.data_real)
+    imag3 = parent(spec.data_imag)
+    T = eltype(real3)
+    r_range = get_local_range(spec.pencil, 3)
+    fill!(real3, zero(T))
+    fill!(imag3, zero(T))
+    for global_lm in 1:nlm
+        slot = local_spectral_storage_slot(config, global_lm)
+        slot === nothing && continue
+        for (local_r, global_r) in enumerate(r_range)
+            local_r <= size(real3, 3) || continue
+            set_local_spectral_value!(real3, slot, local_r, T(full_real[global_lm, global_r]))
+            set_local_spectral_value!(imag3, slot, local_r, T(full_imag[global_lm, global_r]))
+        end
+    end
+    return spec
+end
+
+# Read an IC NetCDF file into `field`, validating that it actually matches the
+# requested field type and truncation. A missing variable or a mismatched
+# `nlm`/`field_type` is an error — never a silent fallback.
+function _read_ic_into_field!(field, field_type::Symbol, file_path::String)
+    components = _ic_components(field_type, field)
+    config = components[1][2].config
+    NCDataset(file_path, "r") do ds
+        stored_type = get(ds.attrib, "field_type", nothing)
+        if stored_type !== nothing && string(stored_type) != string(field_type)
+            throw(ArgumentError(
+                "IC file '$file_path' holds field_type=$(stored_type), expected $(field_type)"))
+        end
+        if haskey(ds.dim, "spectral_mode") && ds.dim["spectral_mode"] != config.nlm
+            file_nlm = ds.dim["spectral_mode"]
+            throw(ArgumentError(
+                "IC file '$file_path' has nlm=$(file_nlm), field expects nlm=$(config.nlm)"))
+        end
+        for (name, spec) in components
+            rname, iname = "$(name)_real", "$(name)_imag"
+            (haskey(ds, rname) && haskey(ds, iname)) || throw(ArgumentError(
+                "IC file '$file_path' is missing spectral variables $(rname)/$(iname)"))
+            full_real = Array(ds[rname][:, :])
+            full_imag = Array(ds[iname][:, :])
+            _scatter_full_spectral!(spec, full_real, full_imag)
+        end
+    end
+    return field
+end
+
 """
     load_temperature_initial_conditions!(temp_field, file_path::String)
 
-Load temperature initial conditions from NetCDF file.
-
-Note: NetCDF loading not yet implemented. Use `set_analytical_temperature!`
-with `:conductive` pattern instead.
+Load temperature initial conditions from an IC NetCDF file written by
+[`save_initial_conditions`](@ref).
 """
-function load_temperature_initial_conditions!(temp_field, file_path::String)
-    @warn "NetCDF loading not implemented. Using conductive profile as fallback."
-    set_analytical_temperature!(temp_field, :conductive, 1.0)
-    return temp_field
-end
+load_temperature_initial_conditions!(temp_field, file_path::String) =
+    _read_ic_into_field!(temp_field, :temperature, file_path)
 
 """
     load_magnetic_initial_conditions!(mag_field, file_path::String)
 
-Load magnetic initial conditions from NetCDF file.
-
-Note: NetCDF loading not yet implemented. Use `set_analytical_magnetic!`
-with `:dipole` pattern instead.
+Load magnetic (toroidal + poloidal) initial conditions from an IC NetCDF file.
 """
-function load_magnetic_initial_conditions!(mag_field, file_path::String)
-    @warn "NetCDF loading not implemented. Using dipole pattern as fallback."
-    set_analytical_magnetic!(mag_field, :dipole, 1.0)
-    return mag_field
-end
+load_magnetic_initial_conditions!(mag_field, file_path::String) =
+    _read_ic_into_field!(mag_field, :magnetic, file_path)
 
 """
     load_velocity_initial_conditions!(vel_field, file_path::String)
 
-Load velocity initial conditions from NetCDF file.
-
-Note: NetCDF loading not yet implemented. Use `set_analytical_velocity!`
-with `:convective` pattern instead.
+Load velocity (toroidal + poloidal) initial conditions from an IC NetCDF file.
 """
-function load_velocity_initial_conditions!(vel_field, file_path::String)
-    @warn "NetCDF loading not implemented. Using convective pattern as fallback."
-    set_analytical_velocity!(vel_field, :convective, 0.01)
-    return vel_field
-end
+load_velocity_initial_conditions!(vel_field, file_path::String) =
+    _read_ic_into_field!(vel_field, :velocity, file_path)
 
 """
     load_composition_initial_conditions!(comp_field, file_path::String)
 
-Load composition initial conditions from NetCDF file.
-
-Note: NetCDF loading not yet implemented. Use `set_analytical_composition!`
-with `:stratified` pattern instead.
+Load composition initial conditions from an IC NetCDF file.
 """
-function load_composition_initial_conditions!(comp_field, file_path::String)
-    @warn "NetCDF loading not implemented. Using stratified pattern as fallback."
-    set_analytical_composition!(comp_field, :stratified, 1.0)
-
-    return comp_field
-end
+load_composition_initial_conditions!(comp_field, file_path::String) =
+    _read_ic_into_field!(comp_field, :composition, file_path)
 
 # ================================================================================
 # Random Initial Conditions Generation
@@ -875,23 +954,46 @@ end
 """
     save_initial_conditions(field, field_type::Symbol, file_path::String)
 
-Save current field state as initial conditions to NetCDF file.
+Save a field's spectral coefficients to an IC NetCDF file that
+[`load_initial_conditions!`](@ref) can read back.
 
-This function is useful for saving generated or computed initial conditions
-for later use in simulations.
+The file stores dense `(spectral_mode, r)` real/imag matrices per component
+(one for scalars, toroidal + poloidal for vectors) plus a `field_type`
+attribute used to validate the field on load. All ranks participate in the
+gather; rank 0 writes the file.
 """
 function save_initial_conditions(field, field_type::Symbol, file_path::String)
-    println("Saving initial conditions to $file_path...")
+    components = _ic_components(field_type, field)
+    first_spec = components[1][2]
+    nlm = first_spec.config.nlm
+    nr = size_global(first_spec.pencil)[3]
 
-    # Placeholder for NetCDF saving
-    # In real implementation, this would use NCDatasets.jl
-    @warn "NetCDF saving not implemented, would save to $file_path"
+    # Gather every component to dense replicated matrices first so all ranks
+    # take part in the reductions before only rank 0 touches the filesystem.
+    gathered = [(name, _gather_full_spectral(spec)...) for (name, spec) in components]
 
-    # Would save spectral coefficients and metadata
-    # Format: same as expected by load_initial_conditions!
-
-    println("Initial conditions saved")
-
+    comm = get_comm()
+    rank = MPI.Initialized() ? MPI.Comm_rank(comm) : 0
+    if rank == 0
+        dir = dirname(file_path)
+        isempty(dir) || isdir(dir) || mkpath(dir)
+        NCDataset(file_path, "c") do ds
+            defDim(ds, "spectral_mode", nlm)
+            defDim(ds, "r", nr)
+            ds.attrib["field_type"] = string(field_type)
+            ds.attrib["nlm"] = nlm
+            ds.attrib["nr"] = nr
+            for (name, full_real, full_imag) in gathered
+                rvar = defVar(ds, "$(name)_real", Float64, ("spectral_mode", "r"))
+                ivar = defVar(ds, "$(name)_imag", Float64, ("spectral_mode", "r"))
+                rvar[:, :] = full_real
+                ivar[:, :] = full_imag
+            end
+        end
+    end
+    if MPI.Initialized() && MPI.Comm_size(comm) > 1
+        MPI.Barrier(comm)
+    end
     return file_path
 end
 

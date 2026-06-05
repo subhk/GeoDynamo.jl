@@ -124,6 +124,26 @@ end
         end
     end
 
+    @testset "load_field_bc_file! fails loud on a missing/bad file" begin
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 2, mmax = 2, nlat = 8, nlon = 16, nr = 4)
+
+        mktempdir() do tmpdir
+            # A user-specified BC file that does not exist must not be silently
+            # swallowed — initialization should error with a clear message.
+            missing_path = joinpath(tmpdir, "no_such_bc.nc")
+            @test_throws ArgumentError GeoDynamo.load_field_bc_file!(
+                nothing, missing_path, :spectral, cfg, Float64, "temperature", 0)
+
+            # A file that exists but is not a valid BC file must also error,
+            # not fall through to an uninitialized field.
+            bad_path = joinpath(tmpdir, "garbage.nc")
+            write(bad_path, "not a netcdf file")
+            @test_throws Exception GeoDynamo.load_field_bc_file!(
+                nothing, bad_path, :spectral, cfg, Float64, "temperature", 0)
+        end
+    end
+
     @testset "Physical BC loading and field cache storage" begin
         cfg = GeoDynamo.create_shtnskit_config(
             lmax = 2, mmax = 2, nlat = 8, nlon = 16, nr = 4)

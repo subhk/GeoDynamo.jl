@@ -420,23 +420,27 @@ const FINALIZE_MPI_TAIL_EXT = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") ==
         @test_throws ArgumentError GeoDynamo.generate_random_initial_conditions!(
             ta, :pressure)
 
-        # ---- load_initial_conditions! placeholder behavior ----
+        # ---- load_initial_conditions! real NetCDF behavior ----
         tload = GeoDynamo.create_shtns_temperature_field(Float64, cfg, shell)
         # missing file throws
         @test_throws ArgumentError GeoDynamo.load_initial_conditions!(
             tload, :temperature, joinpath(mktempdir(), "missing.nc"))
-        # existing file -> warns and falls back, returns the field
+        # an existing non-NetCDF file errors instead of silently falling back
         existing, ioh = mktemp()
         close(ioh)
-        loaded = @test_logs (:warn, r"NetCDF loading not implemented") GeoDynamo.load_initial_conditions!(
+        @test_throws Exception GeoDynamo.load_initial_conditions!(
             tload, :temperature, existing)
-        @test loaded === tload
 
-        # ---- save_initial_conditions placeholder behavior ----
+        # ---- save_initial_conditions writes a real file that loads back ----
+        GeoDynamo.set_analytical_initial_conditions!(
+            tload, :temperature, :conductive; amplitude = 1.0)
         savepath = joinpath(mktempdir(), "save_ic.nc")
-        saved = @test_logs (:warn, r"NetCDF saving not implemented") GeoDynamo.save_initial_conditions(
-            tload, :temperature, savepath)
+        saved = GeoDynamo.save_initial_conditions(tload, :temperature, savepath)
         @test saved == savepath
+        @test isfile(savepath)
+        treload = GeoDynamo.create_shtns_temperature_field(Float64, cfg, shell)
+        GeoDynamo.load_initial_conditions!(treload, :temperature, savepath)
+        @test parent(treload.spectral.data_real) == parent(tload.spectral.data_real)
     end
 
     # ============================================================================

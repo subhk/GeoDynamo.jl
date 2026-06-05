@@ -136,6 +136,7 @@ additional_tests = (
     "parameter_validation.jl",
     "validation_edge_cases.jl",
     "parameter_io.jl",
+    "parameter_parse_loud.jl",
     "nan_detection.jl",
     # New coverage tests (pure unit tests)
     "parameters_extended.jl",
@@ -157,6 +158,8 @@ additional_tests = (
     "gpu_phase5g_velocity_nonlinear.jl",
     "user_api.jl",
     "oceananigans_api.jl",
+    "api_codex_fixes.jl",
+    "grid_validation.jl",
     # MPI-aware tests
     "radial_domain.jl",
     "field_containers.jl",
@@ -211,6 +214,7 @@ additional_tests = (
     "output_writer.jl",
     "netcdf_write_roundtrip.jl",
     "io_restart_roundtrip.jl",
+    "restart_file_selection.jl",
     "io_subsystem.jl",
     "spectral_energy_diagnostics.jl",
     "integration_simulation.jl",

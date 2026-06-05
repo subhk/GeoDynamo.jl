@@ -549,19 +549,22 @@ end
 
 function load_field_bc_file!(
         field, filename, format, config, ::Type{T}, label, rank) where {T}
-    try
-        coefficients = SOLVER_LOAD_SPECTRAL_BC(
-            filename,
-            config;
-            format = format,
-            T = T
-        )
-        SOLVER_STORE_BC_IN_FIELD!(field, coefficients)
-        if rank == 0
-            @info "Loaded $(label) BCs from $(filename) (format=$(format))"
-        end
-    catch e
-        @warn "Failed to load $(label) BC file '$(filename)': $e"
+    # A *_bc_file parameter is only honored when non-empty, so reaching here
+    # means the user asked for this file explicitly. A missing or unreadable
+    # file is a configuration error and must surface, not be swallowed into a
+    # warning that leaves the field silently uninitialized.
+    isfile(filename) || throw(ArgumentError(
+        "$(label) BC file not found: '$(filename)'. " *
+        "Point the $(label)_bc_file parameter at a valid file or leave it empty."))
+    coefficients = SOLVER_LOAD_SPECTRAL_BC(
+        filename,
+        config;
+        format = format,
+        T = T
+    )
+    SOLVER_STORE_BC_IN_FIELD!(field, coefficients)
+    if rank == 0
+        @info "Loaded $(label) BCs from $(filename) (format=$(format))"
     end
     return field
 end

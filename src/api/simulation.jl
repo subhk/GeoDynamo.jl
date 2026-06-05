@@ -51,16 +51,21 @@ end
 
 Construct a `Simulation`.
 
+A positive timestep is required: pass it as `dt` (canonical) or `Δt` (alias);
+passing both, neither, or a non-positive value throws an `ArgumentError`.
+`stop_time` accepts any `Real` and is converted to `Float64`.
+
 If `restart_from` is a non-empty string it is treated as a restart directory
 passed to `read_restart!` (via the legacy `TimeTracker`-based interface).
-Because the underlying `read_restart!` in `io/output_writer.jl` requires a
-`TimeTracker`, `OutputConfig`, and MPI, this feature is only active when MPI is
-initialized.  A warning is emitted when `restart_from` is set but MPI is not
-available.
+The underlying `read_restart!` requires a `TimeTracker`, `OutputConfig`, and an
+initialized MPI environment.  Restart is **fail-loud**: if MPI is not
+initialized, or the restart read fails, construction throws rather than silently
+starting from the initial state (which would mask data loss).
 """
 function Simulation(model::GeodynamoModel;
-        dt::Real,
-        stop_time::Float64 = Inf,
+        dt::Union{Real, Nothing} = nothing,
+        Δt::Union{Real, Nothing} = nothing,
+        stop_time::Real = Inf,
         stop_iteration::Int = typemax(Int),
         wall_time_limit::Real = Inf,
         timestepper = nothing,
@@ -72,6 +77,17 @@ function Simulation(model::GeodynamoModel;
         callbacks = (),
         output_writers = (),
         restart_from::String = "")
+    # Resolve the timestep: `Δt` is a convenience alias for the canonical `dt`.
+    if dt !== nothing && Δt !== nothing
+        throw(ArgumentError("Simulation: pass either `dt` or `Δt`, not both"))
+    end
+    dt_in = dt !== nothing ? dt : Δt
+    dt_in === nothing &&
+        throw(ArgumentError("Simulation: a timestep is required (pass `dt=` or `Δt=`)"))
+    dt_in > 0 ||
+        throw(ArgumentError("Simulation: dt = $dt_in must be positive"))
+    stop_time_f = Float64(stop_time)
+
     if !isempty(restart_from)
         if MPI.Initialized()
             config = default_config()
@@ -88,14 +104,19 @@ function Simulation(model::GeodynamoModel;
                 reset_solver_clock!(model.state; time = restart_time, step = restart_step)
                 @info "Simulation: loaded restart from $restart_from" time=model.state.time
             catch e
-                @warn "Simulation: read_restart! failed — starting from initial state" exception=e
+                # Fail loud: the caller explicitly asked to restart, so silently
+                # starting from the initial state would hide data loss.
+                throw(ErrorException(
+                    "Simulation: failed to read restart from \"$restart_from\": $e"))
             end
         else
-            @warn "Simulation: restart_from set but MPI is not initialized; ignoring restart"
+            throw(ErrorException(
+                "Simulation: restart_from=\"$restart_from\" requires MPI to be " *
+                "initialized (the restart reader is collective); call MPI.Init() first"))
         end
     end
 
-    dt_f = Float64(dt)
+    dt_f = Float64(dt_in)
 
     # Propagate dt, stop_time, and stop_iteration into the solver's SolverParameters so
     # that solver_step! uses the timestep the caller requested.
@@ -112,7 +133,7 @@ function Simulation(model::GeodynamoModel;
     model.state.parameters = SolverParameters(;
         (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
         timestep = dt_f,
-        end_time = stop_time,
+        end_time = stop_time_f,
         stop_iteration = stop_iteration,
         timestepper = timestep_options.timestepper,
         courant = Float64(something(courant, p.courant))
@@ -127,7 +148,7 @@ function Simulation(model::GeodynamoModel;
 
     sync_clock!(model.clock, model.state)
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
-        model, dt_f, stop_time, stop_iteration, Float64(wall_time_limit),
+        model, dt_f, stop_time_f, stop_iteration, Float64(wall_time_limit),
         callback_items,
         output_writer_items,
         0.0
@@ -144,6 +165,7 @@ end
 Advance the model by one step with timestep `dt`, then sync the clock.
 """
 function time_step!(model::GeodynamoModel, dt::Real)
+    dt > 0 || throw(ArgumentError("time_step!: dt = $dt must be positive"))
     state = model.state
     dt_f = Float64(dt)
     if dt_f != state.parameters.timestep
