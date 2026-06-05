@@ -56,4 +56,17 @@ using GeoDynamo
         end
         @test or == rr && oθ == rθ && oφ == rφ
     end
+
+    @testset "buoyancy add [LOCAL]" begin
+        s = rnd()
+        r_vec = collect(range(0.5, 1.0; length = nr))
+        factor = 1.7
+        force_r = rnd(); base = copy(force_r)
+        GeoDynamo.gpu_buoyancy_add!(force_r, s, r_vec, factor)
+        ref = similar(force_r)
+        @inbounds for k in 1:nr, j in 1:nlon, i in 1:nlat
+            ref[i,j,k] = base[i,j,k] + factor * r_vec[k] * s[i,j,k]
+        end
+        @test force_r == ref
+    end
 end
