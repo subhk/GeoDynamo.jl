@@ -32,7 +32,16 @@ struct FieldWriter{S <: AbstractSchedule}
 end
 
 function FieldWriter(path::String; schedule, fields = [:velocity, :temperature, :magnetic])
-    return FieldWriter{typeof(schedule)}(path, schedule, collect(Symbol, fields))
+    selected = collect(Symbol, fields)
+    # Reject unknown selectors at construction rather than silently writing an
+    # empty field set: an unknown key maps to () in _select_output_fields, which
+    # would otherwise drop everything without warning.
+    for f in selected
+        haskey(_FIELD_KEY_GROUPS, f) || throw(ArgumentError(
+            "FieldWriter: unknown field selector :$(f); valid selectors are " *
+            "$(sort(collect(keys(_FIELD_KEY_GROUPS))))"))
+    end
+    return FieldWriter{typeof(schedule)}(path, schedule, selected)
 end
 
 # ================================================================================

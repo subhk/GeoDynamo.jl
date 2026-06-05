@@ -2,7 +2,9 @@ using Test
 
 @testset "Parameter Validation Edge Cases" begin
     @testset "Coarse grid warnings" begin
-        params = GeoDynamo.SolverParameters(nr = 12)
+        # nr_inner set explicitly so this exercises only the coarse-grid warning
+        # (the default nr_inner=16 would exceed nr=12 and trip the nr_inner check).
+        params = GeoDynamo.SolverParameters(nr = 12, nr_inner = 4)
         _, errors, warnings = GeoDynamo.validate_parameters(params; strict = false)
         @test isempty(errors)
         @test any(contains(w, "coarse") for w in warnings)
@@ -15,16 +17,20 @@ using Test
         @test any(contains(e, "mmax") for e in errors)
     end
 
-    @testset "Aliasing warnings for theta/phi resolution" begin
-        # nlat < 2*lmax
-        params = GeoDynamo.SolverParameters(lmax = 32, nlat = 32)
-        _, _, warnings = GeoDynamo.validate_parameters(params; strict = false)
+    @testset "Aliasing warning for nlat below 2*lmax" begin
+        # nlat in [lmax+1, 2*lmax) is transform-valid but aliased -> warning only.
+        params = GeoDynamo.SolverParameters(lmax = 32, nlat = 40)
+        _, errors, warnings = GeoDynamo.validate_parameters(params; strict = false)
+        @test isempty(errors)
         @test any(contains(w, "aliasing") for w in warnings)
+    end
 
-        # nlon < 2*mmax
+    @testset "nlon below Nyquist is invalid" begin
+        # nlon < 2*mmax+1 cannot represent the requested modes -> hard error.
         params = GeoDynamo.SolverParameters(mmax = 32, nlon = 32)
-        _, _, warnings = GeoDynamo.validate_parameters(params; strict = false)
-        @test any(contains(w, "aliasing") for w in warnings)
+        is_valid, errors, _ = GeoDynamo.validate_parameters(params; strict = false)
+        @test !is_valid
+        @test any(contains(e, "nlon") for e in errors)
     end
 
     @testset "Extreme Rayleigh number warning" begin

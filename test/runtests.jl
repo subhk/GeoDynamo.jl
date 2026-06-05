@@ -162,6 +162,7 @@ additional_tests = (
     "user_api.jl",
     "oceananigans_api.jl",
     "api_codex_fixes.jl",
+    "codex_validation_fixes.jl",
     "grid_validation.jl",
     # MPI-aware tests
     "radial_domain.jl",
