@@ -3,9 +3,12 @@
 # then return true). On CPU-only environments (Apple Silicon, CPU CI) this is
 # a silent no-op and the GPU cases @test_skip exactly as before.
 #
-# CUDA is a test-target dependency (Project.toml [extras] + targets.test) so it
-# resolves under standard `Pkg.test()`; loading it here is what makes the
-# extension load and the gate flip on hardware with a functional device.
+# CUDA is deliberately NOT a test-target dependency (it would force CUDA + the
+# GPU extensions to precompile on every CPU CI run). So under sandboxed
+# `Pkg.test()` this `using CUDA` won't resolve and is caught below. On a GPU
+# box, run the suite in an environment that has CUDA available (e.g. `dev`/`add`
+# CUDA into the active project) and this loads it, activating GeoDynamoCUDAExt
+# so `gpu_functional()` flips true and the GPU gates actually execute.
 try
     @eval using CUDA
 catch err
