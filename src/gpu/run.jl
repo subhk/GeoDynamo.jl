@@ -35,30 +35,30 @@ function gpu_run!(state, nsteps::Int; output_every::Int = 0, output_fn = nothing
 end
 
 """
-    gpu_run!(cpu_state::SolverState, nsteps; arch = CPU(), sync_back = true,
+    gpu_run!(cpu_state::SolverState, nsteps; arch = CPU(),
              output_every = 0, output_fn = nothing) -> cpu_state
 
 Public-API convenience: advance a configured CPU `SolverState` by `nsteps` CNAB2 steps
 ON THE GPU PATH.  Builds the device state via [`build_gpu_solver_state`](@ref) (optionally
 moved to `arch` with [`gpu_to_device`](@ref) — pass `arch = GPU()` on a CUDA box), runs the
-device loop, and (default) syncs the evolved spectral fields back into `cpu_state` via
+device loop, then ALWAYS syncs the evolved spectral fields back into `cpu_state` via
 [`sync_gpu_state_to_cpu!`](@ref) and advances `cpu_state.step`/`.time`, so the usual CPU-side
-diagnostics / output / restart see the GPU-evolved state.
+diagnostics / output / restart see the GPU-evolved state.  (To run the device loop without
+syncing back — keeping a handle to the device state — call `build_gpu_solver_state` +
+`gpu_run!(gst, …)` directly instead.)
 
 `cpu_state` should be initialized (≥1 prior `solver_step!`, or `initialize_solver_fields!`) so
 the CNAB2 history (`prev_nl`) and the lagged physical buffers are populated, exactly as the CPU
 path requires.  Builder scope is insulating magnetic + CNAB2 (see `build_gpu_solver_state`).
 """
 function gpu_run!(cpu_state::SolverState, nsteps::Int; arch::AbstractArchitecture = CPU(),
-        sync_back::Bool = true, output_every::Int = 0, output_fn = nothing)
+        output_every::Int = 0, output_fn = nothing)
     nsteps >= 0 || throw(ArgumentError("gpu_run!: nsteps must be ≥ 0, got $nsteps"))
     gst = build_gpu_solver_state(cpu_state)
     arch isa CPU || (gst = gpu_to_device(gst, arch))
     gpu_run!(gst, nsteps; output_every = output_every, output_fn = output_fn)
-    if sync_back
-        sync_gpu_state_to_cpu!(cpu_state, gst)
-        cpu_state.step += nsteps
-        cpu_state.time += nsteps * cpu_state.parameters.timestep
-    end
+    sync_gpu_state_to_cpu!(cpu_state, gst)
+    cpu_state.step += nsteps
+    cpu_state.time += nsteps * cpu_state.parameters.timestep
     return cpu_state
 end

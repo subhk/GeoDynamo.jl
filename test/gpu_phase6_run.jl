@@ -116,6 +116,26 @@ end
         @test stA.time ≈ t0 + NSTEPS * stA.parameters.timestep
     end
 
+    @testset "dense_to_cpu_spectral! roundtrip + sync_gpu_state_to_cpu! [LOCAL]" begin
+        st = build_small_cpu_state(); GeoDynamo.solver_step!(st)
+        cfg = st.backend.shtns_config; nr = st.runtime.outer_core_domain.N
+        # write-back roundtrip: extract → perturb a stored mode (l=1,m=0 → slot [2,1]) → write back → re-extract
+        f = st.fields.temperature.spectral
+        dr, di = GeoDynamo.cpu_spectral_to_dense(f, cfg, nr, Float64)
+        drn = copy(dr); drn[2, 1, :] .+= 5.0
+        GeoDynamo.dense_to_cpu_spectral!(f, drn, di, cfg, nr)
+        dr3, di3 = GeoDynamo.cpu_spectral_to_dense(f, cfg, nr, Float64)
+        @test dr3 == drn                              # stored modes roundtrip exactly (empty slots 0 in both)
+        @test di3 == di
+        @test dr3[2, 1, :] != dr[2, 1, :]             # write-back actually changed the field
+        # sync_gpu_state_to_cpu!: perturb the device bundle, sync, confirm the CPU field reflects it
+        gst = GeoDynamo.build_gpu_solver_state(st)
+        gst.velocity.tor.spec_r[2, 1, 1] += 7.0
+        GeoDynamo.sync_gpu_state_to_cpu!(st, gst)
+        vr, _ = GeoDynamo.cpu_spectral_to_dense(st.fields.velocity.toroidal, cfg, nr, Float64)
+        @test vr[2, 1, 1] == gst.velocity.tor.spec_r[2, 1, 1]
+    end
+
     @testset "GPU execution: device run + GPU≈CPU trajectory [GPU-BOX]" begin
         if !GeoDynamo.gpu_functional()
             @test_skip "requires a functional CUDA GPU"
