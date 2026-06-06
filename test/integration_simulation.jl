@@ -133,7 +133,8 @@ const FINALIZE_MPI_INTEG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
 
         @test haskey(fields, "velocity_toroidal")
         @test haskey(fields, "velocity_poloidal")
-        @test haskey(fields, "magnetic_toroidal")
+        @test !haskey(fields, "magnetic_toroidal")  # magnetic disabled
+        @test !haskey(fields, "magnetic_poloidal")  # magnetic disabled
         @test haskey(fields, "temperature_spectral")
         @test !haskey(fields, "composition_spectral")  # composition disabled
 

@@ -33,7 +33,7 @@ end
 
     params = G.SolverParameters(
         geometry = :shell,
-        nr = 8, lmax = 4, mmax = 4, nlat = 10, nlon = 16,
+        nr = 8, nr_inner = 2, lmax = 4, mmax = 4, nlat = 10, nlon = 16,
         include_composition = true,
         include_magnetic = false,
         # temperature_bcs default = FixedTemperature(1.0) / FixedTemperature(0.0)

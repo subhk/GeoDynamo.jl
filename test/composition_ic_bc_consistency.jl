@@ -27,7 +27,7 @@ end
 
     @testset "non-trivial Dirichlet (0.8/0.2) ⇒ IC reconstructs to those values" begin
         params = G.SolverParameters(
-            geometry = :shell, nr = 8, lmax = 4, mmax = 4, nlat = 10, nlon = 16,
+            geometry = :shell, nr = 8, nr_inner = 2, lmax = 4, mmax = 4, nlat = 10, nlon = 16,
             include_composition = true, include_magnetic = false,
             composition_bcs = G.BoundaryConditions(inner = G.FixedTemperature(0.8),
                 outer = G.FixedTemperature(0.2)))
@@ -48,7 +48,7 @@ end
 
     @testset "default 0/0 BC ⇒ background is 0 (no spurious 0.5)" begin
         params = G.SolverParameters(
-            geometry = :shell, nr = 8, lmax = 4, mmax = 4, nlat = 10, nlon = 16,
+            geometry = :shell, nr = 8, nr_inner = 2, lmax = 4, mmax = 4, nlat = 10, nlon = 16,
             include_composition = true, include_magnetic = false)
         state = G.initialize_simulation(params)
         G.initialize_composition_field!(state)
