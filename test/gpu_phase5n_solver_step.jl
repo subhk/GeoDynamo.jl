@@ -119,22 +119,41 @@ MPI.Initialized() || MPI.Init()
         @test st.velocity.tor.spec_r == mvtor.spec_r && st.velocity.pol.spec_r == mvpol.spec_r
         @test st.velocity.tor.spec_i == mvtor.spec_i && st.velocity.pol.spec_i == mvpol.spec_i
         @test st.magnetic.tor.spec_r == mmtor.spec_r && st.magnetic.pol.spec_i == mmpol.spec_i
+        @test st.magnetic.tor.spec_i == mmtor.spec_i && st.magnetic.pol.spec_r == mmpol.spec_r
         @test st.temperature.spec_r == mt.spec_r && st.temperature.spec_i == mt.spec_i
         @test st.composition.spec_r == mc.spec_r && st.composition.spec_i == mc.spec_i
         # ---- compare rolled physical buffers (current-step synthesis) ----
         @test st.T_phys == Tn.data && st.C_phys == Cn.data
         @test st.B_r == Br.data && st.J_φ == Jφ.data
+        @test st.B_θ == Bθ.data && st.B_φ == Bφ.data
+        @test st.J_r == Jr.data && st.J_θ == Jθ.data
         @test all(isfinite, st.velocity.tor.spec_r) && all(isfinite, st.magnetic.tor.spec_r)
     end
 
     @testset "gating: no magnetic / no composition [LOCAL]" begin
-        st = build_state()
-        st2 = (; st..., magnetic = nothing, composition = nothing,
-                 B_r = nothing, B_θ = nothing, B_φ = nothing, J_r = nothing, J_θ = nothing, J_φ = nothing)
-        # must run without touching magnetic/composition and without Lorentz coupling
-        GeoDynamo.gpu_solver_step!(st2)
-        @test all(isfinite, st2.velocity.tor.spec_r)
-        @test all(isfinite, st2.temperature.spec_r)
+        # Build two fully independent identical states (same RNG seed) so mutations
+        # in one do not affect the other.
+        st_base = build_state()
+        # st_a: composition=nothing — gate should suppress compositional buoyancy in velocity step
+        st_a = let s = deepcopy(st_base); (; s..., composition = nothing); end
+        # st_b: composition present but comp_factor=0 — buoyancy contribution is zero in velocity step
+        st_b = let s = deepcopy(st_base); (; s..., comp_factor = 0.0); end
+        GeoDynamo.gpu_solver_step!(st_a)
+        GeoDynamo.gpu_solver_step!(st_b)
+        # The gate (composition=nothing → C_phys=nothing, comp_factor=0) must produce
+        # exactly the same velocity as explicitly zeroing comp_factor.
+        @test st_a.velocity.tor.spec_r == st_b.velocity.tor.spec_r
+        @test all(isfinite, st_a.velocity.tor.spec_r)
+        @test all(isfinite, st_a.temperature.spec_r)
+
+        # Also verify a fully stripped state (no magnetic/composition) runs cleanly
+        st_stripped = let s = deepcopy(st_base)
+            (; s..., magnetic = nothing, composition = nothing,
+               B_r = nothing, B_θ = nothing, B_φ = nothing, J_r = nothing, J_θ = nothing, J_φ = nothing)
+        end
+        GeoDynamo.gpu_solver_step!(st_stripped)
+        @test all(isfinite, st_stripped.velocity.tor.spec_r)
+        @test all(isfinite, st_stripped.temperature.spec_r)
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5n gate) [GPU-BOX]" begin

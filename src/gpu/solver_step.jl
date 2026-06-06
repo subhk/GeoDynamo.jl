@@ -51,13 +51,13 @@ function gpu_solver_step!(state)
         m = state.magnetic
         br = ph(); bθ = ph(); bφ = ph()
         gpu_vector_spectral_to_physical!(br, bθ, bφ, spec(m.tor.spec_r, m.tor.spec_i),
-            spec(m.pol.spec_r, m.pol.spec_i), cfg, state.nlops_vel.lfac, state.nlops_vel.rscale)
+            spec(m.pol.spec_r, m.pol.spec_i), cfg, state.nlops_mag.lfac, state.nlops_mag.rscale)
         jtr = similar(m.tor.spec_r); jti = similar(m.tor.spec_i); jpr = similar(m.pol.spec_r); jpi = similar(m.pol.spec_i)
         gpu_spectral_curl!(jtr, jti, jpr, jpi, m.tor.spec_r, m.tor.spec_i, m.pol.spec_r, m.pol.spec_i,
             state.nlops_mag.d1, state.nlops_mag.d2, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw)
         jr = ph(); jθ = ph(); jφ = ph()
         gpu_vector_spectral_to_physical!(jr, jθ, jφ, spec(jtr, jti), spec(jpr, jpi), cfg,
-            state.nlops_vel.lfac, state.nlops_vel.rscale)
+            state.nlops_mag.lfac, state.nlops_mag.rscale)
         Bn_r = br.data; Bn_θ = bθ.data; Bn_φ = bφ.data; Jn_r = jr.data; Jn_θ = jθ.data; Jn_φ = jφ.data
     end
 
@@ -65,7 +65,8 @@ function gpu_solver_step!(state)
     gpu_velocity_field_step!(v.tor, v.pol, cfg, state.nlops_vel, state.influence,
         state.inv_dt_vel, linw, lmax, bw;
         T_phys = state.T_phys, thermal_factor = state.thermal_factor, r_vec = state.r_vec,
-        C_phys = state.C_phys, comp_factor = state.comp_factor,
+        C_phys = state.composition === nothing ? nothing : state.C_phys,
+        comp_factor = state.composition === nothing ? zero(eltype(v.tor.spec_r)) : state.comp_factor,
         J_r = state.J_r, J_θ = state.J_θ, J_φ = state.J_φ,
         B_r = state.B_r, B_θ = state.B_θ, B_φ = state.B_φ, lorentz_coeff = state.lorentz_coeff)
 
