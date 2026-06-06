@@ -118,7 +118,8 @@ MPI.Initialized() || MPI.Init()
         GeoDynamo.gpu_implicit_solve_field!(rt_r, rt_i, lu_tor, z, z, z, z, bw)
         GeoDynamo.gpu_build_rhs_cnab2!(rp_r, rp_i, bp_r, bp_i, nlp_r, nlp_i, copy(pnp_r0), copy(pnp_i0), lin_pol, inv_dt, linear_weight, bw)
         GeoDynamo.gpu_implicit_solve_field!(rp_r, rp_i, lu_pol, z, z, z, z, bw)
-        @test tor.spec_r == rt_r && pol.spec_r == rp_r
+        @test tor.spec_r == rt_r && tor.spec_i == rt_i
+        @test pol.spec_r == rp_r && pol.spec_i == rp_i
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5m2 gate) [GPU-BOX]" begin
@@ -151,8 +152,12 @@ MPI.Initialized() || MPI.Init()
             @test gtor.spec_r isa CUDA.CuArray
             @test gic.tor_ic_r isa CUDA.CuArray
             @test isapprox(Array(gtor.spec_r), ctor.spec_r; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gtor.spec_i), ctor.spec_i; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gpol.spec_r), cpol.spec_r; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gpol.spec_i), cpol.spec_i; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gic.tor_ic_r), cic.tor_ic_r; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gic.tor_ic_i), cic.tor_ic_i; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gic.pol_ic_r), cic.pol_ic_r; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gic.pol_ic_i), cic.pol_ic_i; atol = 1e-9, rtol = 1e-8)
         end
     end
