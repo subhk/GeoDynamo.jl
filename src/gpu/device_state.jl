@@ -152,6 +152,14 @@ function build_gpu_solver_state(st)
     p = st.parameters
     vel = st.fields.velocity
 
+    # Builder scope: insulating magnetic + CNAB2 only. A conducting inner core sets
+    # `magnetic_ic_admittance`; `gpu_solver_step!` always runs the insulating magnetic
+    # path (ic=nothing), so error loudly rather than silently drop the φ0 history-flux BC.
+    if st.fields.magnetic !== nothing && st.magnetic_ic_admittance !== nothing
+        error("build_gpu_solver_state: only insulating magnetic is supported; " *
+              "magnetic_ic_admittance is set (conducting inner core not yet wired into gpu_solver_step!)")
+    end
+
     # --- shared operators (host-side) ---
     d1 = Array{T}(vel.∂r.data)
     d2 = Array{T}(vel.∂²r.data)
@@ -159,7 +167,7 @@ function build_gpu_solver_state(st)
     rinv = T[dom.r[k, 3] for k in 1:nr]
     rinv2 = T[dom.r[k, 2] for k in 1:nr]
     r_vec = T[dom.r[k, 4] for k in 1:nr]
-    rscale = copy(rinv)                       # velocity/magnetic v_r factor: l(l+1)/r
+    rscale = copy(rinv)                       # 1/r scaling for v_r; lfac=l(l+1) multiplied at the call site
     sinθ = T[vel.coriolis_factors[1, i] for i in 1:cfg.nlat]
     cosθ = T[vel.coriolis_factors[2, i] for i in 1:cfg.nlat]
     mvals = T[m for m in 0:cfg.mmax]
@@ -213,6 +221,10 @@ function build_gpu_solver_state(st)
 
     influence = _build_influence_pack(st, nl, nr, T)
 
+    # NOTE: d1/d2/lfac/rinv/rinv2/rscale are SHARED (same backing array) across
+    # nlops_vel, nlops_mag, and the top-level d1/rinv fields — safe because
+    # gpu_solver_step! treats all operator arrays read-only.
+
     # --- physical lag buffers (current state of the CPU physical fields) ---
     T_phys = _phys_scalar(tmp.temperature)
     C_phys = cmp_ === nothing ? nothing : _phys_scalar(cmp_.composition)
@@ -238,3 +250,28 @@ function build_gpu_solver_state(st)
         B_r = Bp[1], B_θ = Bp[2], B_φ = Bp[3],
         J_r = Jp[1], J_θ = Jp[2], J_φ = Jp[3])
 end
+
+# Recursively move a value to `arch`'s backend: arrays via on_architecture,
+# NamedTuples element-wise (preserving keys), everything else (scalars, config,
+# nothing, Symbols) passes through unchanged.
+function _to_device(x, arch)
+    if x isa AbstractArray
+        return on_architecture(arch, x)
+    elseif x isa NamedTuple
+        return map(v -> _to_device(v, arch), x)
+    else
+        return x
+    end
+end
+
+"""
+    gpu_to_device(state, arch) -> NamedTuple
+
+Deep-copy a [`build_gpu_solver_state`](@ref) bundle to `arch`'s backend: every array
+(nested per-field bundles, `nlops_*`, `influence`, the physical buffers) is moved via
+`on_architecture(arch, …)`; scalars, `config`, and `nothing` pass through.  Use this to
+move a CPU-built state to `GPU()` for the GPU≈CPU hardware gate, then run
+[`gpu_solver_step!`](@ref) on the device copy.  `gpu_to_device(state, CPU())` returns an
+independent deep copy on the host.
+"""
+gpu_to_device(state, arch::AbstractArchitecture) = _to_device(state, arch)
