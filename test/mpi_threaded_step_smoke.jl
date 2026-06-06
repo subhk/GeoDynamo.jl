@@ -34,7 +34,7 @@ const FINALIZE_MPI_THREADED_SMOKE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "tru
         # threading deadlock, not physics). Magnetic + composition on so all six
         # @spawn'd field updates run.
         params = GeoDynamo.SolverParameters(
-            nr = 16, lmax = 8, mmax = 8, nlat = 16, nlon = 32,
+            nr = 16, nr_inner = 4, lmax = 8, mmax = 8, nlat = 16, nlon = 32,
             timestep = 1e-6, timestepper = GeoDynamo.CNAB2(),
             Ra = 1e2, RaC = 1e2,
             include_magnetic = true,
