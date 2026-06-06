@@ -36,8 +36,13 @@ using Test
         end
     end
 
-    @testset "load_parameters_from_file: missing file returns defaults" begin
-        params = GeoDynamo.load_parameters("nonexistent_file_12345.jl")
+    @testset "missing file: load_parameters errors, _from_file falls back" begin
+        # An explicitly named missing file is a hard error at the load_parameters
+        # level (silently using defaults hid typos / missing configs).
+        @test_throws Exception GeoDynamo.load_parameters("nonexistent_file_12345.jl")
+        # The lower-level helper still falls back to defaults — it backs the
+        # optional default-file path where absence is allowed.
+        params = GeoDynamo.load_parameters_from_file("nonexistent_file_12345.jl")
         @test params isa GeoDynamo.SolverParameters
         @test params.nr == 64
         @test params.lmax == 32

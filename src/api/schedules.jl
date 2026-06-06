@@ -47,6 +47,7 @@ function should_fire(s::IterationInterval, ctx::_ScheduleContext)
 end
 
 function should_fire(s::WallTimeInterval, ctx::_ScheduleContext)
+    s.interval <= 0 && return false
     elapsed = ctx.wtime - s._last_fire
     if elapsed >= s.interval
         s._last_fire = ctx.wtime

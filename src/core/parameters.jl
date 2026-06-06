@@ -478,9 +478,17 @@ Load solver parameters from a file. With no file, loads
 `config/default_params.jl` when present, otherwise uses `SolverParameters()`.
 """
 function load_parameters(config_file::String = "")
+    # An explicitly named file that does not exist is a hard error: silently
+    # falling back to defaults hides a typo or a missing config. Only the
+    # implicit default-file path is allowed to fall back when absent.
+    if !isempty(config_file) && !isfile(config_file)
+        throw(ArgumentError("load_parameters: parameter file not found: $config_file"))
+    end
     path = isempty(config_file) ? _default_parameter_file() : config_file
     params = load_parameters_from_file(path)
-    validate_parameters(params; strict = false)
+    # strict=true throws when the loaded values are invalid, instead of
+    # returning known-bad parameters that fail later inside the solver.
+    validate_parameters(params; strict = true)
     return params
 end
 

@@ -11,6 +11,13 @@ function initialize_solver_state(::Type{T} = Float64;
         params::SolverParameters = create_solver_parameters(),
         arch::Union{Nothing, AbstractArchitecture} = nothing) where {T}
 
+    # Reject invalid parameters up front rather than building a runtime around
+    # them (negative timestep, courant<=0, transform-invalid grid, ...). Use the
+    # non-printing checker so valid builds stay quiet.
+    param_errors, _ = _parameter_errors_warnings(params)
+    isempty(param_errors) || throw(ArgumentError(
+        "initialize_solver_state: invalid parameters: " * join(param_errors, "; ")))
+
     # Keep the package-level parameter view in sync while the new solver stack
     # still shares a few kernels and file-loading paths with the older runtime.
     apply_solver_parameters!(params)
