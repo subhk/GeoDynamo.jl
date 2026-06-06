@@ -25,7 +25,7 @@ using MPI
     params = GeoDynamo.SolverParameters(
         architecture = :cpu,
         geometry = :shell,
-        nr = 6,
+        nr = 8,
         nr_inner = 2,
         lmax = 2,
         mmax = 2,
