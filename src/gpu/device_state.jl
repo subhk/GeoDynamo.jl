@@ -275,3 +275,56 @@ move a CPU-built state to `GPU()` for the GPU≈CPU hardware gate, then run
 independent deep copy on the host.
 """
 gpu_to_device(state, arch::AbstractArchitecture) = _to_device(state, arch)
+
+"""
+    dense_to_cpu_spectral!(field_spec, dense_r, dense_i, config, nr) -> field_spec
+
+Inverse of [`cpu_spectral_to_dense`](@ref): scatter dense `(lmax+1, mmax+1, nr)`
+real/imag arrays back into the CPU slot-packed spectral storage of `field_spec`
+(`(l+1, m+1)` → mode slot).  `dense_*` may be host or device arrays (host-copied here).
+"""
+function dense_to_cpu_spectral!(field_spec, dense_r, dense_i, config, nr::Int)
+    dr = dense_r isa Array ? dense_r : Array(dense_r)
+    di = dense_i isa Array ? dense_i : Array(dense_i)
+    pr = parent(field_spec.data_real)
+    pim = parent(field_spec.data_imag)
+    nr_local = size(pr, 3)
+    @inbounds for lm_idx in 1:config.nlm
+        slot = local_spectral_storage_slot(config, lm_idx)
+        slot === nothing && continue
+        l = config.l_values[lm_idx]
+        m = config.m_values[lm_idx]
+        (0 <= l <= config.lmax && 0 <= m <= config.mmax) || continue
+        for k in 1:min(nr, nr_local)
+            set_local_spectral_value!(pr, slot, k, dr[l + 1, m + 1, k])
+            set_local_spectral_value!(pim, slot, k, di[l + 1, m + 1, k])
+        end
+    end
+    return field_spec
+end
+
+"""
+    sync_gpu_state_to_cpu!(cpu_state, gpu_state) -> cpu_state
+
+Write the GPU device-state spectral fields back into the CPU `SolverState`'s
+slot-packed spectral storage (velocity tor/pol, temperature, and — when present —
+magnetic tor/pol, composition), so CPU-side diagnostics / output / restart see the
+GPU-evolved fields.  Spectral only (the field of record for IO); the `gpu_state`
+arrays may be host or device.
+"""
+function sync_gpu_state_to_cpu!(st, gst)
+    cfg = st.backend.shtns_config
+    nr = st.runtime.outer_core_domain.N
+    vel = st.fields.velocity
+    dense_to_cpu_spectral!(vel.toroidal, gst.velocity.tor.spec_r, gst.velocity.tor.spec_i, cfg, nr)
+    dense_to_cpu_spectral!(vel.poloidal, gst.velocity.pol.spec_r, gst.velocity.pol.spec_i, cfg, nr)
+    dense_to_cpu_spectral!(st.fields.temperature.spectral, gst.temperature.spec_r, gst.temperature.spec_i, cfg, nr)
+    if st.fields.magnetic !== nothing && gst.magnetic !== nothing
+        dense_to_cpu_spectral!(st.fields.magnetic.toroidal, gst.magnetic.tor.spec_r, gst.magnetic.tor.spec_i, cfg, nr)
+        dense_to_cpu_spectral!(st.fields.magnetic.poloidal, gst.magnetic.pol.spec_r, gst.magnetic.pol.spec_i, cfg, nr)
+    end
+    if st.fields.composition !== nothing && gst.composition !== nothing
+        dense_to_cpu_spectral!(st.fields.composition.spectral, gst.composition.spec_r, gst.composition.spec_i, cfg, nr)
+    end
+    return st
+end

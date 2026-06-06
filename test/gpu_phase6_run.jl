@@ -94,6 +94,28 @@ end
         @test_throws ArgumentError GeoDynamo.gpu_run!(gst, -1)
     end
 
+    @testset "gpu_run!(::SolverState) runs GPU + syncs back == CPU [LOCAL]" begin
+        stA = build_small_cpu_state(); GeoDynamo.solver_step!(stA)   # warm-up
+        stB = build_small_cpu_state(); GeoDynamo.solver_step!(stB)   # identical warm-up
+        cfg = stA.backend.shtns_config; nr = stA.runtime.outer_core_domain.N
+        step0 = stA.step; t0 = stA.time
+        GeoDynamo.gpu_run!(stA, NSTEPS)                              # GPU path + sync-back into stA
+        for _ in 1:NSTEPS; GeoDynamo.solver_step!(stB); end          # CPU path
+        # stA's spectral fields (synced from the GPU run) match the CPU trajectory
+        for (fa, fb) in [(stA.fields.temperature.spectral, stB.fields.temperature.spectral),
+                         (stA.fields.velocity.toroidal,    stB.fields.velocity.toroidal),
+                         (stA.fields.velocity.poloidal,    stB.fields.velocity.poloidal),
+                         (stA.fields.magnetic.toroidal,    stB.fields.magnetic.toroidal),
+                         (stA.fields.composition.spectral, stB.fields.composition.spectral)]
+            ar, ai = GeoDynamo.cpu_spectral_to_dense(fa, cfg, nr, Float64)
+            br, bi = GeoDynamo.cpu_spectral_to_dense(fb, cfg, nr, Float64)
+            @test isapprox(ar, br; atol = 1e-7, rtol = 1e-5)
+            @test isapprox(ai, bi; atol = 1e-7, rtol = 1e-5)
+        end
+        @test stA.step == step0 + NSTEPS                            # step/time advanced
+        @test stA.time ≈ t0 + NSTEPS * stA.parameters.timestep
+    end
+
     @testset "GPU execution: device run + GPU≈CPU trajectory [GPU-BOX]" begin
         if !GeoDynamo.gpu_functional()
             @test_skip "requires a functional CUDA GPU"

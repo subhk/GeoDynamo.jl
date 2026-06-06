@@ -500,6 +500,7 @@ export gpu_pack_inner_core, gpu_inner_core_history_flux!, gpu_reconstruct_inner_
 export gpu_magnetic_field_step!
 export gpu_solver_step!
 export build_gpu_solver_state, cpu_spectral_to_dense, gpu_to_device
+export dense_to_cpu_spectral!, sync_gpu_state_to_cpu!
 export gpu_run!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
