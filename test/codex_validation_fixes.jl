@@ -95,3 +95,78 @@ using GeoDynamo
         end
     end
 end
+
+@testset "Codex round-4 hardening" begin
+    S = GeoDynamo
+
+    # ── Finding 2: WallTimeInterval guards interval <= 0 ──────────────────────
+    @testset "WallTimeInterval rejects interval <= 0" begin
+        wctx(t) = S._ScheduleContext(0.0, 0, Float64(t))
+        @test S.should_fire(S.WallTimeInterval(0.0), wctx(5.0)) == false
+        @test S.should_fire(S.WallTimeInterval(-1.0), wctx(5.0)) == false
+        # A positive interval still fires once enough wall time has elapsed.
+        @test S.should_fire(S.WallTimeInterval(1.0), wctx(2.0)) == true
+    end
+
+    # ── Finding 3: explicit missing parameter file errors ─────────────────────
+    @testset "load_parameters errors on explicit missing file" begin
+        @test_throws Exception S.load_parameters("/definitely/missing_params_file_xyz.jl")
+    end
+
+    # ── Finding 4: load_parameters rejects invalid parameter values ───────────
+    @testset "load_parameters rejects invalid parameter values" begin
+        tmp = tempname() * ".jl"
+        write(tmp, "timestep = -1e-4\nstop_iteration = 0\ncourant = -1.0\n")
+        try
+            @test_throws Exception S.load_parameters(tmp)
+        finally
+            rm(tmp; force = true)
+        end
+    end
+
+    # ── Finding 5: initialize_solver_state rejects invalid params ─────────────
+    @testset "initialize_solver_state rejects invalid params" begin
+        @test_throws Exception S.initialize_solver_state(Float64;
+            params = S.SolverParameters(timestep = -1e-5))
+        @test_throws Exception S.initialize_solver_state(Float64;
+            params = S.SolverParameters(courant = -1.0))
+    end
+
+    # ── Findings 1/6/7 need a built model (MPI-aware) ─────────────────────────
+    @testset "model-driven round-4 (F1 fail-loud, F6 nan-check, F7 magnetic)" begin
+        if MPI.Finalized()
+            @warn "MPI finalized; skipping model-driven round-4 tests"
+        else
+            MPI.Initialized() || MPI.Init()
+            grid = S.SphericalShellGrid(S.CPU();
+                lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 16, nr_inner = 4)
+            model = S.GeodynamoModel(grid;
+                Ek = 1e-2, Ra = 1e4, include_magnetic = false, include_composition = false)
+            state = model.state
+
+            # Finding 7: include_magnetic=false must not emit magnetic field keys.
+            allf = S.extract_all_fields(state)
+            @test !haskey(allf, "magnetic_toroidal")
+            @test !haskey(allf, "magnetic_poloidal")
+
+            # Finding 6: NaN check must read the current SolverState layout
+            # (state.fields.*) and not throw "no field velocity"; clean -> false.
+            @test S.check_simulation_state_for_nan(state, 0) == false
+
+            # Finding 1: a scheduled write that fails must be fail-loud, not warn
+            # and continue. Point the writer at an existing FILE so the NetCDF
+            # write cannot create its output and must raise.
+            badfile = tempname()
+            touch(badfile)
+            fw = S.FieldWriter(badfile;
+                schedule = S.IterationInterval(1), fields = [:temperature])
+            sim = S.Simulation(model; dt = 1e-4, stop_iteration = 1)
+            ctx1 = S._ScheduleContext(state.time, 1, 0.0)
+            try
+                @test_throws Exception S._run_output_writer!(fw, sim, ctx1)
+            finally
+                rm(badfile; force = true)
+            end
+        end
+    end
+end

@@ -150,7 +150,11 @@ function _run_output_writer!(ow::FieldWriter, sim, ctx::_ScheduleContext)
             radius_ratio = state.parameters.radius_ratio,
             radial_grid = Float64.(state.runtime.outer_core_domain.r[1:state.runtime.outer_core_domain.N, 4]))
     catch e
-        @warn "FieldWriter: write_fields! failed" exception=e path=ow.path
+        # Fail loud: a scheduled snapshot that silently fails would let a run
+        # complete believing its output was written when nothing was saved.
+        throw(ErrorException(
+            "FieldWriter: write_fields! failed for path \"$(ow.path)\": " *
+            sprint(showerror, e)))
     end
     return nothing
 end
@@ -204,7 +208,11 @@ function _run_output_writer!(ow::CheckpointWriter, sim, ctx::_ScheduleContext)
             radius_ratio = state.parameters.radius_ratio,
             radial_grid = Float64.(state.runtime.outer_core_domain.r[1:state.runtime.outer_core_domain.N, 4]))
     catch e
-        @warn "CheckpointWriter: write_restart! failed" exception=e path=ow.path
+        # Fail loud: a silently dropped checkpoint means a crash later has no
+        # restart point, defeating the purpose of the checkpoint schedule.
+        throw(ErrorException(
+            "CheckpointWriter: write_restart! failed for path \"$(ow.path)\": " *
+            sprint(showerror, e)))
     end
     return nothing
 end

@@ -91,9 +91,11 @@ function check_simulation_state_for_nan(
 
     any_issue = false
 
+    fields = state.fields
+
     has_nan, has_inf,
     _, _ = check_spectral_field_for_nan(
-        state.velocity.toroidal,
+        fields.velocity.toroidal,
         "velocity_toroidal",
         config,
         step
@@ -102,46 +104,48 @@ function check_simulation_state_for_nan(
 
     has_nan, has_inf,
     _, _ = check_spectral_field_for_nan(
-        state.velocity.poloidal,
+        fields.velocity.poloidal,
         "velocity_poloidal",
         config,
         step
     )
     any_issue |= (has_nan || has_inf)
 
-    has_nan, has_inf,
-    _, _ = check_spectral_field_for_nan(
-        state.magnetic.toroidal,
-        "magnetic_toroidal",
-        config,
-        step
-    )
-    any_issue |= (has_nan || has_inf)
+    if fields.magnetic !== nothing
+        has_nan, has_inf,
+        _, _ = check_spectral_field_for_nan(
+            fields.magnetic.toroidal,
+            "magnetic_toroidal",
+            config,
+            step
+        )
+        any_issue |= (has_nan || has_inf)
 
-    has_nan, has_inf,
-    _, _ = check_spectral_field_for_nan(
-        state.magnetic.poloidal,
-        "magnetic_poloidal",
-        config,
-        step
-    )
-    any_issue |= (has_nan || has_inf)
+        has_nan, has_inf,
+        _, _ = check_spectral_field_for_nan(
+            fields.magnetic.poloidal,
+            "magnetic_poloidal",
+            config,
+            step
+        )
+        any_issue |= (has_nan || has_inf)
+    end
 
     has_nan, has_inf,
     _,
     _ = check_spectral_field_for_nan(
-        state.temperature.spectral,
+        fields.temperature.spectral,
         "temperature",
         config,
         step
     )
     any_issue |= (has_nan || has_inf)
 
-    if state.composition !== nothing
+    if fields.composition !== nothing
         has_nan, has_inf,
         _,
         _ = check_spectral_field_for_nan(
-            state.composition.spectral,
+            fields.composition.spectral,
             "composition",
             config,
             step

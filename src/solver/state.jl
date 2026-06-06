@@ -440,6 +440,10 @@ function GeoDynamo.extract_all_fields(state::SolverState{
         "imag" => copy(parent(state.fields.velocity.poloidal.data_imag))
     )
 
+    # Only emit magnetic fields when the run actually evolves them. When
+    # include_magnetic=false, state.fields.magnetic is nothing; the runtime
+    # still carries scratch buffers, but writing them would produce bogus
+    # magnetic_* output for a non-magnetic simulation.
     magnetic = state.fields.magnetic
     if magnetic !== nothing
         fields["magnetic_toroidal"] = Dict(
@@ -449,15 +453,6 @@ function GeoDynamo.extract_all_fields(state::SolverState{
         fields["magnetic_poloidal"] = Dict(
             "real" => copy(parent(magnetic.poloidal.data_real)),
             "imag" => copy(parent(magnetic.poloidal.data_imag))
-        )
-    else
-        fields["magnetic_toroidal"] = Dict(
-            "real" => copy(parent(state.runtime.magnetic.toroidal.data_real)),
-            "imag" => copy(parent(state.runtime.magnetic.toroidal.data_imag))
-        )
-        fields["magnetic_poloidal"] = Dict(
-            "real" => copy(parent(state.runtime.magnetic.poloidal.data_real)),
-            "imag" => copy(parent(state.runtime.magnetic.poloidal.data_imag))
         )
     end
 
