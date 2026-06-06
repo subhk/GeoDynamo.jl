@@ -499,6 +499,7 @@ export gpu_velocity_field_step!
 export gpu_pack_inner_core, gpu_inner_core_history_flux!, gpu_reconstruct_inner_core!
 export gpu_magnetic_field_step!
 export gpu_solver_step!
+export build_gpu_solver_state, cpu_spectral_to_dense
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
@@ -623,6 +624,7 @@ include("gpu/velocity_step.jl")
 include("gpu/inner_core.jl")
 include("gpu/magnetic_step.jl")
 include("gpu/solver_step.jl")
+include("gpu/device_state.jl")
 include("api/clock.jl")
 include("api/model.jl")
 include("api/initial_conditions.jl")

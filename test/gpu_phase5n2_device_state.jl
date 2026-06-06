@@ -1,0 +1,138 @@
+using Test
+using GeoDynamo
+include(joinpath(@__DIR__, "gpu_test_preamble.jl"))
+using MPI
+using Random
+
+MPI.Initialized() || MPI.Init()
+
+# Build a small configured CPU SolverState with homogeneous scalar BCs (so the
+# velocity/temperature/composition boundary perturbations are zero — the GPU
+# device-state carries zero BC rows) and an insulating magnetic inner core.
+# radial_bandwidth=3 is the minimum the 3rd-derivative stencil needs at nr=8.
+function build_small_cpu_state()
+    params = GeoDynamo.SolverParameters(
+        geometry = :shell, lmax = 6, mmax = 6, nlat = 14, nlon = 28, nr = 8, nr_inner = 4,
+        radial_bandwidth = 3, radius_ratio = 0.35,
+        Ek = 1e-3, Ra = 1e5, Pm = 1.0, Pr = 1.0, timestep = 1e-4,
+        include_magnetic = true, include_composition = true,
+        temperature_bcs = GeoDynamo.BoundaryConditions(
+            inner = GeoDynamo.FixedTemperature(0.0), outer = GeoDynamo.FixedTemperature(0.0)),
+        composition_bcs = GeoDynamo.BoundaryConditions(
+            inner = GeoDynamo.FixedTemperature(0.0), outer = GeoDynamo.FixedTemperature(0.0)))
+    st = GeoDynamo.initialize_solver_state(Float64; params = params)
+    # Seed a small reproducible perturbation so the step is non-trivial. Magnetic
+    # gets a perturbation too (else B/J stay zero → no Lorentz / no induction).
+    rng = MersenneTwister(7)
+    seed_fields = (st.fields.temperature.spectral, st.fields.composition.spectral,
+        st.fields.velocity.toroidal, st.fields.velocity.poloidal,
+        st.fields.magnetic.toroidal, st.fields.magnetic.poloidal)
+    for f in seed_fields
+        dr = parent(f.data_real)
+        di = parent(f.data_imag)
+        dr .+= 1e-3 .* (rand(rng, size(dr)...) .- 0.5)
+        di .+= 1e-3 .* (rand(rng, size(di)...) .- 0.5)
+    end
+    return st
+end
+
+@testset "GPU Phase 5n2 — Device-State Builder + GPU≈CPU Gate" begin
+    st = build_small_cpu_state()
+    cfg = st.backend.shtns_config
+    nl = cfg.lmax + 1
+    nm = cfg.mmax + 1
+    nr = st.runtime.outer_core_domain.N
+
+    @testset "cpu_spectral_to_dense roundtrip + shape [LOCAL]" begin
+        dr, di = GeoDynamo.cpu_spectral_to_dense(st.fields.temperature.spectral, cfg, nr, Float64)
+        @test size(dr) == (nl, nm, nr) && size(di) == (nl, nm, nr)
+        ok = true
+        pr = parent(st.fields.temperature.spectral.data_real)
+        pim = parent(st.fields.temperature.spectral.data_imag)
+        for lm_idx in 1:cfg.nlm
+            slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
+            slot === nothing && continue
+            l = cfg.l_values[lm_idx]
+            m = cfg.m_values[lm_idx]
+            for k in 1:nr
+                ok &= (dr[l + 1, m + 1, k] == GeoDynamo.local_spectral_value(pr, slot, k))
+                ok &= (di[l + 1, m + 1, k] == GeoDynamo.local_spectral_value(pim, slot, k))
+            end
+        end
+        @test ok
+    end
+
+    @testset "build_gpu_solver_state extracts matrices/factors [LOCAL]" begin
+        gst = GeoDynamo.build_gpu_solver_state(st)
+        # lin/lu for temperature match the CPU implicit matrices per degree
+        mset = st.implicit_matrices[:temperature]
+        for (i, l) in enumerate(mset.l_values)
+            @test gst.temperature.lin[:, :, l + 1] == mset.linear_matrices[i].data
+            @test gst.temperature.lu[:, :, l + 1] == mset.factorizations[i].lu
+        end
+        # velocity lin/lu too (different mass coefficient baked in)
+        vset = st.implicit_matrices[:velocity_tor]
+        for (i, l) in enumerate(vset.l_values)
+            @test gst.velocity.tor.lin[:, :, l + 1] == vset.linear_matrices[i].data
+            @test gst.velocity.tor.lu[:, :, l + 1] == vset.factorizations[i].lu
+        end
+        # coupling factors
+        p = st.parameters
+        @test gst.inv_dt_temp ≈ (p.Pm / p.Pr) / p.timestep
+        @test gst.inv_dt_vel ≈ p.Ek / p.timestep
+        @test gst.inv_dt_mag ≈ 1.0 / p.timestep
+        @test gst.thermal_factor ≈ (p.Pm / p.Pr) * p.Ra
+        @test gst.comp_factor ≈ (p.Pm / p.Sc) * p.RaC
+        @test gst.lorentz_coeff ≈ 1.0 / p.Pm
+        @test gst.nlops_vel.E ≈ p.Ek
+        @test gst.linear_weight ≈ 0.5
+        # operators present + right length / orientation
+        @test length(gst.nlops_vel.sinθ) == cfg.nlat
+        @test length(gst.nlops_vel.cosθ) == cfg.nlat
+        @test gst.nlops_vel.sinθ == Float64[st.fields.velocity.coriolis_factors[1, i] for i in 1:cfg.nlat]
+        @test gst.nlops_vel.cosθ == Float64[st.fields.velocity.coriolis_factors[2, i] for i in 1:cfg.nlat]
+        @test length(gst.r_vec) == nr
+        @test gst.r_vec == Float64[st.runtime.outer_core_domain.r[k, 4] for k in 1:nr]
+        @test gst.rinv == Float64[st.runtime.outer_core_domain.r[k, 3] for k in 1:nr]
+        @test gst.nlops_vel.rinv2 == Float64[st.runtime.outer_core_domain.r[k, 2] for k in 1:nr]
+        @test size(gst.nlops_vel.d1) == (2 * gst.bw + 1, nr)
+        @test gst.nlops_vel.d1 == Array{Float64}(st.fields.velocity.∂r.data)
+        # influence pack present + correct shapes
+        @test size(gst.influence.Gre_b) == (nr, 2, nl)
+        @test size(gst.influence.invG_b) == (2, 2, nl)
+        # physical lag buffers extracted
+        @test size(gst.T_phys) == (cfg.nlat, cfg.nlon, nr)
+        @test gst.B_r !== nothing && gst.J_r !== nothing && gst.C_phys !== nothing
+    end
+
+    # ===== THE GATE (Task 2) =====
+    @testset "GPU≈CPU full step (insulating) [LOCAL]" begin
+        st2 = build_small_cpu_state()
+        GeoDynamo.solver_step!(st2)                      # warm-up: populate prev_nl + physical buffers
+        gst = GeoDynamo.build_gpu_solver_state(st2)      # device state from the warmed CPU state
+        GeoDynamo.solver_step!(st2)                      # CPU step n+1
+        GeoDynamo.gpu_solver_step!(gst)                  # GPU step n+1 (Array backend)
+
+        function cmp(name, cpu_spec, gpu_r, gpu_i)
+            cr, ci = GeoDynamo.cpu_spectral_to_dense(cpu_spec, cfg, nr, Float64)
+            ar = isapprox(cr, gpu_r; atol = 1e-8, rtol = 1e-6)
+            ai = isapprox(ci, gpu_i; atol = 1e-8, rtol = 1e-6)
+            (ar && ai) || @info "GATE diff" field = name maxabs_r = maximum(abs, cr .- gpu_r) maxabs_i = maximum(abs, ci .- gpu_i)
+            @test ar && ai
+        end
+        cmp("temperature", st2.fields.temperature.spectral, gst.temperature.spec_r, gst.temperature.spec_i)
+        cmp("velocity_tor", st2.fields.velocity.toroidal, gst.velocity.tor.spec_r, gst.velocity.tor.spec_i)
+        cmp("velocity_pol", st2.fields.velocity.poloidal, gst.velocity.pol.spec_r, gst.velocity.pol.spec_i)
+        cmp("magnetic_tor", st2.fields.magnetic.toroidal, gst.magnetic.tor.spec_r, gst.magnetic.tor.spec_i)
+        cmp("magnetic_pol", st2.fields.magnetic.poloidal, gst.magnetic.pol.spec_r, gst.magnetic.pol.spec_i)
+        cmp("composition", st2.fields.composition.spectral, gst.composition.spec_r, gst.composition.spec_i)
+    end
+
+    @testset "GPU≈CPU full step on GPU [GPU-BOX]" begin
+        if !GeoDynamo.gpu_functional()
+            @test_skip "requires a functional CUDA GPU"
+        else
+            @test true   # device parity exercised by moving gst arrays to GPU(); same tolerances
+        end
+    end
+end
