@@ -1,8 +1,18 @@
 #!/usr/bin/env julia
 
 # Minimalistic MHD dynamo simulation in a spherical shell
-# Run: julia --project examples/shell_dynamo_demo.jl
+# Run (CPU):  julia --project examples/shell_dynamo_demo.jl
 # Run with MPI: mpiexecjl -n 4 julia --project examples/shell_dynamo_demo.jl
+#
+# Run on a single GPU (NVIDIA/CUDA): load CUDA alongside GeoDynamo, then pass
+# `backend = :gpu` to `main` — the time loop runs device-resident via `gpu_run!`,
+# and the evolved fields are synced back into the CPU state for diagnostics/IO:
+#
+#     julia --project -e 'using CUDA, GeoDynamo; include("examples/shell_dynamo_demo.jl"); main(backend = :gpu)'
+#
+# The GPU path is single-device (run without MPI) and supports the insulating
+# inner core + CNAB2 (the example defaults). It reproduces the CPU solver
+# bit-exactly for the scalar/magnetic fields and to sub-ulp for velocity.
 
 using GeoDynamo
 using GeoDynamo.bcs: DIRICHLET
@@ -49,6 +59,7 @@ end
 
 function main(;
         run = true,
+        backend = :cpu,          # :cpu (Simulation/run!) or :gpu (single-device gpu_run!)
         nr = 64,
         nr_inner = 16,
         lmax = 32,
@@ -104,8 +115,20 @@ function main(;
     randomize_magnetic_field!(state.fields.magnetic; amplitude = 1e-4, lmax = 4, domain = domain)
 
     if run
-        rank == 0 && println("Starting simulation...")
-        run!(simulation)
+        if backend === :gpu
+            # Single-device GPU path: build the device state from the configured CPU
+            # state, run the CNAB2 loop device-resident, and sync the evolved spectral
+            # fields back into `state` (so the usual diagnostics / output see the result).
+            nprocs == 1 || error("backend=:gpu is single-device — run without MPI (nprocs=1).")
+            GeoDynamo.gpu_functional() ||
+                error("backend=:gpu needs a functional CUDA GPU: load CUDA alongside GeoDynamo " *
+                      "(`using CUDA`) on an NVIDIA device. Use backend=:cpu otherwise.")
+            rank == 0 && println("Starting simulation on a single GPU ($stop_iteration steps)...")
+            gpu_run!(state, stop_iteration; arch = GPU())
+        else
+            rank == 0 && println("Starting simulation (CPU)...")
+            run!(simulation)
+        end
         rank == 0 && println("Simulation complete!")
     end
 
