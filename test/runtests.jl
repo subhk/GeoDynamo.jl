@@ -164,6 +164,8 @@ additional_tests = (
     "gpu_phase5m_magnetic_step.jl",
     "gpu_phase5m2_magnetic_conducting.jl",
     "gpu_phase5n_solver_step.jl",
+    "gpu_phase5n2_device_state.jl",
+    "gpu_phase6_run.jl",
     "user_api.jl",
     "oceananigans_api.jl",
     "api_codex_fixes.jl",
