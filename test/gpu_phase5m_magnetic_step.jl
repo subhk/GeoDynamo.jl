@@ -92,6 +92,8 @@ MPI.Initialized() || MPI.Init()
         @test tor.spec_r == rt_r && tor.spec_i == rt_i
         @test pol.spec_r == rp_r && pol.spec_i == rp_i
         @test tor.prev_nl_r == nlt_r && pol.prev_nl_r == nlp_r
+        @test tor.prev_nl_i == nlt_i
+        @test pol.prev_nl_i == nlp_i
     end
 
     @testset "continuity changes the toroidal result [LOCAL]" begin
@@ -114,6 +116,8 @@ MPI.Initialized() || MPI.Init()
             @test isapprox(Array(gpol.spec_r), cpol.spec_r; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gpol.spec_i), cpol.spec_i; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gtor.prev_nl_r), ctor.prev_nl_r; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gtor.prev_nl_i), ctor.prev_nl_i; atol = 1e-9, rtol = 1e-8)
+            @test isapprox(Array(gpol.prev_nl_r), cpol.prev_nl_r; atol = 1e-9, rtol = 1e-8)
             @test isapprox(Array(gpol.prev_nl_i), cpol.prev_nl_i; atol = 1e-9, rtol = 1e-8)
         end
     end
