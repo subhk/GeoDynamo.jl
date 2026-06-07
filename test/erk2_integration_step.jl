@@ -51,13 +51,17 @@ using MPI
     @test params.include_composition == true
 
     state = GeoDynamo.initialize_simulation(Float64, params)
-    # The initial condition is already deterministic and suite-order independent:
+    # The initial condition is deterministic and suite-order independent:
     # initialize_fields! -> initialize_solver_fields! re-seeds the global RNG
     # internally (Random.seed!(42 + rank), src/timestep/driver.jl) before every
-    # field init, so no external seed is needed or effective here. In isolation
-    # this step is bit-stable and finite; any non-finite result observed only
-    # under the full suite is FP/BLAS-threading + library-version sensitivity on
-    # the borderline-conditioned lmax=2 magnetic-poloidal solve, not IC variation.
+    # field init, so no external seed is needed or effective here.
+    #
+    # This test used to flake (magnetic-poloidal non-finite only under the full
+    # suite, finite in isolation). That was NOT FP/BLAS-threading: the root cause
+    # was SolverERK2FieldBuffers allocating its work buffers with `similar`
+    # (uninitialized) — a buffer read before write on the first step saw heap
+    # garbage left by prior tests (zeros on a fresh process, hence fine in
+    # isolation). Fixed by zero-initializing those buffers in src/timestep/erk2.jl.
     GeoDynamo.initialize_fields!(state)
 
     # Both optional field sets must actually exist for the magnetic/composition

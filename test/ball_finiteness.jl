@@ -28,9 +28,15 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
         lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = Ball.create_ball_radial_domain(nr)
 
-    # The velocity field now owns its scratch workspace and builds it lazily
-    # (sized for the active threads) on the first vorticity call — no global
-    # workspace registration needed.
+    # Create velocity workspace for all potentially active threads
+    # Use Threads.maxthreads() if available, otherwise use a safe buffer
+    nthreads_workspace = if isdefined(Threads, :maxthreads)
+        Threads.maxthreads()
+    else
+        max(Threads.nthreads(), 4)
+    end
+    ws = GeoDynamo.create_velocity_workspace(Float64, nr, nthreads_workspace)
+    GeoDynamo.set_velocity_workspace!(ws)
 
     # Velocity vorticity finiteness at r=0
     vfields = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, dom;
