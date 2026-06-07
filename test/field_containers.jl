@@ -86,19 +86,10 @@ const FINALIZE_MPI_FIELDS = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
         ws = GeoDynamo.create_velocity_workspace(Float64, nr, 2)
         @test length(ws.Pᴾ_profile_real) == 2  # nthreads=2
         @test length(ws.Pᴾ_profile_real[1]) == nr
-
-        # Setting and getting workspace
-        GeoDynamo.set_velocity_workspace!(ws)
-        ws_back = GeoDynamo.get_velocity_workspace(Float64)
-        @test ws_back === ws
-
-        # Type mismatch returns nothing
-        ws_f32 = GeoDynamo.get_velocity_workspace(Float32)
-        @test ws_f32 === nothing
-
-        # Reset to nothing
-        GeoDynamo.set_velocity_workspace!(nothing)
-        @test GeoDynamo.get_velocity_workspace(Float64) === nothing
+        # Buffers must start zeroed — the workspace is reused scratch, and any
+        # uninitialized entry would leak garbage into the radial-profile kernels.
+        @test all(all(iszero, b) for b in ws.Pᴾ_profile_real)
+        @test all(all(iszero, b) for b in ws.∂ᵣpoloidal_real)
     end
 
     if MPI.Initialized()

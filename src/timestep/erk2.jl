@@ -1941,17 +1941,23 @@ function SolverERK2FieldBuffers(
     nr = size(cache.E_full[1], 1)
     workspace = [zeros(T, nr) for _ in 1:8]
 
+    # Zero-initialize the work buffers. `similar` returns UNINITIALIZED memory;
+    # any buffer read before it is written on the first step then sees whatever
+    # the allocator last left there — zeros on a fresh process (so this looked
+    # fine in isolation) but a previous computation's values under the full test
+    # suite, which made the magnetic-poloidal step nondeterministic / non-finite.
+    z(x) = fill!(similar(x), zero(T))
     return SolverERK2FieldBuffers{T}(
-        similar(real_data),
-        similar(imag_data),
-        similar(real_data),
-        similar(imag_data),
-        similar(real_data),
-        similar(imag_data),
-        similar(nl_real),
-        similar(nl_imag),
-        similar(nl_real),
-        similar(nl_imag),
+        z(real_data),
+        z(imag_data),
+        z(real_data),
+        z(imag_data),
+        z(real_data),
+        z(imag_data),
+        z(nl_real),
+        z(nl_imag),
+        z(nl_real),
+        z(nl_imag),
         cache_lookup,
         nr,
         workspace
