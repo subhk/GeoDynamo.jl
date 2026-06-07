@@ -94,8 +94,10 @@
 # ================================================================================
 #
 # VelocityWorkspace provides pre-allocated buffers to avoid allocation in
-# hot loops. Each SHTnsVelocityFields owns one (built lazily via
-# `_get_or_build_velocity_workspace!`) — it is NOT shared across solver states.
+# hot loops. Create once and reuse:
+#
+#   ws = create_velocity_workspace(Float64, nr)
+#   set_velocity_workspace!(ws)  # Register globally
 #
 # BC functions automatically use the workspace if available, providing
 # ~10-100x speedup for BC application.
@@ -194,14 +196,6 @@ mutable struct SHTnsVelocityFields{
     boundary_condition_set::Union{bcs.BoundaryConditionSet{T}, Nothing}
     boundary_interpolation_cache::bcs.BoundaryInterpolationCache{T}
     boundary_time_index::Ref{Int}
-
-    # State-local scratch workspace for the radial-profile velocity kernels.
-    # Built lazily on first use. Owned by this field (NOT a module global) so it
-    # is never shared across solver states — sharing previously leaked stale
-    # values between states and made the magnetic-poloidal solve nondeterministic
-    # under the full test suite (finite in isolation, occasionally non-finite in
-    # CI). See `_get_or_build_velocity_workspace!`.
-    velocity_workspace::Union{VelocityWorkspace{T}, Nothing}
 end
 
 """
@@ -221,27 +215,35 @@ function create_velocity_workspace(::Type{T}, nr::Int,
     )
 end
 
-"""
-    _get_or_build_velocity_workspace!(𝒰, nr; nthreads) -> VelocityWorkspace
+# Global optional workspace reference (set by user to enable reuse across steps)
+# Type-stable: only accepts VelocityWorkspace or nothing
+const VELOCITY_WS = Ref{Union{VelocityWorkspace, Nothing}}(nothing)
 
-Return the velocity field's own scratch workspace, building (and caching on the
-field) a fresh zeroed one when absent or sized for fewer threads / a different
-radial resolution. The workspace is owned by `𝒰` — never a module global — so
-scratch is never shared between solver states. Cross-state sharing previously
-let one state's leftover values leak into another's radial-profile kernels,
-which made the lmax=2 magnetic-poloidal solve nondeterministic under the full
-suite (finite alone, occasionally non-finite in CI).
 """
-function _get_or_build_velocity_workspace!(𝒰::SHTnsVelocityFields{T}, nr::Int,
-        nthreads::Int = max(Threads.nthreads(), Threads.maxthreadid())) where {T}
-    ws = 𝒰.velocity_workspace
-    if ws === nothing ||
-       length(ws.Pᴾ_profile_real) < nthreads ||
-       length(ws.Pᴾ_profile_real[1]) != nr
-        ws = create_velocity_workspace(T, nr, nthreads)
-        𝒰.velocity_workspace = ws
-    end
+    set_velocity_workspace!(ws::Union{VelocityWorkspace{T}, Nothing}) where T
+
+Register a global VelocityWorkspace to be used by velocity kernels when available.
+Pass `nothing` to disable and fall back to internal buffers.
+Type-stable version that only accepts VelocityWorkspace or nothing.
+"""
+function set_velocity_workspace!(ws::Union{VelocityWorkspace{T}, Nothing}) where {T}
+    VELOCITY_WS[] = ws
     return ws
+end
+
+"""
+    get_velocity_workspace(::Type{T})::Union{VelocityWorkspace{T}, Nothing} where T
+
+Get the global velocity workspace if available and matches type T.
+Returns nothing if not set or type mismatch.
+"""
+function get_velocity_workspace(::Type{T})::Union{VelocityWorkspace{T}, Nothing} where {T}
+    ws = VELOCITY_WS[]
+    if ws isa VelocityWorkspace{T}
+        return ws
+    else
+        return nothing
+    end
 end
 
 """
@@ -492,8 +494,7 @@ function create_shtns_velocity_fields(::Type{T}, config::C,
         config,
         outer_core_domain,
         params_snapshot,
-        boundary_condition_set, boundary_cache, boundary_time_index,
-        nothing)  # velocity_workspace — built lazily, per-field (not shared)
+        boundary_condition_set, boundary_cache, boundary_time_index)
 end
 
 # =============================
@@ -557,10 +558,18 @@ end
 using Base.Threads
 function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
         domain::RadialDomain) where {T}
-    # Use this field's own scratch workspace (built lazily, never shared across
-    # states), so the radial-profile buffers can't carry another state's values.
-    ws = _get_or_build_velocity_workspace!(𝒰, domain.N)
-    return compute_vorticity_spectral_full!(𝒰, domain, ws)
+    # If a compatible workspace is registered, use it; otherwise create and cache one
+    ws_any = VELOCITY_WS[]
+    max_tid = max(Threads.nthreads(), Threads.maxthreadid())
+    if ws_any !== nothing && ws_any isa VelocityWorkspace{T} &&
+       length(ws_any.Pᴾ_profile_real[1]) == domain.N &&
+       length(ws_any.Pᴾ_profile_real) >= max_tid
+        return compute_vorticity_spectral_full!(𝒰, domain, ws_any)
+    else
+        ws = create_velocity_workspace(T, domain.N)
+        set_velocity_workspace!(ws)
+        return compute_vorticity_spectral_full!(𝒰, domain, ws)
+    end
 end
 
 # ==========================================
