@@ -25,9 +25,9 @@
 # Alm dim-2 (m-bin count) is uniform across r_comm members because all ranks
 # in r_comm share the same θ-slab → same m-bin ownership.
 #
-# Caching: plans and scratch PencilArrays are stored in a module-level IdDict
-# keyed by the config object.  Build-once semantics: the closure creates them
-# on first call and subsequent calls return the cached value.
+# Caching: both the DistTransposePlan and the scratch PencilArrays are stored
+# directly on cfg._buffers (disttranspose_plan / disttranspose_scratch), a mutable
+# SHTnsBuffers holder owned by the config.  Both are build-once.
 # =============================================================================
 
 using SHTnsKit
@@ -35,16 +35,8 @@ using PencilArrays
 using MPI
 
 # ---------------------------------------------------------------------------
-# Module-level cache (keyed by SHTnsKitConfig identity)
+# Module-level lock (shared by plan, scratch, and m-bridge builders)
 # ---------------------------------------------------------------------------
-
-# Stores the DistTransposePlan (one per config).
-const _DISTTRANSPOSE_PLAN_CACHE = IdDict{Any, Any}()
-
-# Stores the scratch PencilArrays used by to_spec_solve / from_spec_solve!
-# so they are only allocated once per config.
-# Value: NamedTuple (pen_alm_r, pen_solve_r, almr_scratch, solve_scratch)
-const _DISTTRANSPOSE_SCRATCH_CACHE = IdDict{Any, Any}()
 
 const _DISTTRANSPOSE_LOCK = ReentrantLock()
 
@@ -121,18 +113,20 @@ end
     get_disttranspose_plan(cfg) -> SHTnsKit.DistTransposePlan
 
 Return the `DistTransposePlan` associated with `cfg`, building and caching it
-on the first call.  Subsequent calls are O(1) dict-lookups.
+on the first call.  Subsequent calls are O(1) field reads.
 
+The plan is stored in `cfg._buffers.disttranspose_plan` (a mutable holder).
 The plan is constructed on `cfg.pencils.θ_comm` with `nlev = nr_local`.
 """
 function get_disttranspose_plan(cfg)
-    # Fast path: plan is present after the first call — avoid lock + closure alloc.
-    p = get(_DISTTRANSPOSE_PLAN_CACHE, cfg, nothing)
+    b = cfg._buffers
+    p = b.disttranspose_plan
     p !== nothing && return p
     lock(_DISTTRANSPOSE_LOCK) do
-        get!(_DISTTRANSPOSE_PLAN_CACHE, cfg) do
-            _build_disttranspose_plan(cfg)
+        if b.disttranspose_plan === nothing
+            b.disttranspose_plan = _build_disttranspose_plan(cfg)
         end
+        return b.disttranspose_plan
     end
 end
 
@@ -140,18 +134,18 @@ end
     _get_disttranspose_scratch(cfg, plan)
 
 Return the cached scratch NamedTuple for `cfg`, building it on the first call.
-Uses a fast non-locking lookup on the hot path (after warm-up the key always
-exists); falls back to the locked build path only on the first call.
+The scratch is stored in `cfg._buffers.disttranspose_scratch` (a mutable field
+on the config-owned `SHTnsBuffers`).  Subsequent calls are O(1) field reads.
 """
-@inline function _get_disttranspose_scratch(cfg, plan)
-    # Fast path: key is present after the first call — avoid lock + closure alloc.
-    s = get(_DISTTRANSPOSE_SCRATCH_CACHE, cfg, nothing)
+function _get_disttranspose_scratch(cfg, plan)
+    b = cfg._buffers
+    s = b.disttranspose_scratch
     s !== nothing && return s
-    # Slow path: first call, build under lock.
     lock(_DISTTRANSPOSE_LOCK) do
-        get!(_DISTTRANSPOSE_SCRATCH_CACHE, cfg) do
-            _build_disttranspose_scratch(cfg, plan)
+        if b.disttranspose_scratch === nothing
+            b.disttranspose_scratch = _build_disttranspose_scratch(cfg, plan)
         end
+        return b.disttranspose_scratch
     end
 end
 
@@ -168,7 +162,7 @@ reference past the next call to `to_spec_solve` or `from_spec_solve!` on the
 same `cfg`.
 """
 # Type-stable reorder kernels (function barriers). `Ap`/`pa` come from `parent()`
-# of ::Any-typed cached scratch/Alm (IdDict{Any,Any}); indexing them inline boxes
+# of the ::Any-typed scratch on `cfg._buffers` / `Alm`; indexing them inline boxes
 # every element. Passing them as plain args here forces concrete specialization.
 function _reorder_alm_to_almr!(pa, Ap, nr_local::Int, nml::Int, lmax::Int)
     fill!(pa, zero(eltype(pa)))
@@ -187,7 +181,7 @@ end
 
 function to_spec_solve(cfg, Alm, plan)
     scratch = _get_disttranspose_scratch(cfg, plan)
-    # `scratch` is ::Any (IdDict cache) and holds PencilArrays whose concrete type
+    # `scratch` is ::Any (cfg._buffers.disttranspose_scratch) and holds PencilArrays whose concrete type
     # is config-dependent. Hand it to a barrier so the NamedTuple field accesses
     # and the reorder loop specialize on the concrete runtime type instead of
     # boxing. (spec_storage_to_solve! uses the equivalent field-assert pattern.)
@@ -253,9 +247,24 @@ end
 # replicates only the small spectral m-axis; the heavy Legendre/FFT work stays
 # θ-distributed inside dist_synthesis!/dist_analysis!.
 
-# Cache: per-config metadata for the θ_comm m-redistribution.
-#   (; θ_comm, θ_size, spec_m_counts, spec_m_offsets, full_block, l_local, nr)
-const _DISTTRANSPOSE_MBRIDGE_CACHE = IdDict{Any, Any}()
+# Concrete struct for per-config θ_comm m-redistribution metadata.
+# Replacing the old NamedTuple + IdDict{Any,Any} with a typed struct gives
+# type-stable field access in spec_storage_to_solve! without ::Type asserts.
+struct _MBridge
+    θ_comm       ::MPI.Comm
+    θ_size       ::Int
+    spec_m_range ::UnitRange{Int}
+    nr           ::Int
+    l_local      ::Int
+    mmax         ::Int
+    m_counts     ::Vector{Int}
+    m_firsts     ::Vector{Int}
+    send         ::Vector{ComplexF64}
+    recv         ::Vector{ComplexF64}
+    vbuf         ::MPI.VBuffer{Vector{ComplexF64}}
+    full3        ::Array{ComplexF64, 3}
+    local_full   ::Array{ComplexF64, 3}
+end
 
 function _build_mbridge(cfg, plan)
     θ_comm  = cfg.pencils.θ_comm
@@ -285,20 +294,21 @@ function _build_mbridge(cfg, plan)
     full3      = Array{ComplexF64, 3}(undef, l_local, mmax + 1, nr)
     local_full = Array{ComplexF64, 3}(undef, l_local, mmax + 1, nr)
 
-    return (; θ_comm, θ_size,
-              spec_m_range, spec_l_range, nr, l_local, mmax,
-              m_counts, m_firsts = Int.(firsts),
-              recvcounts, send, recv, vbuf, full3, local_full)
+    return _MBridge(θ_comm, θ_size,
+                    spec_m_range, nr, l_local, mmax,
+                    m_counts, Int.(firsts),
+                    send, recv, vbuf, full3, local_full)
 end
 
-@inline function _get_mbridge(cfg, plan)
-    # Fast path: key is present after the first call — avoid lock + closure alloc.
-    mb = get(_DISTTRANSPOSE_MBRIDGE_CACHE, cfg, nothing)
-    mb !== nothing && return mb
+function _get_mbridge(cfg, plan)
+    b  = cfg._buffers
+    mb = b.disttranspose_mbridge
+    mb !== nothing && return mb::_MBridge
     lock(_DISTTRANSPOSE_LOCK) do
-        get!(_DISTTRANSPOSE_MBRIDGE_CACHE, cfg) do
-            _build_mbridge(cfg, plan)
+        if b.disttranspose_mbridge === nothing
+            b.disttranspose_mbridge = _build_mbridge(cfg, plan)
         end
+        return b.disttranspose_mbridge::_MBridge
     end
 end
 
@@ -313,8 +323,9 @@ are zeroed.
 """
 function spec_storage_to_solve!(cfg, solve, sr, si, plan)
     mb = _get_mbridge(cfg, plan)
-    # Type-assert the Any-typed cached fields / plan / cfg to concrete types so the
-    # hot loops below specialize and DON'T box (the caches are IdDict{Any,Any}).
+    # Type-assert the cached fields / plan / cfg to concrete types so the
+    # hot loops below specialize and DON'T box (mb is a concrete _MBridge; the
+    # asserts are now redundant but harmless and document the kernel's expected types).
     θ_comm  = mb.θ_comm
     mmax    = cfg.mmax::Int
     nr      = mb.nr::Int
@@ -379,7 +390,7 @@ even-split (mmax+1) m-partition), performing the θ_comm m-axis redistribution.
 """
 function solve_to_spec_storage!(cfg, sr, si, solve, plan)
     mb = _get_mbridge(cfg, plan)
-    # Concrete-typed locals (caches are IdDict{Any,Any}) → type-stable kernel below.
+    # Concrete-typed locals (_get_mbridge returns a concrete _MBridge) → type-stable kernel below.
     _solve_to_spec_kernel!(sr, si, mb.local_full::Array{ComplexF64, 3},
                            parent(solve)::AbstractArray{ComplexF64, 3}, mb.θ_comm,
                            plan.m_local::Vector{Int},

@@ -333,77 +333,75 @@ const _VECTOR_DISTTRANSPOSE_COUNT = Ref(0)
 #   transpose of phys.data's; r_local ↔ lev align (plan nlev = phys r_local).
 # ---------------------------------------------------------------------------
 
-# Module-level scratch cache for the Phase-3 scalar transform buffers (Alm,
-# fspatial, and a private solve buffer), keyed by config identity.  Kept separate
-# from the SHTnsBuffers struct (which requires a registered field per key).
-const _P3_SCALAR_SCRATCH_CACHE = IdDict{Any, Any}()
+function _build_scalar_scratch(config, plan)
+    Alm      = SHTnsKit.allocate_spectral(plan)
+    fspatial = SHTnsKit.allocate_spatial(plan)
+    scratch  = _get_disttranspose_scratch(config, plan)
+    # Share scratch.solve (the adapter's persistent buffer) so that
+    # from_spec_solve! can use the cached Transposition plan t_bwd.
+    # All scalar transform calls are sequential — no aliasing hazard.
+    solve = scratch.solve
+    return (; Alm, fspatial, solve)
+end
 
-@inline function _scalar_scratch(config, plan)
-    # Fast path: avoid lock + closure alloc on every call after warm-up.
-    sc = get(_P3_SCALAR_SCRATCH_CACHE, config, nothing)
+function _scalar_scratch(config, plan)
+    b = config._buffers
+    sc = b.p3_scalar_scratch
     sc !== nothing && return sc
     lock(_DISTTRANSPOSE_LOCK) do
-        get!(_P3_SCALAR_SCRATCH_CACHE, config) do
-            Alm      = SHTnsKit.allocate_spectral(plan)
-            fspatial = SHTnsKit.allocate_spatial(plan)
-            scratch  = get!(_DISTTRANSPOSE_SCRATCH_CACHE, config) do
-                _build_disttranspose_scratch(config, plan)
-            end
-            # Share scratch.solve (the adapter's persistent buffer) so that
-            # from_spec_solve! can use the cached Transposition plan t_bwd.
-            # All scalar transform calls are sequential — no aliasing hazard.
-            solve = scratch.solve
-            (; Alm, fspatial, solve)
+        if b.p3_scalar_scratch === nothing
+            b.p3_scalar_scratch = _build_scalar_scratch(config, plan)
         end
+        return b.p3_scalar_scratch
     end
 end
 
-# Module-level scratch cache for the Phase-3 VECTOR (sphtor) transform buffers,
-# keyed by config identity.  Provides two spectral Alm buffers (Slm=poloidal,
-# Tlm=toroidal), three spatial buffers (Vt, Vp tangential + Vr radial), and a
-# private `solve` buffer for the m-axis bridge (reused sequentially for S then T).
-const _P3_VECTOR_SCRATCH_CACHE = IdDict{Any, Any}()
+function _build_vector_scratch(config, plan)
+    Slm    = SHTnsKit.allocate_spectral(plan)   # spheroidal/poloidal
+    Tlm    = SHTnsKit.allocate_spectral(plan)   # toroidal
+    Vr_alm = SHTnsKit.allocate_spectral(plan)   # radial-scaled poloidal (l(l+1)/r·P)
+    Vt     = SHTnsKit.allocate_spatial(plan)    # θ-tangential (nlon, nlat_local, nlev)
+    Vp     = SHTnsKit.allocate_spatial(plan)    # φ-tangential
+    Vr     = SHTnsKit.allocate_spatial(plan)    # radial (scalar synthesis of l(l+1)/r·P)
+    scratch = _get_disttranspose_scratch(config, plan)
+    # Share scratch.solve (the adapter's persistent buffer) so that
+    # from_spec_solve! can use the cached Transposition plan t_bwd.
+    # The vector path calls from_spec_solve! twice (S then T) but always
+    # sequentially, so sharing scratch.solve is safe.
+    solve = scratch.solve
+    return (; Slm, Tlm, Vr_alm, Vt, Vp, Vr, solve)
+end
 
-@inline function _vector_scratch(config, plan)
-    # Fast path: avoid lock + closure alloc on every call after warm-up.
-    sc = get(_P3_VECTOR_SCRATCH_CACHE, config, nothing)
+function _vector_scratch(config, plan)
+    b = config._buffers
+    sc = b.p3_vector_scratch
     sc !== nothing && return sc
     lock(_DISTTRANSPOSE_LOCK) do
-        get!(_P3_VECTOR_SCRATCH_CACHE, config) do
-            Slm    = SHTnsKit.allocate_spectral(plan)   # spheroidal/poloidal
-            Tlm    = SHTnsKit.allocate_spectral(plan)   # toroidal
-            Vr_alm = SHTnsKit.allocate_spectral(plan)   # radial-scaled poloidal (l(l+1)/r·P)
-            Vt     = SHTnsKit.allocate_spatial(plan)    # θ-tangential (nlon, nlat_local, nlev)
-            Vp     = SHTnsKit.allocate_spatial(plan)    # φ-tangential
-            Vr     = SHTnsKit.allocate_spatial(plan)    # radial (scalar synthesis of l(l+1)/r·P)
-            scratch = get!(_DISTTRANSPOSE_SCRATCH_CACHE, config) do
-                _build_disttranspose_scratch(config, plan)
-            end
-            # Share scratch.solve (the adapter's persistent buffer) so that
-            # from_spec_solve! can use the cached Transposition plan t_bwd.
-            # The vector path calls from_spec_solve! twice (S then T) but always
-            # sequentially, so sharing scratch.solve is safe.
-            solve = scratch.solve
-            (; Slm, Tlm, Vr_alm, Vt, Vp, Vr, solve)
+        if b.p3_vector_scratch === nothing
+            b.p3_vector_scratch = _build_vector_scratch(config, plan)
         end
+        return b.p3_vector_scratch
     end
 end
 
 """
     _clear_p3_transform_caches!(config)
 
-Delete `config`'s entry from all five module-level Phase-3 transform caches (plan,
-scratch, m-bridge, scalar-scratch, vector-scratch) under `_DISTTRANSPOSE_LOCK`.
-Called by `clear_buffer_cache!` so transient configs (e.g. across a test suite) do
-not accumulate in these IdDicts. A missing key is a no-op (`delete!` tolerates it).
+Clear all five Phase-3 scratch slots for `config`.  All slots live on
+`config._buffers` (set to `nothing` directly): the DistTransposePlan,
+DistTranspose scratch, m-bridge, scalar-scratch, and vector-scratch.
+Called by `clear_buffer_cache!` so transient configs (e.g. across a test
+suite) do not accumulate stale entries.
 """
 function _clear_p3_transform_caches!(config)
+    # Nil the five config-owned slots under the build lock so a concurrent
+    # lazy build can't observe a half-cleared `_buffers` holder.
     lock(_DISTTRANSPOSE_LOCK) do
-        delete!(_DISTTRANSPOSE_PLAN_CACHE, config)
-        delete!(_DISTTRANSPOSE_SCRATCH_CACHE, config)
-        delete!(_DISTTRANSPOSE_MBRIDGE_CACHE, config)
-        delete!(_P3_SCALAR_SCRATCH_CACHE, config)
-        delete!(_P3_VECTOR_SCRATCH_CACHE, config)
+        config._buffers.disttranspose_plan    = nothing
+        config._buffers.disttranspose_scratch = nothing
+        config._buffers.disttranspose_mbridge = nothing
+        config._buffers.p3_scalar_scratch     = nothing
+        config._buffers.p3_vector_scratch     = nothing
     end
     return nothing
 end

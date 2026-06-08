@@ -1076,13 +1076,8 @@ function compute_vorticity_spectral!(
     nr = domain.N
 
     nthreads = max(1, Threads.nthreads(), Threads.maxthreadid())
-    workspace = get_velocity_workspace(T)
-    if workspace === nothing ||
-       length(workspace.Pᴾ_profile_real) < nthreads ||
-       length(workspace.Pᴾ_profile_real[1]) != nr
-        workspace = create_velocity_workspace(T, nr, nthreads)
-        set_velocity_workspace!(workspace)
-    end
+    # Field-owned scratch (never a module global) — see velocity/field.jl.
+    workspace = _get_or_build_velocity_workspace!(velocity_fields, nr, nthreads)
 
     pol_profile_real_bufs = workspace.Pᴾ_profile_real
     pol_profile_imag_bufs = workspace.Pᴾ_profile_imag
