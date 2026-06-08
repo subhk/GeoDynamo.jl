@@ -392,19 +392,19 @@ end
 """
     _clear_p3_transform_caches!(config)
 
-Clear all Phase-3 transform caches for `config`.  The DistTransposePlan is now
-stored on `config._buffers.disttranspose_plan` (set to `nothing`).  The remaining
-four caches (scratch, m-bridge, scalar-scratch, vector-scratch) are module-level
-IdDicts and are cleared via `delete!` under `_DISTTRANSPOSE_LOCK`.  Called by
+Clear all Phase-3 transform caches for `config`.  The DistTransposePlan and the
+m-bridge are now stored on `config._buffers` (set to `nothing`).  The remaining
+three caches (scratch, scalar-scratch, vector-scratch) are module-level IdDicts
+and are cleared via `delete!` under `_DISTTRANSPOSE_LOCK`.  Called by
 `clear_buffer_cache!` so transient configs (e.g. across a test suite) do not
 accumulate stale entries. A missing IdDict key is a no-op (`delete!` tolerates it).
 """
 function _clear_p3_transform_caches!(config)
-    # Plan lives on the mutable _buffers holder — nil it out directly.
-    config._buffers.disttranspose_plan = nothing
+    # Plan and m-bridge live on the mutable _buffers holder — nil them out directly.
+    config._buffers.disttranspose_plan    = nothing
+    config._buffers.disttranspose_mbridge = nothing
     lock(_DISTTRANSPOSE_LOCK) do
         delete!(_DISTTRANSPOSE_SCRATCH_CACHE, config)
-        delete!(_DISTTRANSPOSE_MBRIDGE_CACHE, config)
         delete!(_P3_SCALAR_SCRATCH_CACHE, config)
         delete!(_P3_VECTOR_SCRATCH_CACHE, config)
     end

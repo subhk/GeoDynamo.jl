@@ -252,9 +252,26 @@ end
 # replicates only the small spectral m-axis; the heavy Legendre/FFT work stays
 # θ-distributed inside dist_synthesis!/dist_analysis!.
 
-# Cache: per-config metadata for the θ_comm m-redistribution.
-#   (; θ_comm, θ_size, spec_m_counts, spec_m_offsets, full_block, l_local, nr)
-const _DISTTRANSPOSE_MBRIDGE_CACHE = IdDict{Any, Any}()
+# Concrete struct for per-config θ_comm m-redistribution metadata.
+# Replacing the old NamedTuple + IdDict{Any,Any} with a typed struct gives
+# type-stable field access in spec_storage_to_solve! without ::Type asserts.
+struct _MBridge
+    θ_comm       ::MPI.Comm
+    θ_size       ::Int
+    spec_m_range ::UnitRange{Int}
+    spec_l_range ::UnitRange{Int}
+    nr           ::Int
+    l_local      ::Int
+    mmax         ::Int
+    m_counts     ::Vector{Int}
+    m_firsts     ::Vector{Int}
+    recvcounts   ::Vector{Int}
+    send         ::Vector{ComplexF64}
+    recv         ::Vector{ComplexF64}
+    vbuf         ::MPI.VBuffer{Vector{ComplexF64}}
+    full3        ::Array{ComplexF64, 3}
+    local_full   ::Array{ComplexF64, 3}
+end
 
 function _build_mbridge(cfg, plan)
     θ_comm  = cfg.pencils.θ_comm
@@ -284,20 +301,21 @@ function _build_mbridge(cfg, plan)
     full3      = Array{ComplexF64, 3}(undef, l_local, mmax + 1, nr)
     local_full = Array{ComplexF64, 3}(undef, l_local, mmax + 1, nr)
 
-    return (; θ_comm, θ_size,
-              spec_m_range, spec_l_range, nr, l_local, mmax,
-              m_counts, m_firsts = Int.(firsts),
-              recvcounts, send, recv, vbuf, full3, local_full)
+    return _MBridge(θ_comm, θ_size,
+                    spec_m_range, spec_l_range, nr, l_local, mmax,
+                    m_counts, Int.(firsts),
+                    recvcounts, send, recv, vbuf, full3, local_full)
 end
 
-@inline function _get_mbridge(cfg, plan)
-    # Fast path: key is present after the first call — avoid lock + closure alloc.
-    mb = get(_DISTTRANSPOSE_MBRIDGE_CACHE, cfg, nothing)
-    mb !== nothing && return mb
+function _get_mbridge(cfg, plan)
+    b  = cfg._buffers
+    mb = b.disttranspose_mbridge
+    mb !== nothing && return mb::_MBridge
     lock(_DISTTRANSPOSE_LOCK) do
-        get!(_DISTTRANSPOSE_MBRIDGE_CACHE, cfg) do
-            _build_mbridge(cfg, plan)
+        if b.disttranspose_mbridge === nothing
+            b.disttranspose_mbridge = _build_mbridge(cfg, plan)
         end
+        return b.disttranspose_mbridge::_MBridge
     end
 end
 
