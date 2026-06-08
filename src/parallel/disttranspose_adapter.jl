@@ -25,9 +25,9 @@
 # Alm dim-2 (m-bin count) is uniform across r_comm members because all ranks
 # in r_comm share the same θ-slab → same m-bin ownership.
 #
-# Caching: plans and scratch PencilArrays are stored in a module-level IdDict
-# keyed by the config object.  Build-once semantics: the closure creates them
-# on first call and subsequent calls return the cached value.
+# Caching: the DistTransposePlan is stored directly on cfg._buffers.disttranspose_plan
+# (a mutable SHTnsBuffers holder owned by the config).  Scratch PencilArrays are
+# stored in a module-level IdDict keyed by the config object.  Both are build-once.
 # =============================================================================
 
 using SHTnsKit
@@ -37,9 +37,6 @@ using MPI
 # ---------------------------------------------------------------------------
 # Module-level cache (keyed by SHTnsKitConfig identity)
 # ---------------------------------------------------------------------------
-
-# Stores the DistTransposePlan (one per config).
-const _DISTTRANSPOSE_PLAN_CACHE = IdDict{Any, Any}()
 
 # Stores the scratch PencilArrays used by to_spec_solve / from_spec_solve!
 # so they are only allocated once per config.
@@ -121,18 +118,20 @@ end
     get_disttranspose_plan(cfg) -> SHTnsKit.DistTransposePlan
 
 Return the `DistTransposePlan` associated with `cfg`, building and caching it
-on the first call.  Subsequent calls are O(1) dict-lookups.
+on the first call.  Subsequent calls are O(1) field reads.
 
+The plan is stored in `cfg._buffers.disttranspose_plan` (a mutable holder).
 The plan is constructed on `cfg.pencils.θ_comm` with `nlev = nr_local`.
 """
 function get_disttranspose_plan(cfg)
-    # Fast path: plan is present after the first call — avoid lock + closure alloc.
-    p = get(_DISTTRANSPOSE_PLAN_CACHE, cfg, nothing)
+    b = cfg._buffers
+    p = b.disttranspose_plan
     p !== nothing && return p
     lock(_DISTTRANSPOSE_LOCK) do
-        get!(_DISTTRANSPOSE_PLAN_CACHE, cfg) do
-            _build_disttranspose_plan(cfg)
+        if b.disttranspose_plan === nothing
+            b.disttranspose_plan = _build_disttranspose_plan(cfg)
         end
+        return b.disttranspose_plan
     end
 end
 
