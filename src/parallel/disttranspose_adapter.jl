@@ -25,9 +25,9 @@
 # Alm dim-2 (m-bin count) is uniform across r_comm members because all ranks
 # in r_comm share the same θ-slab → same m-bin ownership.
 #
-# Caching: the DistTransposePlan is stored directly on cfg._buffers.disttranspose_plan
-# (a mutable SHTnsBuffers holder owned by the config).  Scratch PencilArrays are
-# stored in a module-level IdDict keyed by the config object.  Both are build-once.
+# Caching: both the DistTransposePlan and the scratch PencilArrays are stored
+# directly on cfg._buffers (disttranspose_plan / disttranspose_scratch), a mutable
+# SHTnsBuffers holder owned by the config.  Both are build-once.
 # =============================================================================
 
 using SHTnsKit
@@ -35,13 +35,8 @@ using PencilArrays
 using MPI
 
 # ---------------------------------------------------------------------------
-# Module-level cache (keyed by SHTnsKitConfig identity)
+# Module-level lock (shared by plan, scratch, and m-bridge builders)
 # ---------------------------------------------------------------------------
-
-# Stores the scratch PencilArrays used by to_spec_solve / from_spec_solve!
-# so they are only allocated once per config.
-# Value: NamedTuple (pen_alm_r, pen_solve_r, almr_scratch, solve_scratch)
-const _DISTTRANSPOSE_SCRATCH_CACHE = IdDict{Any, Any}()
 
 const _DISTTRANSPOSE_LOCK = ReentrantLock()
 
@@ -139,18 +134,18 @@ end
     _get_disttranspose_scratch(cfg, plan)
 
 Return the cached scratch NamedTuple for `cfg`, building it on the first call.
-Uses a fast non-locking lookup on the hot path (after warm-up the key always
-exists); falls back to the locked build path only on the first call.
+The scratch is stored in `cfg._buffers.disttranspose_scratch` (a mutable field
+on the config-owned `SHTnsBuffers`).  Subsequent calls are O(1) field reads.
 """
-@inline function _get_disttranspose_scratch(cfg, plan)
-    # Fast path: key is present after the first call — avoid lock + closure alloc.
-    s = get(_DISTTRANSPOSE_SCRATCH_CACHE, cfg, nothing)
+function _get_disttranspose_scratch(cfg, plan)
+    b = cfg._buffers
+    s = b.disttranspose_scratch
     s !== nothing && return s
-    # Slow path: first call, build under lock.
     lock(_DISTTRANSPOSE_LOCK) do
-        get!(_DISTTRANSPOSE_SCRATCH_CACHE, cfg) do
-            _build_disttranspose_scratch(cfg, plan)
+        if b.disttranspose_scratch === nothing
+            b.disttranspose_scratch = _build_disttranspose_scratch(cfg, plan)
         end
+        return b.disttranspose_scratch
     end
 end
 

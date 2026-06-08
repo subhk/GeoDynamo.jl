@@ -346,9 +346,7 @@ const _P3_SCALAR_SCRATCH_CACHE = IdDict{Any, Any}()
         get!(_P3_SCALAR_SCRATCH_CACHE, config) do
             Alm      = SHTnsKit.allocate_spectral(plan)
             fspatial = SHTnsKit.allocate_spatial(plan)
-            scratch  = get!(_DISTTRANSPOSE_SCRATCH_CACHE, config) do
-                _build_disttranspose_scratch(config, plan)
-            end
+            scratch  = _get_disttranspose_scratch(config, plan)
             # Share scratch.solve (the adapter's persistent buffer) so that
             # from_spec_solve! can use the cached Transposition plan t_bwd.
             # All scalar transform calls are sequential — no aliasing hazard.
@@ -376,9 +374,7 @@ const _P3_VECTOR_SCRATCH_CACHE = IdDict{Any, Any}()
             Vt     = SHTnsKit.allocate_spatial(plan)    # θ-tangential (nlon, nlat_local, nlev)
             Vp     = SHTnsKit.allocate_spatial(plan)    # φ-tangential
             Vr     = SHTnsKit.allocate_spatial(plan)    # radial (scalar synthesis of l(l+1)/r·P)
-            scratch = get!(_DISTTRANSPOSE_SCRATCH_CACHE, config) do
-                _build_disttranspose_scratch(config, plan)
-            end
+            scratch = _get_disttranspose_scratch(config, plan)
             # Share scratch.solve (the adapter's persistent buffer) so that
             # from_spec_solve! can use the cached Transposition plan t_bwd.
             # The vector path calls from_spec_solve! twice (S then T) but always
@@ -392,19 +388,19 @@ end
 """
     _clear_p3_transform_caches!(config)
 
-Clear all Phase-3 transform caches for `config`.  The DistTransposePlan and the
-m-bridge are now stored on `config._buffers` (set to `nothing`).  The remaining
-three caches (scratch, scalar-scratch, vector-scratch) are module-level IdDicts
-and are cleared via `delete!` under `_DISTTRANSPOSE_LOCK`.  Called by
+Clear all Phase-3 transform caches for `config`.  The DistTransposePlan,
+m-bridge, and scratch are all stored on `config._buffers` (set to `nothing`).
+The remaining two caches (scalar-scratch, vector-scratch) are module-level
+IdDicts and are cleared via `delete!` under `_DISTTRANSPOSE_LOCK`.  Called by
 `clear_buffer_cache!` so transient configs (e.g. across a test suite) do not
 accumulate stale entries. A missing IdDict key is a no-op (`delete!` tolerates it).
 """
 function _clear_p3_transform_caches!(config)
-    # Plan and m-bridge live on the mutable _buffers holder — nil them out directly.
+    # Plan, scratch, and m-bridge live on the mutable _buffers holder — nil them out directly.
     config._buffers.disttranspose_plan    = nothing
+    config._buffers.disttranspose_scratch = nothing
     config._buffers.disttranspose_mbridge = nothing
     lock(_DISTTRANSPOSE_LOCK) do
-        delete!(_DISTTRANSPOSE_SCRATCH_CACHE, config)
         delete!(_P3_SCALAR_SCRATCH_CACHE, config)
         delete!(_P3_VECTOR_SCRATCH_CACHE, config)
     end
