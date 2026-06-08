@@ -127,6 +127,7 @@ additional_tests = (
     "process_grid_extended.jl",
     "krylov_exp.jl",
     "safe_parse.jl",
+    "docs_bindings.jl",
     "derived_parameters.jl",
     "stability_regressions.jl",
     "timestep_state.jl",
