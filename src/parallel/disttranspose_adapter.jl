@@ -259,13 +259,11 @@ struct _MBridge
     θ_comm       ::MPI.Comm
     θ_size       ::Int
     spec_m_range ::UnitRange{Int}
-    spec_l_range ::UnitRange{Int}
     nr           ::Int
     l_local      ::Int
     mmax         ::Int
     m_counts     ::Vector{Int}
     m_firsts     ::Vector{Int}
-    recvcounts   ::Vector{Int}
     send         ::Vector{ComplexF64}
     recv         ::Vector{ComplexF64}
     vbuf         ::MPI.VBuffer{Vector{ComplexF64}}
@@ -302,9 +300,9 @@ function _build_mbridge(cfg, plan)
     local_full = Array{ComplexF64, 3}(undef, l_local, mmax + 1, nr)
 
     return _MBridge(θ_comm, θ_size,
-                    spec_m_range, spec_l_range, nr, l_local, mmax,
+                    spec_m_range, nr, l_local, mmax,
                     m_counts, Int.(firsts),
-                    recvcounts, send, recv, vbuf, full3, local_full)
+                    send, recv, vbuf, full3, local_full)
 end
 
 function _get_mbridge(cfg, plan)
@@ -330,8 +328,9 @@ are zeroed.
 """
 function spec_storage_to_solve!(cfg, solve, sr, si, plan)
     mb = _get_mbridge(cfg, plan)
-    # Type-assert the Any-typed cached fields / plan / cfg to concrete types so the
-    # hot loops below specialize and DON'T box (the caches are IdDict{Any,Any}).
+    # Type-assert the cached fields / plan / cfg to concrete types so the
+    # hot loops below specialize and DON'T box (mb is a concrete _MBridge; the
+    # asserts are now redundant but harmless and document the kernel's expected types).
     θ_comm  = mb.θ_comm
     mmax    = cfg.mmax::Int
     nr      = mb.nr::Int
@@ -396,7 +395,7 @@ even-split (mmax+1) m-partition), performing the θ_comm m-axis redistribution.
 """
 function solve_to_spec_storage!(cfg, sr, si, solve, plan)
     mb = _get_mbridge(cfg, plan)
-    # Concrete-typed locals (caches are IdDict{Any,Any}) → type-stable kernel below.
+    # Concrete-typed locals (_get_mbridge returns a concrete _MBridge) → type-stable kernel below.
     _solve_to_spec_kernel!(sr, si, mb.local_full::Array{ComplexF64, 3},
                            parent(solve)::AbstractArray{ComplexF64, 3}, mb.θ_comm,
                            plan.m_local::Vector{Int},
