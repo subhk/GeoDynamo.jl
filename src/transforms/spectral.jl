@@ -130,6 +130,14 @@ mutable struct SHTnsBuffers
     # MIE vector-transform poloidal coefficient buffers (radial-component path)
     mie_pol_coeffs_buffer::Union{AbstractArray, Nothing}
     mie_pol_coeffs_gathered::Union{AbstractArray, Nothing}
+
+    # Phase-3 DistTransposePlan transform scratch (per-config; replaces the old
+    # module-global IdDict{Any,Any} caches). Lazily built on first transform.
+    disttranspose_plan::Union{Any, Nothing}        # SHTnsKit.DistTransposePlan
+    disttranspose_scratch::Union{Any, Nothing}     # NamedTuple of PencilArrays (config-dependent type)
+    disttranspose_mbridge::Union{Any, Nothing}     # _MBridge (concrete; added in a later task)
+    p3_scalar_scratch::Union{Any, Nothing}         # NamedTuple (Alm/fspatial/solve)
+    p3_vector_scratch::Union{Any, Nothing}         # NamedTuple (Slm/Tlm/Vt/Vp/Vr/Vr_alm/solve)
 end
 
 """
@@ -143,7 +151,8 @@ function SHTnsBuffers()
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
-        nothing, nothing, nothing, nothing
+        nothing, nothing, nothing, nothing,
+        nothing, nothing, nothing, nothing, nothing
     )
 end
 
