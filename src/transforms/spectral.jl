@@ -135,9 +135,9 @@ mutable struct SHTnsBuffers
     # module-global IdDict{Any,Any} caches). Lazily built on first transform.
     disttranspose_plan::Union{Any, Nothing}        # SHTnsKit.DistTransposePlan
     disttranspose_scratch::Union{Any, Nothing}     # NamedTuple of PencilArrays (config-dependent type)
-    disttranspose_mbridge::Union{Any, Nothing}     # _MBridge (concrete; added in a later task)
+    disttranspose_mbridge::Union{Any, Nothing}     # _MBridge (concrete); built lazily on first transform
     p3_scalar_scratch::Union{Any, Nothing}         # NamedTuple (Alm/fspatial/solve)
-    p3_vector_scratch::Union{Any, Nothing}         # NamedTuple (Slm/Tlm/Vt/Vp/Vr/Vr_alm/solve)
+    p3_vector_scratch::Union{Any, Nothing}         # NamedTuple (Slm/Tlm/Vr_alm/Vt/Vp/Vr/solve)
 end
 
 """

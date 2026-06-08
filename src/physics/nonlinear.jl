@@ -394,11 +394,15 @@ Called by `clear_buffer_cache!` so transient configs (e.g. across a test
 suite) do not accumulate stale entries.
 """
 function _clear_p3_transform_caches!(config)
-    config._buffers.disttranspose_plan    = nothing
-    config._buffers.disttranspose_scratch = nothing
-    config._buffers.disttranspose_mbridge = nothing
-    config._buffers.p3_scalar_scratch     = nothing
-    config._buffers.p3_vector_scratch     = nothing
+    # Nil the five config-owned slots under the build lock so a concurrent
+    # lazy build can't observe a half-cleared `_buffers` holder.
+    lock(_DISTTRANSPOSE_LOCK) do
+        config._buffers.disttranspose_plan    = nothing
+        config._buffers.disttranspose_scratch = nothing
+        config._buffers.disttranspose_mbridge = nothing
+        config._buffers.p3_scalar_scratch     = nothing
+        config._buffers.p3_vector_scratch     = nothing
+    end
     return nothing
 end
 

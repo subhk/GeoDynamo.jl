@@ -162,7 +162,7 @@ reference past the next call to `to_spec_solve` or `from_spec_solve!` on the
 same `cfg`.
 """
 # Type-stable reorder kernels (function barriers). `Ap`/`pa` come from `parent()`
-# of ::Any-typed cached scratch/Alm (IdDict{Any,Any}); indexing them inline boxes
+# of the ::Any-typed scratch on `cfg._buffers` / `Alm`; indexing them inline boxes
 # every element. Passing them as plain args here forces concrete specialization.
 function _reorder_alm_to_almr!(pa, Ap, nr_local::Int, nml::Int, lmax::Int)
     fill!(pa, zero(eltype(pa)))
@@ -181,7 +181,7 @@ end
 
 function to_spec_solve(cfg, Alm, plan)
     scratch = _get_disttranspose_scratch(cfg, plan)
-    # `scratch` is ::Any (IdDict cache) and holds PencilArrays whose concrete type
+    # `scratch` is ::Any (cfg._buffers.disttranspose_scratch) and holds PencilArrays whose concrete type
     # is config-dependent. Hand it to a barrier so the NamedTuple field accesses
     # and the reorder loop specialize on the concrete runtime type instead of
     # boxing. (spec_storage_to_solve! uses the equivalent field-assert pattern.)
