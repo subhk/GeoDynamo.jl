@@ -168,6 +168,7 @@ additional_tests = (
     "gpu_phase6_run.jl",
     "gpu_coverage.jl",
     "api_coverage.jl",
+    "stefan_imex_coverage.jl",
     "user_api.jl",
     "oceananigans_api.jl",
     "api_codex_fixes.jl",
