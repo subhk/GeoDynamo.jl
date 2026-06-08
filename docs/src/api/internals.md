@@ -125,7 +125,6 @@ Filter = t -> !(t in (
     GeoDynamo.clear_scalar_field_caches!,
     GeoDynamo.VelocityWorkspace,
     GeoDynamo.create_velocity_workspace,
-    GeoDynamo.set_velocity_workspace!,
     GeoDynamo.compute_surface_flux,
     GeoDynamo.set_temperature_ic!,
     GeoDynamo.set_boundary_conditions!,
