@@ -839,6 +839,31 @@ function vector_spectral_to_physical!(
     return vector_field
 end
 
+# Function barrier for the v_r poloidal-coefficient fill.  `Vap`/`Sp` are
+# `parent(Vr_alm)`/`parent(Slm)` taken from the `::Any` IdDict scratch cache;
+# running this triple loop inline boxed every scalar write (~tens of thousands
+# of allocations per step — the dominant hot-path allocator).  Passing the
+# arrays as ordinary arguments specializes the loop on their concrete types, so
+# the writes don't box.  Same pattern as `_copy_spatial_to_physical!`.
+function _fill_vr_alm!(Vap, Sp, m_local, r_range_ph, domain, lmax::Int, mmax::Int,
+        vr_factor::F) where {F}
+    fill!(Vap, zero(eltype(Vap)))
+    rN = domain.r[domain.N, 4]
+    @inbounds for (lev, r_glob) in enumerate(r_range_ph)
+        lev > size(Vap, 3) && continue
+        (1 <= r_glob <= domain.N) || continue
+        r_val = domain.r[r_glob, 4]
+        r_val > eps(Float64) * rN || continue
+        for (mi, m) in enumerate(m_local)
+            (0 <= m <= mmax) || continue
+            for l in max(m, 0):lmax
+                Vap[l + 1, mi, lev] = Sp[l + 1, mi, lev] * vr_factor(l, r_val)
+            end
+        end
+    end
+    return nothing
+end
+
 # Shared Phase-3 vector synthesis used by both the solver path (numerics.jl) and
 # the non-solver path (fields/transforms.jl).  `vr_factor(l, r_val)` supplies the
 # per-path radial scaling for the poloidal coefficients that drive v_r — the
@@ -882,25 +907,12 @@ function vector_spectral_to_physical_disttranspose!(
 
     # 4. Radial component v_r = (l(l+1)/r-factor)·P via scalar dist_synthesis!.
     r_range_ph = PencilArrays.range_local(vector_field.θ_component.pencil)[3]
-    Sp  = parent(Slm)
-    Vap = parent(Vr_alm)
-    fill!(Vap, zero(ComplexF64))
 
     if domain !== nothing
-        rN = domain.r[domain.N, 4]
-        @inbounds for (lev, r_glob) in enumerate(r_range_ph)
-            lev > size(Vap, 3) && continue
-            (1 <= r_glob <= domain.N) || continue
-            r_val = domain.r[r_glob, 4]
-            if r_val > eps(Float64) * rN
-                for (mi, m) in enumerate(plan.m_local)
-                    (0 <= m <= mmax) || continue
-                    for l in max(m, 0):lmax
-                        Vap[l + 1, mi, lev] = Sp[l + 1, mi, lev] * vr_factor(l, r_val)
-                    end
-                end
-            end
-        end
+        # Concrete-typed function barrier (see _fill_vr_alm!): keeps the v_r
+        # coefficient loop from boxing on the ::Any scratch arrays.
+        _fill_vr_alm!(parent(Vr_alm), parent(Slm), plan.m_local, r_range_ph,
+            domain, lmax, mmax, vr_factor)
         SHTnsKit.dist_synthesis!(plan, Vr, Vr_alm)
         # Function barrier: Vr is ::Any from sc (IdDict); parent(Vr) would be ::Any.
         _copy_spatial_to_physical!(v_r, parent(Vr))

@@ -186,16 +186,22 @@ function _reorder_almr_to_alm!(Ap, pa, nr_local::Int, nml::Int, lmax::Int)
 end
 
 function to_spec_solve(cfg, Alm, plan)
-    scratch  = _get_disttranspose_scratch(cfg, plan)
-    lmax     = cfg.lmax
-    nr_local = length(PencilArrays.range_local(cfg.pencils.r)[3])
-    nml      = size(parent(Alm), 2)
-
-    # Reorder Alm parent (l, m_bin, r_local) → almr parent (l, r_local, m_bin)
-    _reorder_alm_to_almr!(parent(scratch.almr), parent(Alm), nr_local, nml, lmax)
-
-    PencilArrays.transpose!(scratch.t_fwd)  # almr → solve (persistent plan, no alloc)
+    scratch = _get_disttranspose_scratch(cfg, plan)
+    # `scratch` is ::Any (IdDict cache) and holds PencilArrays whose concrete type
+    # is config-dependent. Hand it to a barrier so the NamedTuple field accesses
+    # and the reorder loop specialize on the concrete runtime type instead of
+    # boxing. (spec_storage_to_solve! uses the equivalent field-assert pattern.)
+    _to_spec_solve_impl!(scratch, Alm, cfg.lmax::Int,
+        length(PencilArrays.range_local(cfg.pencils.r)[3]))
     return scratch.solve
+end
+
+function _to_spec_solve_impl!(scratch, Alm, lmax::Int, nr_local::Int)
+    Ap = parent(Alm)
+    # Reorder Alm parent (l, m_bin, r_local) → almr parent (l, r_local, m_bin)
+    _reorder_alm_to_almr!(parent(scratch.almr), Ap, nr_local, size(Ap, 2), lmax)
+    PencilArrays.transpose!(scratch.t_fwd)  # almr → solve (persistent plan, no alloc)
+    return nothing
 end
 
 """
@@ -211,19 +217,22 @@ plan `scratch.t_bwd` is bound to that specific array, allowing zero-alloc
 repeated use.
 """
 function from_spec_solve!(cfg, Alm, solve, plan)
-    scratch  = _get_disttranspose_scratch(cfg, plan)
-    lmax     = cfg.lmax
-    nr_local = length(PencilArrays.range_local(cfg.pencils.r)[3])
-    nml      = size(parent(Alm), 2)
+    scratch = _get_disttranspose_scratch(cfg, plan)
+    # Barrier on the ::Any scratch (see to_spec_solve): specialize on its concrete
+    # runtime type so the transpose dispatch + reorder loop don't box.
+    _from_spec_solve_impl!(scratch, Alm, solve, cfg.lmax::Int,
+        length(PencilArrays.range_local(cfg.pencils.r)[3]))
+    return nothing
+end
 
+function _from_spec_solve_impl!(scratch, Alm, solve, lmax::Int, nr_local::Int)
     # `solve` must be scratch.solve (the persistent plan t_bwd is bound to it).
     @assert solve === scratch.solve "from_spec_solve!: solve must be scratch.solve (the adapter's cached buffer)"
-
     # Transpose back into the (l, r_local, m_bin) layout using the persistent plan.
     PencilArrays.transpose!(scratch.t_bwd)  # solve → almr (no alloc)
-
     # Reorder almr parent (l, r_local, m_bin) → Alm parent (l, m_bin, r_local)
-    _reorder_almr_to_alm!(parent(Alm), parent(scratch.almr), nr_local, nml, lmax)
+    Ap = parent(Alm)
+    _reorder_almr_to_alm!(Ap, parent(scratch.almr), nr_local, size(Ap, 2), lmax)
     return nothing
 end
 
