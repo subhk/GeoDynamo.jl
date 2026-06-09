@@ -1,4 +1,4 @@
-# ERK2 common: const aliases, compat constructors, phi functions, diagnostics toggles.
+# ERK2 common: boundary mode-value helper, const aliases, compat constructors, phi functions, diagnostics toggles.
 
 # `SolverERK2BoundarySide` and `SolverERK2BoundarySpec` are defined in
 # `solver/state.jl` (next to the other timestep-cache types) so they can be
@@ -79,6 +79,9 @@ specified explicitly.
 """
 GeoDynamo.ERK2Cache(args...) = GeoDynamo.ERK2Cache{Float64}(args...)
 
+@inline compat_solver_erk2_cache(cache::ERK2StageCache{T}) where {T} = cache
+@inline compat_old_erk2_cache(cache::ERK2StageCache{T}) where {T} = cache
+
 """
     compat_normalize_old_erk2_cache_entry(entry)
 
@@ -136,6 +139,20 @@ function GeoDynamo.disable_erk2_diagnostics!()
 end
 
 """
+    GeoDynamo.erk2_diagnostics_enabled()
+
+Return whether ERK2 residual diagnostics are currently enabled.
+"""
+GeoDynamo.erk2_diagnostics_enabled() = SOLVER_SHARED_ERK2_DIAGNOSTICS_ENABLED[]
+
+"""
+    GeoDynamo.erk2_diagnostics_interval()
+
+Return the configured ERK2 residual diagnostics interval.
+"""
+GeoDynamo.erk2_diagnostics_interval() = SOLVER_SHARED_ERK2_DIAGNOSTICS_INTERVAL[]
+
+"""
     GeoDynamo.compute_phi1_function(A, expA)
 
 Public compatibility wrapper for the solver-local phi1 matrix-function helper.
@@ -152,6 +169,13 @@ Public compatibility wrapper for the solver-local phi2 matrix-function helper.
 function GeoDynamo.compute_phi2_function(A::Matrix{T}, expA::Matrix{T}; l::Int = 0) where {T}
     solver_compute_phi2_function(A, expA; l = l)
 end
+
+"""
+    GeoDynamo.reset_phi2_monitor!()
+
+Clear accumulated phi2 conditioning diagnostics.
+"""
+GeoDynamo.reset_phi2_monitor!() = reset_solver_phi2_monitor!()
 
 """
     GeoDynamo.report_phi2_conditioning(step; interval=100)
