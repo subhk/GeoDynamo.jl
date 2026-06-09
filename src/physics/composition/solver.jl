@@ -66,138 +66,26 @@ function solver_compute_composition_nonlinear!(
         outer_core_domain::RadialDomainType,
         ws::SolverGradientWorkspace{T};
         geometry::Symbol = solver_default_geometry()) where {T}
-    t_start = timing_enabled() ? mpi_wtime() : 0.0
-
-    solver_zero_scalar_work_arrays!(𝔽)
-    zero_gradient_workspace!(ws)
-
-    # Composition shares the scalar transport path with temperature, but has no
-    # internal source term here; only advection is transformed back to spectral.
-    if timing_enabled()
-        t_spectral = mpi_wtime()
-    end
-    compute_all_gradients_spectral!(𝔽, outer_core_domain, ws)
-    if timing_enabled()
-        𝔽.spectral_time[] += mpi_wtime() - t_spectral
-    end
-
-    if timing_enabled()
-        t_transform = mpi_wtime()
-    end
-    transform_field_and_gradients_to_physical!(𝔽, ws)
-    if timing_enabled()
-        𝔽.transform_time[] += mpi_wtime() - t_transform
-    end
-
-    if vel_fields !== nothing
-        solver_compute_scalar_advection_local!(𝔽, vel_fields)
-    end
-
-    if timing_enabled()
-        t_transform = mpi_wtime()
-    end
-
-    scalar_nonlinear_to_spectral!(
-        𝔽.advection_physical,
-        𝔽.nonlinear,
-        geometry
+    return _solver_compute_scalar_nonlinear!(
+        𝔽, vel_fields, outer_core_domain, ws;
+        add_internal_sources = false,
+        geometry = geometry,
     )
-    if timing_enabled()
-        𝔽.transform_time[] += mpi_wtime() - t_transform
-        𝔽.computation_time[] += mpi_wtime() - t_start
-    end
-    return 𝔽
 end
 
 function apply_composition_implicit_update!(state::SolverState{
         T, <:AbstractArchitecture}) where {T}
     composition = state.fields.composition
     composition === nothing && return state
-
-    runtime = state.runtime
-    diffusivity = state.parameters.Pm / state.parameters.Sc
-    bc = get_bc_vectors(composition)
-    timestepper = state.parameters.timestepper
-    dt = state.parameters.timestep
-
-    # Keep composition on the same timestep contract as temperature: CNAB2 uses
-    # boundary RHS rows, while EAB2 carries a boundary spec for endpoint repair.
-    if timestepper isa CNAB2
-        matrices = state.implicit_matrices[:composition]
-        radial_work = get_radial_work!(
-            state.timestep_caches,
-            :composition,
-            matrices.system_matrices[1].size
-        )
-        solver_build_rhs_cnab2!(
-            composition.work_spectral,
-            composition.spectral,
-            composition.nonlinear,
-            composition.prev_nonlinear,
-            dt,
-            matrices;
-            work = radial_work
-        )
-        solver_solve_composition_implicit_step!(
-            composition.spectral,
-            composition.work_spectral,
-            matrices;
-            bc_inner = bc.inner_real,
-            bc_outer = bc.outer_real,
-            bc_inner_imag = bc.inner_imag,
-            bc_outer_imag = bc.outer_imag,
-            work = radial_work
-        )
-    elseif timestepper isa EAB2
-        alu_map = (state.timestep_caches.etd_composition::EAB2CacheEntry{T}).map
-        radial_work = get_radial_work!(
-            state.timestep_caches,
-            :composition,
-            runtime.outer_core_domain.N
-        )
-        composition_bc_code = _composition_bc_code(state.parameters.composition_bcs)
-        scalar_bc = build_solver_erk2_scalar_bc(T, runtime.outer_core_domain, composition_bc_code)
-        bc_spec = with_boundary_mode_values(
-            scalar_bc,
-            bc.inner_real,
-            bc.outer_real,
-            bc.inner_imag,
-            bc.outer_imag
-        )
-        solver_eab2_update_krylov_cached!(
-            composition.spectral,
-            composition.nonlinear,
-            composition.prev_nonlinear,
-            alu_map,
-            runtime.outer_core_domain,
-            diffusivity,
-            runtime.shtns_config,
-            dt;
-            m = _timestepper_krylov_dimension(timestepper, state.parameters),
-            tol = _timestepper_krylov_tolerance(timestepper, state.parameters),
-            bc_spec = bc_spec,
-            krylov_work = radial_work
-        )
-    else
-        matrices = state.implicit_matrices[:composition]
-        radial_work = get_radial_work!(
-            state.timestep_caches,
-            :composition,
-            matrices.system_matrices[1].size
-        )
-        solver_solve_composition_implicit_step!(
-            composition.spectral,
-            composition.nonlinear,
-            matrices;
-            bc_inner = bc.inner_real,
-            bc_outer = bc.outer_real,
-            bc_inner_imag = bc.inner_imag,
-            bc_outer_imag = bc.outer_imag,
-            work = radial_work
-        )
-    end
-
-    return state
+    return _apply_scalar_implicit_update!(
+        state,
+        composition,
+        :composition,
+        state.parameters.Pm / state.parameters.Sc,
+        _composition_bc_code(state.parameters.composition_bcs),
+        solver_solve_composition_implicit_step!,
+        state.timestep_caches.etd_composition,
+    )
 end
 
 function queue_composition_implicit_update!(

@@ -111,11 +111,18 @@ end
         temperature_solver,
         "function apply_temperature_implicit_update!("
     )
-    @test _sc_occ("build_solver_erk2_scalar_bc", temperature_update)
-    @test _sc_occ("with_boundary_mode_values", temperature_update)
-    @test _sc_occ("bc_spec=bc_spec", temperature_update)
-    @test _sc_occ("_timestepper_krylov_dimension(timestepper, state.parameters)", temperature_update)
-    @test !_sc_occ("_timestepper_krylov_dimension(state.parameters.timestepper)", temperature_update)
+    # apply_temperature_implicit_update! is now a thin shim over the shared
+    # _apply_scalar_implicit_update! (src/physics/scalar_field_solver_common.jl).
+    # The EAB2 boundary-spec wiring (build_solver_erk2_scalar_bc /
+    # with_boundary_mode_values / bc_spec / krylov dimension) is guarded once in
+    # scalar_boundary_shared_static_checks.jl; here we pin that the shim delegates
+    # with the temperature-specific arguments.
+    @test _sc_occ("_apply_scalar_implicit_update!(", temperature_update)
+    @test _sc_occ(":temperature", temperature_update)
+    @test _sc_occ("state.parameters.Pm / state.parameters.Pr", temperature_update)
+    @test _sc_occ("_thermal_bc_code(state.parameters.temperature_bcs)", temperature_update)
+    @test _sc_occ("solver_solve_temperature_implicit_step!", temperature_update)
+    @test _sc_occ("state.timestep_caches.etd_temperature", temperature_update)
 
     integrate_erk2 = _temperature_bc_static_function_body(
         erk2,
