@@ -52,4 +52,23 @@ end
     @test occursin("solve_scalar_implicit_step!(", composition_solve)
     @test !occursin("Vector{T}(undef, nr)", temperature_solve)
     @test !occursin("Vector{T}(undef, nr)", composition_solve)
+
+    # The temperature/composition implicit-update drivers were consolidated into
+    # the shared _apply_scalar_implicit_update! (and the nonlinear assembly into
+    # _solver_compute_scalar_nonlinear!). The EAB2 boundary-spec wiring that used
+    # to live in each apply_*_implicit_update! is now asserted here once; the
+    # per-field shims are guarded in {temperature,composition}_boundary_static_checks.jl.
+    scalar_driver = _scalar_bc_shared_source(
+        "src", "physics", "scalar_field_solver_common.jl"
+    )
+    @test occursin("function _solver_compute_scalar_nonlinear!(", scalar_driver)
+    scalar_implicit_update = _scalar_bc_shared_function_body(
+        scalar_driver,
+        "function _apply_scalar_implicit_update!("
+    )
+    @test occursin("build_solver_erk2_scalar_bc", scalar_implicit_update)
+    @test occursin("with_boundary_mode_values", scalar_implicit_update)
+    @test occursin("bc_spec = bc_spec", scalar_implicit_update)
+    @test occursin("_timestepper_krylov_dimension(timestepper, state.parameters)", scalar_implicit_update)
+    @test !occursin("_timestepper_krylov_dimension(state.parameters.timestepper)", scalar_implicit_update)
 end

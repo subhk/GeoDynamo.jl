@@ -86,11 +86,18 @@ end
         composition_solver,
         "function apply_composition_implicit_update!("
     )
-    @test _sc_occ("build_solver_erk2_scalar_bc", composition_update)
-    @test _sc_occ("with_boundary_mode_values", composition_update)
-    @test _sc_occ("bc_spec=bc_spec", composition_update)
-    @test _sc_occ("_timestepper_krylov_dimension(timestepper, state.parameters)", composition_update)
-    @test !_sc_occ("_timestepper_krylov_dimension(state.parameters.timestepper)", composition_update)
+    # apply_composition_implicit_update! is now a thin shim over the shared
+    # _apply_scalar_implicit_update! (src/physics/scalar_field_solver_common.jl).
+    # The EAB2 boundary-spec wiring is guarded once in
+    # scalar_boundary_shared_static_checks.jl; here we pin the nil guard plus
+    # delegation with the composition-specific arguments.
+    @test _sc_occ("composition === nothing && return state", composition_update)
+    @test _sc_occ("_apply_scalar_implicit_update!(", composition_update)
+    @test _sc_occ(":composition", composition_update)
+    @test _sc_occ("state.parameters.Pm / state.parameters.Sc", composition_update)
+    @test _sc_occ("_composition_bc_code(state.parameters.composition_bcs)", composition_update)
+    @test _sc_occ("solver_solve_composition_implicit_step!", composition_update)
+    @test _sc_occ("state.timestep_caches.etd_composition", composition_update)
 
     integrate_erk2 = _composition_bc_static_function_body(
         erk2,
