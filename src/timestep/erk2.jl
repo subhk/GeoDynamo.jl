@@ -52,11 +52,7 @@
     function load_erk2_cache_bundle! end
 end
 
-include("erk2/common.jl")
-
-@inline compat_solver_erk2_cache(cache::ERK2StageCache{T}) where {T} = cache
-@inline compat_old_erk2_cache(cache::ERK2StageCache{T}) where {T} = cache
-
+include("erk2/common.jl")  # aliases first — other erk2/*.jl files depend on these consts
 
 """
     solver_enforce_erk2_bc!(result, bc_side, boundary_idx, l, nr; value_override=nothing)
@@ -331,21 +327,6 @@ Create a public outer-boundary insulating magnetic-poloidal descriptor.
 function GeoDynamo.create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
     solver_create_insulating_outer_bc(T, d1_row, r_inv)
 end
-
-
-"""
-    GeoDynamo.erk2_diagnostics_enabled()
-
-Return whether ERK2 residual diagnostics are currently enabled.
-"""
-GeoDynamo.erk2_diagnostics_enabled() = SOLVER_SHARED_ERK2_DIAGNOSTICS_ENABLED[]
-
-"""
-    GeoDynamo.erk2_diagnostics_interval()
-
-Return the configured ERK2 residual diagnostics interval.
-"""
-GeoDynamo.erk2_diagnostics_interval() = SOLVER_SHARED_ERK2_DIAGNOSTICS_INTERVAL[]
 
 """
     build_solver_erk2_scalar_bc(T, domain, boundary_condition)
@@ -924,15 +905,6 @@ function GeoDynamo.create_erk2_cache_magnetic_poloidal(
         tol
     )
 end
-
-
-"""
-    GeoDynamo.reset_phi2_monitor!()
-
-Clear accumulated phi2 conditioning diagnostics.
-"""
-GeoDynamo.reset_phi2_monitor!() = reset_solver_phi2_monitor!()
-
 
 """
     _get_or_build_erk2_cache(existing, label, diffusivity, T, config, domain, dt; ...)

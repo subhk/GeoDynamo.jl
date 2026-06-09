@@ -58,8 +58,12 @@ Blocks to move (in order):
 4. `compat_normalize_old_erk2_cache_entry` (orig 144)
 5. `set_erk2_diagnostics_interval!` (orig 435), `enable_erk2_diagnostics!` (orig 447), `disable_erk2_diagnostics!` (orig 460)
 6. `compute_phi1_function` (orig 1063), `compute_phi2_function` (orig 1072), `report_phi2_conditioning` (orig 1088)
+7. **Assignment-form one-liner methods (NOT `^function` blocks — easy to miss).** They belong to the compat/diagnostics/phi clusters that all live in common.jl, so move them here beside their cluster. Leaving them in `erk2.jl` would make Task 5 silently DROP them when the spine is finalized.
+   - `@inline compat_solver_erk2_cache(cache::ERK2StageCache{T}) where {T} = cache` (orig 133) and `@inline compat_old_erk2_cache(cache::ERK2StageCache{T}) where {T} = cache` (orig 134) — place with the compat cluster, right after the `GeoDynamo.ERK2Cache(args...)` one-liner.
+   - `GeoDynamo.erk2_diagnostics_enabled() = SOLVER_SHARED_ERK2_DIAGNOSTICS_ENABLED[]` (orig 471) and `GeoDynamo.erk2_diagnostics_interval() = SOLVER_SHARED_ERK2_DIAGNOSTICS_INTERVAL[]` (orig 478) — place with the diagnostics toggles.
+   - `GeoDynamo.reset_phi2_monitor!() = reset_solver_phi2_monitor!()` (orig 1081) — place with the phi functions.
 
-That is 9 `^function` blocks + the one-line ctor + 7 consts.
+That is 9 `^function` blocks + 6 assignment-form one-liners (the `ERK2Cache(args...)` ctor + the 5 above) + 7 consts. (The `@eval GeoDynamo begin … end` stub block at orig lines 16–53 does NOT move — it stays atop the `erk2.jl` spine before all includes; see Task 5.)
 
 - [ ] **Step 3: Reduce `erk2.jl` to a spine-with-remainder**
 
@@ -237,11 +241,23 @@ In `erk2.jl`, add after the `influence.jl` include line:
 ```julia
 include("erk2/integrate.jl")
 ```
-Delete the moved blocks. `erk2.jl` is now ONLY the five include lines (a header comment is fine).
+Delete the moved blocks.
 
-Replace the entire content of `src/timestep/erk2.jl` with exactly:
+**Do NOT blindly overwrite the whole file** — the `@eval GeoDynamo begin … end` stub block at the top of `erk2.jl` (orig lines 16–53) declares the public `GeoDynamo.*` function names that the part files extend; it MUST be preserved at the top of the spine, before any include. After all extractions, `erk2.jl` should consist of exactly: that `@eval` block, then the five include lines (plus the existing module preamble/comments above the `@eval` block, if any). Verify the only remaining top-level definitions are the `@eval` block and the includes:
+```bash
+grep -cE "^function " src/timestep/erk2.jl                          # expect: 0
+grep -nE "^(@inline |GeoDynamo\.[A-Za-z0-9_.!]*\(.*\) =|const )" src/timestep/erk2.jl   # expect: no output (all one-liners/consts moved to parts)
+grep -c "^@eval GeoDynamo begin" src/timestep/erk2.jl              # expect: 1 (the stub block is preserved)
+grep -cE "^include\(\"erk2/" src/timestep/erk2.jl                  # expect: 5
+```
+The resulting spine should look like:
 ```julia
 # ERK2 timestepper include spine. Implementation lives in erk2/*.jl.
+# <existing preamble comments, if any>
+@eval GeoDynamo begin
+    # ... existing stub declarations, unchanged ...
+end
+
 # common.jl MUST come first: it defines the const aliases the other files use.
 include("erk2/common.jl")
 include("erk2/boundary.jl")
@@ -285,10 +301,15 @@ grep -cE "^function " src/timestep/erk2.jl            # expect: 0
 cat src/timestep/erk2/*.jl | grep -cE "^function "    # expect: 80
 cat src/timestep/erk2/*.jl | grep -oE "^function [A-Za-z0-9_.!{}]+" | sort > /tmp/erk2_funcs_new.txt
 diff /tmp/erk2_funcs_orig.txt /tmp/erk2_funcs_new.txt && echo "FUNC_SET_IDENTICAL"
-# The non-^function one-liner ctor must have moved too:
-grep -rn "GeoDynamo.ERK2Cache(args...)" src/timestep/erk2/common.jl
+# The 6 non-^function assignment-form one-liners must ALL have moved into the parts
+# (they are NOT in the 80-count, so verify them explicitly — Task 1 moved them to common.jl):
+for sig in "GeoDynamo.ERK2Cache(args...) =" "compat_solver_erk2_cache(cache::ERK2StageCache" "compat_old_erk2_cache(cache::ERK2StageCache" "GeoDynamo.erk2_diagnostics_enabled() =" "GeoDynamo.erk2_diagnostics_interval() =" "GeoDynamo.reset_phi2_monitor!() ="; do
+  s=$(grep -rFl "$sig" src/timestep/erk2/ | wc -l | tr -d ' ')   # in a part file?
+  e=$(grep -rFl "$sig" src/timestep/erk2.jl | wc -l | tr -d ' ') # NOT in spine?
+  echo "[$sig] inParts=$s inSpine=$e"
+done
 ```
-Expected: spine has 0 functions, the parts have 80, `diff` prints nothing then `FUNC_SET_IDENTICAL`, and the one-line ctor is found in `common.jl`.
+Expected: spine has 0 functions, the parts have 80, `diff` prints nothing then `FUNC_SET_IDENTICAL`, and every one-liner shows `inParts=1 inSpine=0` (moved, not dropped, not duplicated).
 
 - [ ] **Step 2: Confirm the aliases are present exactly once across the parts**
 
