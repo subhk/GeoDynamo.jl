@@ -219,6 +219,7 @@ additional_tests = (
     "io_subsystem.jl",
     "spectral_energy_diagnostics.jl",
     "integration_simulation.jl",
+    "scalar_solver_consolidation.jl",
     # r×θ decomposition tests (Phase 2)
     "r_theta_grid.jl",
     "r_theta_transpose.jl",
