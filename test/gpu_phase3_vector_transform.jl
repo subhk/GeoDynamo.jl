@@ -49,16 +49,12 @@ import SHTnsKit
         end
         lfac = Float64[l*(l+1) for l in 0:cfg.lmax]
         rscale = [1.0/(0.5 + 0.1k) for k in 1:nr]
-        GeoDynamo.gpu_vector_spectral_to_physical!(vr, vθ, vφ, tor, pol, cfg, lfac, rscale)
-        @test size(vr.data) == (cfg.nlat, cfg.nlon, nr)
-        for k in 1:nr
-            S_k = complex.(pol.data_real[:,:,k], pol.data_imag[:,:,k])
-            T_k = complex.(tor.data_real[:,:,k], tor.data_imag[:,:,k])
-            rt, rp = SHTnsKit.synthesis_sphtor(cfg.sht_config, S_k, T_k; real_output = true)
-            @test vθ.data[:,:,k] == rt && vφ.data[:,:,k] == rp
-            vra = S_k .* reshape(lfac, :, 1) .* rscale[k]
-            @test vr.data[:,:,k] == SHTnsKit.synthesis(cfg.sht_config, vra; real_output = true)
-        end
+        # Stage-2 gate: GPU vector transforms are not yet ported to the
+        # solenoidal P convention and must refuse loudly rather than silently
+        # produce old-convention fields. The old-convention parity asserts that
+        # lived here return when the port lands (see the double-curl spec).
+        @test_throws ErrorException GeoDynamo.gpu_vector_spectral_to_physical!(
+            vr, vθ, vφ, tor, pol, cfg, lfac, rscale)
     end
 
     @testset "vector physical_to_spectral + roundtrip [LOCAL]" begin
@@ -72,17 +68,13 @@ import SHTnsKit
         for k in 1:nr
             pol.data_real[3,1,k] = Float64(k); tor.data_real[4,2,k] = 0.5; tor.data_imag[4,2,k] = -0.25
         end
-        pol0r = copy(pol.data_real); pol0i = copy(pol.data_imag)
-        tor0r = copy(tor.data_real); tor0i = copy(tor.data_imag)
         lfac = Float64[l*(l+1) for l in 0:cfg.lmax]; rscale = [1.0/(0.5+0.1k) for k in 1:nr]
-        GeoDynamo.gpu_vector_spectral_to_physical!(vr, vθ, vφ, tor, pol, cfg, lfac, rscale)
-        fill!(pol.data_real,0.0); fill!(pol.data_imag,0.0); fill!(tor.data_real,0.0); fill!(tor.data_imag,0.0)
-        GeoDynamo.gpu_vector_physical_to_spectral!(tor, pol, vθ, vφ, cfg)
-        # analysis_sphtor recovers (S=poloidal, T=toroidal) from (vθ,vφ); v_r not consumed.
-        @test isapprox(pol.data_real, pol0r; atol = 1e-10)
-        @test isapprox(pol.data_imag, pol0i; atol = 1e-10)
-        @test isapprox(tor.data_real, tor0r; atol = 1e-10)
-        @test isapprox(tor.data_imag, tor0i; atol = 1e-10)
+        # Stage-2 gate (see the synthesis testset above): both directions refuse
+        # until the GPU port adopts the solenoidal P convention.
+        @test_throws ErrorException GeoDynamo.gpu_vector_spectral_to_physical!(
+            vr, vθ, vφ, tor, pol, cfg, lfac, rscale)
+        @test_throws ErrorException GeoDynamo.gpu_vector_physical_to_spectral!(
+            tor, pol, vθ, vφ, cfg)
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-3 gate) [GPU-BOX]" begin
