@@ -373,12 +373,12 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
     plan   = get_disttranspose_plan(config)
 
     # Phase-3 DistTransposePlan path (shared with the solver's
-    # vector_spectral_to_physical!).  Tangential (v_θ,v_φ) via dist_synthesis_sphtor!
-    # with S=poloidal, T=toroidal; radial v_r via scalar dist_synthesis! of the
-    # poloidal coefficients scaled by the MIE factor l(l+1)/r_val² (NOT /r_val).
+    # vector_spectral_to_physical!), under the Stage-2 solenoidal convention:
+    # u_r = l(l+1)·P/r², tangential S = (1/r)·∂_r(r·P) — one convention for
+    # both the solver and MIE paths.
     vector_spectral_to_physical_disttranspose!(
         config, plan, tor_spec, pol_spec, vec_phys, domain,
-        (l, r_val) -> l * (l + 1) / (r_val * r_val))
+        _solenoidal_vr_factor)
     return vec_phys
 end
 

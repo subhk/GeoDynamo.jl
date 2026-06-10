@@ -824,18 +824,23 @@ Copy two physical arrays to two spatial arrays in one pass (Vt+Vp vector analysi
     return nothing
 end
 
+# Single solenoidal radial convention: u_r = l(l+1)·P/r², shared by the solver
+# and MIE paths since the Stage-2 unification (the solver previously used
+# l(l+1)/r and the MIE path l(l+1)/r² — two inconsistent conventions).
+_solenoidal_vr_factor(l, r_val) = l * (l + 1) / (r_val * r_val)
+
 function vector_spectral_to_physical!(
         toroidal::SpectralFieldType{T},
         poloidal::SpectralFieldType{T},
         vector_field::VectorFieldType{T};
-        domain::Union{RadialDomainType, Nothing} = nothing
+        domain::Union{RadialDomainType, Nothing} = nothing,
+        raw_spheroidal::Bool = false
 ) where {T}
     config = toroidal.config
     plan   = get_disttranspose_plan(config)
-    # SOLVER path v_r factor: l(l+1)/r_val (NOT /r_val²).
     vector_spectral_to_physical_disttranspose!(
         config, plan, toroidal, poloidal, vector_field, domain,
-        (l, r_val) -> l * (l + 1) / r_val)
+        _solenoidal_vr_factor; raw_spheroidal = raw_spheroidal)
     return vector_field
 end
 
@@ -865,12 +870,24 @@ function _fill_vr_alm!(Vap, Sp, m_local, r_range_ph, domain, lmax::Int, mmax::In
 end
 
 # Shared Phase-3 vector synthesis used by both the solver path (numerics.jl) and
-# the non-solver path (fields/transforms.jl).  `vr_factor(l, r_val)` supplies the
-# per-path radial scaling for the poloidal coefficients that drive v_r — the
-# solver path uses l(l+1)/r_val, the MIE path uses l(l+1)/r_val².
+# the non-solver path (fields/transforms.jl).
+#
+# Solenoidal convention (Stage 2): the stored poloidal potential P synthesizes
+#   u_r = l(l+1)·P/r²   (vr_factor = _solenoidal_vr_factor for both paths)
+#   tangential spheroidal scalar S = (∂_r P)/r
+# (derived from u = ∇×∇×(P·Y·r̂): B_θ = (P'/r)·∂θY; then
+#  ∇·u = λP'/r² − λ(P'/r)/r ≡ 0, divergence-free by construction).
+#
+# `raw_spheroidal = true` skips the derivative coupling and feeds the stored
+# coefficients to the sphtor synthesis verbatim (and zero-fills v_r unless a
+# domain is supplied). That is the tangential-basis synthesis primitive
+# (∇₁S + r̂×∇₁T) used for exact spectral angular differentiation by the
+# force-projection reference tests; it is NOT a velocity synthesis. The same
+# raw behavior applies when `domain === nothing` (no radii to differentiate).
 function vector_spectral_to_physical_disttranspose!(
         config, plan,
-        toroidal, poloidal, vector_field, domain, vr_factor)
+        toroidal, poloidal, vector_field, domain, vr_factor;
+        raw_spheroidal::Bool = false)
     lmax, mmax = config.lmax, config.mmax
 
     sc  = _vector_scratch(config, plan)
@@ -883,7 +900,7 @@ function vector_spectral_to_physical_disttranspose!(
     solve  = sc.solve
 
     # 1. spec storage → Slm / Tlm via the m-axis bridge + r_comm l-transpose.
-    #    S = poloidal, T = toroidal (preserve the existing convention).
+    #    Slm holds the stored POLOIDAL potential P at this point.
     spec_storage_to_solve!(config, solve, parent(poloidal.data_real),
                            parent(poloidal.data_imag), plan)
     from_spec_solve!(config, Slm, solve, plan)
@@ -891,12 +908,28 @@ function vector_spectral_to_physical_disttranspose!(
                            parent(toroidal.data_imag), plan)
     from_spec_solve!(config, Tlm, solve, plan)
 
-    # 2. Distributed sphtor synthesis: (Slm, Tlm) → (Vt, Vp), batched over nr_local.
+    solenoidal = !raw_spheroidal && domain !== nothing
+    r_range_ph = PencilArrays.range_local(vector_field.θ_component.pencil)[3]
+
+    if solenoidal
+        length(r_range_ph) == domain.N || error(
+            "solenoidal vector synthesis requires the radial axis fully local " *
+            "(got $(length(r_range_ph)) of $(domain.N) levels); " *
+            "r-distributed support is a Stage-2 follow-up")
+        # 2a. v_r coefficients from the ORIGINAL P (before Slm is mutated to S).
+        _fill_vr_alm!(parent(Vr_alm), parent(Slm), plan.m_local, r_range_ph,
+            domain, lmax, mmax, vr_factor)
+        # 2b. In-place spheroidal coupling: Slm ← S = (∂_r P)/r.
+        _spheroidal_from_poloidal!(parent(Slm), plan.m_local, r_range_ph,
+            domain, lmax, mmax, create_derivative_matrix(Float64, 1, domain))
+    end
+
+    # 3. Distributed sphtor synthesis: (Slm, Tlm) → (Vt, Vp), batched over nr_local.
     SHTnsKit.dist_synthesis_sphtor!(plan, Vt, Vp, Slm, Tlm)
 
     _VECTOR_DISTTRANSPOSE_COUNT[] += 1
 
-    # 3. Copy Vt/Vp (nlon, nlat_local, lev) → v_θ/v_φ (nlat_local, nlon, nr_local)
+    # 4. Copy Vt/Vp (nlon, nlat_local, lev) → v_θ/v_φ (nlat_local, nlon, nr_local)
     #    with the first-two-axis transpose; lev ↔ r_local align per rank.
     #    Function barrier: sc is ::Any from IdDict cache; parent(Vt/Vp) would be
     #    ::Any and box every element.  Use the concrete-typed helper.
@@ -905,22 +938,55 @@ function vector_spectral_to_physical_disttranspose!(
     v_r     = parent(vector_field.r_component.data)
     _copy_spatial2_to_physical2!(v_theta, v_phi, parent(Vt), parent(Vp))
 
-    # 4. Radial component v_r = (l(l+1)/r-factor)·P via scalar dist_synthesis!.
-    r_range_ph = PencilArrays.range_local(vector_field.θ_component.pencil)[3]
-
-    if domain !== nothing
-        # Concrete-typed function barrier (see _fill_vr_alm!): keeps the v_r
-        # coefficient loop from boxing on the ::Any scratch arrays.
+    # 5. Radial component v_r = l(l+1)·P/r² via scalar dist_synthesis! (filled
+    #    in 2a from the original P). In raw mode with a domain, fill from the
+    #    raw coefficients (legacy behavior); without a domain, zero-fill.
+    if solenoidal
+        SHTnsKit.dist_synthesis!(plan, Vr, Vr_alm)
+        # Function barrier: Vr is ::Any from sc (IdDict); parent(Vr) would be ::Any.
+        _copy_spatial_to_physical!(v_r, parent(Vr))
+    elseif domain !== nothing
         _fill_vr_alm!(parent(Vr_alm), parent(Slm), plan.m_local, r_range_ph,
             domain, lmax, mmax, vr_factor)
         SHTnsKit.dist_synthesis!(plan, Vr, Vr_alm)
-        # Function barrier: Vr is ::Any from sc (IdDict); parent(Vr) would be ::Any.
         _copy_spatial_to_physical!(v_r, parent(Vr))
     else
         fill!(v_r, zero(eltype(v_r)))
     end
 
     return vector_field
+end
+
+# In-place spheroidal coupling for the solenoidal synthesis: per (l,m) mode,
+# S = (∂_r P)/r over the (fully local) radial lev-axis of the Alm-layout
+# array `Sp` (l_index, m_local, lev). Complex profiles are differentiated as
+# separate real/imaginary passes through the banded D1. Concrete-typed function
+# barrier — `Sp` comes from the ::Any scratch (see _fill_vr_alm!).
+function _spheroidal_from_poloidal!(Sp, m_local, r_range_ph, domain,
+        lmax::Int, mmax::Int, D1)
+    nrl = length(r_range_ph)
+    P_re = Vector{Float64}(undef, nrl)
+    P_im = Vector{Float64}(undef, nrl)
+    d_re = Vector{Float64}(undef, nrl)
+    d_im = Vector{Float64}(undef, nrl)
+    @inbounds for (mi, m) in enumerate(m_local)
+        (0 <= m <= mmax) || continue
+        for l in max(m, 0):lmax
+            l + 1 <= size(Sp, 1) || continue
+            for lev in 1:nrl
+                c = Sp[l + 1, mi, lev]
+                P_re[lev] = real(c)
+                P_im[lev] = imag(c)
+            end
+            mul!(d_re, D1, P_re)
+            mul!(d_im, D1, P_im)
+            for (lev, r_glob) in enumerate(r_range_ph)
+                r = domain.r[r_glob, 4]
+                Sp[l + 1, mi, lev] = complex(d_re[lev] / r, d_im[lev] / r)
+            end
+        end
+    end
+    return nothing
 end
 
 function vector_physical_to_spectral!(
