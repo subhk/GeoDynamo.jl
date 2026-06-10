@@ -13,6 +13,9 @@
 # - `integrate_solver_erk2_step!` orchestrates the full solver step across all
 #   active fields.
 #
+# Forward-declare the public ERK2 API names so the `GeoDynamo.<name>` methods
+# defined across the erk2/*.jl files below attach to bindings that already exist
+# in the module (and the public names resolve regardless of which methods load).
 @eval GeoDynamo begin
     function enforce_erk2_bc! end
     function create_dirichlet_bc end
