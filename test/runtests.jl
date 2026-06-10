@@ -201,6 +201,7 @@ additional_tests = (
     "cnab2_rhs_distributed_equivalence.jl",
     "force_projection_reference.jl",
     "solenoidal_transform_pair.jl",
+    "poloidal_momentum_split.jl",
     "shell_boundaries.jl",
     "shtnskit_roundtrip.jl",
     "theta_dist_adapter.jl",

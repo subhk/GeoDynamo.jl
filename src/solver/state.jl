@@ -255,6 +255,30 @@ function SolverERK2BoundarySpec{T}(
     return SolverERK2BoundarySpec{T}(inner, outer, nothing, nothing, nothing, nothing)
 end
 
+# Stage-4B poloidal momentum W-split operators (CNAB2 path). Per spherical-
+# harmonic degree l: D_pol = ∂_rr − l(l+1)/r² applies (w_op), the W-advance
+# system (Ek/dt)I − θ·Ek·D_pol with PDE rows at the endpoints (the endpoint
+# freedom belongs to the influence corrections), the Dirichlet P-recovery
+# D_pol·P = W with P=0 rows, and the cached no-slip influence responses:
+# g_i = A_W⁻¹e_i, h_i = A_P⁻¹R(g_i), M = endpoint-P′ of the h's.
+struct PoloidalSplitMatrices{T}
+    dpol_op::Vector{BandedMatrix{T}}
+    w_factor::Vector{BandedLU{T}}
+    w_linear::Vector{BandedMatrix{T}}          # Ek·D_pol (explicit CN term)
+    p_factor::Vector{BandedLU{T}}
+    g1::Vector{Vector{T}}
+    g2::Vector{Vector{T}}
+    h1::Vector{Vector{T}}
+    h2::Vector{Vector{T}}
+    influence::Vector{Matrix{T}}               # 2×2 per l, factor-free (solved via \\)
+    d1_row_inner::Vector{T}                    # first-derivative endpoint rows
+    d1_row_outer::Vector{T}
+    l_values::Vector{Int}
+    lookup::Dict{Int, Int}
+    theta::Float64
+    mass_coeff::Float64
+end
+
 mutable struct TimestepCaches{T}
     # EAB2 exponential integrator caches.
     etd_velocity_toroidal::Union{EAB2CacheEntry{T}, Nothing}
@@ -283,6 +307,8 @@ mutable struct TimestepCaches{T}
     # built once instead of every timestep; per-step endpoint values are still
     # attached separately via `with_boundary_mode_values`.
     erk2_boundary_specs::Dict{Tuple{Symbol, Int}, SolverERK2BoundarySpec{T}}
+    # Stage-4B: lazily built poloidal W-split operators (CNAB2 velocity path).
+    poloidal_split::Union{PoloidalSplitMatrices{T}, Nothing}
 end
 
 function TimestepCaches{T}() where {T}
@@ -292,7 +318,8 @@ function TimestepCaches{T}() where {T}
         nothing,
         Dict{Symbol, SolverRadialWork{T}}(),
         Dict{Symbol, SolverERK2FieldBuffers{T}}(),
-        Dict{Tuple{Symbol, Int}, SolverERK2BoundarySpec{T}}()
+        Dict{Tuple{Symbol, Int}, SolverERK2BoundarySpec{T}}(),
+        nothing
     )
 end
 
