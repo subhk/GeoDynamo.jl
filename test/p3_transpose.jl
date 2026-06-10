@@ -196,7 +196,9 @@ function _p3_run_vector_roundtrip(cfg, dom, nr, comm; solver_path::Bool)
         GeoDynamo.vector_physical_to_spectral!(vec, tor_out, pol_out; domain = dom)
     else
         GeoDynamo.shtnskit_vector_synthesis!(tor_in, pol_in, vec; domain = dom)
-        GeoDynamo.shtnskit_vector_analysis!(vec, tor_out, pol_out)
+        # domain required: P is recovered from the radial component under the
+        # Stage-2 solenoidal convention (P = r²·Q/λ).
+        GeoDynamo.shtnskit_vector_analysis!(vec, tor_out, pol_out; domain = dom)
     end
     # The Phase-3 dist_*_sphtor! path must have been used (synthesis + analysis).
     used_p3 = GeoDynamo._VECTOR_DISTTRANSPOSE_COUNT[] == c0 + 2

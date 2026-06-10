@@ -3,32 +3,21 @@ using MPI
 using GeoDynamo
 const G = GeoDynamo
 
-# Solenoidality of synthesized poloidal fields.
+# Solenoidality of synthesized poloidal fields — HARD GATE since Stage 2.
 #
-# The vector synthesis reconstructs a poloidal field's radial component as
-#   v_r = l(l+1)/r · pol        (src/fields/transforms.jl ~L590)
-# while the tangential field is synthesized from `pol` passed directly to
-# `synthesis_sphtor` as the spheroidal coefficient (no radial-derivative term),
-# and the analysis recovers `pol` purely from the tangential field. For a true
-# (Mie) poloidal field B = ∇×∇×(P r̂) the spheroidal coefficient is the radial
-# derivative S = (1/r) d(rP)/dr and the radial component is v_r = l(l+1)/r² · P.
-# The code's choices satisfy ∇·B = 0 only when the radial profile is constant;
-# in general the synthesized poloidal field is NOT divergence-free:
-#   ∇·V|_lm = (1/r²) d(r² Q)/dr − l(l+1)/r · S ,  Q = l(l+1)/r·pol , S = pol
-#           = l(l+1)[ pol/r² + pol'/r − pol/r ]  ≠ 0 .
+# Historical note: until the Stage-2 solenoidal-transform work
+# (docs/superpowers/specs/2026-06-10-poloidal-momentum-double-curl-design.md)
+# the synthesis fed the stored poloidal potential directly to the spheroidal
+# slot (no radial-derivative coupling) and used two different u_r conventions,
+# so the synthesized field was NOT divergence-free and this test was
+# @test_broken. The synthesis now implements
+#   u_r = l(l+1)·P/r² ,  tangential spheroidal S = (∂_r P)/r
+# which is divergence-free by construction:
+#   ∇·V|_lm = (1/r²)·d(r²Q)/dr − l(l+1)·S/r ≡ 0  with  Q = l(l+1)P/r².
 #
-# This test synthesizes a single poloidal mode and measures ∇·B from the actual
-# physical field (B_r analyzed back to spectral, plus the radial-derivative of
-# r²B_r), so it is the exact oracle a reconstruction fix must satisfy. It is
-# marked @test_broken because the current reconstruction fails it by design.
-#
-# SCOPED FIX (Mie-consistent; aligns synthesis with the already-Mie diffusion
-# operator, src/bcs/scalar_bc.jl:104 uses −l(l+1)/r²):
-#   synthesis:  v_r = l(l+1)/r² · P ;  tangential spheroidal = (1/r) d(rP)/dr
-#   analysis :  recover P from v_r  (P = v_r · r²/l(l+1)), toroidal from tangential
-# This changes how nonlinear terms project onto poloidal/toroidal, so it MUST be
-# validated at the evolution level (Christensen Case 0) before merging — not at
-# the transform level alone. See memory proj_geodynamo_poloidal_synthesis_nonsolenoidal.
+# The test synthesizes a single poloidal mode with a non-constant radial
+# profile, re-analyzes the ACTUAL physical field (Q from B_r, S from the raw
+# tangential sphtor analysis), and requires the measured divergence to vanish.
 
 function _setmode!(spec, l, m, domain, fn)
     rd = parent(spec.data_real)
@@ -71,15 +60,18 @@ end
         cfg.pencils.phi, cfg.pencils.phi, cfg.pencils.phi))
     G.shtnskit_vector_synthesis!(vel.toroidal, vel.poloidal, vec; domain = dom)
 
-    # Analyze B_r (a physical scalar) back to spectral to get Q_lm(r).
+    # Re-analyze the ACTUAL physical field: Q from B_r (scalar analysis), S from
+    # the raw tangential sphtor analysis (NOT the stored potential — under the
+    # solenoidal convention the synthesized spheroidal scalar is (∂_r P)/r).
     qspec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-    G.shtnskit_physical_to_spectral!(vec.r_component, qspec)
+    sspec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    tspec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    G.force_physical_to_qst!(vec, qspec, sspec, tspec)
 
     m10 = G.get_mode_index(cfg, 1, 0)
     qslot = G.local_spectral_storage_slot(cfg, m10)
-    pslot = G.local_spectral_storage_slot(vel.poloidal.config, m10)
-    Q = [G.local_spectral_value(parent(qspec.data_real), qslot, r) for r in 1:nr]   # B_r coeff
-    S = [G.local_spectral_value(parent(vel.poloidal.data_real), pslot, r) for r in 1:nr]   # spheroidal (pol)
+    Q = [G.local_spectral_value(parent(qspec.data_real), qslot, r) for r in 1:nr]
+    S = [G.local_spectral_value(parent(sspec.data_real), qslot, r) for r in 1:nr]
 
     d1 = G.create_derivative_matrix(Float64, 1, dom)
     dr_r2Q = d1 * (rvals .^ 2 .* Q)                       # d(r²Q)/dr
@@ -88,10 +80,8 @@ end
     interior = 3:(nr - 2)   # avoid one-sided endpoint stencils
     maxdiv = maximum(abs, divB[interior])
     relscale = maximum(abs, S[interior]) / minimum(rvals[interior])
-    @info "poloidal ∇·B" maxdiv relscale ratio=maxdiv/relscale
+    @info "poloidal ∇·B" maxdiv relscale ratio = maxdiv / relscale
 
-    # The synthesized poloidal field SHOULD be divergence-free. It is not, under
-    # the current 2-component reconstruction — documented as broken until the
-    # Mie-consistent fix (see header) lands and is validated against Case 0.
-    @test_broken maxdiv / relscale < 1e-6
+    # HARD GATE since the Stage-2 solenoidal synthesis.
+    @test maxdiv / relscale < 1e-6
 end

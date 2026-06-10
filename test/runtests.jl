@@ -200,6 +200,7 @@ additional_tests = (
     "erk2_integration_step.jl",
     "cnab2_rhs_distributed_equivalence.jl",
     "force_projection_reference.jl",
+    "solenoidal_transform_pair.jl",
     "shell_boundaries.jl",
     "shtnskit_roundtrip.jl",
     "theta_dist_adapter.jl",

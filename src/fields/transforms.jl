@@ -423,16 +423,13 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
         tor_spec::SHTnsSpecField{T},
         pol_spec::SHTnsSpecField{T};
         domain::Union{RadialDomain, Nothing} = nothing,
-        verify_solenoidal::Bool = false) where {T}
-    config = tor_spec.config
-    plan   = get_disttranspose_plan(config)
-
-    # Phase-3 DistTransposePlan path (shared with the solver's
-    # vector_physical_to_spectral!).  (v_θ,v_φ) → (poloidal, toroidal) via
-    # dist_analysis_sphtor! (S=poloidal, T=toroidal).  2-component analysis: v_r is
-    # redundant for a solenoidal field and is not consumed.
-    vector_physical_to_spectral_disttranspose!(
-        config, plan, vec_phys, tor_spec, pol_spec)
+        verify_solenoidal::Bool = false,
+        raw_spheroidal::Bool = false) where {T}
+    # Delegates to the solver analysis: T from the toroidal sphtor scalar; P
+    # recovered from the radial component (P = r²·Q/(l(l+1)), Stage-2 solenoidal
+    # convention) when a domain is supplied, raw tangential (S,T) otherwise.
+    vector_physical_to_spectral!(vec_phys, tor_spec, pol_spec;
+        domain = domain, raw_spheroidal = raw_spheroidal)
     return tor_spec, pol_spec
 end
 

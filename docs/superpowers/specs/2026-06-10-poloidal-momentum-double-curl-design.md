@@ -117,6 +117,25 @@ shift; characterization baselines must be regenerated; expect many test
 updates. GPU vector-transform ports follow in a later phase (flagged, not
 silently divergent).
 
+**Stage-3 finding (2026-06-10, derived during triage of the
+`magnetic_conducting_inner_core` NaN):** under the now-consistent transform
+pair, the DIFFUSION operators split by potential type. Using ΔB = −∇×∇×B for
+solenoidal B and the Stage-1-verified curl-curl identity with Q = λP/r²,
+S = P′/r:
+
+    (ΔB)_r = (λ/r²)·(P″ − λP/r²)   ⇒  poloidal potentials diffuse with
+                                        D_pol = ∂_rr − λ/r²   (NO 2/r term)
+    Δ𝒯(T) = 𝒯(Δ_l T)               ⇒  toroidal potentials keep the full
+                                        scalar Laplacian Δ_l = ∂_rr + (2/r)∂_r − λ/r²
+
+The code currently builds ALL implicit/linear/exponential operators from the
+full scalar Laplacian — correct for scalars and toroidal potentials, WRONG
+(spurious (2/r)∂_r) for velocity-P and magnetic-P under the new convention.
+This is the proximate cause candidate for the magnetic inner-core NaN and is
+the entry point of Stage 4: the poloidal operator change must land together
+with the 4th-order/split poloidal solve (matrix builders in bcs/*.jl,
+CNAB2 explicit-L, EAB2 solver_build_banded_A, ERK2 caches).
+
 **Stage 3 — toroidal equation factor audit (small).**
 With Stage 2's conventions fixed, verify the toroidal RHS factor: the operator
 evolves T_lm directly, so RHS must be T_lm(F) exactly (no stray l(l+1)/r²).

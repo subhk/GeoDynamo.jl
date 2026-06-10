@@ -60,7 +60,10 @@ end
     tr .= 0; ti .= 0; pr .= 0; pi_ .= 0
     for k in 1:size(tr,3)
         tr[min(2,size(tr,1)),1,k] = 0.5
-        if size(tr,2) >= 2; pr[min(3,size(pr,1)),2,k] = 0.3; pi_[min(3,size(pr,1)),2,k] = -0.1; end
+        # r-DEPENDENT poloidal profile: under the Stage-2 solenoidal convention
+        # the tangential spheroidal scalar is (∂_r P)/r, so a constant P gives a
+        # legitimately zero v_θ and the nonzero-check below would be vacuous.
+        if size(tr,2) >= 2; pr[min(3,size(pr,1)),2,k] = 0.3*(1+0.2k); pi_[min(3,size(pr,1)),2,k] = -0.1*(1+0.2k); end
     end
     tr0=copy(tr); ti0=copy(ti); pr0=copy(pr); pi0=copy(pi_)
     GeoDynamo.shtnskit_vector_synthesis!(vf.toroidal, vf.poloidal, vf.velocity; domain=dom)
@@ -91,9 +94,11 @@ end
     tr .= 0; ti .= 0; pr .= 0; pii .= 0
     for k in 1:size(tr, 3)
         tr[min(2, size(tr, 1)), 1, k] = 0.5
+        # r-dependent P: constant P gives zero v_θ under the solenoidal
+        # convention (S = (∂_r P)/r) — see the testset above.
         if size(tr, 2) >= 2
-            pr[min(3, size(pr, 1)), 2, k]  =  0.3
-            pii[min(3, size(pii, 1)), 2, k] = -0.1
+            pr[min(3, size(pr, 1)), 2, k]  =  0.3 * (1 + 0.2k)
+            pii[min(3, size(pii, 1)), 2, k] = -0.1 * (1 + 0.2k)
         end
     end
     tr0 = copy(tr); ti0 = copy(ti); pr0 = copy(pr); pi0 = copy(pii)

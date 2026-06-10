@@ -33,6 +33,12 @@ function gpu_vr_scale!(vr_alm_r, vr_alm_i, pol_r, pol_i, lfac, rscale)
     return nothing
 end
 
+const _GPU_VECTOR_STAGE2_MSG =
+    "GPU vector transforms have not been ported to the Stage-2 solenoidal P " *
+    "convention (S = (dP/dr)/r tangential coupling, Q-based analysis); the CPU " *
+    "path is the reference. See " *
+    "docs/superpowers/specs/2026-06-10-poloidal-momentum-double-curl-design.md"
+
 """
     gpu_vector_spectral_to_physical!(vr, vθ, vφ, tor, pol, config, lfac, rscale) -> nothing
 
@@ -43,6 +49,7 @@ level via scalar synthesis of `poloidal · lfac[l] · rscale[r]` (see `gpu_vr_sc
 """
 function gpu_vector_spectral_to_physical!(vr::GPUPhysicalField, vθ::GPUPhysicalField,
         vφ::GPUPhysicalField, tor::GPUSpectralField, pol::GPUSpectralField, config, lfac, rscale)
+    error(_GPU_VECTOR_STAGE2_MSG)
     sht = config.sht_config
     nr = pol.nr
     # v_r source coefficients (whole field), then per-level scalar synthesis.
@@ -72,6 +79,7 @@ poloidal `pol` spectral fields, per level, via `analysis_sphtor` (`S→pol`, `T�
 """
 function gpu_vector_physical_to_spectral!(tor::GPUSpectralField, pol::GPUSpectralField,
         vθ::GPUPhysicalField, vφ::GPUPhysicalField, config)
+    error(_GPU_VECTOR_STAGE2_MSG)
     sht = config.sht_config
     nr = pol.nr
     for k in 1:nr

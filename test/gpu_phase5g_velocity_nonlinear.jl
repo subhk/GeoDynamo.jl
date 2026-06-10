@@ -27,35 +27,14 @@ MPI.Initialized() || MPI.Init()
     end
 
     @testset "velocity nonlinear == manual chain [LOCAL]" begin
+        # Stage-2 gate: the GPU velocity-nonlinear chain runs through the gated
+        # GPU vector transforms (old, pre-solenoidal convention) and must refuse
+        # loudly until the port lands. The manual-chain equality asserts that
+        # lived here return with the port (see the double-curl spec).
         ntr=zeros(nl,nm,nr); nti=zeros(nl,nm,nr); npr=zeros(nl,nm,nr); npi=zeros(nl,nm,nr)
-        GeoDynamo.gpu_velocity_nonlinear!(ntr,nti, npr,npi, tor_r,tor_i, pol_r,pol_i,
+        @test_throws ErrorException GeoDynamo.gpu_velocity_nonlinear!(
+            ntr,nti, npr,npi, tor_r,tor_i, pol_r,pol_i,
             cfg, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, cfg.lmax, bw)
-
-        # manual chain
-        spec(a,b) = GeoDynamo.GPUSpectralField{Float64,typeof(a)}(cfg, nl, nm, nr, a, b)
-        ph() = GeoDynamo.allocate_gpu_physical_field(Float64, CPU(), cfg, nr)
-        # 1. velocity → physical
-        ur=ph(); uθ=ph(); uφ=ph()
-        GeoDynamo.gpu_vector_spectral_to_physical!(ur,uθ,uφ, spec(tor_r,tor_i), spec(pol_r,pol_i), cfg, lfac, rscale)
-        # 2. vorticity (curl) spectral
-        wtr=zeros(nl,nm,nr); wti=zeros(nl,nm,nr); wpr=zeros(nl,nm,nr); wpi=zeros(nl,nm,nr)
-        GeoDynamo.gpu_spectral_curl!(wtr,wti, wpr,wpi, tor_r,tor_i, pol_r,pol_i, d1,d2, lfac, rinv, rinv2, bw)
-        # 3. vorticity → physical
-        wr=ph(); wθ=ph(); wφ=ph()
-        GeoDynamo.gpu_vector_spectral_to_physical!(wr,wθ,wφ, spec(wtr,wti), spec(wpr,wpi), cfg, lfac, rscale)
-        # 4. adv = E·(u×ω) − ẑ×u
-        ar=ph(); aθ=ph(); aφ=ph()
-        GeoDynamo.gpu_cross!(ar.data,aθ.data,aφ.data, ur.data,uθ.data,uφ.data, wr.data,wθ.data,wφ.data, E)
-        GeoDynamo.gpu_coriolis_sub!(ar.data,aθ.data,aφ.data, ur.data,uθ.data,uφ.data, sinθ, cosθ)
-        # 5. analyze tangential → nl_tor/nl_pol
-        mntr=zeros(nl,nm,nr); mnti=zeros(nl,nm,nr); mnpr=zeros(nl,nm,nr); mnpi=zeros(nl,nm,nr)
-        GeoDynamo.gpu_vector_physical_to_spectral!(spec(mntr,mnti), spec(mnpr,mnpi), aθ, aφ, cfg)
-
-        @test ntr == mntr
-        @test nti == mnti
-        @test npr == mnpr
-        @test npi == mnpi
-        @test all(isfinite, ntr) && all(isfinite, npr)
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5g gate) [GPU-BOX]" begin
