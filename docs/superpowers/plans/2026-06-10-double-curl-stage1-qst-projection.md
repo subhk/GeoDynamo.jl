@@ -379,6 +379,25 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 ---
 
+> **⚠️ TASK-3 REFERENCE STRATEGY REVISED (post-Task-1 finding):** the harness's
+> angular derivatives are exact for a SINGLE curl of band-limited fields
+> (verified to 6.6e-15), but DOUBLE application (curl of curl) truncates —
+> intermediate curl components are not scalar-band-limited. Therefore R_pol is
+> verified against CLOSED-FORM analytic references built from directly-evaluated
+> grid fields (no numerical double curl), and R_tor against the single-pass
+> numerical reference. The closed forms were derived independently by direct
+> coordinate computation (l=1 worked example) — NOT from the candidate
+> formulas:
+>   pure radial  F = q(r)·Y·r̂            : R_tor = 0,            R_pol = l(l+1)·q·Y/r²
+>   spheroidal   F = ∇₁(s(r)·Y) tangential: R_tor = 0,            R_pol = −(l(l+1)/r²)·∂_r(r·s)·Y
+>   toroidal     F = r̂×∇₁(t(r)·Y)         : R_tor = −(l(l+1)/r)·t·Y, R_pol = 0
+> Construct each family by evaluating the analytic COMPONENTS pointwise on the
+> grid for a handful of low-degree (l,m) (l ≤ 3) and smooth radial profiles;
+> tangential basis values (∂θY, (1/sinθ)∂φY) come from the sphtor synthesis of
+> a unit coefficient (exact). The generic mixed-field test compares R_tor
+> against the numerical single-curl reference; the numerical double-curl is
+> demoted to a LOOSE consistency check (rtol 1e-2) or dropped.
+
 ### Task 3: Curl projections + reference verification (RED → GREEN)
 
 **Files:**

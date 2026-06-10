@@ -164,11 +164,12 @@ const FINALIZE_MPI_DIAGNOSTICS = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true")
             tracker.enable_tracking = true
         end
 
-        @testset "compute_divergence_spectral is a zero-returning stub" begin
-            # NOTE: the current implementation hardcodes (0.0, 0.0) regardless of
-            # the field, so the solenoidal monitor always records zero divergence.
-            # This test characterizes that existing behavior; if a real divergence
-            # is implemented it should be updated (see src/diagnostics/solver.jl).
+        @testset "compute_divergence_spectral returns (0.0, 0.0) for zero-initialized fields" begin
+            # The velocity field is initialized to zero by initialize_fields!, so the
+            # real divergence is exactly zero.  This exercises the live code path
+            # (synthesize V, apply banded D1 + sphtor angular derivatives) rather than
+            # characterizing a stub.  See test/solenoidal_transform_pair.jl for the
+            # gate test that validates the non-zero case.
             div = GeoDynamo.compute_divergence_spectral(
                 state.fields.velocity.toroidal,
                 state.fields.velocity.poloidal,
@@ -181,8 +182,12 @@ const FINALIZE_MPI_DIAGNOSTICS = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true")
             m0 = length(monitor.velocity_div_l2)
             GeoDynamo.check_solenoidal_constraint!(state)
             @test length(monitor.velocity_div_l2) == m0 + 1
+            # velocity is zero after initialize_fields! → divergence is exactly 0.0
             @test monitor.velocity_div_l2[end] == 0.0
-            @test monitor.magnetic_div_l2[end] == 0.0
+            # magnetic IC has a non-zero r^2(1-r) profile → the real diagnostic now
+            # returns a non-negative finite norm (was 0.0 only with the old stub).
+            @test isfinite(monitor.magnetic_div_l2[end])
+            @test monitor.magnetic_div_l2[end] >= 0.0
 
             monitor.enable_monitoring = false
             m1 = length(monitor.velocity_div_l2)

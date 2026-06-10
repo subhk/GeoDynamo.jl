@@ -54,7 +54,7 @@ Adopt the standard toroidal–poloidal representation (Glatzmaier / Christensen
 
     u = ∇×∇×(P r̂) + ∇×(T r̂)                                   (solenoidal by construction)
     u_r      = l(l+1)·P_lm/r²
-    S_lm(u)  = (1/r)·∂_r(r·P_lm)        (tangential spheroidal scalar)
+    S_lm(u)  = (∂_r P_lm)/r        (tangential spheroidal scalar)
     T_lm(u)  = T_lm                      (tangential toroidal scalar)
 
 Momentum (this code's scaling, mass coefficient Ek):

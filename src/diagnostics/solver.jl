@@ -160,12 +160,77 @@ function report_energy_conservation(
 
     return nothing
 end
+"""
+    compute_divergence_spectral(tor_spec, pol_spec, domain) -> (l2, linf)
 
+Real divergence diagnostic: synthesizes the vector field from its (T, P)
+potentials, re-analyzes it into QST scalars (Q from the radial component,
+S/T from the tangential sphtor analysis), and evaluates the per-mode spectral
+divergence
+
+    div_lm(r) = (1/r²)·∂_r(r²·Q_lm) − l(l+1)·S_lm/r
+
+returning RMS (L2) and L∞ norms over modes and interior radial nodes. Going
+through physical space and back makes this a genuine check of the transform
+chain (a (T,P) pair synthesizes solenoidally by construction under the
+Stage-2 convention, so any nonzero divergence here is a chain defect). The
+spectral formula avoids the grid-space aliasing that scalar analysis of
+tangential components (1/sinθ structure) suffers beyond lmax for m>0 modes.
+
+Replaces a stub that hardcoded (0.0, 0.0).
+Allocation-heavy (builds scratch fields per call) — diagnostic path only.
+
+# TODO(stage2): MPI.Allreduce the norms for multi-rank.
+"""
 function compute_divergence_spectral(
         tor_spec::SpectralFieldType{T},
         pol_spec::SpectralFieldType{T},
         domain::RadialDomainType) where {T}
-    (0.0, 0.0)
+    cfg = tor_spec.config
+
+    # 1. Synthesize the vector field from its potentials.
+    V = create_shtns_vector_field(
+        T, cfg, domain, (cfg.pencils.θ, cfg.pencils.φ, cfg.pencils.r))
+    vector_spectral_to_physical!(tor_spec, pol_spec, V; domain = domain)
+
+    # 2. Re-analyze into QST scalars (Stage-1 machinery).
+    Q = create_shtns_spectral_field(T, cfg, domain, cfg.pencils.spec)
+    S = create_shtns_spectral_field(T, cfg, domain, cfg.pencils.spec)
+    T_ = create_shtns_spectral_field(T, cfg, domain, cfg.pencils.spec)
+    force_physical_to_qst!(V, Q, S, T_)
+
+    # 3. Per-mode spectral divergence over interior radial nodes.
+    D1 = create_derivative_matrix(Float64, 1, domain)
+    nr = domain.N
+    r2q = Vector{Float64}(undef, nr)
+    d = Vector{Float64}(undef, nr)
+    sumsq = 0.0
+    linf = 0.0
+    count = 0
+    for lm in 1:cfg.nlm
+        slot = local_spectral_storage_slot(cfg, lm)
+        slot === nothing && continue
+        l = cfg.l_values[lm]
+        λ = l * (l + 1)
+        for (qsrc, ssrc) in ((parent(Q.data_real), parent(S.data_real)),
+            (parent(Q.data_imag), parent(S.data_imag)))
+            for r_idx in 1:nr
+                r = domain.r[r_idx, 4]
+                r2q[r_idx] = r^2 * local_spectral_value(qsrc, slot, r_idx)
+            end
+            mul!(d, D1, r2q)
+            for r_idx in 2:(nr - 1)
+                r = domain.r[r_idx, 4]
+                dv = d[r_idx] / r^2 -
+                     λ * local_spectral_value(ssrc, slot, r_idx) / r
+                sumsq += dv^2
+                linf = max(linf, abs(dv))
+                count += 1
+            end
+        end
+    end
+    l2 = count > 0 ? sqrt(sumsq / count) : 0.0
+    return (l2, linf)
 end
 
 function trim_solenoidal_monitor!(monitor::SolverSolenoidalMonitor)
