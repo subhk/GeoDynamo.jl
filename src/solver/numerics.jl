@@ -1609,19 +1609,82 @@ function apply_induction_nonlinear!(
 )
     solver_compute_velocity_cross_magnetic!(magnetic_fields, velocity_fields)
     if geometry === :ball
+        # Ball geometry: still on the legacy potential-style curl (deferred per
+        # the double-curl spec; regularity conditions differ at r→0).
         solver_ball_vector_analysis!(
             magnetic_fields.induction_physical,
             magnetic_fields.work_tor,
             magnetic_fields.work_pol
         )
+        solver_compute_curl_of_induction!(magnetic_fields)
     else
+        # Stage-4 solenoidal convention. E = u×B is NOT solenoidal; the curl's
+        # stored potentials follow from the verified projection identities:
+        #   P_{∇×E} = −r·T_E              (T_E = raw toroidal sphtor scalar)
+        #   T_{∇×E} = −(1/r)·(Q_E − ∂_r(r·S_E))
+        # with Q_E from the radial component. The old path treated (T_E, S_E)
+        # as potentials and never consumed Q_E — the same dropped-radial flaw
+        # the momentum equation had.
         vector_physical_to_spectral!(
             magnetic_fields.induction_physical,
             magnetic_fields.work_tor,
-            magnetic_fields.work_pol
+            magnetic_fields.work_pol;
+            raw_spheroidal = true
         )
+        scalar_physical_to_spectral!(
+            magnetic_fields.induction_physical.r_component,
+            magnetic_fields.nl_toroidal     # Q_E scratch; combined in place below
+        )
+        _induction_curl_potentials!(magnetic_fields)
     end
-    solver_compute_curl_of_induction!(magnetic_fields)
+    return magnetic_fields
+end
+
+# nl_toroidal holds Q_E on entry (scratch); work_tor/work_pol hold (T_E, S_E).
+# Writes nl_toroidal ← T_{∇×E} = −(1/r)(Q_E − ∂_r(r·S_E)) and
+# nl_poloidal ← P_{∇×E} = −r·T_E, per mode over the (r-local) radial axis.
+function _induction_curl_potentials!(magnetic_fields)
+    cfg = magnetic_fields.nl_toroidal.config
+    domain = magnetic_fields.outer_domain
+    T = eltype(parent(magnetic_fields.nl_toroidal.data_real))
+    D1 = create_derivative_matrix(T, 1, domain)
+    nr = domain.N
+    rS = Vector{T}(undef, nr)
+    drS = Vector{T}(undef, nr)
+    r_range = local_range(magnetic_fields.nl_toroidal.pencil, 3)
+    length(r_range) == nr || error(
+        "induction curl projection requires the radial axis fully local " *
+        "(got $(length(r_range)) of $nr levels); r-distributed support is a follow-up")
+
+    for (q_arr, s_arr, t_arr, npol_arr) in (
+        (parent(magnetic_fields.nl_toroidal.data_real),
+         parent(magnetic_fields.work_pol.data_real),
+         parent(magnetic_fields.work_tor.data_real),
+         parent(magnetic_fields.nl_poloidal.data_real)),
+        (parent(magnetic_fields.nl_toroidal.data_imag),
+         parent(magnetic_fields.work_pol.data_imag),
+         parent(magnetic_fields.work_tor.data_imag),
+         parent(magnetic_fields.nl_poloidal.data_imag)),
+    )
+        @inbounds for lm in 1:cfg.nlm
+            slot = local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
+            for r_idx in 1:nr
+                rS[r_idx] = T(domain.r[r_idx, 4]) *
+                            local_spectral_value(s_arr, slot, r_idx)
+            end
+            mul!(drS, D1, rS)
+            for r_idx in 1:nr
+                r = T(domain.r[r_idx, 4])
+                q = local_spectral_value(q_arr, slot, r_idx)
+                t = local_spectral_value(t_arr, slot, r_idx)
+                set_local_spectral_value!(q_arr, slot, r_idx,
+                    -(q - drS[r_idx]) / r)        # nl_toroidal ← T_{∇×E}
+                set_local_spectral_value!(npol_arr, slot, r_idx,
+                    -r * t)                        # nl_poloidal ← P_{∇×E}
+            end
+        end
+    end
     return magnetic_fields
 end
 
