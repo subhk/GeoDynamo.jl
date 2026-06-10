@@ -376,18 +376,18 @@ function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
                     else
                         r⁻¹ = domain.r[r_idx, 3]
                         r⁻² = domain.r[r_idx, 2]
+                        # Solenoidal convention (Stage 2): T_ω = (P'' − λP/r²)/r,
+                        # P_ω = −r·T (verified vs the Stage-1 curl projections).
                         set_local_spectral_value!(ζᵀ_real, slot, local_r,
-                            l_factor * r⁻² * Pᴾ_profile_real[r_idx] -
-                            ∂ᵣᵣpoloidal_real[r_idx] -
-                            2.0 * r⁻¹ * ∂ᵣpoloidal_real[r_idx])
+                            r⁻¹ * (∂ᵣᵣpoloidal_real[r_idx] -
+                                   l_factor * r⁻² * Pᴾ_profile_real[r_idx]))
                         set_local_spectral_value!(ζᵀ_imag, slot, local_r,
-                            l_factor * r⁻² * Pᴾ_profile_imag[r_idx] -
-                            ∂ᵣᵣpoloidal_imag[r_idx] -
-                            2.0 * r⁻¹ * ∂ᵣpoloidal_imag[r_idx])
+                            r⁻¹ * (∂ᵣᵣpoloidal_imag[r_idx] -
+                                   l_factor * r⁻² * Pᴾ_profile_imag[r_idx]))
                         set_local_spectral_value!(ζᴾ_real, slot, local_r,
-                            -l_factor * r⁻² * Tᵀ_profile_real[r_idx])
+                            -r * Tᵀ_profile_real[r_idx])
                         set_local_spectral_value!(ζᴾ_imag, slot, local_r,
-                            -l_factor * r⁻² * Tᵀ_profile_imag[r_idx])
+                            -r * Tᵀ_profile_imag[r_idx])
                     end
                 end
             end
