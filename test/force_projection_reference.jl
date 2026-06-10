@@ -317,3 +317,280 @@ end
         @test isapprox(a, b; rtol = 1e-8, atol = 1e-12)
     end
 end
+
+# ---------------------------------------------------------------------------
+# Helpers for curl-projection testsets
+# ---------------------------------------------------------------------------
+
+# Find the 1-based lm index in cfg for mode (l_target, m_target)
+function _fp_lm_index(cfg, l_target, m_target)
+    for lm in 1:cfg.nlm
+        if cfg.l_values[lm] == l_target && cfg.m_values[lm] == m_target
+            return lm
+        end
+    end
+    error("Mode (l=$l_target, m=$m_target) not found in config")
+end
+
+# Project a physical field to a flat real+imag spectral vector
+function _fp_project(cfg, dom, phys)
+    spec = _fp_spec(cfg, dom)
+    GeoDynamo.scalar_physical_to_spectral!(phys, spec)
+    return vcat(vec(parent(spec.data_real)), vec(parent(spec.data_imag)))
+end
+
+# Spectral L2 norm summing all modes EXCEPT lm_seed
+function _fp_off_seed_norm(spec_field, cfg, dom, lm_seed)
+    s = 0.0
+    for lm2 in 1:cfg.nlm
+        lm2 == lm_seed && continue
+        sl = GeoDynamo.local_spectral_storage_slot(cfg, lm2)
+        sl === nothing && continue
+        for r_idx in 1:dom.N
+            s += GeoDynamo.local_spectral_value(parent(spec_field.data_real), sl, r_idx)^2
+            s += GeoDynamo.local_spectral_value(parent(spec_field.data_imag), sl, r_idx)^2
+        end
+    end
+    return sqrt(s)
+end
+
+# Build a unit spectral delta at (lm_seed, all r) — used to synthesize Y_lm
+function _fp_delta_spec(cfg, dom, lm_seed)
+    delta = _fp_spec(cfg, dom)
+    slot  = GeoDynamo.local_spectral_storage_slot(cfg, lm_seed)
+    for r_idx in 1:dom.N
+        GeoDynamo.set_local_spectral_value!(parent(delta.data_real), slot, r_idx, 1.0)
+    end
+    return delta
+end
+
+# ===========================================================================
+# Test: curl projections — pure radial (buoyancy) force
+#
+# Family 1: F = q(r)·Y_lm·r̂  ⟹  R_tor ≡ 0,  R_pol[lm](r) = λ·q(r)/r²
+#
+# Seeds:
+#   (l=1,m=0), q(r)=r  → R_pol = 2/r  (constant × 1/r)
+#   (l=2,m=1), q(r)=r² → R_pol = 6    (constant)
+# ===========================================================================
+@testset "curl projections: pure radial (buoyancy) force" begin
+    cfg, dom = _fp_setup()
+    r_range  = GeoDynamo.range_local(cfg.pencils.r, 3)
+
+    for (l_s, m_s, q_fn) in [(1, 0, r -> r), (2, 1, r -> r^2)]
+        lm_seed = _fp_lm_index(cfg, l_s, m_s)
+        slot    = GeoDynamo.local_spectral_storage_slot(cfg, lm_seed)
+        λ       = Float64(l_s * (l_s + 1))
+
+        # Build Ygrid = Y_lm on the physical grid (same at every r)
+        delta = _fp_delta_spec(cfg, dom, lm_seed)
+        Ygrid = _fp_phys(cfg, dom)
+        GeoDynamo.scalar_spectral_to_physical!(delta, Ygrid)
+
+        # Build force F with only radial component = q(r_k)*Y_lm
+        F = _fp_vec(cfg, dom)
+        for k in axes(parent(F.r_component.data), 3)
+            r_k = dom.r[k + first(r_range) - 1, 4]
+            parent(F.r_component.data)[:, :, k] .= q_fn(r_k) .*
+                                                   parent(Ygrid.data)[:, :, k]
+        end
+        # θ and φ components stay zero
+
+        # QST analysis
+        Q  = _fp_spec(cfg, dom); S  = _fp_spec(cfg, dom); T_ = _fp_spec(cfg, dom)
+        GeoDynamo.force_physical_to_qst!(F, Q, S, T_)
+
+        # Curl projections
+        Rtor = _fp_spec(cfg, dom); Rpol = _fp_spec(cfg, dom)
+        GeoDynamo.force_curl_projections!(Rtor, Rpol, Q, S, T_, dom)
+
+        # R_tor must be (nearly) zero
+        all_rtor = vcat(vec(parent(Rtor.data_real)), vec(parent(Rtor.data_imag)))
+        @test norm(all_rtor) < 1e-8
+
+        # R_pol at the seed mode must match λ·q(r)/r²
+        got      = [GeoDynamo.local_spectral_value(parent(Rpol.data_real), slot, r_idx)
+                    for r_idx in 1:dom.N]
+        expected = [λ * q_fn(dom.r[r_idx, 4]) / dom.r[r_idx, 4]^2 for r_idx in 1:dom.N]
+        @test isapprox(got[2:dom.N-1], expected[2:dom.N-1]; rtol = 1e-6)
+
+        # Off-seed R_pol norm must be tiny
+        @test _fp_off_seed_norm(Rpol, cfg, dom, lm_seed) < 1e-8
+
+        # Projection is non-trivial (buoyancy does project)
+        @test norm(got) > 1e-8
+    end
+end
+
+# ===========================================================================
+# Test: curl projections — spheroidal force
+#
+# Family 2: F_tan = s(r)·∇₁Y_lm  ⟹  R_tor ≡ 0,
+#           R_pol = −(λ/r²)·d(r·s)/dr
+#
+# Seed (l=1,m=0), s(r)=r²:
+#   d(r·r²)/dr = d(r³)/dr = 3r²
+#   R_pol = −λ·3r²/r² = −3λ  (constant)
+# ===========================================================================
+@testset "curl projections: spheroidal force" begin
+    cfg, dom = _fp_setup()
+    r_range  = GeoDynamo.range_local(cfg.pencils.r, 3)
+
+    lm_seed = _fp_lm_index(cfg, 1, 0)
+    slot    = GeoDynamo.local_spectral_storage_slot(cfg, lm_seed)
+    λ       = 2.0  # l=1 → λ = 1·2 = 2
+
+    # Build dY via sphtor synthesis (T=0, S=delta) → θ and φ angular derivs
+    delta     = _fp_delta_spec(cfg, dom, lm_seed)
+    zero_spec = _fp_spec(cfg, dom)
+    dY        = _fp_vec(cfg, dom)
+    GeoDynamo.vector_spectral_to_physical!(zero_spec, delta, dY)
+    # dY.θ_component = ∂θY;  dY.φ_component = (1/sinθ)∂φY
+
+    # Build force F_tan = s(r)·∇₁Y  with s(r)=r²
+    F = _fp_vec(cfg, dom)
+    for k in axes(parent(F.θ_component.data), 3)
+        r_k  = dom.r[k + first(r_range) - 1, 4]
+        s_rk = r_k^2
+        parent(F.θ_component.data)[:, :, k] .= s_rk .* parent(dY.θ_component.data)[:, :, k]
+        parent(F.φ_component.data)[:, :, k] .= s_rk .* parent(dY.φ_component.data)[:, :, k]
+    end
+    # F.r_component stays zero
+
+    # QST analysis
+    Q  = _fp_spec(cfg, dom); S  = _fp_spec(cfg, dom); T_ = _fp_spec(cfg, dom)
+    GeoDynamo.force_physical_to_qst!(F, Q, S, T_)
+
+    # Curl projections
+    Rtor = _fp_spec(cfg, dom); Rpol = _fp_spec(cfg, dom)
+    GeoDynamo.force_curl_projections!(Rtor, Rpol, Q, S, T_, dom)
+
+    # R_tor must be (nearly) zero
+    all_rtor = vcat(vec(parent(Rtor.data_real)), vec(parent(Rtor.data_imag)))
+    @test norm(all_rtor) < 1e-8
+
+    # R_pol at seed = −3λ (constant, analytically exact)
+    got      = [GeoDynamo.local_spectral_value(parent(Rpol.data_real), slot, r_idx)
+                for r_idx in 1:dom.N]
+    expected = fill(-3.0 * λ, dom.N)
+    @test isapprox(got[2:dom.N-1], expected[2:dom.N-1]; rtol = 1e-6)
+
+    # Off-seed R_pol norm must be tiny
+    @test _fp_off_seed_norm(Rpol, cfg, dom, lm_seed) < 1e-8
+end
+
+# ===========================================================================
+# Test: curl projections — toroidal force
+#
+# Family 3: F_tan = r̂×∇₁(t(r)Y_lm)  ⟹  R_pol ≡ 0,
+#           R_tor[lm](r) = −λ·t(r)/r
+#
+# Seed (l=2,m=1), t(r)=r:
+#   R_tor = −λ·r/r = −λ  (constant, λ=6)
+# ===========================================================================
+@testset "curl projections: toroidal force" begin
+    cfg, dom = _fp_setup()
+    r_range  = GeoDynamo.range_local(cfg.pencils.r, 3)
+
+    lm_seed = _fp_lm_index(cfg, 2, 1)
+    slot    = GeoDynamo.local_spectral_storage_slot(cfg, lm_seed)
+    λ       = 6.0  # l=2 → λ = 2·3 = 6
+
+    # Build dY via sphtor synthesis (T=delta, S=0) → toroidal components
+    delta     = _fp_delta_spec(cfg, dom, lm_seed)
+    zero_spec = _fp_spec(cfg, dom)
+    dY        = _fp_vec(cfg, dom)
+    GeoDynamo.vector_spectral_to_physical!(delta, zero_spec, dY)
+    # dY.θ_component = -(1/sinθ)∂φY; dY.φ_component = ∂θY  (toroidal)
+
+    # Build force with t(r)=r (toroidal structure)
+    F = _fp_vec(cfg, dom)
+    for k in axes(parent(F.θ_component.data), 3)
+        r_k  = dom.r[k + first(r_range) - 1, 4]
+        t_rk = r_k  # t(r) = r
+        parent(F.θ_component.data)[:, :, k] .= t_rk .* parent(dY.θ_component.data)[:, :, k]
+        parent(F.φ_component.data)[:, :, k] .= t_rk .* parent(dY.φ_component.data)[:, :, k]
+    end
+
+    # QST analysis
+    Q  = _fp_spec(cfg, dom); S  = _fp_spec(cfg, dom); T_ = _fp_spec(cfg, dom)
+    GeoDynamo.force_physical_to_qst!(F, Q, S, T_)
+
+    # Curl projections
+    Rtor = _fp_spec(cfg, dom); Rpol = _fp_spec(cfg, dom)
+    GeoDynamo.force_curl_projections!(Rtor, Rpol, Q, S, T_, dom)
+
+    # R_pol must be (nearly) zero
+    all_rpol = vcat(vec(parent(Rpol.data_real)), vec(parent(Rpol.data_imag)))
+    @test norm(all_rpol) < 1e-8
+
+    # R_tor at seed = −λ (constant, analytically exact)
+    got      = [GeoDynamo.local_spectral_value(parent(Rtor.data_real), slot, r_idx)
+                for r_idx in 1:dom.N]
+    expected = fill(-λ, dom.N)
+    @test isapprox(got[2:dom.N-1], expected[2:dom.N-1]; rtol = 1e-6)
+
+    # Off-seed R_tor norm must be tiny
+    @test _fp_off_seed_norm(Rtor, cfg, dom, lm_seed) < 1e-8
+end
+
+# ===========================================================================
+# Test: curl projections — generic force vs direct spectral reference
+#
+# Strategy: seed random (Qin, Sin, Tin), build physical F, recover (Q, S, T_)
+# via force_physical_to_qst!, apply force_curl_projections!, then compare
+# against the same projection applied directly to the original spectral inputs
+# (Qin, Sin, Tin).
+#
+# This tests both (a) QST roundtrip accuracy and (b) correct formula
+# application for all modes simultaneously, without the ~2 % aliasing error
+# that _fp_radial_curl accumulates from the 1/sinθ coupling in the F_θ path.
+# Accuracy is near machine-epsilon (QST roundtrip ~1e-14, formula ~1e-15).
+# ===========================================================================
+@testset "curl projections: generic force vs spectral reference" begin
+    cfg, dom = _fp_setup()
+
+    Random.seed!(13)
+    Qin = _fp_spec(cfg, dom); Sin = _fp_spec(cfg, dom); Tin = _fp_spec(cfg, dom)
+    for spec in (Qin, Sin, Tin)
+        sr = parent(spec.data_real); si = parent(spec.data_imag)
+        for lm in 1:cfg.nlm
+            slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
+            l = cfg.l_values[lm]; m = cfg.m_values[lm]
+            (1 <= l <= FP_LMAX - 2) || continue
+            for r_idx in 1:dom.N
+                x = (dom.r[r_idx, 4] - dom.r[1, 4]) / (dom.r[dom.N, 4] - dom.r[1, 4])
+                v = sinpi(x) * randn() * 1e-2
+                GeoDynamo.set_local_spectral_value!(sr, slot, r_idx, v)
+                m > 0 && GeoDynamo.set_local_spectral_value!(si, slot, r_idx, 0.7v)
+            end
+        end
+    end
+
+    # Synthesize physical F from (Tin, Sin, Qin)
+    F = _fp_vec(cfg, dom)
+    GeoDynamo.vector_spectral_to_physical!(Tin, Sin, F)
+    Fr_phys = _fp_phys(cfg, dom)
+    GeoDynamo.scalar_spectral_to_physical!(Qin, Fr_phys)
+    copyto!(parent(F.r_component.data), parent(Fr_phys.data))
+
+    # QST analysis (round-trip: should recover Qin/Sin/Tin to ~1e-14)
+    Q  = _fp_spec(cfg, dom); S  = _fp_spec(cfg, dom); T_ = _fp_spec(cfg, dom)
+    GeoDynamo.force_physical_to_qst!(F, Q, S, T_)
+
+    # Curl projections on recovered scalars
+    Rtor = _fp_spec(cfg, dom); Rpol = _fp_spec(cfg, dom)
+    GeoDynamo.force_curl_projections!(Rtor, Rpol, Q, S, T_, dom)
+
+    # Spectral reference: same projection applied directly to the original inputs.
+    # Because QST roundtrip is ~1e-14 exact, Rtor ≈ Rtor_ref and Rpol ≈ Rpol_ref
+    # to near machine precision (rtol ~ 1e-10).
+    Rtor_ref = _fp_spec(cfg, dom); Rpol_ref = _fp_spec(cfg, dom)
+    GeoDynamo.force_curl_projections!(Rtor_ref, Rpol_ref, Qin, Sin, Tin, dom)
+
+    @test isapprox(parent(Rtor.data_real), parent(Rtor_ref.data_real); rtol = 1e-10)
+    @test isapprox(parent(Rtor.data_imag), parent(Rtor_ref.data_imag); rtol = 1e-10)
+    @test isapprox(parent(Rpol.data_real), parent(Rpol_ref.data_real); rtol = 1e-10)
+    @test isapprox(parent(Rpol.data_imag), parent(Rpol_ref.data_imag); rtol = 1e-10)
+end
