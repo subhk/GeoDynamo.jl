@@ -22,6 +22,16 @@ const FINALIZE_MPI_ALLOC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
 _alloc_theta_grad(f, ws) = @allocated GeoDynamo.compute_theta_gradient_spectral!(f, ws)
 _alloc_phi_grad(f, ws) = @allocated GeoDynamo.compute_phi_gradient_spectral!(f, ws)
 _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
+# Mirrors the per-mode BC-enforcement pattern in prepare/finalize_solver_erk2_field!:
+# read the mode-value slots off the spec, enforce both endpoints with the overrides.
+function _alloc_enforce_bc(stage, spec, l, nr, lm_idx)
+    return @allocated begin
+        iv = GeoDynamo.boundary_mode_value(spec.inner_mode_values, lm_idx)
+        ov = GeoDynamo.boundary_mode_value(spec.outer_mode_values, lm_idx)
+        GeoDynamo.solver_enforce_erk2_bc!(stage, spec.inner, 1, l, nr; value_override = iv)
+        GeoDynamo.solver_enforce_erk2_bc!(stage, spec.outer, nr, l, nr; value_override = ov)
+    end
+end
 
 @testset "Runtime allocation & inference guards" begin
     if MPI.Finalized()
@@ -196,6 +206,38 @@ _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
         # the (l±1,m) neighbours), so the gradient call below is what matters.
         @test (@inferred GeoDynamo.compute_theta_gradient_spectral!(temp_field, grad_ws)) ===
               grad_ws
+    end
+
+    @testset "ERK2 boundary-spec fields are concrete; BC enforcement is alloc-free" begin
+        # SolverERK2BoundarySpec used to type its mode-value slots as
+        # Union{Nothing, AbstractVector{T}} — an abstract field. Every per-mode
+        # read in prepare/finalize_solver_erk2_field! then boxed the
+        # value_override (~51 B × thousands of calls/step, ~590 KB/step on ERK2).
+        # The struct is parameterized on the concrete slot types instead; these
+        # guards pin that.
+        T = Float64
+        nr_bc = 16
+        inner_side = GeoDynamo.solver_create_dirichlet_bc(T, nr_bc)
+        outer_side = GeoDynamo.solver_create_dirichlet_bc(T, nr_bc)
+        base_spec = GeoDynamo.SolverERK2BoundarySpec{T}(inner_side, outer_side)
+        bvals = rand(T, 2, 8)
+        spec = GeoDynamo.with_boundary_mode_values(
+            base_spec, view(bvals, 1, :), view(bvals, 2, :))
+
+        # Field types concrete per instance (views attached ⇒ SubArray slots;
+        # imag left off ⇒ Nothing slots).
+        @test isconcretetype(fieldtype(typeof(spec), :inner_mode_values))
+        @test isconcretetype(fieldtype(typeof(spec), :outer_mode_values))
+        @test fieldtype(typeof(spec), :inner_mode_values_imag) === Nothing
+        @test fieldtype(typeof(spec), :outer_mode_values_imag) === Nothing
+        # Base (all-nothing) spec is fully concrete too.
+        @test isconcretetype(fieldtype(typeof(base_spec), :inner_mode_values))
+
+        # The per-mode enforcement pattern from prepare/finalize must not
+        # allocate once the spec is concrete (warm call first).
+        stage = zeros(T, nr_bc)
+        _alloc_enforce_bc(stage, spec, 1, nr_bc, 1)
+        @test _alloc_enforce_bc(stage, spec, 1, nr_bc, 1) == 0
     end
 
     if MPI.Initialized() && FINALIZE_MPI_ALLOC && !MPI.Finalized()
