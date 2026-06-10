@@ -184,6 +184,7 @@ additional_tests = (
     "erk2_cache_builders.jl",
     "erk2_integration_step.jl",
     "cnab2_rhs_distributed_equivalence.jl",
+    "force_projection_reference.jl",
     "shell_boundaries.jl",
     "shtnskit_roundtrip.jl",
     "theta_dist_adapter.jl",
