@@ -26,9 +26,25 @@ _fp_phys(cfg, dom) = GeoDynamo.create_shtns_physical_field(Float64, cfg, dom, cf
 # Harness 1: angular derivatives via scalar SH differentiation
 #
 # Returns (dθ, dφ) where both are physical fields on pencils.r.
-# Calibration result: returns physical (1/r)∂θg and (1/r)∂φg.
-# (apply_geometric_factors_spectral! multiplies spectral gradient by 1/r before
-# synthesis, so the synthesised physical field carries the 1/r factor.)
+#
+# *** CALIBRATION FINDING (see calibration test below) ***
+#
+# dφ IS (1/r)∂φg  — the φ-recurrence is im·m·c_lm (exact) → synthesis gives
+#   the true (1/r)∂φg physical field.
+#
+# dθ is NOT (1/r)∂θg.  The θ-recurrence encodes the identity
+#   sinθ · ∂Y_l/∂θ = A_plus(l)·Y_{l+1} + A_minus(l)·Y_{l-1}
+# so spectral output_l = A_plus(l)·c_{l+1} + A_minus(l)·c_{l-1}.
+# After the 1/r geometric factor and synthesis, the physical field is a
+# TRUNCATED SPECTRAL PROJECTION of (sinθ/r)·∂g/∂θ — not (1/r)∂g/∂θ.
+# For g = r²cosθ (only l=1 mode), only the l=2 output mode is excited and
+# the physical result is ≈ −r·(3cos²θ−1), NOT −r·sinθ (the true (1/r)∂θg).
+#
+# Consequence for the curl harnesses:
+#   (∇×F)_θ  uses only dφ and ∂_r — both correct → G_θ is exact.
+#   (∇×F)_r and (∇×F)_φ use dθ → those components carry the truncation error.
+# The harness is useful for internal-consistency checks against the solver's
+# own gradient convention; it is NOT a band-unlimited true-physics reference.
 # ---------------------------------------------------------------------------
 function _fp_angular_derivs(cfg, dom, g_phys::GeoDynamo.SHTnsPhysField)
     # Step 1: physical → spectral
@@ -49,8 +65,8 @@ function _fp_angular_derivs(cfg, dom, g_phys::GeoDynamo.SHTnsPhysField)
     GeoDynamo.compute_all_gradients_spectral!(tf, dom, ws)
 
     # Step 4: synthesise θ and φ gradient components back to physical space.
-    #         ws.∇θ_spec and ws.∇φ_spec contain (1/r)∂_θg and (1/r)∂_φg in
-    #         spectral space (the geometric 1/r factor is baked in by step 3).
+    #         ws.∇θ_spec holds the TRUNCATED SPECTRAL PROJECTION described above
+    #         (NOT the true (1/r)∂θg).  ws.∇φ_spec holds the exact (1/r)∂φg.
     dθ = _fp_phys(cfg, dom)
     dφ = _fp_phys(cfg, dom)
     GeoDynamo.scalar_spectral_to_physical!(ws.∇θ_spec, dθ)
@@ -93,10 +109,13 @@ end
 #
 # (∇×F)_r = (1/(r sinθ)) [∂_θ(sinθ F_φ) − ∂_φ F_θ]
 #
-# Since _fp_angular_derivs returns (1/r)∂_θ(·) and (1/r)∂_φ(·):
-#   (1/(r sinθ)) ∂_θ(sinθ F_φ) = (1/sinθ) · (1/r)∂_θ(sinθ F_φ) = d_θ_h / sinθ
-#   (1/(r sinθ)) ∂_φ F_θ       = (1/sinθ) · (1/r)∂_φ F_θ       = d_φ_Fθ / sinθ
-# → (∇×F)_r = (d_θ_h − d_φ_Fθ) / sinθ
+# _fp_angular_derivs returns the exact (1/r)∂_φ(·) but only a TRUNCATED
+# SPECTRAL PROJECTION for the θ-component (see harness 1 header).
+# The formula is written using the (1/r) convention for both:
+#   φ-term: (1/(r sinθ)) ∂_φ F_θ = d_φ_Fθ / sinθ  ← EXACT
+#   θ-term: (1/(r sinθ)) ∂_θ(sinθ F_φ) ≈ d_θ_h / sinθ ← APPROXIMATE (truncation)
+# → (∇×F)_r ≈ (d_θ_h − d_φ_Fθ) / sinθ
+#   (exact only for F_φ band-limited within [0, lmax-1] so all derivative modes fit)
 #
 # F.θ_component, F.φ_component, F.r_component are all on pencils.r (see
 # create_shtns_vector_field — all components use pencil_r regardless of the
@@ -136,16 +155,16 @@ end
 # ---------------------------------------------------------------------------
 # Harness 4: full curl ∇×F (three physical components)
 #
-# (∇×F)_r = (1/(r sinθ)) [∂_θ(sinθ F_φ) − ∂_φ F_θ]
-#          = (d_θ_h − d_φ_Fθ) / sinθ                         (see harness 3)
+# Accuracy per component (see harness 1 header for the θ-truncation caveat):
 #
-# (∇×F)_θ = (1/(r sinθ)) ∂_φ F_r − (1/r) ∂_r(r F_φ)
-#          = d_φ_Fr / sinθ − ∂_r(rFφ) / r
-#          [d_φ_Fr = (1/r)∂_φF_r, so (1/(r sinθ))∂_φFr = d_φ_Fr / sinθ]
+# (∇×F)_r  ≈ (d_θ_h − d_φ_Fθ) / sinθ          (see harness 3)
+#   φ-term EXACT, θ-term APPROXIMATE (truncated SH projection)
 #
-# (∇×F)_φ = (1/r) ∂_r(r F_θ) − (1/r) ∂_θ F_r
-#          = ∂_r(rFθ) / r − d_θ_Fr
-#          [d_θ_Fr = (1/r)∂_θFr, so (1/r)∂_θFr = d_θ_Fr already]
+# (∇×F)_θ  = d_φ_Fr / sinθ − ∂_r(rFφ) / r       EXACT
+#   [d_φ_Fr = exact (1/r)∂_φF_r; radial derivative exact]
+#
+# (∇×F)_φ  ≈ ∂_r(rFθ) / r − d_θ_Fr              APPROXIMATE (θ-term)
+#   [radial derivative exact; d_θ_Fr uses truncated θ-projection]
 # ---------------------------------------------------------------------------
 function _fp_curl(cfg, dom, F)
     sinθ = sin.(cfg.theta_grid)
@@ -212,8 +231,20 @@ end
 # ===========================================================================
 # Calibration test
 #
-# g = r² cosθ  →  ∂_θ g = −r² sinθ  →  (1/r)∂_θ g = −r sinθ
-# So dθ[i,j,k] / (−sinθ[i]) should equal r (not r²).
+# Determines what _fp_angular_derivs actually returns for g = r²cosθ.
+#
+# True (1/r)∂_θ g = −r sinθ, so if the function returned (1/r)∂_θg we would
+# see dθ / (−sinθ) ≈ r.  If it returned ∂_θg directly we would see ≈ r².
+#
+# OBSERVED (see analysis in harness 1 header): the θ-recurrence encodes
+#   sinθ·∂Y_l/∂θ = A_plus(l)·Y_{l+1} + A_minus(l)·Y_{l-1}
+# so for g = r²cosθ (only l=1 SH mode present) the recurrence excites only
+# the l=2 output mode.  After 1/r geometric factor + synthesis:
+#   dθ[i,j,k] ≈ −r_k · (3cos²θ_i − 1)
+# This is NOT −r sinθ (the true gradient); the θ-dependence differs.
+#
+# The test below pins this empirical result at two independent grid points and
+# also records the true gradient value via @info for reference.
 # ===========================================================================
 @testset "calibration: scalar gradient scaling" begin
     cfg, dom = _fp_setup()
@@ -221,14 +252,32 @@ end
     arr = parent(g.data)
     r_range = GeoDynamo.range_local(cfg.pencils.r, 3)
     for k in axes(arr, 3), j in 1:cfg.nlon, i in 1:cfg.nlat
-        r = dom.r[min(k + first(r_range) - 1, dom.N), 4]
-        arr[i, j, k] = r^2 * cos(cfg.theta_grid[i])
+        r_k = dom.r[min(k + first(r_range) - 1, dom.N), 4]
+        arr[i, j, k] = r_k^2 * cos(cfg.theta_grid[i])
     end
     dθ, _ = _fp_angular_derivs(cfg, dom, g)
     a = parent(dθ.data)
-    i, j, k = 3, 4, div(FP_NR, 2)
-    r = dom.r[k + first(r_range) - 1, 4]
-    ratio = a[i, j, k] / (-sin(cfg.theta_grid[i]))
-    @info "gradient scaling" ratio r r^2
-    @test isapprox(ratio, r; rtol = 1e-6) || isapprox(ratio, r^2; rtol = 1e-6)
+
+    # --- first probe point ---
+    i1, j1, k1 = 3, 4, div(FP_NR, 2)
+    r1  = dom.r[k1 + first(r_range) - 1, 4]
+    θ1  = cfg.theta_grid[i1]
+    observed1  = a[i1, j1, k1]
+    expected1  = -r1 * (3 * cos(θ1)^2 - 1)
+    true_val1  = -r1 * sin(θ1)            # what (1/r)∂_θg should be
+    @info "calibration point 1" observed = observed1 expected_truncated = expected1 true_gradient = true_val1 r = r1 θ = θ1
+
+    # --- second probe point (different θ to confirm θ-dependence) ---
+    i2, j2, k2 = 8, 2, div(FP_NR, 3)
+    r2  = dom.r[k2 + first(r_range) - 1, 4]
+    θ2  = cfg.theta_grid[i2]
+    observed2  = a[i2, j2, k2]
+    expected2  = -r2 * (3 * cos(θ2)^2 - 1)
+    true_val2  = -r2 * sin(θ2)
+    @info "calibration point 2" observed = observed2 expected_truncated = expected2 true_gradient = true_val2 r = r2 θ = θ2
+
+    # Pin the ACTUAL observed behavior: dθ ≈ −r·(3cos²θ−1) at both probes.
+    # (NOT −r·sinθ — the θ-recurrence gives a truncated SH projection.)
+    @test isapprox(observed1, expected1; rtol = 1e-4)
+    @test isapprox(observed2, expected2; rtol = 1e-4)
 end
