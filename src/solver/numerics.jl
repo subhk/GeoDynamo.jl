@@ -994,14 +994,56 @@ function vector_physical_to_spectral!(
         toroidal::SpectralFieldType{T},
         poloidal::SpectralFieldType{T};
         domain::Union{RadialDomainType, Nothing} = nothing,
-        verify_solenoidal::Bool = false
+        verify_solenoidal::Bool = false,
+        raw_spheroidal::Bool = false
 ) where {T}
     config = toroidal.config
     plan   = get_disttranspose_plan(config)
+    # Tangential sphtor analysis: toroidal ← T-scalar, poloidal ← S-scalar.
     vector_physical_to_spectral_disttranspose!(
         config, plan, vector_field, toroidal, poloidal)
 
+    if !raw_spheroidal && domain !== nothing
+        # Solenoidal convention (Stage 2): the poloidal potential is recovered
+        # from the RADIAL component, P = r²·Q/(l(l+1)), the exact inverse of
+        # the synthesis u_r = l(l+1)·P/r². (The raw S-scalar path above is the
+        # tangential-basis analysis used for force/QST decompositions.)
+        scalar_physical_to_spectral!(vector_field.r_component, poloidal)
+        _poloidal_from_radial_q!(parent(poloidal.data_real),
+            parent(poloidal.data_imag), config, domain)
+    end
+
     return toroidal, poloidal
+end
+
+# In-place P = r²·Q/(l(l+1)) on the spectral STORAGE arrays (Q was written by
+# the scalar analysis of u_r); l = 0 carries no poloidal content.
+function _poloidal_from_radial_q!(qr, qi, config, domain)
+    r_range = local_range(config.pencils.spec, 3)
+    @inbounds for lm in 1:config.nlm
+        slot = local_spectral_storage_slot(config, lm)
+        slot === nothing && continue
+        l = config.l_values[lm]
+        if l == 0
+            for r_idx in r_range
+                lr = r_idx - first(r_range) + 1
+                set_local_spectral_value!(qr, slot, lr, 0.0)
+                set_local_spectral_value!(qi, slot, lr, 0.0)
+            end
+            continue
+        end
+        invλ = 1.0 / (l * (l + 1))
+        for r_idx in r_range
+            lr = r_idx - first(r_range) + 1
+            (1 <= r_idx <= domain.N) || continue
+            r2 = domain.r[r_idx, 4]^2
+            set_local_spectral_value!(qr, slot, lr,
+                r2 * invλ * local_spectral_value(qr, slot, lr))
+            set_local_spectral_value!(qi, slot, lr,
+                r2 * invλ * local_spectral_value(qi, slot, lr))
+        end
+    end
+    return nothing
 end
 
 # Shared Phase-3 vector analysis used by both the solver path (numerics.jl) and

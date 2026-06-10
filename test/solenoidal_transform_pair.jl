@@ -299,3 +299,39 @@ end
     @info "m=0 grid-space divergence cross-check" maxdiv = maximum(abs, interior) scale_m0
     @test maximum(abs, interior) < 1e-5 * scale_m0
 end
+
+# ===========================================================================
+# Stage-2 Task 3: Q-based analysis — synthesis→analysis roundtrip on (T,P).
+# Analysis recovers P from the radial component (P = r²·Q/λ), T from the
+# toroidal sphtor scalar. Profiles vanish at endpoints (sinpi fill) so the
+# banded-D1 endpoint stencils in the synthesis don't pollute the comparison.
+# ===========================================================================
+@testset "synthesis→analysis roundtrip on (T,P)" begin
+    cfg, dom = _st_setup()
+    Random.seed!(29)
+    tor = _st_spec(cfg, dom); pol = _st_spec(cfg, dom)
+    for spec in (tor, pol)
+        sr = parent(spec.data_real); si = parent(spec.data_imag)
+        for lm in 1:cfg.nlm
+            slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
+            l = cfg.l_values[lm]; m = cfg.m_values[lm]
+            (1 <= l <= 6) || continue
+            for r_idx in 1:dom.N
+                x = (dom.r[r_idx, 4] - dom.r[1, 4]) / (dom.r[dom.N, 4] - dom.r[1, 4])
+                v = sinpi(x) * randn() * 1e-2
+                GeoDynamo.set_local_spectral_value!(sr, slot, r_idx, v)
+                m > 0 && GeoDynamo.set_local_spectral_value!(si, slot, r_idx, 0.7v)
+            end
+        end
+    end
+    V = _st_vec(cfg, dom)
+    GeoDynamo.vector_spectral_to_physical!(tor, pol, V; domain = dom)
+    tor2 = _st_spec(cfg, dom); pol2 = _st_spec(cfg, dom)
+    GeoDynamo.vector_physical_to_spectral!(V, tor2, pol2; domain = dom)
+    for (a, b, name) in ((tor2, tor, "T"), (pol2, pol, "P"))
+        x = vcat(vec(parent(a.data_real)), vec(parent(a.data_imag)))
+        y = vcat(vec(parent(b.data_real)), vec(parent(b.data_imag)))
+        @test isapprox(x, y; rtol = 1e-8, atol = 1e-12)
+    end
+end

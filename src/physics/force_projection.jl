@@ -21,7 +21,10 @@ function force_physical_to_qst!(
         T_out::SpectralFieldType{T}
 ) where {T}
     scalar_physical_to_spectral!(force.r_component, Q)
-    vector_physical_to_spectral!(force, T_out, S)
+    # raw_spheroidal: a force is not solenoidal — we want the RAW tangential
+    # sphtor scalars (S, T), not the Q-based poloidal recovery the default
+    # (velocity) analysis performs under the Stage-2 convention.
+    vector_physical_to_spectral!(force, T_out, S; raw_spheroidal = true)
     return Q, S, T_out
 end
 
