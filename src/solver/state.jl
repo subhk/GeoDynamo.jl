@@ -211,20 +211,43 @@ endpoint values.
 Mode values are used for cases such as rotating inner-core toroidal velocity,
 where only selected `(l,m)` modes carry a nonzero endpoint value.
 """
-struct SolverERK2BoundarySpec{T}
+struct SolverERK2BoundarySpec{T,
+        VR1 <: Union{Nothing, AbstractVector{T}},
+        VR2 <: Union{Nothing, AbstractVector{T}},
+        VI1 <: Union{Nothing, AbstractVector{T}},
+        VI2 <: Union{Nothing, AbstractVector{T}}}
     inner::SolverERK2BoundarySide{T}
     outer::SolverERK2BoundarySide{T}
-    inner_mode_values::Union{Nothing, AbstractVector{T}}
-    outer_mode_values::Union{Nothing, AbstractVector{T}}
-    inner_mode_values_imag::Union{Nothing, AbstractVector{T}}
-    outer_mode_values_imag::Union{Nothing, AbstractVector{T}}
+    # Mode-value slots carry their concrete type (a vector/view, or Nothing) so
+    # per-mode reads in prepare/finalize_solver_erk2_field! infer — an abstract
+    # Union{Nothing, AbstractVector{T}} field here boxed every value_override.
+    inner_mode_values::VR1
+    outer_mode_values::VR2
+    inner_mode_values_imag::VI1
+    outer_mode_values_imag::VI2
 end
 
 """
-    SolverERK2BoundarySpec{T}(inner, outer)
+    SolverERK2BoundarySpec{T}(inner, outer[, mode_values...])
 
-Construct a boundary pair with no mode-dependent endpoint overrides.
+Construct a boundary pair, inferring the concrete mode-value slot types from
+the arguments; with no mode-value arguments, all slots are `Nothing`.
 """
+function SolverERK2BoundarySpec{T}(
+        inner::SolverERK2BoundarySide{T},
+        outer::SolverERK2BoundarySide{T},
+        inner_mode_values::Union{Nothing, AbstractVector{T}},
+        outer_mode_values::Union{Nothing, AbstractVector{T}},
+        inner_mode_values_imag::Union{Nothing, AbstractVector{T}},
+        outer_mode_values_imag::Union{Nothing, AbstractVector{T}}
+) where {T}
+    return SolverERK2BoundarySpec{T, typeof(inner_mode_values),
+        typeof(outer_mode_values), typeof(inner_mode_values_imag),
+        typeof(outer_mode_values_imag)}(
+        inner, outer, inner_mode_values, outer_mode_values,
+        inner_mode_values_imag, outer_mode_values_imag)
+end
+
 function SolverERK2BoundarySpec{T}(
         inner::SolverERK2BoundarySide{T},
         outer::SolverERK2BoundarySide{T}
