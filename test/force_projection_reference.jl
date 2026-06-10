@@ -279,3 +279,41 @@ end
     @test isapprox(obs3, exp3; rtol = 1e-6)
     @test isapprox(obs4, exp4; rtol = 1e-6)
 end
+
+@testset "force_physical_to_qst! recovers Q, S, T" begin
+    cfg, dom = _fp_setup()
+    Random.seed!(7)
+    Qin = _fp_spec(cfg, dom); Sin = _fp_spec(cfg, dom); Tin = _fp_spec(cfg, dom)
+    for spec in (Qin, Sin, Tin)
+        sr = parent(spec.data_real); si = parent(spec.data_imag)
+        for lm in 1:cfg.nlm
+            slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
+            l = cfg.l_values[lm]; m = cfg.m_values[lm]
+            (1 <= l <= FP_LMAX - 2) || continue
+            for r_idx in 1:dom.N
+                x = (dom.r[r_idx, 4] - dom.r[1, 4]) / (dom.r[dom.N, 4] - dom.r[1, 4])
+                v = sinpi(x) * randn() * 1e-2
+                GeoDynamo.set_local_spectral_value!(sr, slot, r_idx, v)
+                m > 0 && GeoDynamo.set_local_spectral_value!(si, slot, r_idx, 0.7v)
+            end
+        end
+    end
+    # synthesize physical F: tangential from (S,T) via the existing sphtor
+    # synthesis (argument order: toroidal, poloidal-which-is-S, out-vector);
+    # radial from Q via the scalar synthesis
+    F = _fp_vec(cfg, dom)
+    GeoDynamo.vector_spectral_to_physical!(Tin, Sin, F)
+    Fr_phys = _fp_phys(cfg, dom)
+    GeoDynamo.scalar_spectral_to_physical!(Qin, Fr_phys)
+    copyto!(parent(F.r_component.data), parent(Fr_phys.data))
+
+    Q = _fp_spec(cfg, dom); S = _fp_spec(cfg, dom); T_ = _fp_spec(cfg, dom)
+    GeoDynamo.force_physical_to_qst!(F, Q, S, T_)
+
+    for (out, ref, name) in ((Q, Qin, "Q"), (S, Sin, "S"), (T_, Tin, "T"))
+        a = vcat(vec(parent(out.data_real)), vec(parent(out.data_imag)))
+        b = vcat(vec(parent(ref.data_real)), vec(parent(ref.data_imag)))
+        @test isapprox(a, b; rtol = 1e-8, atol = 1e-12)
+    end
+end
