@@ -152,10 +152,15 @@ function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
         T::Type{<:Number} = Float64,
         inner_alpha::Union{Dict{Int, <:Real}, Nothing} = nothing)
     unique_l = unique(config.l_values)
-    laplacian = create_radial_laplacian(domain)
+    # Stage-4 solenoidal convention: POLOIDAL potentials diffuse with
+    #   D_pol = d²/dr² − l(l+1)/r²   (NO 2/r first-derivative term),
+    # derived from (ΔB)_r = −[r̂·∇×∇×B]_r = (λ/r²)(P″ − λP/r²) for the
+    # consistent pair B_r = λP/r², S = P′/r. Toroidal builders keep the full
+    # scalar Laplacian (Δ𝒯(T) = 𝒯(Δ_l T)). See the double-curl design spec.
+    d2_op = create_derivative_matrix(T, 2, domain)
     r_inv_sq = @views domain.r[1:domain.N, 2]
 
-    base_data = T.(diffusivity .* laplacian.data)
+    base_data = T.(diffusivity .* d2_op.data)
     system_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
     linear_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
     factorizations = Vector{BandedLU{T}}(undef, length(unique_l))
@@ -175,7 +180,7 @@ function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
         l_values[idx] = l
         lookup[l] = idx
 
-        # Build linear operator: L = diffusivity * (d²/dr² + 2/r d/dr - l(l+1)/r²)
+        # Build linear operator: L = diffusivity * (d²/dr² − l(l+1)/r²)  [D_pol]
         linear_data = copy(base_data)
         l_factor = Float64(l * (l + 1))
         @inbounds for n in 1:N
