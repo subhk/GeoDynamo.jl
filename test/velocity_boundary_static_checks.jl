@@ -25,7 +25,8 @@ end
     velocity_bc = _velocity_bc_static_source("src", "bcs", "velocity_bc.jl")
     velocity_solver = _velocity_bc_static_source("src", "physics", "velocity", "solver.jl")
     imex = _velocity_bc_static_source("src", "timestep", "imex.jl")
-    erk2 = _velocity_bc_static_source("src", "timestep", "erk2.jl")
+    erk2 = join([_velocity_bc_static_source("src", "timestep", "erk2", f) for f in
+                 ("common.jl", "boundary.jl", "cache.jl", "influence.jl", "integrate.jl")], "\n")
 
     @test _sc_occ("_velocity_bc_code(::BoundaryConditions{NoSlip,     NoSlip})     = 1", api)
     @test _sc_occ("_velocity_bc_code(::BoundaryConditions{NoSlip,     StressFree}) = 2", api)

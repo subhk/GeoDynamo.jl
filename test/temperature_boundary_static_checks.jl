@@ -28,7 +28,8 @@ end
     backend = _temperature_bc_static_source("src", "solver", "backend.jl")
     numerics = _temperature_bc_static_source("src", "solver", "numerics.jl")
     imex = _temperature_bc_static_source("src", "timestep", "imex.jl")
-    erk2 = _temperature_bc_static_source("src", "timestep", "erk2.jl")
+    erk2 = join([_temperature_bc_static_source("src", "timestep", "erk2", f) for f in
+                 ("common.jl", "boundary.jl", "cache.jl", "influence.jl", "integrate.jl")], "\n")
 
     @test _sc_occ("_thermal_bc_code(::BoundaryConditions{<:FixedTemperature, <:FixedTemperature}) = 1", api)
     @test _sc_occ("_thermal_bc_code(::BoundaryConditions{<:FixedTemperature, <:FixedFlux})        = 2", api)
