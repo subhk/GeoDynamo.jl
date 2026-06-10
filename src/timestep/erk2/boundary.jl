@@ -1,4 +1,4 @@
-# ERK2 boundary conditions: endpoint BC constructors and per-field BC-spec builders.
+# ERK2 boundary conditions: endpoint BC constructors, enforcement, and per-field BC-spec builders.
 
 """
     solver_enforce_erk2_bc!(result, bc_side, boundary_idx, l, nr; value_override=nothing)
