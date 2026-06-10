@@ -23,56 +23,34 @@ _fp_vec(cfg, dom) = GeoDynamo.create_shtns_vector_field(Float64, cfg, dom,
 _fp_phys(cfg, dom) = GeoDynamo.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.r)
 
 # ---------------------------------------------------------------------------
-# Harness 1: angular derivatives via scalar SH differentiation
+# Harness 1: exact angular derivatives via sphtor spectral synthesis
 #
-# Returns (dθ, dφ) where both are physical fields on pencils.r.
+# Returns (dθ_bare, dφ_oversin) — two physical fields on pencils.r:
+#   dθ_bare    = ∂θ g   (bare colatitude derivative, unit-sphere, no 1/r)
+#   dφ_oversin = (1/sinθ)·∂φ g
 #
-# *** CALIBRATION FINDING (see calibration test below) ***
+# Mechanism: set toroidal = 0, poloidal/spheroidal = spectral(g), call
+# vector_spectral_to_physical! (sphtor synthesis via SHTnsKit
+# dist_synthesis_sphtor!).  Exact for band-limited fields.
 #
-# dφ IS (1/r)∂φg  — the φ-recurrence is im·m·c_lm (exact) → synthesis gives
-#   the true (1/r)∂φg physical field.
-#
-# dθ is NOT (1/r)∂θg.  The θ-recurrence encodes the identity
-#   sinθ · ∂Y_l/∂θ = A_plus(l)·Y_{l+1} + A_minus(l)·Y_{l-1}
-# so spectral output_l = A_plus(l)·c_{l+1} + A_minus(l)·c_{l-1}.
-# After the 1/r geometric factor and synthesis, the physical field is a
-# TRUNCATED SPECTRAL PROJECTION of (sinθ/r)·∂g/∂θ — not (1/r)∂g/∂θ.
-# For g = r²cosθ (only l=1 mode), only the l=2 output mode is excited and
-# the physical result is ≈ −r·(3cos²θ−1), NOT −r·sinθ (the true (1/r)∂θg).
-#
-# Consequence for the curl harnesses:
-#   (∇×F)_θ  uses only dφ and ∂_r — both correct → G_θ is exact.
-#   (∇×F)_r and (∇×F)_φ use dθ → those components carry the truncation error.
-# The harness is useful for internal-consistency checks against the solver's
-# own gradient convention; it is NOT a band-unlimited true-physics reference.
+# The old implementation routed through compute_all_gradients_spectral!, which
+# returned a truncated SH projection of (sinθ/r)·∂θg rather than ∂θg, making
+# the (∇×F)_r and (∇×F)_φ components only approximate.  Replaced.
 # ---------------------------------------------------------------------------
 function _fp_angular_derivs(cfg, dom, g_phys::GeoDynamo.SHTnsPhysField)
     # Step 1: physical → spectral
     g_spec = _fp_spec(cfg, dom)
     GeoDynamo.scalar_physical_to_spectral!(g_phys, g_spec)
 
-    # Step 2: load spectral data into a temperature-field container so that
-    #         compute_all_gradients_spectral! can access 𝔽.spectral, 𝔽.∂r, etc.
-    tf = GeoDynamo.create_shtns_temperature_field(Float64, cfg, dom)
-    parent(tf.spectral.data_real) .= parent(g_spec.data_real)
-    parent(tf.spectral.data_imag) .= parent(g_spec.data_imag)
+    # Step 2: zero toroidal, g_spec as spheroidal/poloidal → sphtor synthesis.
+    #         With domain=nothing the v_r component is zero-filled (not needed).
+    zero_spec = _fp_spec(cfg, dom)   # all-zero toroidal
+    V = _fp_vec(cfg, dom)
+    GeoDynamo.vector_spectral_to_physical!(zero_spec, g_spec, V; domain = nothing)
 
-    # Step 3: compute all gradient components in spectral space (θ, φ, r).
-    #         GradientWorkspace (scalar_operators.jl) is the lightweight version
-    #         that works with AbstractScalarField — no SolverBackend needed.
-    ws = GeoDynamo.create_gradient_workspace(Float64, cfg, dom)
-    GeoDynamo.zero_gradient_workspace!(ws)
-    GeoDynamo.compute_all_gradients_spectral!(tf, dom, ws)
-
-    # Step 4: synthesise θ and φ gradient components back to physical space.
-    #         ws.∇θ_spec holds the TRUNCATED SPECTRAL PROJECTION described above
-    #         (NOT the true (1/r)∂θg).  ws.∇φ_spec holds the exact (1/r)∂φg.
-    dθ = _fp_phys(cfg, dom)
-    dφ = _fp_phys(cfg, dom)
-    GeoDynamo.scalar_spectral_to_physical!(ws.∇θ_spec, dθ)
-    GeoDynamo.scalar_spectral_to_physical!(ws.∇φ_spec, dφ)
-
-    return dθ, dφ
+    # V.θ_component = ∂θg  (bare)
+    # V.φ_component = (1/sinθ)∂φg
+    return V.θ_component, V.φ_component
 end
 
 # ---------------------------------------------------------------------------
@@ -105,26 +83,23 @@ function _fp_radial_deriv(cfg, dom, g_phys)
 end
 
 # ---------------------------------------------------------------------------
-# Harness 3: radial component of curl
+# Harness 3: radial component of curl  (EXACT for band-limited fields)
 #
 # (∇×F)_r = (1/(r sinθ)) [∂_θ(sinθ F_φ) − ∂_φ F_θ]
+#          = ( dθ_bare(sinθ·F_φ) / sinθ  −  dφ_oversin(F_θ) ) / r
 #
-# _fp_angular_derivs returns the exact (1/r)∂_φ(·) but only a TRUNCATED
-# SPECTRAL PROJECTION for the θ-component (see harness 1 header).
-# The formula is written using the (1/r) convention for both:
-#   φ-term: (1/(r sinθ)) ∂_φ F_θ = d_φ_Fθ / sinθ  ← EXACT
-#   θ-term: (1/(r sinθ)) ∂_θ(sinθ F_φ) ≈ d_θ_h / sinθ ← APPROXIMATE (truncation)
-# → (∇×F)_r ≈ (d_θ_h − d_φ_Fθ) / sinθ
-#   (exact only for F_φ band-limited within [0, lmax-1] so all derivative modes fit)
+# dθ_bare    = bare ∂_θ from sphtor synthesis (harness 1)
+# dφ_oversin = (1/sinθ)∂_φ from sphtor synthesis (harness 1)
 #
 # F.θ_component, F.φ_component, F.r_component are all on pencils.r (see
 # create_shtns_vector_field — all components use pencil_r regardless of the
 # tuple argument ordering).
 # ---------------------------------------------------------------------------
 function _fp_radial_curl(cfg, dom, F)
-    sinθ = sin.(cfg.theta_grid)  # colatitude grid; sinθ = sin(θ) ∈ [0,1]
-    nlat = cfg.nlat
-    nlon = cfg.nlon
+    sinθ   = sin.(cfg.theta_grid)  # colatitude grid; sinθ = sin(θ) ∈ [0,1]
+    nlat   = cfg.nlat
+    nlon   = cfg.nlon
+    r_range = GeoDynamo.range_local(cfg.pencils.r, 3)
 
     arr_Fφ = parent(F.φ_component.data)
     arr_Fθ = parent(F.θ_component.data)
@@ -135,41 +110,44 @@ function _fp_radial_curl(cfg, dom, F)
         parent(h_φ.data)[i, j, k] = sinθ[i] * arr_Fφ[i, j, k]
     end
 
-    # Angular derivatives: _fp_angular_derivs returns (1/r)∂_θ, (1/r)∂_φ
-    d_θ_h, _   = _fp_angular_derivs(cfg, dom, h_φ)
-    _, d_φ_Fθ  = _fp_angular_derivs(cfg, dom, F.θ_component)
+    # Exact angular derivatives via sphtor synthesis:
+    #   first return  = dθ_bare(·)    = ∂θ(·)
+    #   second return = dφ_oversin(·) = (1/sinθ)∂φ(·)
+    dθ_h, _   = _fp_angular_derivs(cfg, dom, h_φ)           # ∂θ(sinθ·F_φ)
+    _, dφ_Fθ  = _fp_angular_derivs(cfg, dom, F.θ_component)  # (1/sinθ)∂φ(F_θ)
 
-    a_dθ_h  = parent(d_θ_h.data)
-    a_dφ_Fθ = parent(d_φ_Fθ.data)
+    a_dθ_h  = parent(dθ_h.data)
+    a_dφ_Fθ = parent(dφ_Fθ.data)
 
     out     = _fp_phys(cfg, dom)
     arr_out = parent(out.data)
 
     for k in axes(arr_out, 3), j in 1:nlon, i in 1:nlat
-        arr_out[i, j, k] = (a_dθ_h[i, j, k] - a_dφ_Fθ[i, j, k]) / sinθ[i]
+        r_k = dom.r[k + first(r_range) - 1, 4]
+        # (∇×F)_r = ( ∂θ(sinθ·F_φ)/sinθ  −  (1/sinθ)∂φ(F_θ) ) / r
+        arr_out[i, j, k] = (a_dθ_h[i, j, k] / sinθ[i] - a_dφ_Fθ[i, j, k]) / r_k
     end
 
     return out
 end
 
 # ---------------------------------------------------------------------------
-# Harness 4: full curl ∇×F (three physical components)
+# Harness 4: full curl ∇×F (three physical components)  — EXACT for band-limited fields
 #
-# Accuracy per component (see harness 1 header for the θ-truncation caveat):
+# With exact angular derivatives from sphtor synthesis all three components are
+# spectrally accurate (radial derivative = banded D1, spectral-grade too):
 #
-# (∇×F)_r  ≈ (d_θ_h − d_φ_Fθ) / sinθ          (see harness 3)
-#   φ-term EXACT, θ-term APPROXIMATE (truncated SH projection)
+# (∇×F)_r = ( dθ_bare(sinθ·F_φ)/sinθ  −  dφ_oversin(F_θ) ) / r
+# (∇×F)_θ = ( dφ_oversin(F_r)  −  ∂_r(r·F_φ) ) / r
+# (∇×F)_φ = ( ∂_r(r·F_θ)  −  dθ_bare(F_r) ) / r
 #
-# (∇×F)_θ  = d_φ_Fr / sinθ − ∂_r(rFφ) / r       EXACT
-#   [d_φ_Fr = exact (1/r)∂_φF_r; radial derivative exact]
-#
-# (∇×F)_φ  ≈ ∂_r(rFθ) / r − d_θ_Fr              APPROXIMATE (θ-term)
-#   [radial derivative exact; d_θ_Fr uses truncated θ-projection]
+# dθ_bare    = bare ∂_θ from sphtor synthesis (harness 1)
+# dφ_oversin = (1/sinθ)∂_φ from sphtor synthesis (harness 1)
 # ---------------------------------------------------------------------------
 function _fp_curl(cfg, dom, F)
-    sinθ = sin.(cfg.theta_grid)
-    nlat = cfg.nlat
-    nlon = cfg.nlon
+    sinθ    = sin.(cfg.theta_grid)
+    nlat    = cfg.nlat
+    nlon    = cfg.nlon
     r_range = GeoDynamo.range_local(cfg.pencils.r, 3)
 
     arr_Fr = parent(F.r_component.data)
@@ -177,10 +155,10 @@ function _fp_curl(cfg, dom, F)
     arr_Fφ = parent(F.φ_component.data)
 
     # === Build helper physical fields on pencils.r ===
-    h_φ = _fp_phys(cfg, dom)       # sinθ · F_φ  (for ∂_θ term in G_r)
-    rFφ = _fp_phys(cfg, dom)       # r · F_φ     (for ∂_r term in G_θ)
-    rFθ = _fp_phys(cfg, dom)       # r · F_θ     (for ∂_r term in G_φ)
-    h_Fr = _fp_phys(cfg, dom)      # F_r copy    (for angular derivatives)
+    h_φ  = _fp_phys(cfg, dom)       # sinθ · F_φ  (for ∂_θ term in G_r)
+    rFφ  = _fp_phys(cfg, dom)       # r · F_φ     (for ∂_r term in G_θ)
+    rFθ  = _fp_phys(cfg, dom)       # r · F_θ     (for ∂_r term in G_φ)
+    h_Fr = _fp_phys(cfg, dom)       # F_r copy    (for angular derivatives)
 
     for k in axes(arr_Fr, 3), j in 1:nlon, i in 1:nlat
         r_k = dom.r[k + first(r_range) - 1, 4]
@@ -190,22 +168,23 @@ function _fp_curl(cfg, dom, F)
         parent(h_Fr.data)[i, j, k] = arr_Fr[i, j, k]
     end
 
-    # === Angular derivatives (all return (1/r)∂_θ / (1/r)∂_φ) ===
-    d_θ_h,  _        = _fp_angular_derivs(cfg, dom, h_φ)         # for G_r
-    _, d_φ_Fθ        = _fp_angular_derivs(cfg, dom, F.θ_component)# for G_r
-    _, d_φ_Fr        = _fp_angular_derivs(cfg, dom, h_Fr)         # for G_θ
-    d_θ_Fr, _        = _fp_angular_derivs(cfg, dom, h_Fr)         # for G_φ
+    # === Exact angular derivatives via sphtor synthesis ===
+    #   first return  = dθ_bare(·)    = ∂θ(·)
+    #   second return = dφ_oversin(·) = (1/sinθ)∂φ(·)
+    dθ_h, _        = _fp_angular_derivs(cfg, dom, h_φ)          # ∂θ(sinθ·F_φ) for G_r
+    _, dφ_Fθ       = _fp_angular_derivs(cfg, dom, F.θ_component) # (1/sinθ)∂φ(F_θ) for G_r
+    dθ_Fr, dφ_Fr   = _fp_angular_derivs(cfg, dom, h_Fr)          # ∂θ(F_r) and (1/sinθ)∂φ(F_r)
 
     # === Radial derivatives ===
     deriv_rFφ = _fp_radial_deriv(cfg, dom, rFφ)   # ∂_r(r F_φ)
     deriv_rFθ = _fp_radial_deriv(cfg, dom, rFθ)   # ∂_r(r F_θ)
 
-    a_dθ_h     = parent(d_θ_h.data)
-    a_dφ_Fθ   = parent(d_φ_Fθ.data)
-    a_dφ_Fr    = parent(d_φ_Fr.data)
-    a_dθ_Fr    = parent(d_θ_Fr.data)
-    a_drFφ     = parent(deriv_rFφ.data)
-    a_drFθ     = parent(deriv_rFθ.data)
+    a_dθ_h   = parent(dθ_h.data)
+    a_dφ_Fθ  = parent(dφ_Fθ.data)
+    a_dθ_Fr  = parent(dθ_Fr.data)
+    a_dφ_Fr  = parent(dφ_Fr.data)
+    a_drFφ   = parent(deriv_rFφ.data)
+    a_drFθ   = parent(deriv_rFθ.data)
 
     G = _fp_vec(cfg, dom)
     arr_Gr = parent(G.r_component.data)
@@ -215,69 +194,88 @@ function _fp_curl(cfg, dom, F)
     for k in axes(arr_Gr, 3), j in 1:nlon, i in 1:nlat
         r_k = dom.r[k + first(r_range) - 1, 4]
 
-        # (∇×F)_r = (d_θ_h − d_φ_Fθ) / sinθ
-        arr_Gr[i, j, k] = (a_dθ_h[i, j, k]  - a_dφ_Fθ[i, j, k]) / sinθ[i]
+        # (∇×F)_r = ( ∂θ(sinθ·F_φ)/sinθ − (1/sinθ)∂φ(F_θ) ) / r
+        arr_Gr[i, j, k] = (a_dθ_h[i, j, k] / sinθ[i] - a_dφ_Fθ[i, j, k]) / r_k
 
-        # (∇×F)_θ = d_φ_Fr / sinθ − ∂_r(rFφ) / r
-        arr_Gθ[i, j, k] = a_dφ_Fr[i, j, k] / sinθ[i] - a_drFφ[i, j, k] / r_k
+        # (∇×F)_θ = ( (1/sinθ)∂φ(F_r) − ∂_r(r·F_φ) ) / r
+        arr_Gθ[i, j, k] = (a_dφ_Fr[i, j, k] - a_drFφ[i, j, k]) / r_k
 
-        # (∇×F)_φ = ∂_r(rFθ) / r − d_θ_Fr
-        arr_Gφ[i, j, k] = a_drFθ[i, j, k] / r_k - a_dθ_Fr[i, j, k]
+        # (∇×F)_φ = ( ∂_r(r·F_θ) − ∂θ(F_r) ) / r
+        arr_Gφ[i, j, k] = (a_drFθ[i, j, k] - a_dθ_Fr[i, j, k]) / r_k
     end
 
     return G
 end
 
 # ===========================================================================
-# Calibration test
+# Calibration test — exact angular derivatives
 #
-# Determines what _fp_angular_derivs actually returns for g = r²cosθ.
+# Verifies that _fp_angular_derivs returns the TRUE bare derivatives:
 #
-# True (1/r)∂_θ g = −r sinθ, so if the function returned (1/r)∂_θg we would
-# see dθ / (−sinθ) ≈ r.  If it returned ∂_θg directly we would see ≈ r².
+#   g  = r²·cosθ           → dθ_bare = ∂θ(r²cosθ) = −r²·sinθ
+#   g2 = r·sinθ·cosφ       → dφ_oversin = (1/sinθ)∂φ(r·sinθ·cosφ) = −r·sinφ
 #
-# OBSERVED (see analysis in harness 1 header): the θ-recurrence encodes
-#   sinθ·∂Y_l/∂θ = A_plus(l)·Y_{l+1} + A_minus(l)·Y_{l-1}
-# so for g = r²cosθ (only l=1 SH mode present) the recurrence excites only
-# the l=2 output mode.  After 1/r geometric factor + synthesis:
-#   dθ[i,j,k] ≈ −r_k · (3cos²θ_i − 1)
-# This is NOT −r sinθ (the true gradient); the θ-dependence differs.
-#
-# The test below pins this empirical result at two independent grid points and
-# also records the true gradient value via @info for reference.
+# Both should match to ~rtol 1e-6 (only SH transform roundtrip error).
 # ===========================================================================
-@testset "calibration: scalar gradient scaling" begin
+@testset "calibration: exact angular derivatives" begin
     cfg, dom = _fp_setup()
+    r_range  = GeoDynamo.range_local(cfg.pencils.r, 3)
+
+    # -----------------------------------------------------------------------
+    # Test A: g = r²·cosθ  →  dθ_bare = −r²·sinθ
+    # -----------------------------------------------------------------------
     g = _fp_phys(cfg, dom)
     arr = parent(g.data)
-    r_range = GeoDynamo.range_local(cfg.pencils.r, 3)
     for k in axes(arr, 3), j in 1:cfg.nlon, i in 1:cfg.nlat
         r_k = dom.r[min(k + first(r_range) - 1, dom.N), 4]
         arr[i, j, k] = r_k^2 * cos(cfg.theta_grid[i])
     end
     dθ, _ = _fp_angular_derivs(cfg, dom, g)
-    a = parent(dθ.data)
+    a_dθ  = parent(dθ.data)
 
-    # --- first probe point ---
     i1, j1, k1 = 3, 4, div(FP_NR, 2)
-    r1  = dom.r[k1 + first(r_range) - 1, 4]
-    θ1  = cfg.theta_grid[i1]
-    observed1  = a[i1, j1, k1]
-    expected1  = -r1 * (3 * cos(θ1)^2 - 1)
-    true_val1  = -r1 * sin(θ1)            # what (1/r)∂_θg should be
-    @info "calibration point 1" observed = observed1 expected_truncated = expected1 true_gradient = true_val1 r = r1 θ = θ1
+    r1 = dom.r[k1 + first(r_range) - 1, 4]
+    θ1 = cfg.theta_grid[i1]
+    obs1 = a_dθ[i1, j1, k1]
+    exp1 = -r1^2 * sin(θ1)
+    @info "dθ_bare probe 1" observed = obs1 expected = exp1 r = r1 θ = θ1
 
-    # --- second probe point (different θ to confirm θ-dependence) ---
     i2, j2, k2 = 8, 2, div(FP_NR, 3)
-    r2  = dom.r[k2 + first(r_range) - 1, 4]
-    θ2  = cfg.theta_grid[i2]
-    observed2  = a[i2, j2, k2]
-    expected2  = -r2 * (3 * cos(θ2)^2 - 1)
-    true_val2  = -r2 * sin(θ2)
-    @info "calibration point 2" observed = observed2 expected_truncated = expected2 true_gradient = true_val2 r = r2 θ = θ2
+    r2 = dom.r[k2 + first(r_range) - 1, 4]
+    θ2 = cfg.theta_grid[i2]
+    obs2 = a_dθ[i2, j2, k2]
+    exp2 = -r2^2 * sin(θ2)
+    @info "dθ_bare probe 2" observed = obs2 expected = exp2 r = r2 θ = θ2
 
-    # Pin the ACTUAL observed behavior: dθ ≈ −r·(3cos²θ−1) at both probes.
-    # (NOT −r·sinθ — the θ-recurrence gives a truncated SH projection.)
-    @test isapprox(observed1, expected1; rtol = 1e-4)
-    @test isapprox(observed2, expected2; rtol = 1e-4)
+    @test isapprox(obs1, exp1; rtol = 1e-6)
+    @test isapprox(obs2, exp2; rtol = 1e-6)
+
+    # -----------------------------------------------------------------------
+    # Test B: g2 = r·sinθ·cosφ  →  dφ_oversin = −r·sinφ
+    # -----------------------------------------------------------------------
+    g2   = _fp_phys(cfg, dom)
+    arr2 = parent(g2.data)
+    for k in axes(arr2, 3), j in 1:cfg.nlon, i in 1:cfg.nlat
+        r_k = dom.r[min(k + first(r_range) - 1, dom.N), 4]
+        arr2[i, j, k] = r_k * sin(cfg.theta_grid[i]) * cos(cfg.phi_grid[j])
+    end
+    _, dφ = _fp_angular_derivs(cfg, dom, g2)
+    a_dφ  = parent(dφ.data)
+
+    i3, j3, k3 = 4, 5, div(FP_NR, 2)
+    r3  = dom.r[k3 + first(r_range) - 1, 4]
+    φ3  = cfg.phi_grid[j3]
+    obs3 = a_dφ[i3, j3, k3]
+    exp3 = -r3 * sin(φ3)
+    @info "dφ_oversin probe 1" observed = obs3 expected = exp3 r = r3 φ = φ3
+
+    i4, j4, k4 = 7, 10, div(FP_NR, 3)
+    r4  = dom.r[k4 + first(r_range) - 1, 4]
+    φ4  = cfg.phi_grid[j4]
+    obs4 = a_dφ[i4, j4, k4]
+    exp4 = -r4 * sin(φ4)
+    @info "dφ_oversin probe 2" observed = obs4 expected = exp4 r = r4 φ = φ4
+
+    @test isapprox(obs3, exp3; rtol = 1e-6)
+    @test isapprox(obs4, exp4; rtol = 1e-6)
 end
