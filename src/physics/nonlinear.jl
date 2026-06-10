@@ -1006,6 +1006,22 @@ function GeoDynamo.compute_composition_nonlinear!(
 end
 
 function compute_solver_nonlinear_terms!(state::SolverState)
+    # Buoyancy reads the scalar PHYSICAL fields during the velocity force
+    # assembly below. Refresh them from the current spectral state FIRST —
+    # historically they were only populated by each scalar's own nonlinear
+    # pass (which runs AFTER velocity), so buoyancy saw zeros on the first
+    # step and a one-step-lagged temperature afterwards (an O(dt)
+    # inconsistency). One extra scalar synthesis per field per step;
+    # the scalar passes later re-do it (acceptable; optimization noted).
+    scalar_spectral_to_physical!(
+        state.fields.temperature.spectral,
+        solver_main_physical_field(state.fields.temperature))
+    if state.fields.composition !== nothing
+        scalar_spectral_to_physical!(
+            state.fields.composition.spectral,
+            solver_main_physical_field(state.fields.composition))
+    end
+
     # Velocity nonlinear terms define the advecting flow shared by every other
     # subsystem, so that path runs first.
     solver_compute_velocity_nonlinear!(

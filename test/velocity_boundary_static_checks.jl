@@ -101,10 +101,14 @@ end
         "function apply_velocity_poloidal_no_penetration!("
     )
     @test _sc_occ("bc_spec=bc_spec", toroidal_update)
-    @test _sc_occ("bc_spec=bc_spec", poloidal_update)
     @test _sc_occ("_timestepper_krylov_dimension(timestepper, state.parameters)", toroidal_update)
-    @test _sc_occ("_timestepper_krylov_dimension(timestepper, state.parameters)", poloidal_update)
-    @test _sc_occ("apply_velocity_poloidal_no_penetration!(state, velocity_bc)", poloidal_update)
+    # Stage-4B: the poloidal update is the pressure-free W-split (CNAB2-only;
+    # exponential paths gated). It enforces P=0 via Dirichlet recovery rows and
+    # P'=0 via cached influence corrections — the legacy bc_spec / EAB2 /
+    # no-penetration plumbing no longer appears in this function.
+    @test _sc_occ("_get_or_build_poloidal_split!(state, velocity_bc)", poloidal_update)
+    @test _sc_occ("_apply_poloidal_wsplit_cnab2!", poloidal_update)
+    @test _sc_occ("error(_VEL_POL_STAGE4B_MSG)", poloidal_update)
     @test _sc_occ("get_solver_erk2_influence_matrices!", no_penetration)
     @test _sc_occ("apply_solver_velocity_poloidal_influence_correction!", no_penetration)
 end

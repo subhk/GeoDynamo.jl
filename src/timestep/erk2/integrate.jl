@@ -573,6 +573,11 @@ velocity-poloidal influence correction, and restores nonlinear histories.
 """
 function integrate_solver_erk2_step!(state::SolverState{
         T, <:AbstractArchitecture}) where {T}
+    # Stage-4B gate: nl_poloidal now carries the W-equation RHS of the
+    # pressure-free double-curl momentum form; the ERK2 stage machinery still
+    # advances P with the legacy operator/projection and must refuse loudly
+    # until ported. See _VEL_POL_STAGE4B_MSG.
+    error(_VEL_POL_STAGE4B_MSG)
     params = state.parameters
     runtime = state.runtime
     domain = state.backend.outer_core_domain

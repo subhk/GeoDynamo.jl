@@ -478,3 +478,117 @@ function solve_velocity_implicit_step!(solution::SHTnsSpecField{T},
 
     return solution
 end
+
+"""
+    create_velocity_poloidal_split_matrices(config, domain, Ek, dt; velocity_bc_code, theta=0.5, T=Float64)
+
+Stage-4B W-split operators for the pressure-free poloidal momentum equation
+    Ek(∂t − D_pol)W = N_W,   W = D_pol·P,   D_pol = ∂_rr − l(l+1)/r²
+with Dirichlet P-recovery (P=0 at both walls) and cached no-slip influence
+responses enforcing P′=0 (velocity_bc_code == 1). Other BC codes error loudly
+until ported. See docs/superpowers/plans/2026-06-10-double-curl-stage4b-*.md.
+"""
+function create_velocity_poloidal_split_matrices(config::SHTnsKitConfig,
+        domain::RadialDomain,
+        Ek::Float64,
+        dt::Float64;
+        velocity_bc_code::Int,
+        theta::Float64 = 0.5,
+        T::Type{<:Number} = Float64)
+    velocity_bc_code == 1 || error(
+        "stage 4B: the poloidal W-split currently supports no-slip/no-slip " *
+        "(velocity_bc_code=1); got $velocity_bc_code — stress-free is a follow-up")
+
+    unique_l = unique(config.l_values)
+    nL = length(unique_l)
+    d2 = create_derivative_matrix(T, 2, domain)
+    d1 = create_derivative_matrix(T, 1, domain)
+    r_inv_sq = @views domain.r[1:domain.N, 2]
+    bw = radial_bandwidth(domain)
+    N = domain.N
+    inv_dt = T(Ek / dt)
+    θ_T = T(theta)
+
+    dpol_op = Vector{BandedMatrix{T}}(undef, nL)
+    w_factor = Vector{BandedLU{T}}(undef, nL)
+    w_linear = Vector{BandedMatrix{T}}(undef, nL)
+    p_factor = Vector{BandedLU{T}}(undef, nL)
+    g1 = Vector{Vector{T}}(undef, nL); g2 = Vector{Vector{T}}(undef, nL)
+    h1 = Vector{Vector{T}}(undef, nL); h2 = Vector{Vector{T}}(undef, nL)
+    influence = Vector{Matrix{T}}(undef, nL)
+    l_values = Vector{Int}(undef, nL)
+    lookup = Dict{Int, Int}()
+
+    # endpoint first-derivative rows (dense copies of the banded d1 rows)
+    d1_row_inner = zeros(T, N)
+    d1_row_outer = zeros(T, N)
+    @inbounds for j in 1:N
+        if 1 <= bw + 1 + 1 - j <= 2bw + 1
+            d1_row_inner[j] = d1.data[bw + 1 + 1 - j, j]
+        end
+        if 1 <= bw + 1 + N - j <= 2bw + 1
+            d1_row_outer[j] = d1.data[bw + 1 + N - j, j]
+        end
+    end
+
+    e1 = zeros(T, N); e1[1] = one(T)
+    eN = zeros(T, N); eN[N] = one(T)
+    gtmp = Vector{T}(undef, N)
+    htmp = Vector{T}(undef, N)
+
+    for (idx, l) in enumerate(unique_l)
+        l_values[idx] = l
+        lookup[l] = idx
+        λ = Float64(l * (l + 1))
+
+        # D_pol per l
+        dpol_data = copy(d2.data)
+        @inbounds for n in 1:N
+            dpol_data[bw + 1, n] -= T(λ * r_inv_sq[n])
+        end
+        dpol = BandedMatrix{T}(dpol_data, bw, N)
+        dpol_op[idx] = dpol
+
+        # Ek·D_pol (explicit CN term)
+        w_linear[idx] = BandedMatrix{T}(T(Ek) .* dpol_data, bw, N)
+
+        # W-advance system: (Ek/dt)I − θ·Ek·D_pol  — PDE rows everywhere
+        wsys_data = (-θ_T * T(Ek)) .* dpol_data
+        wsys_data[bw + 1, :] .+= inv_dt
+        wsys = BandedMatrix{T}(wsys_data, bw, N)
+        w_factor[idx] = factorize_banded(wsys)
+
+        # P-recovery: D_pol with Dirichlet rows (rows 1, N → identity)
+        prec_data = copy(dpol_data)
+        @inbounds for j in 1:(1 + bw)
+            prec_data[bw + 1 + 1 - j, j] = zero(T)
+        end
+        @inbounds for j in (N - bw):N
+            prec_data[bw + 1 + N - j, j] = zero(T)
+        end
+        prec_data[bw + 1, 1] = one(T)
+        prec_data[bw + 1, N] = one(T)
+        prec = BandedMatrix{T}(prec_data, bw, N)
+        p_factor[idx] = factorize_banded(prec)
+
+        # Influence responses (no-slip): g_i = A_W⁻¹ e_i; h_i = A_P⁻¹ R(g_i)
+        # with R zeroing the Dirichlet RHS rows; M[j,i] = endpoint-P′ of h_i.
+        gv1 = Vector{T}(undef, N); gv2 = Vector{T}(undef, N)
+        hv1 = Vector{T}(undef, N); hv2 = Vector{T}(undef, N)
+        solve_banded!(gv1, w_factor[idx], e1)
+        solve_banded!(gv2, w_factor[idx], eN)
+        copyto!(gtmp, gv1); gtmp[1] = zero(T); gtmp[N] = zero(T)
+        solve_banded!(hv1, p_factor[idx], gtmp)
+        copyto!(htmp, gv2); htmp[1] = zero(T); htmp[N] = zero(T)
+        solve_banded!(hv2, p_factor[idx], htmp)
+        g1[idx] = gv1; g2[idx] = gv2; h1[idx] = hv1; h2[idx] = hv2
+        M = Matrix{T}(undef, 2, 2)
+        M[1, 1] = dot(d1_row_inner, hv1); M[1, 2] = dot(d1_row_inner, hv2)
+        M[2, 1] = dot(d1_row_outer, hv1); M[2, 2] = dot(d1_row_outer, hv2)
+        influence[idx] = M
+    end
+
+    return PoloidalSplitMatrices{T}(dpol_op, w_factor, w_linear, p_factor,
+        g1, g2, h1, h2, influence, d1_row_inner, d1_row_outer,
+        l_values, lookup, theta, Ek)
+end
