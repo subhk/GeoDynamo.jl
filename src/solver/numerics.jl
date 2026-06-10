@@ -1240,30 +1240,29 @@ function compute_vorticity_spectral!(
                 else
                     r_inv = domain.r[r_idx, 3]
                     r_inv2 = domain.r[r_idx, 2]
+                    # Solenoidal convention (Stage 2): ω = ∇×u has stored
+                    # potentials T_ω = (P'' − λP/r²)/r and P_ω = −r·T
+                    # (verified against the Stage-1 curl projections).
                     set_local_spectral_value!(ζ_tor_real,
                         slot,
                         local_r,
-                        (
-                            l_factor * r_inv2 * pol_profile_real[r_idx]
-                            -
+                        r_inv * (
                             d2pol_dr2_real[r_idx]
                             -
-                            2.0 * r_inv * dpol_dr_real[r_idx]
+                            l_factor * r_inv2 * pol_profile_real[r_idx]
                         ))
                     set_local_spectral_value!(ζ_tor_imag,
                         slot,
                         local_r,
-                        (
-                            l_factor * r_inv2 * pol_profile_imag[r_idx]
-                            -
+                        r_inv * (
                             d2pol_dr2_imag[r_idx]
                             -
-                            2.0 * r_inv * dpol_dr_imag[r_idx]
+                            l_factor * r_inv2 * pol_profile_imag[r_idx]
                         ))
                     set_local_spectral_value!(ζ_pol_real, slot, local_r,
-                        -l_factor * r_inv2 * tor_profile_real[r_idx])
+                        -r * tor_profile_real[r_idx])
                     set_local_spectral_value!(ζ_pol_imag, slot, local_r,
-                        -l_factor * r_inv2 * tor_profile_imag[r_idx])
+                        -r * tor_profile_imag[r_idx])
                 end
             end
         end

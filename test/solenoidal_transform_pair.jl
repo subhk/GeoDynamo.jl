@@ -335,3 +335,88 @@ end
         @test isapprox(x, y; rtol = 1e-8, atol = 1e-12)
     end
 end
+
+# ===========================================================================
+# Stage-2 Task 4: vorticity under the solenoidal convention.
+#
+# Derivation in the code's pinned basis (machine-verified pieces):
+#   velocity u = 𝒫(P) + 𝒯(T):  u_r = λP/r²·Y, S_u = P'/r, T_u = T
+#   ω = ∇×u  ⇒  stored potentials of ω:
+#     P_ω = −r·T                      (curl of toroidal → poloidal)
+#     T_ω = (P'' − λP/r²)/r           (curl of poloidal → toroidal)
+#
+# Non-circular check for T_ω: the Stage-1-verified projection identity gives
+#   [r̂·∇×ω]_lm = [r̂·∇×∇×u]_lm = (λ/r²)·(Q_u − ∂_r(r·S_u))
+# with (Q_u,S_u) from the RAW QST analysis of the synthesized u; the vorticity
+# formula must satisfy −(λ/r)·T_ω == that, per mode and radius.
+# P_ω is pinned by ω_r: λ·P_ω/r² == −(λ/r)·T_u (Stage-1 toroidal projection).
+# ===========================================================================
+@testset "spectral vorticity matches Stage-1 curl projections" begin
+    cfg, dom = _st_setup()
+    Random.seed!(31)
+    vf = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, dom)
+    tor = vf.toroidal; pol = vf.poloidal
+    # SMOOTH radial profiles (random amplitude per MODE, not per radius): the
+    # check compares a direct D2 against a composed D1∘D1 discretization, which
+    # only agree on resolved profiles — white noise in r would be a test
+    # artifact, not a formula probe.
+    for spec in (tor, pol)
+        sr = parent(spec.data_real); si = parent(spec.data_imag)
+        for lm in 1:cfg.nlm
+            slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
+            l = cfg.l_values[lm]; m = cfg.m_values[lm]
+            (1 <= l <= 6) || continue
+            amp_r = randn() * 1e-2
+            amp_i = m > 0 ? 0.7 * randn() * 1e-2 : 0.0
+            for r_idx in 1:dom.N
+                x = (dom.r[r_idx, 4] - dom.r[1, 4]) / (dom.r[dom.N, 4] - dom.r[1, 4])
+                prof = sinpi(x) * (1.0 + 0.3x)
+                GeoDynamo.set_local_spectral_value!(sr, slot, r_idx, amp_r * prof)
+                m > 0 && GeoDynamo.set_local_spectral_value!(si, slot, r_idx, amp_i * prof)
+            end
+        end
+    end
+
+    GeoDynamo.compute_vorticity_spectral!(vf, dom)
+    ζT = vf.ζᵀ; ζP = vf.ζᴾ
+
+    # Reference projections from the RAW QST analysis of the synthesized u
+    V = _st_vec(cfg, dom)
+    GeoDynamo.vector_spectral_to_physical!(tor, pol, V; domain = dom)
+    Q = _st_spec(cfg, dom); S = _st_spec(cfg, dom); T_ = _st_spec(cfg, dom)
+    GeoDynamo.force_physical_to_qst!(V, Q, S, T_)
+    Rtor = _st_spec(cfg, dom); Rpol = _st_spec(cfg, dom)
+    GeoDynamo.force_curl_projections!(Rtor, Rpol, Q, S, T_, dom)
+
+    # (a) T_ω: −(λ/r)·ζᵀ_lm(r) == Rpol_lm(r)  (interior radii)
+    # (b) P_ω: λ·ζᴾ_lm(r)/r²   == Rtor_lm(r)
+    failures_a = 0; failures_b = 0; checked = 0
+    for lm in 1:cfg.nlm
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+        slot === nothing && continue
+        l = cfg.l_values[lm]
+        (1 <= l <= 6) || continue
+        λ = l * (l + 1)
+        for (zt, zp, rt, rp) in (
+            (parent(ζT.data_real), parent(ζP.data_real),
+             parent(Rtor.data_real), parent(Rpol.data_real)),
+            (parent(ζT.data_imag), parent(ζP.data_imag),
+             parent(Rtor.data_imag), parent(Rpol.data_imag)))
+            for r_idx in 3:(dom.N - 2)
+                r = dom.r[r_idx, 4]
+                a_lhs = -λ / r * GeoDynamo.local_spectral_value(zt, slot, r_idx)
+                a_rhs = GeoDynamo.local_spectral_value(rp, slot, r_idx)
+                b_lhs = λ / r^2 * GeoDynamo.local_spectral_value(zp, slot, r_idx)
+                b_rhs = GeoDynamo.local_spectral_value(rt, slot, r_idx)
+                isapprox(a_lhs, a_rhs; rtol = 1e-5, atol = 1e-10) || (failures_a += 1)
+                isapprox(b_lhs, b_rhs; rtol = 1e-5, atol = 1e-10) || (failures_b += 1)
+                checked += 1
+            end
+        end
+    end
+    @info "vorticity check" checked failures_a failures_b
+    @test checked > 0
+    @test failures_a == 0
+    @test failures_b == 0
+end
