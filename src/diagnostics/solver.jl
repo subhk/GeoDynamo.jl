@@ -161,11 +161,112 @@ function report_energy_conservation(
     return nothing
 end
 
+"""
+    compute_divergence_spectral(tor_spec, pol_spec, domain) -> (l2, linf)
+
+Real divergence diagnostic: synthesizes the vector field from its (T, P)
+potentials and evaluates ∇·u on the physical grid using a banded D1 radial
+derivative and exact spectral angular derivatives (sphtor synthesis trick),
+returning grid RMS (L2) and L∞ norms over the interior radial nodes.
+
+Formula in spherical coordinates:
+    ∇·u = (1/r²)∂_r(r²·u_r) + (1/(r·sinθ))[∂_θ(sinθ·u_θ) + ∂_φ(u_φ)]
+
+Replaces a stub that hardcoded (0.0, 0.0).
+Allocation-heavy (builds scratch fields per call) — diagnostic path only.
+
+# TODO(stage2): MPI.Allreduce the norms for multi-rank.
+"""
 function compute_divergence_spectral(
         tor_spec::SpectralFieldType{T},
         pol_spec::SpectralFieldType{T},
         domain::RadialDomainType) where {T}
-    (0.0, 0.0)
+    cfg  = tor_spec.config
+    nlat = cfg.nlat
+    nlon = cfg.nlon
+
+    # 1. Synthesize vector field from (toroidal, poloidal) potentials.
+    V = create_shtns_vector_field(T, cfg, domain, (cfg.pencils.θ, cfg.pencils.φ, cfg.pencils.r))
+    vector_spectral_to_physical!(tor_spec, pol_spec, V; domain = domain)
+
+    # 2. Angular derivative harness: T=0, S=g_spec → sphtor synthesis.
+    #    Returns (∂_θ g,  (1/sinθ)·∂_φ g) as physical fields on pencil_r.
+    function _angular_derivs(g_phys)
+        g_spec_tmp = create_shtns_spectral_field(T, cfg, domain, cfg.pencils.spec)
+        scalar_physical_to_spectral!(g_phys, g_spec_tmp)
+        zero_tor = create_shtns_spectral_field(T, cfg, domain, cfg.pencils.spec)
+        W = create_shtns_vector_field(T, cfg, domain, (cfg.pencils.θ, cfg.pencils.φ, cfg.pencils.r))
+        vector_spectral_to_physical!(zero_tor, g_spec_tmp, W; domain = nothing)
+        return W.θ_component, W.φ_component
+    end
+
+    # 3. Radial derivative harness: banded D1 applied column-by-column.
+    function _radial_deriv(g_phys)
+        D1      = create_derivative_matrix(T, 1, domain)
+        nr      = domain.N
+        arr_in  = parent(g_phys.data)
+        out     = create_shtns_physical_field(T, cfg, domain, cfg.pencils.r)
+        arr_out = parent(out.data)
+        prof    = Vector{T}(undef, nr)
+        dprof   = Vector{T}(undef, nr)
+        for j in 1:size(arr_in, 2), i in 1:size(arr_in, 1)
+            for k in 1:nr; prof[k]    = arr_in[i, j, k]; end
+            mul!(dprof, D1, prof)
+            for k in 1:nr; arr_out[i, j, k] = dprof[k]; end
+        end
+        return out
+    end
+
+    r_range = range_local(cfg.pencils.r, 3)
+    sinθ    = sin.(cfg.theta_grid)
+
+    # 4. Build r²·u_r → differentiate radially → A = ∂_r(r²·u_r)
+    r2ur = create_shtns_physical_field(T, cfg, domain, cfg.pencils.r)
+    a    = parent(r2ur.data)
+    ur   = parent(V.r_component.data)
+    for k in axes(a, 3), j in 1:nlon, i in 1:nlat
+        r          = domain.r[k + first(r_range) - 1, 4]
+        a[i, j, k] = r^2 * ur[i, j, k]
+    end
+    d_r2ur = _radial_deriv(r2ur)
+
+    # 5. Build sinθ·u_θ → angular derivative → B = ∂_θ(sinθ·u_θ)
+    sut = create_shtns_physical_field(T, cfg, domain, cfg.pencils.r)
+    b   = parent(sut.data)
+    uθ  = parent(V.θ_component.data)
+    for k in axes(b, 3), j in 1:nlon, i in 1:nlat
+        b[i, j, k] = sinθ[i] * uθ[i, j, k]
+    end
+    dθ_sut, _ = _angular_derivs(sut)
+
+    # 6. C = (1/sinθ)·∂_φ(u_φ) directly from angular derivative of u_φ
+    _, dφ_uφ = _angular_derivs(V.φ_component)
+
+    # 7. Accumulate L2 and L∞ over interior radial nodes (skip boundaries
+    #    where D1 is less accurate).
+    # TODO(stage2): MPI.Allreduce the norms for multi-rank
+    A       = parent(d_r2ur.data)
+    B       = parent(dθ_sut.data)
+    C       = parent(dφ_uφ.data)
+    n_int   = 0
+    sum_sq  = zero(T)
+    max_abs = zero(T)
+    for k in axes(A, 3)
+        r_glob = k + first(r_range) - 1
+        (2 <= r_glob <= domain.N - 1) || continue
+        n_int += 1
+        r = domain.r[r_glob, 4]
+        for j in 1:nlon, i in 1:nlat
+            div_val = A[i, j, k] / r^2 + (B[i, j, k] / sinθ[i] + C[i, j, k]) / r
+            sum_sq  += div_val^2
+            abs_v    = abs(div_val)
+            abs_v > max_abs && (max_abs = abs_v)
+        end
+    end
+
+    l2   = n_int > 0 ? sqrt(sum_sq / (n_int * nlat * nlon)) : zero(T)
+    linf = max_abs
+    return (Float64(l2), Float64(linf))
 end
 
 function trim_solenoidal_monitor!(monitor::SolverSolenoidalMonitor)
