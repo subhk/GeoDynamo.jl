@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the (T,P)↔velocity transform pair a consistent solenoidal toroidal–poloidal representation — `u_r = l(l+1)·P/r²`, tangential spheroidal scalar `S = (1/r)·∂_r(r·P)` — with a REAL divergence diagnostic as the acceptance gate, unifying the two existing u_r conventions.
+**Goal:** Make the (T,P)↔velocity transform pair a consistent solenoidal toroidal–poloidal representation — `u_r = l(l+1)·P/r²`, tangential spheroidal scalar `S = (∂_r P)/r` — with a REAL divergence diagnostic as the acceptance gate, unifying the two existing u_r conventions.
 
 **Architecture:** Stage 2 of `docs/superpowers/specs/2026-06-10-poloidal-momentum-double-curl-design.md`. The synthesis change lives in the shared `vector_spectral_to_physical_disttranspose!` core (one site) plus its two `vr_factor` call sites; the analysis change makes P recovery Q-based (`P = r²·Q(u)/λ`) using the Stage-1 radial-analysis plumbing. Vorticity formulas re-derive under the new convention and are verified against the Stage-1 numerical curl reference (exact single-pass). Everything is gated by a new, real solenoidality check (the existing `compute_divergence_spectral` is a stub returning `(0.0, 0.0)` — the "Solenoidal Constraint Report" has been fake).
 
