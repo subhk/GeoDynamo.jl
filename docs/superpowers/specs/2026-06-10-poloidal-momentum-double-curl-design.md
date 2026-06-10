@@ -184,3 +184,34 @@ al. (2001) benchmark Case 0 left as a follow-up acceptance target.
   reference-verified projections de-risk the math before dynamics move.
 - Multi-session effort. Stages land independently green: 1 (pure addition),
   2 (transform pair + tests), 3 (small), 4 (poloidal solve), 5 (validation).
+
+## 6. Stage-5 cross-validation against DD_2DCODE (2026-06-11) — CONFIRMED
+
+The restored Fortran reference (`DD_2DCODE/`, untracked) independently confirms
+every structural choice, with all apparent differences explained exactly by a
+variable convention (their poloidal variable g vs ours P = r·g):
+
+- `var_coll_TorPol2qst` (variables.f90:463): `q = l(l+1)/r·Pol`,
+  `s = √(l(l+1))·(1/r + ∂_r)·Pol` — radial convention u_r = λg/r with the
+  derivative-coupled spheroidal scalar. Ours: u_r = λP/r², S = ∂_rP/r.
+  Identical under P = r·g (note ∂_r(rg)/r ≡ ∂_rP/r — the SAME tangential
+  scalar).
+- `tim_lumesh_X` + `radLap = ∂_rr + (2/r)∂_r` (meshs.f90:10): full Laplacian on
+  g ≡ our D_pol = ∂_rr − λ/r² on P by exact conjugation:
+  (∂_rr − λ/r²)(r·g) = r·Δ_l g.
+- `non_velocity` (nonlinear.f90): force → `tra_rtp2qst` (3-component QST),
+  **buoyancy added to the q scalar** (`cq += PrT·qRaT·r·T`), toroidal RHS from
+  `qstllcurlr(t)`, poloidal RHS from `qstllcurlcurlr(q,s)` — our Stage-1/4B
+  projections exactly (their curl-curl formula `λq/r² − √λ/r·(1/r+∂_r)s`
+  matches our (λ/r²)(Q − ∂_r(rS)) under their √λ normalization).
+- `vel_matrices` (velocity.f90:57): Green's-function influence method — delta
+  sources at the endpoint rows, the XGre→XPol two-solve chain, a 2×2 inverted
+  influence matrix per l — structurally identical to our
+  `PoloidalSplitMatrices` (w_factor→p_factor chain, 2×2 correction).
+
+**The original GeoDynamo defect, precisely isolated:** it was the Fortran
+g-convention HALF-ported — u_r = λP/r and full-Laplacian operators (consistent
+g-convention pieces) but with the `(1/r+∂_r)` spheroidal coupling missing from
+the synthesis and the q scalar dropped from the force/induction projections.
+Our Stage 2–4B is the standard P̂-convention implemented fully consistently;
+the Fortran validates it end to end.
