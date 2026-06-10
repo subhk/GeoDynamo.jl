@@ -28,7 +28,8 @@ end
     backend = _composition_bc_static_source("src", "solver", "backend.jl")
     numerics = _composition_bc_static_source("src", "solver", "numerics.jl")
     imex = _composition_bc_static_source("src", "timestep", "imex.jl")
-    erk2 = _composition_bc_static_source("src", "timestep", "erk2.jl")
+    erk2 = join([_composition_bc_static_source("src", "timestep", "erk2", f) for f in
+                 ("common.jl", "boundary.jl", "cache.jl", "influence.jl", "integrate.jl")], "\n")
 
     @test _sc_occ("_composition_bc_code(bc) = _thermal_bc_code(bc)", api)
 

@@ -23,7 +23,8 @@ end
 @testset "Magnetic boundary-condition static contract" begin
     magnetic_bc = _magnetic_bc_static_source("src", "bcs", "magnetic_bc.jl")
     magnetic_solver = _magnetic_bc_static_source("src", "physics", "magnetic", "solver.jl")
-    erk2 = _magnetic_bc_static_source("src", "timestep", "erk2.jl")
+    erk2 = join([_magnetic_bc_static_source("src", "timestep", "erk2", f) for f in
+                 ("common.jl", "boundary.jl", "cache.jl", "influence.jl", "integrate.jl")], "\n")
 
     tor_matrices = _magnetic_bc_static_function_body(
         magnetic_bc,
