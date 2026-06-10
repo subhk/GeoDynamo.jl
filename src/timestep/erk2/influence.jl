@@ -1,4 +1,5 @@
 # ERK2 influence matrices: poloidal-velocity boundary-condition correction.
+
 """
     _get_or_build_erk2_influence_entry(existing, T, config, domain, diffusivity, dt, velocity_bc_code; theta)
 
