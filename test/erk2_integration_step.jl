@@ -51,65 +51,17 @@ using MPI
     @test params.include_composition == true
 
     state = GeoDynamo.initialize_simulation(Float64, params)
-    # The initial condition is deterministic and suite-order independent:
-    # initialize_fields! -> initialize_solver_fields! re-seeds the global RNG
-    # internally (Random.seed!(42 + rank), src/timestep/driver.jl) before every
-    # field init, so no external seed is needed or effective here.
-    #
-    # This test used to flake (magnetic-poloidal non-finite only under the full
-    # suite, finite in isolation). That was NOT FP/BLAS-threading: the root cause
-    # was SolverERK2FieldBuffers allocating its work buffers with `similar`
-    # (uninitialized) — a buffer read before write on the first step saw heap
-    # garbage left by prior tests (zeros on a fresh process, hence fine in
-    # isolation). Fixed by zero-initializing those buffers in src/timestep/erk2.jl.
     GeoDynamo.initialize_fields!(state)
-
-    # Both optional field sets must actually exist for the magnetic/composition
-    # branches of integrate_solver_erk2_step! to execute.
     @test state.fields.magnetic !== nothing
     @test state.fields.composition !== nothing
 
-    # Snapshot one coefficient array per evolving subsystem before the step.
-    snap_vel_tor = copy(parent(state.fields.velocity.toroidal.data_real))
-    snap_temp = copy(parent(state.fields.temperature.spectral.data_real))
-    snap_mag_tor = copy(parent(state.fields.magnetic.toroidal.data_real))
-    snap_mag_pol = copy(parent(state.fields.magnetic.poloidal.data_real))
-    snap_comp = copy(parent(state.fields.composition.spectral.data_real))
-
-    # One full ERK2 step (dispatches through apply_solver_implicit_step! ->
-    # integrate_solver_erk2_step!).
-    GeoDynamo.solver_step!(state)
-    @test state.step == 1
-
-    # (a) Magnetic toroidal + poloidal coefficients remain finite.
-    @test all(isfinite, parent(state.fields.magnetic.toroidal.data_real))
-    @test all(isfinite, parent(state.fields.magnetic.toroidal.data_imag))
-    @test all(isfinite, parent(state.fields.magnetic.poloidal.data_real))
-    @test all(isfinite, parent(state.fields.magnetic.poloidal.data_imag))
-
-    # (b) Composition coefficients remain finite.
-    @test all(isfinite, parent(state.fields.composition.spectral.data_real))
-    @test all(isfinite, parent(state.fields.composition.spectral.data_imag))
-
-    # Velocity + temperature (always-on subsystems) also stay finite.
-    @test all(isfinite, parent(state.fields.velocity.toroidal.data_real))
-    @test all(isfinite, parent(state.fields.velocity.poloidal.data_real))
-    @test all(isfinite, parent(state.fields.temperature.spectral.data_real))
-
-    # (c) The step actually advanced state: at least one coefficient changed.
-    vel_tor_changed = any(snap_vel_tor .!= parent(state.fields.velocity.toroidal.data_real))
-    temp_changed = any(snap_temp .!= parent(state.fields.temperature.spectral.data_real))
-    mag_tor_changed = any(snap_mag_tor .!= parent(state.fields.magnetic.toroidal.data_real))
-    mag_pol_changed = any(snap_mag_pol .!= parent(state.fields.magnetic.poloidal.data_real))
-    comp_changed = any(snap_comp .!= parent(state.fields.composition.spectral.data_real))
-
-    @test vel_tor_changed || temp_changed || mag_tor_changed ||
-          mag_pol_changed || comp_changed
-    # Stronger: the magnetic + composition branches specifically advanced their
-    # own fields (proves those uncovered branches ran, not just velocity/temp).
-    @test mag_tor_changed
-    @test mag_pol_changed
-    @test comp_changed
+    # Stage-4B gate: nl_poloidal now carries the W-equation RHS of the
+    # pressure-free double-curl momentum form; the ERK2 stage machinery still
+    # advances the legacy poloidal equation and refuses loudly until ported
+    # (docs/superpowers/plans/2026-06-10-double-curl-stage4b-poloidal-momentum.md).
+    # The full-physics finite/advance assertions that lived here return with
+    # the ERK2 port.
+    @test_throws ErrorException GeoDynamo.solver_step!(state)
 
     # NOTE: do not finalize MPI here — other MPI-aware tests in the suite run
     # after this file and rely on the communicator staying alive.
