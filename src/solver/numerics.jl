@@ -881,6 +881,8 @@ function _storage_spheroidal_from_poloidal!(s_re, s_im, p_re, p_im, config, doma
     length(r_range) == nr || error(
         "spectral storage must keep the radial axis fully local " *
         "(got $(length(r_range)) of $nr levels)")
+    (s_re === p_re || s_im === p_im) && error(
+        "storage spheroidal coupling writes dst before reading src — dst must not alias src")
     D1   = create_derivative_matrix(Float64, 1, domain)
     prof = Vector{Float64}(undef, nr)
     dpr  = Vector{Float64}(undef, nr)
@@ -911,6 +913,8 @@ function _storage_vr_coeffs!(vr_re, vr_im, p_re, p_im, config, domain,
     length(r_range) == nr || error(
         "spectral storage must keep the radial axis fully local " *
         "(got $(length(r_range)) of $nr levels)")
+    (vr_re === p_re || vr_im === p_im) && error(
+        "storage vr coefficients write dst before reading src — dst must not alias src")
     rN = domain.r[nr, 4]
     for (src, dst) in ((p_re, vr_re), (p_im, vr_im))
         fill!(dst, 0.0)
