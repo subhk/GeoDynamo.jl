@@ -45,9 +45,13 @@ function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
         C_phys = nothing, comp_factor = zero(eltype(tor.spec_r)),
         J_r = nothing, J_θ = nothing, J_φ = nothing,
         B_r = nothing, B_θ = nothing, B_φ = nothing, lorentz_coeff = zero(eltype(tor.spec_r)))
+
     # 1. velocity nonlinear (5i): nl_tor / nl_pol captured from the OLD tor/pol spec.
-    nlt_r = similar(tor.spec_r); nlt_i = similar(tor.spec_i)   # Phase-6: workspace
-    nlp_r = similar(pol.spec_r); nlp_i = similar(pol.spec_i)
+    nlt_r = similar(tor.spec_r)
+    nlt_i = similar(tor.spec_i)   # Phase-6: workspace
+    nlp_r = similar(pol.spec_r)
+    nlp_i = similar(pol.spec_i)
+
     gpu_velocity_nonlinear!(nlt_r, nlt_i, nlp_r, nlp_i,
         tor.spec_r, tor.spec_i, pol.spec_r, pol.spec_i, config,
         nlops.d1, nlops.d2, nlops.lfac, nlops.rinv, nlops.rinv2, nlops.rscale,
@@ -68,6 +72,7 @@ function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
     # 3. poloidal CNAB2 RHS (5c) from OLD pol spec, implicit solve (5d), then the
     #    2×2 influence correction (5j) on the poloidal solution.
     rp_r = similar(pol.spec_r); rp_i = similar(pol.spec_i)     # Phase-6: workspace
+
     # rp ≠ pol.spec is REQUIRED — build_rhs reads pol.spec as input (ORDERING INVARIANT).
     gpu_build_rhs_cnab2!(rp_r, rp_i, pol.spec_r, pol.spec_i, nlp_r, nlp_i,
         pol.prev_nl_r, pol.prev_nl_i, pol.lin, inv_dt, linear_weight, bw)
@@ -76,10 +81,16 @@ function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
     gpu_velocity_poloidal_influence_correction!(rp_r, rp_i, influence.Gre_b, influence.invG_b)
 
     # 4. update the fields (AFTER every read of the old spec — ORDERING INVARIANT).
-    tor.spec_r .= rt_r; tor.spec_i .= rt_i
-    pol.spec_r .= rp_r; pol.spec_i .= rp_i
+    tor.spec_r .= rt_r
+    tor.spec_i .= rt_i
+    pol.spec_r .= rp_r
+    pol.spec_i .= rp_i
+
     # 5. roll the histories: prev_nl ← this step's nl (captured at step 1).
-    tor.prev_nl_r .= nlt_r; tor.prev_nl_i .= nlt_i
-    pol.prev_nl_r .= nlp_r; pol.prev_nl_i .= nlp_i
+    tor.prev_nl_r .= nlt_r
+    tor.prev_nl_i .= nlt_i
+    pol.prev_nl_r .= nlp_r
+    pol.prev_nl_i .= nlp_i
+
     return nothing
 end
