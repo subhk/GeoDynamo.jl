@@ -264,4 +264,25 @@ using Test
         @test sprint(show, bcs) ==
             "FieldBoundaryConditions(inner = ValueBoundaryCondition(1.0), outer = FluxBoundaryCondition(0.0))"
     end
+
+    @testset "boundary_conditions NamedTuple kwarg" begin
+        using MPI
+        if !MPI.Initialized()
+            MPI.Init()
+        end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 16, nr_inner = 4)
+        t_bcs = GeoDynamo.FieldBoundaryConditions(inner = GeoDynamo.ValueBoundaryCondition(1.0),
+                                                  outer = GeoDynamo.ValueBoundaryCondition(0.0))
+        model = GeoDynamo.GeodynamoModel(grid; Ek = 1e-2, Ra = 1e4,
+            boundary_conditions = (temperature = t_bcs,))
+        @test model.state.parameters.temperature_bcs == t_bcs
+        # same field both ways → error
+        @test_throws ArgumentError GeoDynamo.GeodynamoModel(grid; Ek = 1e-2, Ra = 1e4,
+            boundary_conditions = (temperature = t_bcs,),
+            temperature_bcs = t_bcs)
+        # unknown field name → error
+        @test_throws ArgumentError GeoDynamo.GeodynamoModel(grid; Ek = 1e-2, Ra = 1e4,
+            boundary_conditions = (pressure = t_bcs,))
+    end
 end
