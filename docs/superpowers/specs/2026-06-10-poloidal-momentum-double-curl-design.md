@@ -215,3 +215,38 @@ g-convention pieces) but with the `(1/r+∂_r)` spheroidal coupling missing from
 the synthesis and the q scalar dropped from the force/induction projections.
 Our Stage 2–4B is the standard P̂-convention implemented fully consistently;
 the Fortran validates it end to end.
+
+## 7. Christensen Case-0 status (2026-06-11) — PARTIAL, quantitative gap OPEN
+
+Setup: `scripts/christensen_case0.jl`, lmax=32, nr=33, dt=1e-4, benchmark IC
+(m=4 seed on the conductive state), CNAB2, no-slip, Ek_geo = E/2 = 5e-4.
+
+Measured so far:
+- **Criticality (sharp)**: Rac_geo = 13.9 (decay −5.1 at 13, growth +0.55 at
+  14, +6.1 at 15; lmax=21/nr=25). Conversion Ra_chr/Ra_geo ≈ 55.9/13.9 = 4.0
+  vs the analytic mapping's 2·r_o = 3.08 — a residual ×1.3 in the buoyancy
+  chain is UNEXPLAINED (or the remembered Rac_chr = 55.9 is wrong; if
+  Rac_chr ≈ 43 the analytic mapping is exact — verify against the paper).
+- At the criticality-calibrated Ra_geo = 25 (Ra/Rac = 1.79): solution is
+  STABLE and symmetry-pure (m4frac = 1.000 for 20k steps, t = 2.0 viscous)
+  but VACILLATING with Ekin ≈ 115–230 (mean ≈ 170) — the benchmark expects a
+  quasi-steady drifting wave with Ekin = 58.348. At the uncalibrated
+  Ra_geo = 32.5 the vacillation is stronger (Ekin ≈ 305–683).
+
+Suspects, in priority order:
+1. **No energy-budget/steady-Stokes gate on the W-split influence
+   corrections** (deferred from plan 4B): a subtly wrong endpoint treatment
+   could feed energy at the walls — would elevate Ekin and destabilize the
+   steady wave. Implement dE/dt = P_buoy − D_visc residual tracking, or the
+   manufactured steady-force gate.
+2. The unexplained ×1.3 buoyancy normalization (same constant would NOT by
+   itself change Ra/Rac-calibrated dynamics — but its source might not be a
+   pure constant).
+3. Heat-equation advection scaling (verify u·∇T coefficient is exactly 1 in
+   code units), thermal-BC value conventions.
+4. Literature cross-check of Rac and of the supercriticality of Case 0.
+5. dt/resolution sensitivity of the vacillation (AB2 + explicit Coriolis at
+   ω·dt = 0.2).
+
+The structural validation (section 6) stands; the quantitative benchmark is
+the remaining acceptance gate.
