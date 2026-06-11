@@ -844,37 +844,11 @@ function vector_spectral_to_physical!(
     return vector_field
 end
 
-# Function barrier for the v_r poloidal-coefficient fill.  `Vap`/`Sp` are
-# `parent(Vr_alm)`/`parent(Slm)` taken from the `::Any` IdDict scratch cache;
-# running this triple loop inline boxed every scalar write (~tens of thousands
-# of allocations per step — the dominant hot-path allocator).  Passing the
-# arrays as ordinary arguments specializes the loop on their concrete types, so
-# the writes don't box.  Same pattern as `_copy_spatial_to_physical!`.
-function _fill_vr_alm!(Vap, Sp, m_local, r_range_ph, domain, lmax::Int, mmax::Int,
-        vr_factor::F) where {F}
-    fill!(Vap, zero(eltype(Vap)))
-    rN = domain.r[domain.N, 4]
-    @inbounds for (lev, r_glob) in enumerate(r_range_ph)
-        lev > size(Vap, 3) && continue
-        (1 <= r_glob <= domain.N) || continue
-        r_val = domain.r[r_glob, 4]
-        r_val > eps(Float64) * rN || continue
-        for (mi, m) in enumerate(m_local)
-            (0 <= m <= mmax) || continue
-            for l in max(m, 0):lmax
-                Vap[l + 1, mi, lev] = Sp[l + 1, mi, lev] * vr_factor(l, r_val)
-            end
-        end
-    end
-    return nothing
-end
-
 # Storage-layout solenoidal coupling: S = (∂_r P)/r per (l,m) mode on the
 # spectral STORAGE arrays (pencils.spec keeps r fully local on every rank,
 # unlike the Alm layout's r-slab) — this is what makes the solenoidal
 # synthesis work on r-distributed grids. Same banded D1, same per-mode op
-# order as the old Alm-layout `_spheroidal_from_poloidal!`, so 1x1 results
-# are bit-exact.
+# order as the removed Alm-layout helper, so 1x1 results are bit-exact.
 function _storage_spheroidal_from_poloidal!(s_re, s_im, p_re, p_im, config, domain)
     nr = domain.N
     r_range = local_range(config.pencils.spec, 3)
@@ -905,7 +879,7 @@ function _storage_spheroidal_from_poloidal!(s_re, s_im, p_re, p_im, config, doma
 end
 
 # Storage-layout v_r coefficients: vr = vr_factor(l, r)·P per (l,m) mode.
-# Same eps-guard near r=0 as the old Alm-layout `_fill_vr_alm!`.
+# Same eps-guard near r=0 as the removed Alm-layout helper.
 function _storage_vr_coeffs!(vr_re, vr_im, p_re, p_im, config, domain,
         vr_factor::F) where {F}
     nr = domain.N
@@ -1015,38 +989,6 @@ function vector_spectral_to_physical_disttranspose!(
     end
 
     return vector_field
-end
-
-# In-place spheroidal coupling for the solenoidal synthesis: per (l,m) mode,
-# S = (∂_r P)/r over the (fully local) radial lev-axis of the Alm-layout
-# array `Sp` (l_index, m_local, lev). Complex profiles are differentiated as
-# separate real/imaginary passes through the banded D1. Concrete-typed function
-# barrier — `Sp` comes from the ::Any scratch (see _fill_vr_alm!).
-function _spheroidal_from_poloidal!(Sp, m_local, r_range_ph, domain,
-        lmax::Int, mmax::Int, D1)
-    nrl = length(r_range_ph)
-    P_re = Vector{Float64}(undef, nrl)
-    P_im = Vector{Float64}(undef, nrl)
-    d_re = Vector{Float64}(undef, nrl)
-    d_im = Vector{Float64}(undef, nrl)
-    @inbounds for (mi, m) in enumerate(m_local)
-        (0 <= m <= mmax) || continue
-        for l in max(m, 0):lmax
-            l + 1 <= size(Sp, 1) || continue
-            for lev in 1:nrl
-                c = Sp[l + 1, mi, lev]
-                P_re[lev] = real(c)
-                P_im[lev] = imag(c)
-            end
-            mul!(d_re, D1, P_re)
-            mul!(d_im, D1, P_im)
-            for (lev, r_glob) in enumerate(r_range_ph)
-                r = domain.r[r_glob, 4]
-                Sp[l + 1, mi, lev] = complex(d_re[lev] / r, d_im[lev] / r)
-            end
-        end
-    end
-    return nothing
 end
 
 function vector_physical_to_spectral!(
