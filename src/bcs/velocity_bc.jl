@@ -495,9 +495,8 @@ function create_velocity_poloidal_split_matrices(config::SHTnsKitConfig,
         velocity_bc_code::Int,
         theta::Float64 = 0.5,
         T::Type{<:Number} = Float64)
-    velocity_bc_code == 1 || error(
-        "stage 4B: the poloidal W-split currently supports no-slip/no-slip " *
-        "(velocity_bc_code=1); got $velocity_bc_code — stress-free is a follow-up")
+    velocity_bc_code in (1, 2, 3, 4) || error(
+        "poloidal W-split: unknown velocity_bc_code $velocity_bc_code")
 
     unique_l = unique(config.l_values)
     nL = length(unique_l)
@@ -519,15 +518,23 @@ function create_velocity_poloidal_split_matrices(config::SHTnsKitConfig,
     l_values = Vector{Int}(undef, nL)
     lookup = Dict{Int, Int}()
 
-    # endpoint first-derivative rows (dense copies of the banded d1 rows)
+    # Endpoint residual rows for the influence corrections. No-slip walls
+    # enforce P′ = 0 (first-derivative row); stress-free walls enforce
+    # P″ − (2/r)·P′ = 0 (from σ_rθ ∝ r·∂_r(u_θ/r) with u_tan = (P′/r)∇₁Y).
+    inner_noslip = velocity_bc_code in (1, 2)   # codes: 1 NS/NS, 2 NS/SF, 3 SF/NS, 4 SF/SF
+    outer_noslip = velocity_bc_code in (1, 3)
     d1_row_inner = zeros(T, N)
     d1_row_outer = zeros(T, N)
     @inbounds for j in 1:N
         if 1 <= bw + 1 + 1 - j <= 2bw + 1
-            d1_row_inner[j] = d1.data[bw + 1 + 1 - j, j]
+            v1 = d1.data[bw + 1 + 1 - j, j]
+            d1_row_inner[j] = inner_noslip ? v1 :
+                              d2.data[bw + 1 + 1 - j, j] - T(2 / domain.r[1, 4]) * v1
         end
         if 1 <= bw + 1 + N - j <= 2bw + 1
-            d1_row_outer[j] = d1.data[bw + 1 + N - j, j]
+            vN = d1.data[bw + 1 + N - j, j]
+            d1_row_outer[j] = outer_noslip ? vN :
+                              d2.data[bw + 1 + N - j, j] - T(2 / domain.r[N, 4]) * vN
         end
     end
 
