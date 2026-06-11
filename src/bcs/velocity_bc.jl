@@ -494,13 +494,24 @@ function solve_velocity_implicit_step!(solution::SHTnsSpecField{T},
 end
 
 """
-    create_velocity_poloidal_split_matrices(config, domain, Ek, dt; velocity_bc_code, theta=0.5, T=Float64)
+    create_velocity_poloidal_split_matrices(config, domain, Ek, dt; velocity_bc_code, theta=0.5, ball=false, T=Float64)
 
 Stage-4B W-split operators for the pressure-free poloidal momentum equation
     Ek(∂t − D_pol)W = N_W,   W = D_pol·P,   D_pol = ∂_rr − l(l+1)/r²
 with Dirichlet P-recovery (P=0 at both walls) and cached no-slip influence
 responses enforcing P′=0 (velocity_bc_code == 1). Other BC codes error loudly
 until ported. See docs/superpowers/plans/2026-06-10-double-curl-stage4b-*.md.
+
+Ball mode (`ball = true`, full sphere with the off-center grid r₁ > 0): the
+inner wall conditions become center-regularity Robin rows exact for the
+leading behaviors P ~ r^{l+1} and W ~ r^{l+1}. The P-recovery inner row is
+the Robin P′(r₁) = (l+1)P(r₁)/r₁ (outer Dirichlet wall unchanged), and the
+influence matrix mixes spaces: row 1 = the W-regularity residual
+W′(r₁) − (l+1)W(r₁)/r₁ applied to the W-space Green columns g_i (the
+condition lives on W = D_pol·P), row 2 = the outer wall residual on the
+recovered P responses h_i (as shell). `d1_row_inner` then holds the PURE
+first-derivative endpoint row; the l-dependent −(l+1)/r₁ correction is
+applied at dot time via `reg_r_inv`.
 """
 function create_velocity_poloidal_split_matrices(config::SHTnsKitConfig,
         domain::RadialDomain,
@@ -508,6 +519,7 @@ function create_velocity_poloidal_split_matrices(config::SHTnsKitConfig,
         dt::Float64;
         velocity_bc_code::Int,
         theta::Float64 = 0.5,
+        ball::Bool = false,
         T::Type{<:Number} = Float64)
     velocity_bc_code in (1, 2, 3, 4) || error(
         "poloidal W-split: unknown velocity_bc_code $velocity_bc_code")
@@ -519,6 +531,7 @@ function create_velocity_poloidal_split_matrices(config::SHTnsKitConfig,
     r_inv_sq = @views domain.r[1:domain.N, 2]
     bw = radial_bandwidth(domain)
     N = domain.N
+    reg_r_inv = ball ? domain.r[1, 3] : 0.0
     inv_dt = T(Ek / dt)
     θ_T = T(theta)
 
@@ -542,8 +555,9 @@ function create_velocity_poloidal_split_matrices(config::SHTnsKitConfig,
     @inbounds for j in 1:N
         if 1 <= bw + 1 + 1 - j <= 2bw + 1
             v1 = d1.data[bw + 1 + 1 - j, j]
-            d1_row_inner[j] = inner_noslip ? v1 :
-                              d2.data[bw + 1 + 1 - j, j] - T(2 / domain.r[1, 4]) * v1
+            d1_row_inner[j] = ball ? v1 :
+                              (inner_noslip ? v1 :
+                               d2.data[bw + 1 + 1 - j, j] - T(2 / domain.r[1, 4]) * v1)
         end
         if 1 <= bw + 1 + N - j <= 2bw + 1
             vN = d1.data[bw + 1 + N - j, j]
@@ -579,7 +593,8 @@ function create_velocity_poloidal_split_matrices(config::SHTnsKitConfig,
         wsys = BandedMatrix{T}(wsys_data, bw, N)
         w_factor[idx] = factorize_banded(wsys)
 
-        # P-recovery: D_pol with Dirichlet rows (rows 1, N → identity)
+        # P-recovery: D_pol with Dirichlet rows (rows 1, N → identity).
+        # Ball: the inner row is the center-regularity Robin instead.
         prec_data = copy(dpol_data)
         @inbounds for j in 1:(1 + bw)
             prec_data[bw + 1 + 1 - j, j] = zero(T)
@@ -587,7 +602,15 @@ function create_velocity_poloidal_split_matrices(config::SHTnsKitConfig,
         @inbounds for j in (N - bw):N
             prec_data[bw + 1 + N - j, j] = zero(T)
         end
-        prec_data[bw + 1, 1] = one(T)
+        if ball
+            # Center regularity: P ~ r^{l+1} ⇒ P′(r₁) = (l+1)·P(r₁)/r₁.
+            @inbounds for j in 1:(1 + bw)
+                prec_data[bw + 1 + 1 - j, j] = d1.data[bw + 1 + 1 - j, j]
+            end
+            prec_data[bw + 1, 1] -= T((l + 1) * domain.r[1, 3])
+        else
+            prec_data[bw + 1, 1] = one(T)
+        end
         prec_data[bw + 1, N] = one(T)
         prec = BandedMatrix{T}(prec_data, bw, N)
         p_factor[idx] = factorize_banded(prec)
@@ -604,12 +627,22 @@ function create_velocity_poloidal_split_matrices(config::SHTnsKitConfig,
         solve_banded!(hv2, p_factor[idx], htmp)
         g1[idx] = gv1; g2[idx] = gv2; h1[idx] = hv1; h2[idx] = hv2
         M = Matrix{T}(undef, 2, 2)
-        M[1, 1] = dot(d1_row_inner, hv1); M[1, 2] = dot(d1_row_inner, hv2)
-        M[2, 1] = dot(d1_row_outer, hv1); M[2, 2] = dot(d1_row_outer, hv2)
+        if ball
+            # Mixed rows: row 1 = inner W-regularity residual evaluated on the
+            # W-space Green columns g_i (the condition lives on W = D_pol·P);
+            # row 2 = outer wall residual on the recovered P responses h_i.
+            M[1, 1] = dot(d1_row_inner, gv1) - T((l + 1) * reg_r_inv) * gv1[1]
+            M[1, 2] = dot(d1_row_inner, gv2) - T((l + 1) * reg_r_inv) * gv2[1]
+        else
+            M[1, 1] = dot(d1_row_inner, hv1)
+            M[1, 2] = dot(d1_row_inner, hv2)
+        end
+        M[2, 1] = dot(d1_row_outer, hv1)
+        M[2, 2] = dot(d1_row_outer, hv2)
         influence[idx] = M
     end
 
     return PoloidalSplitMatrices{T}(dpol_op, w_factor, w_linear, p_factor,
         g1, g2, h1, h2, influence, d1_row_inner, d1_row_outer,
-        l_values, lookup, theta, Ek)
+        l_values, lookup, theta, Ek, ball, reg_r_inv)
 end

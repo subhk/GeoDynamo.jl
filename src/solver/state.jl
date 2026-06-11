@@ -261,6 +261,9 @@ end
 # freedom belongs to the influence corrections), the Dirichlet P-recovery
 # D_pol·P = W with P=0 rows, and the cached no-slip influence responses:
 # g_i = A_W⁻¹e_i, h_i = A_P⁻¹R(g_i), M = endpoint-P′ of the h's.
+# Ball (full-sphere): P-recovery inner row is the center-regularity Robin
+# P′(r₁) = (l+1)P(r₁)/r₁, and influence row 1 becomes the W-regularity Robin
+# W′(r₁) = (l+1)W(r₁)/r₁ evaluated on W (so M row 1 dots the W-space g's).
 struct PoloidalSplitMatrices{T}
     dpol_op::Vector{BandedMatrix{T}}
     w_factor::Vector{BandedLU{T}}
@@ -277,6 +280,8 @@ struct PoloidalSplitMatrices{T}
     lookup::Dict{Int, Int}
     theta::Float64
     mass_coeff::Float64
+    ball::Bool          # full-sphere: mixed influence rows + regularity recovery
+    reg_r_inv::Float64  # 1/r₁ for the regularity Robin rows (0 for shell)
 end
 
 mutable struct TimestepCaches{T}

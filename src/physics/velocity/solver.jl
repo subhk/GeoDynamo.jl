@@ -256,6 +256,7 @@ function _get_or_build_poloidal_split!(state::SolverState{T, <:AbstractArchitect
         state.parameters.timestep;
         velocity_bc_code = velocity_bc,
         theta = _timestepper_implicit_theta(state.parameters.timestepper, state.parameters),
+        ball = state.parameters.geometry === :ball,
         T = T)
     caches.poloidal_split = split
     return split
@@ -310,13 +311,20 @@ function _apply_poloidal_wsplit_cnab2!(velocity, split::PoloidalSplitMatrices{T}
             end
             solve_banded!(Wp, split.w_factor[idx], rhs)
 
-            # Dirichlet P-recovery (P = 0 rows ⇒ zero those RHS entries)
+            # Inner residual: ball evaluates the W-regularity Robin row on the
+            # W solution (pre-zeroing); shell evaluates the inner wall row on P.
+            rho1w = split.ball ?
+                    dot(split.d1_row_inner, Wp) -
+                    T((l + 1) * split.reg_r_inv) * Wp[1] : zero(T)
+
+            # Dirichlet P-recovery (P = 0 rows ⇒ zero those RHS entries;
+            # ball: row 1 is the regularity Robin with homogeneous RHS)
             Wp[1] = zero(T); Wp[nr] = zero(T)
             solve_banded!(Pp, split.p_factor[idx], Wp)
 
-            # No-slip influence correction: zero endpoint P′ via the cached
-            # Green responses.
-            rho1 = dot(split.d1_row_inner, Pp)
+            # Influence correction: zero the remaining endpoint residuals via
+            # the cached Green responses.
+            rho1 = split.ball ? rho1w : dot(split.d1_row_inner, Pp)
             rho2 = dot(split.d1_row_outer, Pp)
             M = split.influence[idx]
             det = M[1, 1] * M[2, 2] - M[1, 2] * M[2, 1]
