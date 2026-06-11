@@ -32,11 +32,6 @@ function sync_clock!(clock::Clock{T}, state) where {T}
     return clock
 end
 
-function Base.show(io::IO, ::MIME"text/plain", c::Clock)
-    print(io, "Clock(time=$(c.time), iteration=$(c.iteration), ",
-        "stage=$(c.stage), last_dt=$(c.last_dt))")
-end
-
 # ================================================================================
 # Oceananigans-canonical `last_Δt` property alias for `last_dt`
 # ================================================================================

@@ -176,7 +176,7 @@ using Test
         @test occursin("SphericalShellGrid", s)
         @test occursin("lmax=4", s)
         c = GeoDynamo.Clock(; time = 1.5, iteration = 3)
-        @test occursin("iteration=3", summary(c))
+        @test occursin("iteration = 3", summary(c))
     end
 
     @testset "prettytime / prettysummary" begin
@@ -359,5 +359,47 @@ using Test
         iter_after = model3.clock.iteration
         GeoDynamo.run!(sim3)
         @test model3.clock.iteration == iter_after
+    end
+
+    @testset "Oceananigans-style printing" begin
+        using MPI
+        if !MPI.Initialized()
+            MPI.Init()
+        end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 16, nr_inner = 4)
+        model = GeoDynamo.GeodynamoModel(grid; Ek = 1e-2, Ra = 1e4)
+        sim = GeoDynamo.Simulation(model, Δt = 1e-4, stop_time = 1.0)
+
+        msum = summary(model)
+        @test occursin("GeodynamoModel{CPU, Float64}", msum)
+        @test occursin("(time = 0, iteration = 0)", msum)
+
+        mshow = sprint(show, MIME"text/plain"(), model)
+        @test occursin("├── grid: SphericalShellGrid(CPU, lmax=4, mmax=4, nr=16)", mshow)
+        @test occursin("├── timestepper:", mshow)
+        @test occursin("└── active: magnetic=false, composition=false", mshow)
+
+        sshow = sprint(show, MIME"text/plain"(), sim)
+        @test occursin("Simulation of GeodynamoModel{CPU, Float64}", sshow)
+        @test occursin("├── Next time step: 0.0001", sshow)
+        @test occursin("├── Elapsed wall time: 0 seconds", sshow)
+        @test occursin("├── Stop time: 1", sshow)
+        @test occursin("├── Stop iteration: Inf", sshow)
+        @test occursin("├── Wall time limit: Inf", sshow)
+        @test occursin("├── Callbacks: OrderedDict with 4 entries:", sshow)
+        @test occursin("│   ├── stop_time_exceeded => Callback of stop_time_exceeded on IterationInterval(1)", sshow)
+        @test occursin("│   └── nan_checker => Callback of nan_checker on IterationInterval(100)", sshow)
+        @test occursin("└── Output writers: OrderedDict with no entries", sshow)
+
+        csum = summary(model.clock)
+        @test occursin("Clock(time = 0, iteration = 0, last_Δt = 0)", csum)
+
+        @test summary(GeoDynamo.IterationInterval(10)) == "IterationInterval(10)"
+        @test summary(GeoDynamo.TimeInterval(0.1)) == "TimeInterval(0.1)"
+        @test summary(GeoDynamo.SpecifiedTimes(0.1, 0.5)) == "SpecifiedTimes(0.1, 0.5)"
+        cb = GeoDynamo.Callback(s -> nothing, schedule = GeoDynamo.IterationInterval(2))
+        @test startswith(summary(cb), "Callback of ")
+        @test endswith(summary(cb), "on IterationInterval(2)")
     end
 end
