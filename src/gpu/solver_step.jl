@@ -40,7 +40,8 @@ function gpu_solver_step!(state)
     # --- (1) shared physical velocity u from the OLD velocity spectral (fresh) ---
     u = ph(); uθ = ph(); uφ = ph()
     gpu_vector_spectral_to_physical!(u, uθ, uφ, spec(v.tor.spec_r, v.tor.spec_i),
-        spec(v.pol.spec_r, v.pol.spec_i), cfg, state.nlops_vel.lfac, state.nlops_vel.rscale)
+        spec(v.pol.spec_r, v.pol.spec_i), cfg,
+        state.nlops_vel.d1, state.nlops_vel.lfac, state.nlops_vel.rinv, state.nlops_vel.rinv2, bw)
 
     # --- (2) current-step physical buffers from OLD spectral (for the NEXT step's velocity lag) ---
     Tn = ph(); gpu_scalar_spectral_to_physical!(Tn, spec(state.temperature.spec_r, state.temperature.spec_i), cfg)
@@ -51,13 +52,14 @@ function gpu_solver_step!(state)
         m = state.magnetic
         br = ph(); bθ = ph(); bφ = ph()
         gpu_vector_spectral_to_physical!(br, bθ, bφ, spec(m.tor.spec_r, m.tor.spec_i),
-            spec(m.pol.spec_r, m.pol.spec_i), cfg, state.nlops_mag.lfac, state.nlops_mag.rscale)
+            spec(m.pol.spec_r, m.pol.spec_i), cfg,
+            state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw)
         jtr = similar(m.tor.spec_r); jti = similar(m.tor.spec_i); jpr = similar(m.pol.spec_r); jpi = similar(m.pol.spec_i)
         gpu_spectral_curl!(jtr, jti, jpr, jpi, m.tor.spec_r, m.tor.spec_i, m.pol.spec_r, m.pol.spec_i,
             state.nlops_mag.d1, state.nlops_mag.d2, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw)
         jr = ph(); jθ = ph(); jφ = ph()
         gpu_vector_spectral_to_physical!(jr, jθ, jφ, spec(jtr, jti), spec(jpr, jpi), cfg,
-            state.nlops_mag.lfac, state.nlops_mag.rscale)
+            state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw)
         Bn_r = br.data; Bn_θ = bθ.data; Bn_φ = bφ.data; Jn_r = jr.data; Jn_θ = jθ.data; Jn_φ = jφ.data
     end
 

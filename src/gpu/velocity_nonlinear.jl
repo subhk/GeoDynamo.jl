@@ -3,12 +3,23 @@
 # Coriolis −ẑ×u), composing verified kernels: vector transform (3) → vorticity
 # curl (5a) → vector transform (3) → cross + Coriolis (2) → vector analyze (3).
 # Mirrors prepare_velocity_fields! + compute_velocity_body_forces! +
-# finish_velocity_nonlinear! (velocity/solver.jl:10-50, numerics.jl:1160-1247),
-# velocity-only part. Buoyancy (needs T) + Lorentz (needs J,B) accumulate before
-# the analyze — added in Phase 5i via optional keyword inputs. The force→(tor,pol)
-# projection is the plain vector analysis (tangential only, no scaling, adv_r
-# discarded — confirmed from finish_velocity_nonlinear!). Runs on Array + CuArray.
+# finish_velocity_nonlinear! (velocity/solver.jl), including the Stage-4B
+# momentum projection: raw tangential sphtor gives (S_F,T_F), scalar analysis of
+# the radial force gives Q_F, and nl_pol = ∂r(r*S_F) - Q_F.
 # =============================================================================
+
+function gpu_poloidal_force_projection!(nl_pol_r, nl_pol_i, q_r, q_i, d1, rinv, bw::Int)
+    ri = reshape(rinv, 1, 1, :)
+    rS_r = similar(nl_pol_r); rS_i = similar(nl_pol_i)
+    @. rS_r = nl_pol_r / ri
+    @. rS_i = nl_pol_i / ri
+    drS_r = similar(nl_pol_r); drS_i = similar(nl_pol_i)
+    gpu_batched_banded_matvec!(drS_r, rS_r, d1, bw)
+    gpu_batched_banded_matvec!(drS_i, rS_i, d1, bw)
+    @. nl_pol_r = drS_r - q_r
+    @. nl_pol_i = drS_i - q_i
+    return nothing
+end
 
 """
     gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, tor_i, pol_r, pol_i,
@@ -22,8 +33,10 @@ Velocity nonlinear term: `nl = analyze( E·(u×ω) − ẑ×u [+ buoyancy + Lore
 
 `tor`/`pol` are the velocity toroidal/poloidal spectral coefficients; `nl_tor`/`nl_pol`
 receive the toroidal/poloidal nonlinear spectral output.  `d1`/`d2` are radial derivative
-operators, `lfac=l(l+1)`, `rinv=1/r`, `rinv2=1/r²`, `rscale` the v_r scaling,
-`sinθ`/`cosθ` the Coriolis grid factors, `E` the Ekman number.
+operators, `lfac=l(l+1)`, `rinv=1/r`, `rinv2=1/r²`, and `rscale` is a legacy
+operator-bundle field kept for interface compatibility. Stage-2 vector synthesis
+uses `rinv`/`rinv2` directly. `sinθ`/`cosθ` are the Coriolis grid factors, and
+`E` is the Ekman number.
 
 **Optional coupled forcing** (Phase 5i) accumulated between the Coriolis and the analyze,
 matching the CPU accumulation order `thermal → compositional → Lorentz`:
@@ -56,13 +69,17 @@ function gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, 
     ph() = allocate_gpu_physical_field(eltype(tor_r), arch, config, nr)
     # 1. velocity (tor,pol) → physical (u_r,u_θ,u_φ)
     ur = ph(); uθ = ph(); uφ = ph()
-    gpu_vector_spectral_to_physical!(ur, uθ, uφ, spec(tor_r, tor_i), spec(pol_r, pol_i), config, lfac, rscale)
+    gpu_vector_spectral_to_physical!(
+        ur, uθ, uφ, spec(tor_r, tor_i), spec(pol_r, pol_i),
+        config, d1, lfac, rinv, rinv2, bw)
     # 2. vorticity ω = ∇×u (spectral)
     wtr = similar(tor_r); wti = similar(tor_i); wpr = similar(pol_r); wpi = similar(pol_i)
     gpu_spectral_curl!(wtr, wti, wpr, wpi, tor_r, tor_i, pol_r, pol_i, d1, d2, lfac, rinv, rinv2, bw)
     # 3. vorticity → physical (ω_r,ω_θ,ω_φ)
     wr = ph(); wθ = ph(); wφ = ph()
-    gpu_vector_spectral_to_physical!(wr, wθ, wφ, spec(wtr, wti), spec(wpr, wpi), config, lfac, rscale)
+    gpu_vector_spectral_to_physical!(
+        wr, wθ, wφ, spec(wtr, wti), spec(wpr, wpi),
+        config, d1, lfac, rinv, rinv2, bw)
     # 4. adv = E·(u×ω) − ẑ×u  (physical)
     ar = ph(); aθ = ph(); aφ = ph()
     gpu_cross!(ar.data, aθ.data, aφ.data, ur.data, uθ.data, uφ.data, wr.data, wθ.data, wφ.data, E)
@@ -79,7 +96,11 @@ function gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, 
     if J_r !== nothing
         gpu_cross_add!(ar.data, aθ.data, aφ.data, J_r, J_θ, J_φ, B_r, B_θ, B_φ, lorentz_coeff)  # adv += lorentz_coeff·(J×B)
     end
-    # 5. analyze the tangential force → (nl_pol = S, nl_tor = T); adv_r discarded (CPU does the same)
+    # 5. Raw tangential force analysis → (nl_pol = S_F, nl_tor = T_F), then
+    #    radial scalar analysis and Stage-4B poloidal projection.
     gpu_vector_physical_to_spectral!(spec(nl_tor_r, nl_tor_i), spec(nl_pol_r, nl_pol_i), aθ, aφ, config)
+    q_r = similar(nl_pol_r); q_i = similar(nl_pol_i)
+    gpu_scalar_physical_to_spectral!(spec(q_r, q_i), ar, config)
+    gpu_poloidal_force_projection!(nl_pol_r, nl_pol_i, q_r, q_i, d1, rinv, bw)
     return nothing
 end

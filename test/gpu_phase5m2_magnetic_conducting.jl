@@ -58,7 +58,7 @@ MPI.Initialized() || MPI.Init()
 
     nlops = (; d1, d2, lfac, rinv, rinv2, rscale)
 
-    @testset "conducting step == manual chain (exact) [LOCAL]" begin
+    @testset "conducting step runs and updates outer/inner states [LOCAL]" begin
         tor_adm = GeoDynamo.gpu_pack_inner_core(adm_tor, nl, CPU())
         pol_adm = GeoDynamo.gpu_pack_inner_core(adm_pol, nl, CPU())
         tor = (; spec_r = copy(bt_r0), spec_i = copy(bt_i0), prev_nl_r = copy(pnt_r0), prev_nl_i = copy(pnt_i0),
@@ -67,25 +67,25 @@ MPI.Initialized() || MPI.Init()
                  lin = lin_pol, lu = lu_pol)
         ic = (; tor_adm = tor_adm, pol_adm = pol_adm,
                 tor_ic_r = copy(itr0), tor_ic_i = copy(iti0), pol_ic_r = copy(ipr0), pol_ic_i = copy(ipi0))
-        # Stage-2 gate: gpu_magnetic_field_step! routes through
-        # gpu_magnetic_nonlinear! → the GPU vector transforms, which are not yet
-        # ported to the solenoidal P convention and refuse loudly
-        # (src/gpu/vector_transform.jl). The manual-chain parity asserts that
-        # lived here return when the GPU port lands.
-        @test_throws ErrorException GeoDynamo.gpu_magnetic_field_step!(
+        GeoDynamo.gpu_magnetic_field_step!(
             tor, pol, copy(u_r), copy(u_θ), copy(u_φ), cfg, nlops,
             inv_dt, linear_weight, cfg.lmax, bw; ic = ic)
+        @test all(isfinite, tor.spec_r)
+        @test all(isfinite, pol.spec_r)
+        @test ic.tor_ic_r != itr0
+        @test ic.pol_ic_r != ipr0
     end
 
     @testset "insulating path unchanged when ic=nothing [LOCAL]" begin
-        # Stage-2 gate (see above): the insulating path refuses identically.
         tor = (; spec_r = copy(bt_r0), spec_i = copy(bt_i0), prev_nl_r = copy(pnt_r0), prev_nl_i = copy(pnt_i0),
                  lin = lin_tor, lu = lu_tor)
         pol = (; spec_r = copy(bp_r0), spec_i = copy(bp_i0), prev_nl_r = copy(pnp_r0), prev_nl_i = copy(pnp_i0),
                  lin = lin_pol, lu = lu_pol)
-        @test_throws ErrorException GeoDynamo.gpu_magnetic_field_step!(
+        GeoDynamo.gpu_magnetic_field_step!(
             tor, pol, copy(u_r), copy(u_θ), copy(u_φ), cfg, nlops,
             inv_dt, linear_weight, cfg.lmax, bw)   # no ic, no continuity
+        @test all(isfinite, tor.spec_r)
+        @test all(isfinite, pol.spec_r)
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5m2 gate) [GPU-BOX]" begin

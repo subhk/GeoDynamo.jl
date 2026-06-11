@@ -82,8 +82,9 @@ Verify MPI is working:
     ```
 
 !!! tip "Optional CUDA GPU Backend"
-    The rewritten solver supports a hybrid GPU backend for SHTnsKit transforms.
-    To use it, add CUDA to your environment and load it before building the solver:
+    The rewritten solver includes a single-device GPU path with CUDA-backed
+    SHTnsKit transforms when CUDA is available. To use it, add CUDA to your
+    environment and load it before building the solver:
     ```julia
     using GeoDynamo
     using CUDA

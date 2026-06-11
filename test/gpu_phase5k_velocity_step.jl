@@ -76,13 +76,26 @@ MPI.Initialized() || MPI.Init()
                  lin = lin_pol, lu = lu_pol,
                  bc_in_r = bc_in_pol_r, bc_in_i = bc_in_pol_i,
                  bc_out_r = bc_out_pol_r, bc_out_i = bc_out_pol_i)
-        # Stage-2 gate: gpu_velocity_field_step! routes through
-        # gpu_velocity_nonlinear! → the GPU vector transforms, which are not yet
-        # ported to the solenoidal P convention and refuse loudly
-        # (src/gpu/vector_transform.jl). The manual-chain parity asserts that
-        # lived here return when the GPU port lands.
-        @test_throws ErrorException GeoDynamo.gpu_velocity_field_step!(
+        nlt_r=similar(tor_r0); nlt_i=similar(tor_i0); nlp_r=similar(pol_r0); nlp_i=similar(pol_i0)
+        GeoDynamo.gpu_velocity_nonlinear!(nlt_r,nlt_i,nlp_r,nlp_i,
+            tor_r0,tor_i0,pol_r0,pol_i0,cfg,d1,d2,lfac,rinv,rinv2,rscale,sinθ,cosθ,E,cfg.lmax,bw)
+        rt_r=similar(tor_r0); rt_i=similar(tor_i0); rp_r=similar(pol_r0); rp_i=similar(pol_i0)
+        GeoDynamo.gpu_build_rhs_cnab2!(rt_r,rt_i,tor_r0,tor_i0,nlt_r,nlt_i,pnt_r0,pnt_i0,lin_tor,inv_dt,linear_weight,bw)
+        GeoDynamo.gpu_implicit_solve_field!(rt_r,rt_i,lu_tor,bc_in_tor_r,bc_in_tor_i,bc_out_tor_r,bc_out_tor_i,bw)
+        GeoDynamo.gpu_build_rhs_cnab2!(rp_r,rp_i,pol_r0,pol_i0,nlp_r,nlp_i,pnp_r0,pnp_i0,lin_pol,inv_dt,linear_weight,bw)
+        GeoDynamo.gpu_implicit_solve_field!(rp_r,rp_i,lu_pol,bc_in_pol_r,bc_in_pol_i,bc_out_pol_r,bc_out_pol_i,bw)
+        GeoDynamo.gpu_velocity_poloidal_influence_correction!(rp_r,rp_i,Gre_b,invG_b)
+
+        GeoDynamo.gpu_velocity_field_step!(
             tor, pol, cfg, nlops, influence, inv_dt, linear_weight, cfg.lmax, bw)
+        @test tor.spec_r == rt_r
+        @test tor.spec_i == rt_i
+        @test pol.spec_r == rp_r
+        @test pol.spec_i == rp_i
+        @test tor.prev_nl_r == nlt_r
+        @test tor.prev_nl_i == nlt_i
+        @test pol.prev_nl_r == nlp_r
+        @test pol.prev_nl_i == nlp_i
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5k gate) [GPU-BOX]" begin
