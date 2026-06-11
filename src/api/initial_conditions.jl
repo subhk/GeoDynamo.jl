@@ -145,8 +145,11 @@ Apply initial condition `ic` to the named `field` of `model`.
 # Arguments
 - `model`  – a `GeodynamoModel` returned by `GeodynamoModel(...)`
 - `field`  – one of `:velocity`, `:temperature`, `:magnetic`, `:composition`
-- `ic`     – an IC descriptor: `RandomPerturbation`, `AnalyticIC`, `FileIC`, or
-             `ZeroIC`
+- `ic`     – an IC descriptor (`RandomPerturbation`, `AnalyticIC`, `FileIC`, or
+             `ZeroIC`), or — for the scalar fields `:temperature` and
+             `:composition` only — a direct value: a `Real` (uniform), a
+             function `(r, θ, φ) -> value` (radius, colatitude, longitude), or
+             an `AbstractArray{<:Real,3}` matching the local physical grid
 
 # Examples
 ```julia
@@ -154,6 +157,7 @@ set_initial_condition!(model, :temperature, RandomPerturbation(amplitude=0.1, lm
 set_initial_condition!(model, :magnetic,    AnalyticIC(:dipole; amplitude=1.0))
 set_initial_condition!(model, :velocity,    FileIC("/path/to/checkpoint.nc"))
 set_initial_condition!(model, :composition, ZeroIC())
+set_initial_condition!(model, :temperature, (r, θ, φ) -> 1 - r)
 ```
 """
 function set_initial_condition! end
