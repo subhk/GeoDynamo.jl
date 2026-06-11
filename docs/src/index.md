@@ -162,48 +162,42 @@ GeoDynamo.jl builds on a robust stack of Julia packages:
 
 ## Governing Equations
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                                                                     │
-│   ∂u/∂t  =  viscous diffusion  +  buoyancy  +  Lorentz force       │
-│                     ↓                 ↓              ↓              │
-│                   E∇²u            Ra·T·r̂        (∇×B)×B            │
-│                                                                     │
-│   ∂T/∂t  =  thermal diffusion  -  advection                        │
-│                     ↓                  ↓                            │
-│                (Pm/Pr)∇²T            u·∇T                           │
-│                                                                     │
-│   ∂B/∂t  =  magnetic diffusion  +  induction                       │
-│                     ↓                  ↓                            │
-│                   ∇²B              ∇×(u×B)                          │
-│                                                                     │
-│   Constraints:      ∇·u = 0           ∇·B = 0                      │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-The solver advances the nondimensional Boussinesq MHD system from *Sreenivasan & Kar, Phys. Rev. Fluids* **3**, 093801 (2018).
+The solver advances the nondimensional Boussinesq MHD system from
+*Sreenivasan & Kar, Phys. Rev. Fluids* **3**, 093801 (2018), using
+magnetic-diffusion time units. In the implementation, the velocity equation
+keeps `E == Ek` as the mass coefficient on the time derivative.
 
 ### Momentum
 
 ```math
-\frac{E}{\mathrm{Pm}}\frac{\partial \boldsymbol{u}}{\partial t}
-  + (\nabla \times \boldsymbol{u}) \times \boldsymbol{u}
-  + \hat{\boldsymbol{z}} \times \boldsymbol{u}
-  = -\nabla p^\star
-     + \frac{\mathrm{Pm}}{\mathrm{Pr}}\,\mathrm{Ra}\,T\,\boldsymbol{r}
-     + (\nabla \times \boldsymbol{B}) \times \boldsymbol{B}
-     + E \nabla^2 \boldsymbol{u}
+E\frac{\partial \boldsymbol{u}}{\partial t}
+  = E\nabla^2 \boldsymbol{u}
+    + \boldsymbol{N}_u(\boldsymbol{u}, \boldsymbol{B}, T, C)
+```
+
+```math
+\boldsymbol{N}_u =
+E(\boldsymbol{u}\times\boldsymbol{\omega})
+-\hat{\boldsymbol{z}}\times\boldsymbol{u}
++\frac{\mathrm{Pm}}{\mathrm{Pr}}\mathrm{Ra}\,rT\,\hat{\boldsymbol{r}}
++\frac{\mathrm{Pm}}{\mathrm{Sc}}\mathrm{Ra}_C\,rC\,\hat{\boldsymbol{r}}
++\frac{1}{\mathrm{Pm}}(\nabla\times\boldsymbol{B})\times\boldsymbol{B}
 ```
 
 ### Temperature & Magnetic Field
 
 ```math
-\frac{\partial T}{\partial t} + \boldsymbol{u} \cdot \nabla T = \frac{\mathrm{Pm}}{\mathrm{Pr}} \nabla^2 T
+\frac{\partial T}{\partial t}
+= \frac{\mathrm{Pm}}{\mathrm{Pr}} \nabla^2 T
++ N_T(\boldsymbol{u}, T),
+\qquad
+N_T = -\boldsymbol{u}\cdot\nabla T + Q_T
 ```
 
 ```math
-\frac{\partial \boldsymbol{B}}{\partial t} = \nabla \times (\boldsymbol{u} \times \boldsymbol{B}) + \nabla^2 \boldsymbol{B}
+\frac{\partial \boldsymbol{B}}{\partial t}
+= \nabla^2 \boldsymbol{B}
++ \nabla \times (\boldsymbol{u} \times \boldsymbol{B})
 ```
 
 ### Constraints

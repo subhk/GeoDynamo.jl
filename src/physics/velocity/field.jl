@@ -13,9 +13,12 @@
 # GOVERNING EQUATION
 # ================================================================================
 #
-# The non-dimensional momentum equation in magnetic diffusion time scaling:
+# The non-dimensional momentum equation advanced by the solver in magnetic
+# diffusion time scaling:
 #
-#   (E/Pm) ∂u/∂t + (∇×u)×u + ẑ×u = -∇p* + (Pm/Pr)Ra·T·r̂ + (∇×B)×B + E∇²u
+#   E ∂u/∂t = E(u×ω) - ẑ×u - ∇p*
+#             + (Pm/Pr)Ra·T·r·r̂ + (Pm/Sc)Ra_C·C·r·r̂
+#             + (1/Pm)(∇×B)×B + E∇²u
 #
 # where:
 #   E  = ν/(2Ωd²)  : Ekman number (ratio of viscous to Coriolis forces)
@@ -23,12 +26,8 @@
 #   Pr = ν/κ       : Prandtl number (viscous/thermal diffusivity)
 #   Ra             : Modified Rayleigh number (buoyancy driving)
 #
-# After dividing by (E/Pm) to get unit coefficient on ∂u/∂t:
-#
-#   ∂u/∂t = -(Pm/E)(∇×u)×u - (Pm/E)(ẑ×u) - (Pm/E)∇p*
-#           + (Pm/E)(Pm/Pr)Ra·T·r̂ + (Pm/E)(∇×B)×B + Pm∇²u
-#
-# The factor (Pm/E) is called `rossby_factor` in the code.
+# The mass coefficient E is applied by the time-stepping matrices. The explicit
+# force accumulator stores the non-diffusive right-hand side shown above.
 #
 # ================================================================================
 # TOROIDAL-POLOIDAL DECOMPOSITION
@@ -604,9 +603,9 @@ Dimensionless parameters:
 
 # Non-Dimensional Momentum Equation (magnetic diffusion time scaling)
 
-E·Pm⁻¹[∂ũ/∂τ + (∇×ũ)×ũ] + ẑ×ũ = -∇p̃*
-                + (Pm/Pr)·Ra·T̃·r·r̂ + (Pm/Sc)·Ra_C·C̃·r·r̂
-                + (∇×B̃)×B̃ + E∇²ũ
+E·∂ũ/∂τ = E(ũ×ω̃) - ẑ×ũ - ∇p̃*
+          + (Pm/Pr)·Ra·T̃·r·r̂ + (Pm/Sc)·Ra_C·C̃·r·r̂
+          + (1/Pm)(∇×B̃)×B̃ + E∇²ũ
 
 where:
   - τ = L²/η (magnetic diffusion time scaling)
@@ -616,7 +615,7 @@ where:
 # Implementation Notes
 
 The explicit RHS entering the time integrator is:
-RHS = -(E/Pm)·(∇×ũ)×ũ - (ẑ×ũ) + (Pm/Pr)·Ra·T̃·r·r̂ + (Pm/Sc)·Ra_C·C̃·r·r̂ + (∇×B̃)×B̃
+RHS = E·(ũ×ω̃) - (ẑ×ũ) + (Pm/Pr)·Ra·T̃·r·r̂ + (Pm/Sc)·Ra_C·C̃·r·r̂ + (1/Pm)(∇×B̃)×B̃
 
 Coefficients (magnetic diffusion time scaling, mass coeff = E on du/dt):
   - Advection: E
@@ -644,7 +643,7 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
     # contributions share the same cache-friendly field loads.
     # Compute all forces using magnetic diffusion time scaling.
     # The momentum equation (mass coeff Ek on du/dt):
-    #   E·du/dt = -Ek·(u×ω) - (z×u) + buoyancy + (1/Pm)·(j×B) + E·∇²u
+    #   E·du/dt = Ek·(u×ω) - (z×u) + buoyancy + (1/Pm)·(j×B) + E·∇²u
     # Mass coefficient Ek is applied in the time-stepping matrices.
 
     advection_coeff = T(Ek)
@@ -673,7 +672,7 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
     θ_range = range_local(config.pencils.r, 1)  # global theta indices for this rank
 
     # Main fused computation loop with enhanced indexing (parallel over r-slices)
-    # Advection has coefficient E/Pm, Coriolis has coefficient 1
+    # Advection has coefficient E, Coriolis has coefficient 1
     adv_coeff = advection_coeff
     @inbounds Threads.@threads for k in 1:local_size[3]
         # Get radius for this level using pencil range
@@ -704,12 +703,11 @@ function compute_all_nonlinear_terms!(𝒰::SHTnsVelocityFields{T},
                     ω_θ = ζθ[linear_idx]
                     ω_φ = ζφ[linear_idx]
 
-                    # Advection: (E/Pm) * (u × ζ)
+                    # Advection: E * (u × ζ)
                     adv_r_val = adv_coeff * (u_θ * ω_φ - u_φ * ω_θ)
                     adv_θ_val = adv_coeff * (u_φ * ω_r - u_r * ω_φ)
                     adv_φ_val = adv_coeff * (u_r * ω_θ - u_θ * ω_r)
 
-                    # Coriolis: −(Pm/E) ẑ × u
                     # Coriolis: -(z × u), coefficient = 1 (Fortran convention)
                     zhat_cross_r = -sin_theta * u_φ
                     zhat_cross_θ = -cos_theta * u_φ
@@ -861,8 +859,7 @@ function add_lorentz_force!(𝒰::SHTnsVelocityFields{T},
         domain::RadialDomain) where {T}
     Pm = 𝒰.parameters.Pm
 
-    # Compute Lorentz force F = (∇ × B) × B with vectorization
-    # Lorentz coefficient = 1 (magnetic diffusion time scaling)
+    # Compute Lorentz force F = (1/Pm)(∇ × B) × B with vectorization.
 
     # Step 1: Use pre-computed current density from magnetic field (j = ∇×B)
 

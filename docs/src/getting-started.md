@@ -188,24 +188,35 @@ run!(sim)
 
 GeoDynamo.jl solves the Boussinesq MHD equations in a rotating spherical shell:
 
+```math
+E \frac{\partial \boldsymbol{u}}{\partial t}
+= E\nabla^2\boldsymbol{u}
++ \boldsymbol{N}_u(\boldsymbol{u}, \boldsymbol{B}, T, C)
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                                                                     │
-│   ∂u/∂t  =  viscous diffusion  +  buoyancy  +  Lorentz force       │
-│                     ↓                 ↓              ↓              │
-│                   E∇²u            Ra·T·r̂        (∇×B)×B            │
-│                                                                     │
-│   ∂T/∂t  =  thermal diffusion  -  advection                        │
-│                     ↓                  ↓                            │
-│                (Pm/Pr)∇²T            u·∇T                           │
-│                                                                     │
-│   ∂B/∂t  =  magnetic diffusion  +  induction                       │
-│                     ↓                  ↓                            │
-│                   ∇²B              ∇×(u×B)                          │
-│                                                                     │
-│   Constraints:      ∇·u = 0           ∇·B = 0                      │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+
+```math
+\frac{\partial T}{\partial t}
+= \frac{Pm}{Pr}\nabla^2T
++ N_T(\boldsymbol{u}, T),
+\qquad
+N_T = -\boldsymbol{u}\cdot\nabla T + Q_T
+```
+
+```math
+\frac{\partial \boldsymbol{B}}{\partial t}
+= \nabla^2\boldsymbol{B}
++ \nabla\times(\boldsymbol{u}\times\boldsymbol{B})
+```
+
+The velocity forcing `N_u` contains the explicit advection, Coriolis, buoyancy,
+and optional Lorentz terms. Temperature uses diffusivity `Pm/Pr`; composition,
+when enabled, uses `Pm/Sc`. Magnetic diffusion has coefficient 1 in the
+magnetic-diffusion time scaling used by the solver.
+
+```math
+\nabla\cdot\boldsymbol{u}=0,
+\qquad
+\nabla\cdot\boldsymbol{B}=0
 ```
 
 !!! info "Toroidal-Poloidal Decomposition"
