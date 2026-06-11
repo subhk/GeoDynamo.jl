@@ -359,17 +359,25 @@ end
 function _build_vector_scratch(config, plan)
     Slm    = SHTnsKit.allocate_spectral(plan)   # spheroidal/poloidal
     Tlm    = SHTnsKit.allocate_spectral(plan)   # toroidal
-    Vr_alm = SHTnsKit.allocate_spectral(plan)   # radial-scaled poloidal (l(l+1)/r·P)
+    Vr_alm = SHTnsKit.allocate_spectral(plan)   # radial-scaled poloidal (l(l+1)/r²·P)
     Vt     = SHTnsKit.allocate_spatial(plan)    # θ-tangential (nlon, nlat_local, nlev)
     Vp     = SHTnsKit.allocate_spatial(plan)    # φ-tangential
-    Vr     = SHTnsKit.allocate_spatial(plan)    # radial (scalar synthesis of l(l+1)/r·P)
+    Vr     = SHTnsKit.allocate_spatial(plan)    # radial (scalar synthesis of vr coeffs)
     scratch = _get_disttranspose_scratch(config, plan)
     # Share scratch.solve (the adapter's persistent buffer) so that
     # from_spec_solve! can use the cached Transposition plan t_bwd.
-    # The vector path calls from_spec_solve! twice (S then T) but always
-    # sequentially, so sharing scratch.solve is safe.
+    # The vector path calls from_spec_solve! up to three times (S, T, Vr) but
+    # always sequentially, so sharing scratch.solve is safe.
     solve = scratch.solve
-    return (; Slm, Tlm, Vr_alm, Vt, Vp, Vr, solve)
+    # Storage-layout slabs (l_local, m_local, nr) for the solenoidal S and v_r
+    # coefficient fields, computed where r is fully local (r-dist support).
+    spec_dims = length.(PencilArrays.range_local(config.pencils.spec))
+    Ssto_re  = zeros(Float64, spec_dims)
+    Ssto_im  = zeros(Float64, spec_dims)
+    Vrsto_re = zeros(Float64, spec_dims)
+    Vrsto_im = zeros(Float64, spec_dims)
+    return (; Slm, Tlm, Vr_alm, Vt, Vp, Vr, solve,
+              Ssto_re, Ssto_im, Vrsto_re, Vrsto_im)
 end
 
 function _vector_scratch(config, plan)

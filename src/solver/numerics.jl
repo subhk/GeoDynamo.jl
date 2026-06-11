@@ -869,6 +869,66 @@ function _fill_vr_alm!(Vap, Sp, m_local, r_range_ph, domain, lmax::Int, mmax::In
     return nothing
 end
 
+# Storage-layout solenoidal coupling: S = (∂_r P)/r per (l,m) mode on the
+# spectral STORAGE arrays (pencils.spec keeps r fully local on every rank,
+# unlike the Alm layout's r-slab) — this is what makes the solenoidal
+# synthesis work on r-distributed grids. Same banded D1, same per-mode op
+# order as the old Alm-layout `_spheroidal_from_poloidal!`, so 1x1 results
+# are bit-exact.
+function _storage_spheroidal_from_poloidal!(s_re, s_im, p_re, p_im, config, domain)
+    nr = domain.N
+    r_range = local_range(config.pencils.spec, 3)
+    length(r_range) == nr || error(
+        "spectral storage must keep the radial axis fully local " *
+        "(got $(length(r_range)) of $nr levels)")
+    D1   = create_derivative_matrix(Float64, 1, domain)
+    prof = Vector{Float64}(undef, nr)
+    dpr  = Vector{Float64}(undef, nr)
+    for (src, dst) in ((p_re, s_re), (p_im, s_im))
+        fill!(dst, 0.0)
+        @inbounds for lm in 1:config.nlm
+            slot = local_spectral_storage_slot(config, lm)
+            slot === nothing && continue
+            for r_idx in 1:nr
+                prof[r_idx] = local_spectral_value(src, slot, r_idx)
+            end
+            mul!(dpr, D1, prof)
+            for r_idx in 1:nr
+                r = domain.r[r_idx, 4]
+                set_local_spectral_value!(dst, slot, r_idx, dpr[r_idx] / r)
+            end
+        end
+    end
+    return nothing
+end
+
+# Storage-layout v_r coefficients: vr = vr_factor(l, r)·P per (l,m) mode.
+# Same eps-guard near r=0 as the old Alm-layout `_fill_vr_alm!`.
+function _storage_vr_coeffs!(vr_re, vr_im, p_re, p_im, config, domain,
+        vr_factor::F) where {F}
+    nr = domain.N
+    r_range = local_range(config.pencils.spec, 3)
+    length(r_range) == nr || error(
+        "spectral storage must keep the radial axis fully local " *
+        "(got $(length(r_range)) of $nr levels)")
+    rN = domain.r[nr, 4]
+    for (src, dst) in ((p_re, vr_re), (p_im, vr_im))
+        fill!(dst, 0.0)
+        @inbounds for lm in 1:config.nlm
+            slot = local_spectral_storage_slot(config, lm)
+            slot === nothing && continue
+            l = config.l_values[lm]
+            for r_idx in 1:nr
+                r_val = domain.r[r_idx, 4]
+                r_val > eps(Float64) * rN || continue
+                set_local_spectral_value!(dst, slot, r_idx,
+                    local_spectral_value(src, slot, r_idx) * vr_factor(l, r_val))
+            end
+        end
+    end
+    return nothing
+end
+
 # Shared Phase-3 vector synthesis used by both the solver path (numerics.jl) and
 # the non-solver path (fields/transforms.jl).
 #
