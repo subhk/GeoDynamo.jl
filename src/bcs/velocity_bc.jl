@@ -60,6 +60,11 @@ The boundary rows of the system matrix are replaced with the BC equations:
 - No-slip: identity row (T = value)
 - Stress-free: ∂T/∂r - T/r = 0
 
+When `inner_regularity = true` (ball / full-sphere geometry) the inner row
+instead imposes the center regularity condition t′(r₁) = l·t(r₁)/r₁ (β = l,
+raw sphtor toroidal scalar t ~ r^l); the outer row is still set by
+`velocity_bc_code`.
+
 This ensures the implicit solve enforces BCs exactly rather than applying them
 as post-processing.
 """
@@ -70,7 +75,8 @@ function create_velocity_toroidal_matrices(config::SHTnsKitConfig,
         velocity_bc_code::Int,
         theta::Float64 = 0.5,
         mass_coeff::Float64 = 1.0,
-        T::Type{<:Number} = Float64)
+        T::Type{<:Number} = Float64,
+        inner_regularity::Bool = false)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
     r_inv_sq = @views domain.r[1:domain.N, 2]
@@ -121,8 +127,15 @@ function create_velocity_toroidal_matrices(config::SHTnsKitConfig,
         end
 
         # Apply toroidal BC at inner boundary
-        # velocity_bc_code == 1 or 2: no-slip at inner (identity row)
-        if velocity_bc_code == 1 || velocity_bc_code == 2
+        if inner_regularity
+            # Ball center regularity for the raw sphtor toroidal scalar:
+            # t ~ r^l ⇒ t′(r₁) = l·t(r₁)/r₁ (β = l).
+            @inbounds for j in 1:(1 + bw)
+                system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
+            end
+            system_data[bw + 1, 1] -= T(l * domain.r[1, 3])
+        elseif velocity_bc_code == 1 || velocity_bc_code == 2
+            # no-slip at inner (identity row)
             system_data[bw + 1, 1] = one(T)  # T[1] = rhs
         else
             # Stress-free at inner: ∂T/∂r - T/r = 0

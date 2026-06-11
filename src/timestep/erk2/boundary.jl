@@ -223,7 +223,12 @@ end
 """
     solver_create_insulating_inner_bc(T, d1_row, r_inv)
 
-Create the inner insulating magnetic poloidal endpoint descriptor.
+Create the inner insulating magnetic poloidal endpoint descriptor,
+(∂r − (l+1)/r)P = 0: under B_r = λP/r² the interior vacuum solution is
+P ∝ r^{l+1} (B = −∇Φ, Φ ∝ r^l regular at the origin ⇒ B_r ∝ r^{l−1} = λP/r²).
+Encoded as l_sign = −1, fixed_correction = −r_inv (self_coeff =
+d1 − l·r_inv − r_inv). Matches the banded row in
+`create_magnetic_poloidal_matrices`.
 """
 function solver_create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
     return SolverERK2BoundarySide{T}(
@@ -233,7 +238,7 @@ function solver_create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::
         r_inv,
         -one(T),
         true,
-        zero(T),
+        -r_inv,
         false
     )
 end
@@ -250,7 +255,12 @@ end
 """
     solver_create_insulating_outer_bc(T, d1_row, r_inv)
 
-Create the outer insulating magnetic poloidal endpoint descriptor.
+Create the outer insulating magnetic poloidal endpoint descriptor,
+(∂r + l/r)P = 0: under B_r = λP/r² the exterior vacuum solution is P ∝ r^{−l}
+(B = −∇Φ, Φ ∝ r^{−(l+1)} ⇒ B_r ∝ r^{−(l+2)} = λP/r²). Encoded as l_sign = +1,
+fixed_correction = 0 (self_coeff = d1 + l·r_inv). Verified by the classic
+full-sphere dipole free-decay rate σ = π² (test/ball_bessel_decay.jl); matches
+the banded row in `create_magnetic_poloidal_matrices`.
 """
 function solver_create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
     return SolverERK2BoundarySide{T}(
@@ -260,7 +270,7 @@ function solver_create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::
         r_inv,
         one(T),
         true,
-        r_inv,
+        zero(T),
         false
     )
 end

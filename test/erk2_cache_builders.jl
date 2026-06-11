@@ -153,7 +153,9 @@ using LinearAlgebra
         @test bc.r_inv == r_inv
         @test bc.l_sign == -1.0
         @test bc.use_l_correction == true
-        @test bc.fixed_correction == 0.0
+        # Corrected insulating inner row (2026-06-11 audit): (∂r − (l+1)/r)P = 0
+        # under B_r = λP/r² ⇒ fixed_correction = −r_inv (was 0 for ∂r − l/r).
+        @test bc.fixed_correction == -r_inv
     end
 
     @testset "solver_create_insulating_outer_bc" begin
@@ -166,7 +168,10 @@ using LinearAlgebra
         @test bc.r_inv == r_inv
         @test bc.l_sign == 1.0
         @test bc.use_l_correction == true
-        @test bc.fixed_correction == r_inv
+        # Corrected insulating outer row (2026-06-11 audit): (∂r + l/r)P = 0
+        # under B_r = λP/r² ⇒ fixed_correction = 0 (was r_inv for ∂r + (l+1)/r);
+        # verified by the dipole free-decay rate σ = π² (ball_bessel_decay.jl).
+        @test bc.fixed_correction == 0.0
     end
 
     @testset "build_solver_erk2_velocity_tor_bc (no-slip, rot_omega=0)" begin

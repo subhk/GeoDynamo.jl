@@ -36,8 +36,11 @@ end
     )
     @test _sc_occ("system_data[bw + 1, 1] = one(T)", tor_matrices)
     @test _sc_occ("system_data[bw + 1, N] = one(T)", tor_matrices)
-    @test _sc_occ("system_data[bw + 1, 1] -= T(l * domain.r[1, 3])", pol_matrices)
-    @test _sc_occ("system_data[bw + 1, N] += T((l + 1) * domain.r[N, 3])", pol_matrices)
+    # Corrected insulating rows (2026-06-11 audit, B_r = λP/r² convention):
+    # inner (∂r − (l+1)/r)P = 0, outer (∂r + l/r)P = 0 — verified by the
+    # full-sphere dipole free-decay rate σ = π² in test/ball_bessel_decay.jl.
+    @test _sc_occ("system_data[bw + 1, 1] -= T((l + 1) * domain.r[1, 3])", pol_matrices)
+    @test _sc_occ("system_data[bw + 1, N] += T(l * domain.r[N, 3])", pol_matrices)
 
     legacy_magnetic_solve = _magnetic_bc_static_function_body(
         magnetic_bc,
@@ -63,6 +66,10 @@ end
     @test _sc_occ("-one(T)", insulating_inner)
     @test _sc_occ("one(T)", insulating_outer)
     @test _sc_occ("r_inv", insulating_outer)
+    # fixed_correction slots of the corrected insulating descriptors:
+    # inner −r_inv (∂r − (l+1)/r), outer 0 (∂r + l/r).
+    @test _sc_occ("true, -r_inv, false", insulating_inner)
+    @test _sc_occ("true, zero(T), false", insulating_outer)
 
     magnetic_tor_update = _magnetic_bc_static_function_body(
         magnetic_solver,

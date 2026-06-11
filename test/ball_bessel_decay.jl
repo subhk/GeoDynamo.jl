@@ -52,7 +52,7 @@ end
     σ0 = measured_decay_rate(mats, dom, 0, [sph_j0(ALPHA_J0 * r) for r in rr];
         dt, nsteps)
     # Analytic target: π² ≈ 9.8696.  O(r₁²) Robin truncation at nr=48 gives
-    # ~0.2% error; rtol=5e-3 is the acceptance criterion.
+    # ~1e-4 % error (r₁² ≈ 1.15e-6); rtol=5e-3 is the acceptance criterion.
     @test isapprox(σ0, ALPHA_J0^2; rtol = 5e-3)
 
     # l=1: Θ = j1(α₁r), σ = α₁²  (inner row stamps Θ′(r₁) = Θ(r₁)/r₁)
@@ -60,4 +60,35 @@ end
         dt, nsteps)
     # Analytic target: α₁² ≈ 20.1907.  Same O(r₁²) Robin truncation error.
     @test isapprox(σ1, ALPHA_J1^2; rtol = 5e-3)
+end
+
+@testset "ball toroidal Bessel decay" begin
+    nr = 48; dt = 2e-4; nsteps = 200
+    cfg = GeoDynamo.create_shtnskit_config(lmax = 4, mmax = 4,
+        nlat = 12, nlon = 24, nr = nr)
+    dom = Ball.create_ball_radial_domain(nr)
+    rr = dom.r[1:nr, 4]
+    # velocity toroidal: Ek(∂t − Δ_l)t ⇒ rate independent of Ek with
+    # diffusivity=mass_coeff=1; t ~ j_l(αr), no-slip outer t(1)=0,
+    # regularity β=l inner.
+    mats = GeoDynamo.create_velocity_toroidal_matrices(cfg, dom, 1.0, dt;
+        velocity_bc_code = 1, mass_coeff = 1.0, inner_regularity = true)
+    σ = measured_decay_rate(mats, dom, 1, [sph_j1(ALPHA_J1 * r) for r in rr];
+        dt, nsteps)
+    @test isapprox(σ, ALPHA_J1^2; rtol = 5e-3)
+end
+
+@testset "ball magnetic poloidal free decay — classic dipole rate pi^2" begin
+    nr = 48; dt = 2e-4; nsteps = 200
+    cfg = GeoDynamo.create_shtnskit_config(lmax = 4, mmax = 4,
+        nlat = 12, nlon = 24, nr = nr)
+    dom = Ball.create_ball_radial_domain(nr)
+    rr = dom.r[1:nr, 4]
+    mats = GeoDynamo.create_magnetic_poloidal_matrices(cfg, dom, 1.0, dt;
+        inner_regularity = true)
+    # Slowest l=1 insulating free-decay mode: P = r·j1(πr), σ = π²
+    # (eigencondition j_{l-1}(α)=0 under the B_r = λP/r² convention).
+    σ = measured_decay_rate(mats, dom, 1,
+        [r * sph_j1(Float64(pi) * r) for r in rr]; dt, nsteps)
+    @test isapprox(σ, Float64(pi)^2; rtol = 5e-3)
 end

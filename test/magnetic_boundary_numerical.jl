@@ -21,17 +21,21 @@ end
 
 # Numerical contract for the matrix-embedded magnetic boundary conditions.
 #
-# Insulating magnetic BCs require, per spherical-harmonic degree l:
-#   toroidal  : BT = 0 at both boundaries                       (identity rows)
-#   poloidal  : (∂_r - l/r)    BP = 0 at the inner boundary     → matches r^l
-#               (∂_r + (l+1)/r) BP = 0 at the outer boundary    → matches r^{-(l+1)}
+# Insulating magnetic BCs require, per spherical-harmonic degree l, under the
+# code's poloidal convention B_r = λP/r² (2026-06-11 insulating-row audit):
+#   toroidal  : BT = 0 at both boundaries                        (identity rows)
+#   poloidal  : (∂_r - (l+1)/r) BP = 0 at the inner boundary     → matches r^{l+1}
+#               (∂_r + l/r)     BP = 0 at the outer boundary     → matches r^{-l}
 #
-# A potential (current-free) field has poloidal scalar ∝ r^l in the regular
-# interior and ∝ r^{-(l+1)} in the decaying exterior. The embedded boundary row
-# must therefore annihilate the *matching* potential while leaving the
-# mismatched one untouched. The boundary derivative stencil is exact for
-# polynomials up to the radial bandwidth (default 4), so r^l (l ≤ 4) is killed
-# to round-off; r^{-(l+1)} is killed to finite-difference truncation order.
+# A vacuum (current-free) field has B = −∇Φ with Φ ∝ r^l in the regular
+# interior and Φ ∝ r^{-(l+1)} in the decaying exterior; B_r = λP/r² then gives
+# the poloidal scalar P ∝ r^{l+1} (interior) and P ∝ r^{-l} (exterior). The
+# outer row is anchored by the classic full-sphere dipole free-decay rate
+# σ = π² (test/ball_bessel_decay.jl). The embedded boundary row must
+# annihilate the *matching* vacuum solution while leaving the mismatched one
+# untouched. The boundary derivative stencil is exact for polynomials up to
+# the radial bandwidth (default 4), so r^{l+1} (l + 1 ≤ 4) is killed to
+# round-off; higher degrees and r^{-l} to finite-difference truncation order.
 @testset "Magnetic boundary-condition numerical satisfaction" begin
     if MPI.Finalized()
         @warn "MPI already finalized; skipping magnetic BC numerical tests"
@@ -78,8 +82,9 @@ end
             row_in = _magbc_banded_row(A, 1)
             row_out = _magbc_banded_row(A, nr)
 
-            f_in = r .^ l              # regular interior potential   ∝ r^l
-            f_out = r .^ (-(l + 1))    # decaying exterior potential  ∝ r^{-(l+1)}
+            # Corrected matching solutions (B_r = λP/r², 2026-06-11 audit):
+            f_in = r .^ (l + 1)        # regular interior vacuum   P ∝ r^{l+1}
+            f_out = r .^ (-l)          # decaying exterior vacuum  P ∝ r^{-l}
 
             res_in_matched = abs(dot(row_in, f_in))
             res_in_wrong = abs(dot(row_in, f_out))
