@@ -76,8 +76,10 @@ Model time is nondimensional and prints compactly (e.g. `time = 0.25`).
 
 Four callbacks are registered automatically on every new `Simulation`:
 `stop_time_exceeded`, `stop_iteration_exceeded`, `wall_time_limit_exceeded`,
-and `nan_checker`. Use `SpecifiedTimes(t1, t2, ...)` as a schedule to trigger
-output or callbacks at exact model times.
+and `nan_checker`. A user callback registered under one of those names
+replaces the built-in stop guard — pick a different name unless that is what
+you want. Use `SpecifiedTimes(t1, t2, ...)` as a schedule to trigger output or
+callbacks at exact model times.
 
 ---
 
