@@ -46,7 +46,7 @@
 
 """
     create_magnetic_toroidal_matrices(config, domain, diffusivity, dt;
-                                      theta, T)
+                                      theta, T, inner_alpha, inner_regularity)
 
 Create implicit time-stepping matrices for the toroidal magnetic component with
 insulating boundary conditions embedded in the matrix rows (matching Fortran mag_bc_Tor).
@@ -75,7 +75,8 @@ function create_magnetic_toroidal_matrices(config::SHTnsKitConfig,
     l_values = Vector{Int}(undef, length(unique_l))
     lookup = Dict{Int, Int}()
 
-    # First derivative matrix (needed for the conducting-inner-core Robin row)
+    # First derivative matrix (used by the inner-regularity and
+    # conducting-inner-core Robin rows)
     d1_matrix = create_derivative_matrix(T, 1, domain)
     bw = radial_bandwidth(domain)
     N = domain.N
@@ -146,7 +147,7 @@ end
 
 """
     create_magnetic_poloidal_matrices(config, domain, diffusivity, dt;
-                                      theta, T)
+                                      theta, T, inner_alpha, inner_regularity)
 
 Create implicit time-stepping matrices for the poloidal magnetic component with
 insulating boundary conditions embedded in the matrix rows (matching Fortran mag_bc_Pol).
@@ -222,8 +223,14 @@ function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
         end
 
         # Inner boundary row
+        # NOTE: the ERK2 paths stamp these same rows independently — keep
+        # src/timestep/erk2/boundary.jl + cache.jl in sync (pinned by
+        # test/magnetic_boundary_static_checks.jl).
         if inner_regularity
             # Ball center regularity: P ~ r^{l+1} ⇒ P′(r₁) = (l+1)·P(r₁)/r₁.
+            # (Identical to the insulating-inner row below — physically
+            # meaningful coincidence: interior vacuum matching and center
+            # regularity both demand P ∝ r^{l+1}, hence the same Robin row.)
             @inbounds for j in 1:(1 + bw)
                 system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
             end

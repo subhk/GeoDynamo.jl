@@ -71,6 +71,16 @@ end
     @test _sc_occ("true, -r_inv, false", insulating_inner)
     @test _sc_occ("true, zero(T), false", insulating_outer)
 
+    erk2_pol_cache = _magnetic_bc_static_function_body(
+        erk2,
+        "function create_solver_erk2_magnetic_poloidal_cache("
+    )
+    # Corrected ERK2 dense-operator insulating rows (same B_r = λP/r²
+    # convention as the CNAB2 banded rows above):
+    # inner (∂r − (l+1)/r)P = 0, outer (∂r + l/r)P = 0.
+    @test _sc_occ("operator_dense[1, 1] -= T(l + 1) * r_inv[1]", erk2_pol_cache)
+    @test _sc_occ("operator_dense[nr, nr] += T(l) * r_inv[nr]", erk2_pol_cache)
+
     magnetic_tor_update = _magnetic_bc_static_function_body(
         magnetic_solver,
         "function apply_magnetic_toroidal_implicit_update!("

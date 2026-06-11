@@ -69,8 +69,8 @@ Magnetic fields also use toroidal-poloidal decomposition: **B** = ∇×(T**r**) 
 
 | BC Type | Symbol | Toroidal | Poloidal Inner | Poloidal Outer | Status |
 |:--------|:-------|:---------|:---------------|:---------------|:-------|
-| **Insulating** | `:insulating` | T = 0 | (∂/∂r - l/r)P = 0 | (∂/∂r + (l+1)/r)P = 0 | ✅ Implemented (default, always applied) |
-| **Conducting IC** | `:conducting_inner_core` | Continuous ∂T/∂r | Continuous ∂P/∂r | (∂/∂r + (l+1)/r)P = 0 | ✅ Implemented (shell + CNAB2; equal σ, no IC rotation) |
+| **Insulating** | `:insulating` | T = 0 | (∂/∂r - (l+1)/r)P = 0 | (∂/∂r + l/r)P = 0 | ✅ Implemented (default, always applied) |
+| **Conducting IC** | `:conducting_inner_core` | Continuous ∂T/∂r | Continuous ∂P/∂r | (∂/∂r + l/r)P = 0 | ✅ Implemented (shell + CNAB2; equal σ, no IC rotation) |
 | **Perfect Conductor** | `:perfect_conductor` | T = 0 | P = 0 | P = 0 | 🚧 Not yet implemented |
 
 !!! note "Implementation status"
@@ -85,10 +85,13 @@ Current cannot flow across boundary: J_n = 0
 Field matches potential field solution outside
 ```
 
-The l-dependent conditions ensure proper matching to potential field solutions:
+The l-dependent conditions ensure proper matching to potential field solutions.
+Because B_r = l(l+1)P/r², the interior potential field (Φ ∝ r^l, so B_r ∝ r^{l-1})
+corresponds to P ∝ r^{l+1}, and the exterior potential field (Φ ∝ r^{-(l+1)}, so
+B_r ∝ r^{-(l+2)}) corresponds to P ∝ r^{-l}; matching P′/P at each boundary gives:
 
-- **Inner**: (∂/∂r - l/r)P = 0 → Field behaves as r^l (regular at origin)
-- **Outer**: (∂/∂r + (l+1)/r)P = 0 → Field decays as r^{-(l+1)} (vanishes at infinity)
+- **Inner**: (∂/∂r - (l+1)/r)P = 0 → P behaves as r^{l+1} (regular interior vacuum)
+- **Outer**: (∂/∂r + l/r)P = 0 → P decays as r^{-l} (vanishes at infinity)
 
 This is the standard choice for:
 - CMB (core-mantle boundary): Mantle is nearly insulating
@@ -239,8 +242,8 @@ enforce_composition_boundary_constraints!(comp_field, Dict(
 |:------|:--------|:---------------|:---------------|
 | **Velocity** | No-slip | T=0, ∂P/∂r=0 | T=0, ∂P/∂r=0 |
 | | Stress-free | ∂T/∂r=T/r, ∂²P/∂r²=0 | ∂T/∂r=T/r, ∂²P/∂r²=0 |
-| **Magnetic** | Insulating | T=0, (∂/∂r-l/r)P=0 | T=0, (∂/∂r+(l+1)/r)P=0 |
-| | Conducting IC | ∂T/∂r continuous | T=0, (∂/∂r+(l+1)/r)P=0 |
+| **Magnetic** | Insulating | T=0, (∂/∂r-(l+1)/r)P=0 | T=0, (∂/∂r+l/r)P=0 |
+| | Conducting IC | ∂T/∂r continuous | T=0, (∂/∂r+l/r)P=0 |
 | **Temperature** | Fixed T | T = T₀ | T = T₀ |
 | | Fixed flux | ∂T/∂r = q | ∂T/∂r = q |
 | | Both flux | **l=0: Dirichlet**, l>0: Neumann | Neumann |

@@ -51,7 +51,8 @@
 
 """
     create_velocity_toroidal_matrices(config, domain, diffusivity, dt;
-                                      theta, velocity_bc_code, T)
+                                      theta, velocity_bc_code, mass_coeff, T,
+                                      inner_regularity)
 
 Create implicit time-stepping matrices for the toroidal velocity component with
 boundary conditions embedded in the matrix rows.

@@ -76,6 +76,15 @@ end
     σ = measured_decay_rate(mats, dom, 1, [sph_j1(ALPHA_J1 * r) for r in rr];
         dt, nsteps)
     @test isapprox(σ, ALPHA_J1^2; rtol = 5e-3)
+
+    # magnetic toroidal: same Δ_l operator with diffusivity 1, insulating outer
+    # t(1)=0 (j1(α₁)=0 satisfies it) and regularity β=l inner ⇒ same j₁ profile
+    # and decay rate α₁².
+    mmats = GeoDynamo.create_magnetic_toroidal_matrices(cfg, dom, 1.0, dt;
+        inner_regularity = true)
+    σm = measured_decay_rate(mmats, dom, 1, [sph_j1(ALPHA_J1 * r) for r in rr];
+        dt, nsteps)
+    @test isapprox(σm, ALPHA_J1^2; rtol = 5e-3)
 end
 
 @testset "ball magnetic poloidal free decay — classic dipole rate pi^2" begin
