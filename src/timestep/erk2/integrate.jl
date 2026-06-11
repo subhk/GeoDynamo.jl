@@ -573,11 +573,6 @@ velocity-poloidal influence correction, and restores nonlinear histories.
 """
 function integrate_solver_erk2_step!(state::SolverState{
         T, <:AbstractArchitecture}) where {T}
-    # Stage-4B gate: nl_poloidal now carries the W-equation RHS of the
-    # pressure-free double-curl momentum form; the ERK2 stage machinery still
-    # advances P with the legacy operator/projection and must refuse loudly
-    # until ported. See _VEL_POL_STAGE4B_MSG.
-    error(_VEL_POL_STAGE4B_MSG)
     params = state.parameters
     runtime = state.runtime
     domain = state.backend.outer_core_domain
@@ -611,24 +606,12 @@ function integrate_solver_erk2_step!(state::SolverState{
             rot_omega = 0.0
         )
     )
-    vel_pol_bc = _get_or_build_erk2_boundary_spec!(
-        state.timestep_caches, :velocity_pol, velocity_bc_code,
-        () -> build_solver_erk2_velocity_pol_bc(T, domain, velocity_bc_code)
-    )
-
-    # Velocity poloidal evolution needs an influence operator so the accepted
-    # step satisfies the no-penetration constraint after ERK2 finalization.
-    vel_pol_influence = get_solver_erk2_influence_matrices!(
-        state.timestep_caches,
-        :velocity_poloidal,
-        T,
-        runtime.shtns_config,
-        runtime.outer_core_domain,
-        params.Ek,
-        params.timestep,
-        velocity_bc_code;
-        theta = theta
-    )
+    # Stage-4B W-split (ERK2 port): the stage machinery advances V := Ek·D_pol·P
+    # (∂t V = D_pol·V + N_W; cache on D_pol with diffusivity 1, nl unscaled).
+    # P is recovered from V with Dirichlet walls + φ1-column influence
+    # corrections at the stage and the finalize. velocity.work_pol hosts V.
+    pol_split = _get_or_build_poloidal_split!(state, velocity_bc_code)
+    _erk2_poloidal_to_V!(state.fields.velocity, pol_split, params.Ek)
 
     temp_cache = get_solver_erk2_temperature_cache!(
         state.timestep_caches,
@@ -688,29 +671,30 @@ function integrate_solver_erk2_step!(state::SolverState{
     vel_pol_cache = get_solver_erk2_cache!(
         state.timestep_caches,
         :velocity_poloidal,
-        params.Ek,
+        1.0,
         T,
         runtime.shtns_config,
         runtime.outer_core_domain,
         params.timestep;
         use_krylov = false,
-        bc_spec = vel_pol_bc
+        bc_spec = nothing,
+        dpol_operator = true
     )
     vel_pol_buffers = get_solver_erk2_field_buffers!(
         state.timestep_caches,
         :velocity_poloidal,
-        state.fields.velocity.poloidal,
+        state.fields.velocity.work_pol,
         state.fields.velocity.nl_poloidal,
         vel_pol_cache
     )
     prepare_solver_erk2_field!(
         vel_pol_buffers,
-        state.fields.velocity.poloidal,
+        state.fields.velocity.work_pol,
         state.fields.velocity.nl_poloidal,
         vel_pol_cache,
         runtime.shtns_config,
         params.timestep;
-        bc_spec = vel_pol_bc
+        bc_spec = nothing
     )
 
     mag_tor_buffers = nothing
@@ -830,7 +814,10 @@ function integrate_solver_erk2_step!(state::SolverState{
     # the cached linear operator and the nonlinear data from the previous step.
     apply_solver_erk2_stage!(temp_buffers, state.fields.temperature.spectral)
     apply_solver_erk2_stage!(vel_tor_buffers, state.fields.velocity.toroidal)
-    apply_solver_erk2_stage!(vel_pol_buffers, state.fields.velocity.poloidal)
+    apply_solver_erk2_stage!(vel_pol_buffers, state.fields.velocity.work_pol)
+    # Stage P-recovery: the stage nonlinears must see a BC-consistent stage P.
+    _erk2_poloidal_recover!(state.fields.velocity, pol_split, vel_pol_cache,
+        vel_pol_buffers.cache_lookup, params.timestep, params.Ek, true)
     if mag_tor_buffers !== nothing
         apply_solver_erk2_stage!(mag_tor_buffers, state.fields.magnetic.toroidal)
         apply_solver_erk2_stage!(mag_pol_buffers, state.fields.magnetic.poloidal)
@@ -882,17 +869,16 @@ function integrate_solver_erk2_step!(state::SolverState{
     )
     finalize_solver_erk2_field!(
         vel_pol_buffers,
-        state.fields.velocity.poloidal,
+        state.fields.velocity.work_pol,
         vel_pol_cache,
         runtime.shtns_config,
         params.timestep;
-        bc_spec = vel_pol_bc
+        bc_spec = nothing
     )
-    pol_nr = size(parent(state.fields.velocity.poloidal.data_real), 3)
-    apply_solver_velocity_poloidal_influence_correction!(
-        state.fields.velocity.poloidal, vel_pol_influence, runtime.shtns_config;
-        work = get_radial_work!(state.timestep_caches, :velocity_poloidal_influence, pol_nr).tmp_real
-    )
+    # Final P-recovery (full-step φ1 Greens) — replaces the legacy
+    # no-penetration influence correction.
+    _erk2_poloidal_recover!(state.fields.velocity, pol_split, vel_pol_cache,
+        vel_pol_buffers.cache_lookup, params.timestep, params.Ek, false)
 
     if mag_tor_buffers !== nothing
         finalize_solver_erk2_field!(

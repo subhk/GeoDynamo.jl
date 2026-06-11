@@ -340,3 +340,109 @@ function queue_velocity_implicit_updates!(
     push!(operations, () -> apply_velocity_poloidal_implicit_update!(state))
     return operations
 end
+
+# ============================================================================
+# Stage-4B ERK2 W-split support (see docs/superpowers/plans/2026-06-11-erk2-
+# wsplit-port.md). The ERK2 stage machinery advances V := Ek·W = Ek·D_pol·P
+# (so ∂t V = D_pol·V + N_W with the cache built on D_pol, diffusivity 1, and
+# nl_poloidal unscaled). P is recovered from V with Dirichlet walls plus
+# influence corrections whose Green responses are the φ1 columns:
+# g_i = c·φ1(cA)·e_i (c = dt/2 at the stage, dt at the finalize).
+# ============================================================================
+
+# V := Ek·D_pol·P written into velocity.work_pol (the V host during the step).
+function _erk2_poloidal_to_V!(velocity, split::PoloidalSplitMatrices{T},
+        Ek::Float64) where {T}
+    cfg = velocity.poloidal.config
+    nr = length(split.d1_row_inner)
+    P = Vector{T}(undef, nr); W = Vector{T}(undef, nr)
+    for (p_arr, v_arr) in (
+        (parent(velocity.poloidal.data_real), parent(velocity.work_pol.data_real)),
+        (parent(velocity.poloidal.data_imag), parent(velocity.work_pol.data_imag)),
+    )
+        @inbounds for lm in 1:cfg.nlm
+            slot = local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
+            l = cfg.l_values[lm]
+            if l == 0
+                for r_idx in 1:nr
+                    set_local_spectral_value!(v_arr, slot, r_idx, zero(T))
+                end
+                continue
+            end
+            idx = split.lookup[l]
+            for r_idx in 1:nr
+                P[r_idx] = local_spectral_value(p_arr, slot, r_idx)
+            end
+            mul!(W, split.dpol_op[idx], P)
+            for r_idx in 1:nr
+                set_local_spectral_value!(v_arr, slot, r_idx, T(Ek) * W[r_idx])
+            end
+        end
+    end
+    return velocity
+end
+
+# P ← recover(V) with Dirichlet walls + φ1-column influence corrections.
+# `half` selects the stage (dt/2, phi1_half) vs finalize (dt, phi1_full)
+# Green responses. cache_lookup maps l → the cache's per-l index.
+function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
+        cache, cache_lookup, dt::Float64, Ek::Float64, half::Bool) where {T}
+    cfg = velocity.poloidal.config
+    nr = length(split.d1_row_inner)
+    c = half ? dt / 2 : dt
+    phis = half ? cache.phi1_half : cache.phi1_full
+    Wv = Vector{T}(undef, nr); Pt = Vector{T}(undef, nr)
+    g = Vector{T}(undef, nr)
+    h1 = Vector{T}(undef, nr); h2 = Vector{T}(undef, nr)
+    invEk = 1.0 / Ek
+    for (p_arr, v_arr) in (
+        (parent(velocity.poloidal.data_real), parent(velocity.work_pol.data_real)),
+        (parent(velocity.poloidal.data_imag), parent(velocity.work_pol.data_imag)),
+    )
+        @inbounds for lm in 1:cfg.nlm
+            slot = local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
+            l = cfg.l_values[lm]
+            if l == 0
+                for r_idx in 1:nr
+                    set_local_spectral_value!(p_arr, slot, r_idx, zero(T))
+                end
+                continue
+            end
+            idx = split.lookup[l]
+            cidx = get(cache_lookup, l, 0)
+            cidx == 0 && error("missing ERK2 cache entry for l=$l in poloidal recovery")
+            for r_idx in 1:nr
+                Wv[r_idx] = invEk * local_spectral_value(v_arr, slot, r_idx)
+            end
+            Wv[1] = zero(T); Wv[nr] = zero(T)
+            solve_banded!(Pt, split.p_factor[idx], Wv)
+
+            # Green responses through the SAME recovery (R zeroes the walls).
+            phi = phis[cidx]
+            for r_idx in 1:nr
+                g[r_idx] = c * phi[r_idx, 1]
+            end
+            g[1] = zero(T); g[nr] = zero(T)
+            solve_banded!(h1, split.p_factor[idx], g)
+            for r_idx in 1:nr
+                g[r_idx] = c * phi[r_idx, nr]
+            end
+            g[1] = zero(T); g[nr] = zero(T)
+            solve_banded!(h2, split.p_factor[idx], g)
+
+            m11 = dot(split.d1_row_inner, h1); m12 = dot(split.d1_row_inner, h2)
+            m21 = dot(split.d1_row_outer, h1); m22 = dot(split.d1_row_outer, h2)
+            r1 = dot(split.d1_row_inner, Pt); r2 = dot(split.d1_row_outer, Pt)
+            det = m11 * m22 - m12 * m21
+            a1 = (-r1 * m22 + r2 * m12) / det
+            a2 = (-r2 * m11 + r1 * m21) / det
+            for r_idx in 1:nr
+                set_local_spectral_value!(p_arr, slot, r_idx,
+                    Pt[r_idx] + a1 * h1[r_idx] + a2 * h2[r_idx])
+            end
+        end
+    end
+    return velocity
+end
