@@ -252,4 +252,16 @@ using Test
         @test model.clock.last_Δt == model.clock.last_dt
         @test :last_Δt in propertynames(model.clock)
     end
+
+    @testset "Oceananigans BC names" begin
+        @test GeoDynamo.ValueBoundaryCondition(0.5) == GeoDynamo.FixedTemperature(0.5)
+        @test GeoDynamo.FluxBoundaryCondition(1.0) == GeoDynamo.FixedFlux(1.0)
+        bcs = GeoDynamo.FieldBoundaryConditions(inner = GeoDynamo.ValueBoundaryCondition(1.0),
+                                                outer = GeoDynamo.FluxBoundaryCondition(0.0))
+        @test bcs isa GeoDynamo.BoundaryConditions          # alias identity
+        @test bcs.inner == GeoDynamo.FixedTemperature(1.0)
+        @test sprint(show, GeoDynamo.ValueBoundaryCondition(0.5)) == "ValueBoundaryCondition(0.5)"
+        @test sprint(show, bcs) ==
+            "FieldBoundaryConditions(inner = ValueBoundaryCondition(1.0), outer = FluxBoundaryCondition(0.0))"
+    end
 end

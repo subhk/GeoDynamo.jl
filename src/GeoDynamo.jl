@@ -504,6 +504,7 @@ export dense_to_cpu_spectral!, sync_gpu_state_to_cpu!
 export gpu_run!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
+export ValueBoundaryCondition, FluxBoundaryCondition, FieldBoundaryConditions
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
 export Clock
 export GeodynamoModel
