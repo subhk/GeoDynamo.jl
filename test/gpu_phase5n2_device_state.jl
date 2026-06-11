@@ -145,7 +145,7 @@ end
             cpu_match &= isapprox(gr, cr; atol = 1e-8, rtol = 1e-6)
             cpu_match &= isapprox(gi, ci; atol = 1e-8, rtol = 1e-6)
         end
-        @test_broken cpu_match
+        @test cpu_match
     end
 
     @testset "GPU≈CPU full step on GPU [GPU-BOX]" begin
