@@ -49,9 +49,11 @@ Base.summary(c::Clock) =
 Base.show(io::IO, ::MIME"text/plain", c::Clock) = print(io, summary(c))
 
 # ── Model ────────────────────────────────────────────────────────────────────
-function Base.summary(m::GeodynamoModel{T, A}) where {T, A}
+function Base.summary(m::GeodynamoModel{T}) where {T}
+    # _arch_name keeps the header clean ("GPU") even when the architecture
+    # type parameter is a wrapped backend like GPU{CUDABackend}.
     arch = _arch_name(m.grid.arch)
-    "GeodynamoModel{$A, $T}(time = $(prettysummary(m.clock.time)), " *
+    "GeodynamoModel{$arch, $T}(time = $(prettysummary(m.clock.time)), " *
     "iteration = $(m.clock.iteration))"
 end
 
