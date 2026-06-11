@@ -22,7 +22,7 @@ using CUDA
 
 grid = SphericalShellGrid(GPU(); nr = 64, lmax = 31)
 model = GeodynamoModel(grid; include_magnetic = true)
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 If CUDA is not installed or no functional device is available, backend creation
@@ -44,7 +44,7 @@ GeoDynamo.Simulation
 
     - **Geometry**: `SphericalShellGrid`, `SphericalBallGrid`, `nr`, `nr_inner`, `lmax`, `mmax`, `nlat`, `nlon`
     - **Physics**: `Ek`, `Ra`, `Pr`, `Pm`
-    - **Time**: `Simulation(model; dt, stop_time, stop_iteration)`
+    - **Time**: `Simulation(model; Δt, stop_time, stop_iteration)`
     - **Boundaries**: `BoundaryConditions(inner=..., outer=...)`
 
 ---
@@ -119,7 +119,7 @@ See [Spherical Harmonics](shtnskit.md) for the complete transform API.
 Choose a timestepper object in the `Simulation` constructor:
 
 ```julia
-simulation = Simulation(model; dt = 1e-5, timestepper = CNAB2())
+simulation = Simulation(model; Δt = 1e-5, timestepper = CNAB2())
 ```
 
 | Object | Description |
@@ -173,7 +173,7 @@ using GeoDynamo
 
 grid = SphericalShellGrid(nr = 64, lmax = 31)
 model = GeodynamoModel(grid)
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 state = simulation.model.state
 
 GeoDynamo.bcs.load_boundary_conditions!(state.temperature, GeoDynamo.TEMPERATURE, Dict(
@@ -243,7 +243,7 @@ model = GeodynamoModel(
     include_topography_magnetic = true,
     ocb_topography_file = "config/cmb_topography.nc",
 )
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 **At runtime:**
@@ -275,7 +275,7 @@ The `InitialConditions` module provides high-level setup helpers:
 ```julia
 grid = SphericalShellGrid(nr = 64, lmax = 31)
 model = GeodynamoModel(grid; include_magnetic = true)
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 state = simulation.model.state
 
 # Temperature: conductive profile + perturbations
@@ -336,7 +336,7 @@ model = GeodynamoModel(
     Ra = 1e6,
 )
 
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 ### Saving and Loading

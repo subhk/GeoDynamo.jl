@@ -55,13 +55,28 @@ using MPI
     @test state.fields.magnetic !== nothing
     @test state.fields.composition !== nothing
 
-    # Stage-4B gate: nl_poloidal now carries the W-equation RHS of the
-    # pressure-free double-curl momentum form; the ERK2 stage machinery still
-    # advances the legacy poloidal equation and refuses loudly until ported
-    # (docs/superpowers/plans/2026-06-10-double-curl-stage4b-poloidal-momentum.md).
-    # The full-physics finite/advance assertions that lived here return with
-    # the ERK2 port.
-    @test_throws ErrorException GeoDynamo.solver_step!(state)
+    # Stage-4B ERK2 W-split port: the poloidal stage machinery advances
+    # V = Ek·D_pol·P with φ1-column influence recovery — full-physics
+    # assertions restored (docs/superpowers/plans/2026-06-11-erk2-wsplit-port.md).
+    snap_temp = copy(parent(state.fields.temperature.spectral.data_real))
+    snap_mag_tor = copy(parent(state.fields.magnetic.toroidal.data_real))
+    snap_mag_pol = copy(parent(state.fields.magnetic.poloidal.data_real))
+    snap_comp = copy(parent(state.fields.composition.spectral.data_real))
+
+    GeoDynamo.solver_step!(state)
+    @test state.step == 1
+
+    @test all(isfinite, parent(state.fields.magnetic.toroidal.data_real))
+    @test all(isfinite, parent(state.fields.magnetic.poloidal.data_real))
+    @test all(isfinite, parent(state.fields.composition.spectral.data_real))
+    @test all(isfinite, parent(state.fields.velocity.toroidal.data_real))
+    @test all(isfinite, parent(state.fields.velocity.poloidal.data_real))
+    @test all(isfinite, parent(state.fields.temperature.spectral.data_real))
+
+    @test any(snap_temp .!= parent(state.fields.temperature.spectral.data_real))
+    @test any(snap_mag_tor .!= parent(state.fields.magnetic.toroidal.data_real))
+    @test any(snap_mag_pol .!= parent(state.fields.magnetic.poloidal.data_real))
+    @test any(snap_comp .!= parent(state.fields.composition.spectral.data_real))
 
     # NOTE: do not finalize MPI here — other MPI-aware tests in the suite run
     # after this file and rely on the communicator staying alive.

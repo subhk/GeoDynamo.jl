@@ -1,6 +1,7 @@
 """
     GeodynamoModel(grid; T=Float64, Ek=1e-4, Pr=1.0, Pm=1.0, Sc=1.0, Ra=1e6,
                    velocity_bcs, temperature_bcs, composition_bcs,
+                   boundary_conditions=nothing,
                    include_magnetic=false, include_composition=false,
                    initial_conditions=nothing, kwargs...)
 
@@ -14,7 +15,11 @@ Physical model built on a [`SphericalShellGrid`](@ref) or
 - `Ek`, `Pr`, `Pm`, `Sc`, `Ra`: Ekman, Prandtl, magnetic-Prandtl, Schmidt, and
   Rayleigh numbers.
 - `velocity_bcs`, `temperature_bcs`, `composition_bcs`: per-field inner/outer
-  `BoundaryConditions`.
+  `BoundaryConditions` (convenience kwargs, aliases for the NamedTuple form).
+- `boundary_conditions`: Oceananigans-style `NamedTuple` of BCs, e.g.
+  `(temperature = FieldBoundaryConditions(inner=…, outer=…),)`.  Keys must be a
+  subset of `(:velocity, :temperature, :composition)`.  Passing the same field
+  through both `boundary_conditions` and a per-field kwarg is an error.
 - `include_magnetic`, `include_composition`: enable the magnetic / compositional
   equations.
 - `initial_conditions`: initial-condition spec, or `nothing` to start from rest.
@@ -27,6 +32,10 @@ configuration guide.
 ```julia
 grid  = SphericalShellGrid(lmax = 31, nr = 64)
 model = GeodynamoModel(grid; Ra = 1e6, include_magnetic = true)
+# Oceananigans-style boundary conditions:
+t_bcs = FieldBoundaryConditions(inner = ValueBoundaryCondition(1.0),
+                                outer = ValueBoundaryCondition(0.0))
+model = GeodynamoModel(grid; Ra = 1e6, boundary_conditions = (temperature = t_bcs,))
 ```
 """
 struct GeodynamoModel{T, A <: AbstractArchitecture, G}
@@ -103,6 +112,40 @@ function _build_geodynamo_model(
 end
 
 # ────────────────────────────────────────────────────────────────────────────────
+# BC resolver — merges the Oceananigans-style `boundary_conditions` NamedTuple
+# with the per-field kwargs.  A field given through BOTH paths is ambiguous →
+# error.  Unspecified fields fall back to `defaults`.
+# ────────────────────────────────────────────────────────────────────────────────
+
+function _resolve_bcs(boundary_conditions, velocity_bcs, temperature_bcs,
+        composition_bcs, defaults)
+    boundary_conditions === nothing &&
+        return (something(velocity_bcs, defaults.velocity),
+                something(temperature_bcs, defaults.temperature),
+                something(composition_bcs, defaults.composition))
+    valid = (:velocity, :temperature, :composition)
+    for k in keys(boundary_conditions)
+        k in valid || throw(ArgumentError(
+            "GeodynamoModel: unknown boundary_conditions field :$k " *
+            "(valid: :velocity, :temperature, :composition)"))
+    end
+    conflict(name, kwarg) = kwarg !== nothing && haskey(boundary_conditions, name) &&
+        throw(ArgumentError(
+            "GeodynamoModel: $(name) BCs given both via boundary_conditions " *
+            "NamedTuple and the $(name)_bcs kwarg — pass one"))
+    conflict(:velocity, velocity_bcs)
+    conflict(:temperature, temperature_bcs)
+    conflict(:composition, composition_bcs)
+    vel  = haskey(boundary_conditions, :velocity)    ? boundary_conditions.velocity    :
+           something(velocity_bcs,    defaults.velocity)
+    temp = haskey(boundary_conditions, :temperature) ? boundary_conditions.temperature :
+           something(temperature_bcs, defaults.temperature)
+    comp = haskey(boundary_conditions, :composition) ? boundary_conditions.composition :
+           something(composition_bcs, defaults.composition)
+    return (vel, temp, comp)
+end
+
+# ────────────────────────────────────────────────────────────────────────────────
 # Public constructors
 # ────────────────────────────────────────────────────────────────────────────────
 
@@ -113,9 +156,10 @@ function GeodynamoModel(grid::SphericalShellGrid;
         Pm::Real = 1.0,
         Sc::Real = 1.0,
         Ra::Real = 1e6,
-        velocity_bcs = BoundaryConditions(inner = NoSlip(), outer = NoSlip()),
-        temperature_bcs = BoundaryConditions(inner = FixedFlux(1.0), outer = FixedTemperature(0.0)),
-        composition_bcs = BoundaryConditions(inner = FixedFlux(0.0), outer = FixedTemperature(0.0)),
+        velocity_bcs = nothing,
+        temperature_bcs = nothing,
+        composition_bcs = nothing,
+        boundary_conditions = nothing,
         include_magnetic::Bool = false,
         include_composition::Bool = false,
         initial_conditions = nothing,
@@ -135,6 +179,11 @@ function GeodynamoModel(grid::SphericalShellGrid;
         ocb_topography_file::AbstractString = "",
         magnetic_inner_bc::Symbol = :insulating
 )
+    velocity_bcs, temperature_bcs, composition_bcs = _resolve_bcs(
+        boundary_conditions, velocity_bcs, temperature_bcs, composition_bcs,
+        (velocity    = BoundaryConditions(inner = NoSlip(),       outer = NoSlip()),
+         temperature = BoundaryConditions(inner = FixedFlux(1.0), outer = FixedTemperature(0.0)),
+         composition = BoundaryConditions(inner = FixedFlux(0.0), outer = FixedTemperature(0.0))))
     arch_sym = grid.arch isa CPU ? :cpu : :gpu
     return _build_geodynamo_model(grid, T, arch_sym, :shell,
         grid.r_inner / grid.r_outer,
@@ -150,6 +199,20 @@ function GeodynamoModel(grid::SphericalShellGrid;
         magnetic_inner_bc)
 end
 
+# ────────────────────────────────────────────────────────────────────────────────
+# Oceananigans-style field access: model.velocity / model.temperature /
+# model.magnetic / model.composition forward to the solver state's fields
+# (`nothing` when the field is disabled).
+# ────────────────────────────────────────────────────────────────────────────────
+const _MODEL_FIELD_PROPS = (:velocity, :temperature, :magnetic, :composition)
+
+function Base.getproperty(m::GeodynamoModel, name::Symbol)
+    name in _MODEL_FIELD_PROPS &&
+        return getproperty(getfield(m, :state).fields, name)
+    return getfield(m, name)
+end
+Base.propertynames(m::GeodynamoModel) = (fieldnames(GeodynamoModel)..., _MODEL_FIELD_PROPS...)
+
 function GeodynamoModel(grid::SphericalBallGrid;
         T::Type = Float64,
         Ek::Real = 1e-4,
@@ -157,9 +220,10 @@ function GeodynamoModel(grid::SphericalBallGrid;
         Pm::Real = 1.0,
         Sc::Real = 1.0,
         Ra::Real = 1e6,
-        velocity_bcs = BoundaryConditions(inner = NoSlip(), outer = NoSlip()),
-        temperature_bcs = BoundaryConditions(inner = FixedFlux(1.0), outer = FixedTemperature(0.0)),
-        composition_bcs = BoundaryConditions(inner = FixedFlux(0.0), outer = FixedTemperature(0.0)),
+        velocity_bcs = nothing,
+        temperature_bcs = nothing,
+        composition_bcs = nothing,
+        boundary_conditions = nothing,
         include_magnetic::Bool = false,
         include_composition::Bool = false,
         initial_conditions = nothing,
@@ -179,6 +243,11 @@ function GeodynamoModel(grid::SphericalBallGrid;
         ocb_topography_file::AbstractString = "",
         magnetic_inner_bc::Symbol = :insulating
 )
+    velocity_bcs, temperature_bcs, composition_bcs = _resolve_bcs(
+        boundary_conditions, velocity_bcs, temperature_bcs, composition_bcs,
+        (velocity    = BoundaryConditions(inner = NoSlip(),       outer = NoSlip()),
+         temperature = BoundaryConditions(inner = FixedFlux(1.0), outer = FixedTemperature(0.0)),
+         composition = BoundaryConditions(inner = FixedFlux(0.0), outer = FixedTemperature(0.0))))
     arch_sym = grid.arch isa CPU ? :cpu : :gpu
     return _build_geodynamo_model(grid, T, arch_sym, :ball,
         0.0,

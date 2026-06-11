@@ -809,13 +809,45 @@ end
 
 function transform_field_and_gradients_to_physical!(
         𝔽::ScalarFieldType{T},
-        ws::SolverGradientWorkspace{T}
+        ws::SolverGradientWorkspace{T},
+        domain::RadialDomainType
 ) where {T}
     main_physical_field = solver_main_physical_field(𝔽)
     scalar_spectral_to_physical!(𝔽.spectral, main_physical_field)
-    scalar_spectral_to_physical!(ws.∇θ_spec, 𝔽.gradient.θ_component)
-    scalar_spectral_to_physical!(ws.∇φ_spec, 𝔽.gradient.φ_component)
+    # EXACT tangential gradient via the raw sphtor synthesis of the scalar's
+    # own coefficients: S = 𝔽.spectral, T = 0 gives (∂θf, (1/sinθ)∂φf) on the
+    # unit sphere; dividing by r yields the TRUE physical gradient components.
+    # The legacy route synthesized the θ/φ spectral-recurrence outputs, which
+    # are sinθ-weighted projections (the θ-recurrence encodes sinθ·∂θY) — that
+    # silently sinθ-weighted the tangential advection u·∇f (suppressed toward
+    # the poles). 𝔽.work_spectral is zero here (solver_zero_scalar_work_arrays!
+    # ran at the start of the pass) and serves as the zero toroidal input.
+    vector_spectral_to_physical!(
+        𝔽.work_spectral,           # zero toroidal
+        𝔽.spectral,                # spheroidal = the scalar itself
+        𝔽.gradient;
+        raw_spheroidal = true
+    )
+    _scale_tangential_gradient_by_inv_r!(𝔽, domain)
     scalar_spectral_to_physical!(ws.∇r_spec, 𝔽.gradient.r_component)
+    return 𝔽
+end
+
+# gradient.θ/φ hold the unit-sphere tangential derivatives after the sphtor
+# synthesis; divide by r per radial level for the physical gradient.
+function _scale_tangential_gradient_by_inv_r!(𝔽, domain)
+    gθ = parent(𝔽.gradient.θ_component.data)
+    gφ = parent(𝔽.gradient.φ_component.data)
+    cfg = 𝔽.config
+    r_range = local_range(cfg.pencils.r, 3)
+    @inbounds for k in axes(gθ, 3)
+        r_idx = k + first(r_range) - 1
+        rinv = (1 <= r_idx <= domain.N) ? domain.r[r_idx, 3] : 0.0
+        for j in axes(gθ, 2), i in axes(gθ, 1)
+            gθ[i, j, k] *= rinv
+            gφ[i, j, k] *= rinv
+        end
+    end
     return 𝔽
 end
 

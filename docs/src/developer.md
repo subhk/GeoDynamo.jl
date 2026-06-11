@@ -62,6 +62,28 @@ GeoDynamo.jl/
 │   │   └── composition/
 │   │       ├── field.jl          # Composition field containers/operators
 │   │       └── solver.jl         # Solver-owned compositional helpers
+│   ├── gpu/                      # Single-GPU solver port (Array/CuArray backends)
+│   │   ├── device.jl             # Device selection and array movement
+│   │   ├── fields.jl             # GPU spectral/physical field containers
+│   │   ├── scalar_transform.jl   # GPU scalar synthesis/analysis
+│   │   ├── vector_transform.jl   # GPU vector synthesis/analysis
+│   │   ├── nonlinear.jl          # Shared GPU nonlinear kernels (cross, Coriolis, buoyancy)
+│   │   ├── scalar_gradient.jl    # GPU scalar gradient
+│   │   ├── spectral_curl.jl      # GPU spectral curl
+│   │   ├── scalar_nonlinear.jl   # GPU scalar advection assembly
+│   │   ├── velocity_nonlinear.jl # GPU velocity nonlinear (buoyancy + Lorentz)
+│   │   ├── magnetic_nonlinear.jl # GPU induction term ∇×(u×B)
+│   │   ├── banded_solve.jl       # Batched banded LU on device
+│   │   ├── cnab2_rhs.jl          # GPU CNAB2 right-hand side
+│   │   ├── implicit_solve.jl     # GPU implicit solve with BC rows
+│   │   ├── influence_correction.jl # Poloidal influence-matrix correction
+│   │   ├── inner_core.jl         # Conducting inner-core GPU path
+│   │   ├── scalar_step.jl        # GPU scalar field step
+│   │   ├── velocity_step.jl      # GPU velocity field step
+│   │   ├── magnetic_step.jl      # GPU magnetic field step
+│   │   ├── solver_step.jl        # Full gpu_solver_step! orchestration
+│   │   ├── device_state.jl       # Device-state builder from a SolverState
+│   │   └── run.jl                # gpu_run! loop + host-gather output hook
 │   ├── diagnostics/
 │   │   └── solver.jl             # Solver diagnostics
 │   ├── io/
@@ -73,9 +95,7 @@ GeoDynamo.jl/
 │   │   ├── history.jl            # Time-series history utilities
 │   │   ├── restart.jl            # Restart file read/write
 │   │   └── utilities.jl          # Shared I/O utilities
-│   ├── api/                      # High-level user-facing API
-│   │   ├── model.jl              # GeodynamoModel constructors
-│   │   ├── simulation.jl         # Simulation type and run loop
+│   ├── api/                      # High-level user-facing API (Oceananigans-style)
 │   │   ├── grids.jl              # SphericalShellGrid / SphericalBallGrid
 │   │   ├── boundary_conditions.jl
 │   │   ├── initial_conditions.jl
@@ -199,9 +219,9 @@ The CI runs on multiple platforms via `.github/workflows/ci.yml`:
 
 | Platform | Julia Versions | MPI | Notes |
 |:---------|:---------------|:----|:------|
-| **Linux (Ubuntu)** | 1.10, 1.11 | MPICH | `libnetcdf-dev` |
-| **macOS** | 1.11 | Open MPI | Homebrew packages |
-| **Windows** | 1.11 | Microsoft MPI | Chocolatey |
+| **Linux (Ubuntu)** | 1.10, 1.11, 1.12 | MPICH | `libnetcdf-dev` |
+| **macOS** | 1.12 | Open MPI | Homebrew packages |
+| **Windows** | 1.12 | Microsoft MPI | Chocolatey |
 
 The workflow:
 1. Caches Julia artifacts
