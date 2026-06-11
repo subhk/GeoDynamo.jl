@@ -6,10 +6,12 @@
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │   GeoDynamo                                                             │
+│   ├── High-level API (GeodynamoModel, Simulation, run!, set!, …)        │
 │   ├── Core Types & Functions                                            │
 │   ├── bcs (Boundary Conditions)                                         │
 │   │   └── topography                                                    │
 │   ├── InitialConditions                                                 │
+│   ├── GPU solver port (gpu_solver_step!, gpu_run!)                      │
 │   ├── GeoDynamoShell                                                    │
 │   └── GeoDynamoBall                                                     │
 │                                                                         │
