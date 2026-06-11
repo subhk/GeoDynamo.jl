@@ -50,7 +50,7 @@ function _solver_compute_scalar_nonlinear!(
     if timing_enabled()
         t_transform = mpi_wtime()
     end
-    transform_field_and_gradients_to_physical!(𝔽, ws)
+    transform_field_and_gradients_to_physical!(𝔽, ws, outer_core_domain)
     if timing_enabled()
         𝔽.transform_time[] += mpi_wtime() - t_transform
     end

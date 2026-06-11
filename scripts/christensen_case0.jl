@@ -16,7 +16,7 @@ using LinearAlgebra
 
 MPI.Initialized() || MPI.Init()
 
-const LMAX = 32
+const LMAX = parse(Int, get(ENV, "CASE0_LMAX", "32"))
 const NR = 33
 const DT = 1.0e-4
 const NSTEPS = parse(Int, get(ENV, "CASE0_NSTEPS", "20000"))
@@ -25,8 +25,8 @@ const REPORT_EVERY = 200
 params = GeoDynamo.SolverParameters(architecture = :cpu, 
                     geometry = :shell,
                     nr = 64, nr_inner = 8, 
-                    lmax = 64, mmax = 64, 
-                    nlat = 48, nlon = 96,
+                    lmax = LMAX, mmax = LMAX, 
+                    nlat = 2 * LMAX, nlon = 4 * LMAX,
                     Ra = 25.0, Ek = 5.0e-4, Pr = 1.0, Pm = 1.0, Sc = 1.0,
                     timestep = DT, start_time = 0.0, end_time = 10.0, stop_iteration = 10_000_000,
                     include_magnetic = false, include_composition = false,

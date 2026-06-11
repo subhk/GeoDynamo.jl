@@ -297,7 +297,10 @@ function create_solver_erk2_magnetic_poloidal_cache(
         m::Int = 20,
         tol::Float64 = 1e-8
 ) where {T}
-    laplacian = build_radial_laplacian(domain)
+    # Stage-4B solenoidal convention: magnetic POLOIDAL potentials diffuse with
+    # D_pol = d²/dr² − l(l+1)/r² (no 2/r term) — same operator the CNAB2
+    # magnetic-poloidal matrices use since the Stage-4A consistency fix.
+    laplacian = create_derivative_matrix(Float64, 2, domain)
     first_derivative = build_radial_derivative_matrix(T, 1, domain)
     nr = domain.N
     bandwidth = laplacian.bandwidth
@@ -312,7 +315,7 @@ function create_solver_erk2_magnetic_poloidal_cache(
     phi2_full = Matrix{T}[]
 
     if mpi_rank() == 0
-        @info "Creating solver ERK2 cache for magnetic poloidal with embedded insulating BCs"
+        @info "Creating solver ERK2 cache for magnetic poloidal (D_pol) with embedded insulating BCs"
     end
 
     for l in l_values
