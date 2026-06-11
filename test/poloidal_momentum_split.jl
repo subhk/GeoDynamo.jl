@@ -138,3 +138,52 @@ end
     end
     @test checked >= 3
 end
+
+@testset "ERK2 W-split: consistent with CNAB2, wall conditions hold" begin
+    function run10(stepper)
+        params = GeoDynamo.SolverParameters(
+            architecture = :cpu, geometry = :shell,
+            nr = 16, nr_inner = 4, lmax = 8, mmax = 8, nlat = 20, nlon = 40,
+            Ra = 1e4, Ek = 1e-2, Pr = 1.0, Pm = 1.0, Sc = 1.0,
+            timestep = 5e-5, start_time = 0.0, end_time = 1.0, stop_iteration = 100000,
+            include_magnetic = false, include_composition = false,
+            timestepper = stepper, topography_enabled = false, stefan_enabled = false)
+        state = GeoDynamo.initialize_simulation(Float64, params)
+        for _ in 1:10
+            GeoDynamo.solver_step!(state)
+        end
+        return state
+    end
+    sC = run10(GeoDynamo.CNAB2())
+    sE = run10(GeoDynamo.ERK2())
+    # both schemes are 2nd order on the same equations: trajectories agree to
+    # scheme-difference accuracy (not bit-exact)
+    pC = parent(sC.fields.velocity.poloidal.data_real)
+    pE = parent(sE.fields.velocity.poloidal.data_real)
+    @test all(isfinite, pE)
+    relΔ = norm(pE - pC) / max(norm(pC), eps())
+    @info "ERK2 vs CNAB2 poloidal after 10 steps" relΔ
+    @test relΔ < 0.05
+
+    # ERK2 wall conditions (no-slip): P=0 and P′=0 on active modes
+    cfg = sE.fields.velocity.poloidal.config
+    dom = sE.backend.outer_core_domain
+    D1 = GeoDynamo.create_derivative_matrix(Float64, 1, dom)
+    nr = dom.N
+    checked = 0
+    for lm in 1:cfg.nlm
+        l = cfg.l_values[lm]; l == 0 && continue
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+        slot === nothing && continue
+        prof = [GeoDynamo.local_spectral_value(pE, slot, r) for r in 1:nr]
+        scale = maximum(abs, prof); scale < 1e-12 && continue
+        dp = D1 * prof
+        @test abs(prof[1]) < 1e-8 * scale
+        @test abs(prof[nr]) < 1e-8 * scale
+        @test abs(dp[1]) < 1e-5 * maximum(abs, dp)
+        @test abs(dp[nr]) < 1e-5 * maximum(abs, dp)
+        checked += 1
+        checked >= 3 && break
+    end
+    @test checked >= 3
+end
