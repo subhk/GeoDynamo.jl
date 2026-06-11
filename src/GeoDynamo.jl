@@ -515,6 +515,7 @@ export FieldWriter, CheckpointWriter
 export RandomPerturbation, AnalyticIC, FileIC, ZeroIC
 export set_initial_condition!, set!
 export Callback, EnergyDiagnostics, SolenoidalMonitor, SimulationProgress, HealthCheck
+export prettytime, prettysummary
 
 # ================================================================================
 # Centralized Numerical Tolerance Constants
@@ -636,6 +637,7 @@ include("api/fields.jl")
 include("api/callbacks.jl")
 include("api/output_writers.jl")
 include("api/simulation.jl")
+include("api/units.jl")
 include("api/show.jl")
 # Import all Ball exports into GeoDynamo namespace
 using .GeoDynamoBall

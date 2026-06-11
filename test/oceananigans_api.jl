@@ -178,4 +178,27 @@ using Test
         c = GeoDynamo.Clock(; time = 1.5, iteration = 3)
         @test occursin("iteration=3", summary(c))
     end
+
+    @testset "prettytime / prettysummary" begin
+        @test GeoDynamo.prettytime(0) == "0 seconds"
+        @test GeoDynamo.prettytime(1) == "1 second"
+        @test GeoDynamo.prettytime(1e-9) == "1 ns"
+        @test GeoDynamo.prettytime(2.5e-6) == "2.500 μs"
+        @test GeoDynamo.prettytime(0.012345) == "12.345 ms"
+        @test GeoDynamo.prettytime(2.341) == "2.341 seconds"
+        @test GeoDynamo.prettytime(90) == "1.500 minutes"
+        @test GeoDynamo.prettytime(3600) == "1 hour"
+        @test GeoDynamo.prettytime(129600) == "1.500 days"
+        @test GeoDynamo.prettytime(Inf) == "Inf days"
+
+        @test GeoDynamo.prettysummary(0) == "0"
+        @test GeoDynamo.prettysummary(1) == "1"
+        @test GeoDynamo.prettysummary(0.0) == "0"
+        @test GeoDynamo.prettysummary(1.0) == "1"
+        @test GeoDynamo.prettysummary(1e-4) == "0.0001"
+        @test GeoDynamo.prettysummary(1.5e-7) == "1.5e-7"
+        @test GeoDynamo.prettysummary(0.35) == "0.35"
+        @test GeoDynamo.prettysummary(Inf) == "Inf"
+        @test GeoDynamo.prettysummary(typemax(Int)) == "Inf"
+    end
 end
