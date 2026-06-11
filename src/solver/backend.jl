@@ -358,10 +358,12 @@ function create_solver_fields(::Type{T}, backend::SolverBackend{<:AbstractArchit
     return velocity, magnetic, temperature, composition
 end
 
-function build_velocity_implicit_matrices(cfg, domain, E, dt, velocity_bc_code)
+function build_velocity_implicit_matrices(cfg, domain, E, dt, velocity_bc_code;
+        inner_regularity::Bool = false)
     return (
         tor = SOLVER_VELOCITY_TOROIDAL_MATRIX_BUILDER(
-            cfg, domain, E, dt; velocity_bc_code = velocity_bc_code, mass_coeff = E
+            cfg, domain, E, dt; velocity_bc_code = velocity_bc_code, mass_coeff = E,
+            inner_regularity = inner_regularity
         ),
         pol = SOLVER_VELOCITY_POLOIDAL_MATRIX_BUILDER(
             cfg, domain, E, dt; velocity_bc_code = velocity_bc_code, mass_coeff = E
@@ -369,10 +371,13 @@ function build_velocity_implicit_matrices(cfg, domain, E, dt, velocity_bc_code)
     )
 end
 
-function build_magnetic_implicit_matrices(cfg, domain, dt)
+function build_magnetic_implicit_matrices(cfg, domain, dt;
+        inner_regularity::Bool = false)
     return (
-        tor = SOLVER_MAGNETIC_TOROIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt),
-        pol = SOLVER_MAGNETIC_POLOIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt)
+        tor = SOLVER_MAGNETIC_TOROIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt;
+            inner_regularity = inner_regularity),
+        pol = SOLVER_MAGNETIC_POLOIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt;
+            inner_regularity = inner_regularity)
     )
 end
 
@@ -415,15 +420,19 @@ end
     domain,
     diffusivity,
     dt,
-    temperature_bc_code) = SOLVER_TEMPERATURE_MATRIX_BUILDER(
-    cfg, domain, diffusivity, dt; temperature_bc_code = temperature_bc_code)
+    temperature_bc_code,
+    inner_regularity::Bool = false) = SOLVER_TEMPERATURE_MATRIX_BUILDER(
+    cfg, domain, diffusivity, dt; temperature_bc_code = temperature_bc_code,
+    inner_regularity = inner_regularity)
 
 @inline solver_build_composition_implicit_matrix(cfg,
     domain,
     diffusivity,
     dt,
-    composition_bc_code) = SOLVER_COMPOSITION_MATRIX_BUILDER(
-    cfg, domain, diffusivity, dt; composition_bc_code = composition_bc_code)
+    composition_bc_code,
+    inner_regularity::Bool = false) = SOLVER_COMPOSITION_MATRIX_BUILDER(
+    cfg, domain, diffusivity, dt; composition_bc_code = composition_bc_code,
+    inner_regularity = inner_regularity)
 
 # Shared core for both the eager (construction-time) and rebuild (dt-change)
 # implicit-matrix paths. `dt` is the authoritative timestep — callers pass it
@@ -431,9 +440,11 @@ end
 function _build_implicit_matrices_dict(
         ::Type{T}, cfg, outer, ic_domain, p::SolverParameters, dt::Float64
 ) where {T}
+    inner_regularity = p.geometry === :ball
     matrices = Dict{Symbol, OldImplicitMatrices{T}}()
     velocity = build_velocity_implicit_matrices(
-        cfg, outer, p.Ek, dt, _velocity_bc_code(p.velocity_bcs))
+        cfg, outer, p.Ek, dt, _velocity_bc_code(p.velocity_bcs);
+        inner_regularity = inner_regularity)
     matrices[:velocity_tor] = velocity.tor
     matrices[:velocity_pol] = velocity.pol
 
@@ -442,22 +453,27 @@ function _build_implicit_matrices_dict(
         # Conducting inner core: build the ICB admittances and outer-core
         # matrices with the conducting Robin inner row. Requires the inner-core
         # ball domain (present for shell geometry, enforced by parameter checks).
+        # Ball + conducting inner core is forbidden by parameter validation, so
+        # inner_regularity is always false on this branch — leave it untouched.
         ic_domain === nothing && error(
             "magnetic_inner_bc=:conducting_inner_core requires an inner-core domain " *
             "(geometry=:shell); got inner_core_domain === nothing")
         magnetic = build_magnetic_implicit_matrices_conducting(T, cfg, outer, ic_domain, dt)
         magnetic_ic_admittance = magnetic.admittance
     else
-        magnetic = build_magnetic_implicit_matrices(cfg, outer, dt)
+        magnetic = build_magnetic_implicit_matrices(cfg, outer, dt;
+            inner_regularity = inner_regularity)
     end
     matrices[:magnetic_tor] = magnetic.tor
     matrices[:magnetic_pol] = magnetic.pol
 
     matrices[:temperature] = solver_build_temperature_implicit_matrix(
-        cfg, outer, p.Pm / p.Pr, dt, _thermal_bc_code(p.temperature_bcs))
+        cfg, outer, p.Pm / p.Pr, dt, _thermal_bc_code(p.temperature_bcs),
+        inner_regularity)
     if p.include_composition
         matrices[:composition] = solver_build_composition_implicit_matrix(
-            cfg, outer, p.Pm / p.Sc, dt, _composition_bc_code(p.composition_bcs))
+            cfg, outer, p.Pm / p.Sc, dt, _composition_bc_code(p.composition_bcs),
+            inner_regularity)
     end
     return matrices, magnetic_ic_admittance
 end
