@@ -102,14 +102,15 @@ run!(simulation)
 |:-------|:------------|
 | `fields/containers.jl` | PencilArray-backed spectral and physical fields |
 | `core/parameters.jl` | Parameter loading, validation, and runtime state |
-| `parallel/mpi.jl`, `parallel/pencils.jl`, `parallel/transposes.jl` | MPI and PencilArrays domain decomposition |
+| `parallel/mpi.jl`, `parallel/process_grid.jl`, `parallel/pencils.jl` | MPI setup, explicit r×θ process grids, and PencilArrays topology |
+| `parallel/disttranspose_adapter.jl`, `parallel/transposes.jl` | r↔mode redistribution and pencil transpose helpers |
 | `numerics/banded_operators.jl` | Banded matrix operations for radial derivatives |
 
 ### SHTnsKit Integration
 
 | Module | Description |
 |:-------|:------------|
-| `transforms/spectral.jl` | Grid setup, FFT plans, transpose operators |
+| `transforms/spectral.jl` | SHTnsKit config, FFT plans, transform pencils, and θ/r subcommunicators |
 | `fields/transforms.jl` | Transforms, energy spectra, rotations |
 
 ### Physics

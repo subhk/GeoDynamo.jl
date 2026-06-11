@@ -4,16 +4,15 @@ GeoDynamo.jl follows a grid → model → simulation setup style. Build a `Spher
 
 ## GPU Backend
 
-The current `:gpu` backend is a hybrid solver path:
+The current `:gpu` backend is an explicit single-device solver path:
 
-- SHTnsKit scalar and vector transforms use the CUDA GPU path
-- radial operators, implicit solves, and most field storage remain CPU-backed
-- GPU SHTns configs record their transform device and intentionally skip eager CPU transform plans/output buffers
+- dense GPU field containers hold scalar, vector, nonlinear-history, and implicit-solve arrays on the selected architecture
+- scalar transforms, Stage-2 solenoidal vector transforms, spectral curls, nonlinear projections, CNAB2 right-hand sides, batched radial solves, and the `gpu_run!` stepping loop have GPU-path implementations
+- the CUDA extension routes SHTnsKit scalar and vector transforms to CUDA when the arrays and SHTnsKit configuration are device-backed
 - each solver runtime owns a `TransformWorkspace`; on GPU-marked runtimes its scratch allocations can be sourced from the backend-provided `scratch_zeros` hook
-- scalar transform scratch gather/scatter can be supplied by the backend through `with_gpu_backend(...)` / `register_gpu_backend!(...)`
-- vector transform scratch gather/store and vector component extract/store can also be supplied through the same backend hook surface
-- the CUDA extension currently registers explicit host-backed implementations for those scratch hooks, so backend ownership is in place before full device-resident scratch storage lands
-- `with_gpu_backend(...)` can temporarily install an alternate backend implementation for tests or experimental integrations, including `scratch_zeros`, and restores the previous backend automatically afterward
+- `with_gpu_backend(...)` can temporarily install alternate backend implementations for tests or experimental integrations and restores the previous backend automatically afterward
+- full parity with the production CPU `SolverState` path is still guarded by broken tests while the remaining solver-integration differences are closed
+- conducting inner-core magnetic coupling is not yet wired into `build_gpu_solver_state`; insulating magnetic cases are the supported solver-state path
 
 To use `:gpu`, load CUDA before creating the solver state:
 

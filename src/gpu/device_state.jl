@@ -167,7 +167,7 @@ function build_gpu_solver_state(st)
     rinv = T[dom.r[k, 3] for k in 1:nr]
     rinv2 = T[dom.r[k, 2] for k in 1:nr]
     r_vec = T[dom.r[k, 4] for k in 1:nr]
-    rscale = copy(rinv)                       # 1/r scaling for v_r; lfac=l(l+1) multiplied at the call site
+    rscale = copy(rinv)                       # legacy operator-bundle field; Stage-2 vector synthesis uses rinv/rinv2 directly
     sinθ = T[vel.coriolis_factors[1, i] for i in 1:cfg.nlat]
     cosθ = T[vel.coriolis_factors[2, i] for i in 1:cfg.nlat]
     mvals = T[m for m in 0:cfg.mmax]
