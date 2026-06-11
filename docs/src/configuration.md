@@ -260,33 +260,30 @@ The `InitialConditions` module provides high-level setup helpers:
 
 ### Available Functions
 
-| Function | Purpose |
-|:---------|:--------|
-| `set_velocity_initial_conditions!` | Deterministic poloidal/toroidal seeds (solid-body, dipole, etc.) |
-| `randomize_vector_field!` | Add random divergence-free perturbations |
-| `set_temperature_ic!` | Conductive, mixed, or user-defined radial profiles |
-| `set_composition_ic!` | Composition initialization |
-| `randomize_scalar_field!` | Thermal/compositional noise with configurable amplitude |
-| `load_initial_conditions!` | Load from saved snapshots (NetCDF/HDF5) |
-| `save_initial_conditions` | Save current state to file |
+| Public API | Purpose |
+|:-----------|:--------|
+| `set!(model; field = value)` | Apply initial conditions after constructing a model |
+| `initial_conditions = (...)` | Apply initial conditions during `GeodynamoModel` construction |
+| `RandomPerturbation(amplitude, lmax, seed)` | Spectral random perturbations for scalar and vector fields |
+| `AnalyticIC(pattern; ...)` | Named deterministic patterns such as `:conductive`, `:dipole`, and `:convective` |
+| `FileIC(path)` | Load a compatible initial-condition file |
+| `ZeroIC()` | Explicit zero initial condition |
 
 ### Typical Setup
 
 ```julia
 grid = SphericalShellGrid(nr = 64, lmax = 31)
-model = GeodynamoModel(grid; include_magnetic = true)
+model = GeodynamoModel(grid;
+    include_magnetic = true,
+    initial_conditions = (
+        temperature = AnalyticIC(:conductive),
+        velocity = RandomPerturbation(amplitude = 1e-4, lmax = 8),
+        magnetic = AnalyticIC(:dipole; amplitude = 1.0),
+    ),
+)
+
+set!(model; temperature = (r, θ, φ) -> (1 - r) + 1e-3 * sin(θ))
 simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
-state = simulation.model.state
-
-# Temperature: conductive profile + perturbations
-set_temperature_ic!(state.temperature; profile = :conductive)
-randomize_scalar_field!(state.temperature; amplitude = 1e-3)
-
-# Velocity: start at rest with small perturbations
-set_velocity_initial_conditions!(state.velocity; kind = :rest)
-
-# Magnetic: small random seed
-randomize_magnetic_field!(state.magnetic; amplitude = 1e-5)
 ```
 
 ### Restarts
@@ -294,11 +291,17 @@ randomize_magnetic_field!(state.magnetic; amplitude = 1e-5)
 For reproducible continuation runs:
 
 ```julia
-# Save state
-write_restart!(state, tracker, metadata, config)
+# Recommended: schedule checkpoints on the simulation.
+checkpoint = CheckpointWriter("output"; schedule = TimeInterval(0.5))
+simulation = Simulation(model; Δt = 1e-5, stop_time = 1.0,
+                        output_writers = (checkpoint,))
+run!(simulation)
 
-# Resume later
-read_restart!("output/geodynamo_shell_rank_0000_restart_1.nc")
+# Resume later from the restart directory. This is collective and should be
+# called under MPI after MPI.Init().
+simulation = Simulation(model; Δt = 1e-5, stop_time = 2.0,
+                        restart_from = "output")
+run!(simulation)
 ```
 
 ---
