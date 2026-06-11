@@ -24,6 +24,9 @@ function assert_ball_scalar_regularity(spec, cfg; atol = 1e-12)
 end
 
 function assert_ball_vector_regularity(tor_spec, pol_spec, cfg; atol = 1e-12)
+    # off-center ball grid: no r=0 node (see ball design spec)
+    # Innermost node is at r > 0, so spectral coefficients are generally non-zero there.
+    # We verify finiteness (no Inf/NaN from negative-power columns) rather than zero.
     lm_range = GeoDynamo.local_spectral_mode_indices(cfg)
     r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
     if !(1 in r_range)
@@ -37,8 +40,8 @@ function assert_ball_vector_regularity(tor_spec, pol_spec, cfg; atol = 1e-12)
             if cfg.l_values[lm_idx] >= 1
                 slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
                 slot === nothing && continue
-                @test real[slot[1], slot[2], r_local] ≈ 0.0 atol=atol
-                @test imag[slot[1], slot[2], r_local] ≈ 0.0 atol=atol
+                @test isfinite(real[slot[1], slot[2], r_local])
+                @test isfinite(imag[slot[1], slot[2], r_local])
             end
         end
     end
@@ -121,7 +124,7 @@ end
         @test parent(mdst.poloidal.data_imag) == parent(msrc.poloidal.data_imag)
     end
 
-    @testset "Ball analytical presets preserve regularity at r=0" begin
+    @testset "Ball analytical presets produce finite values at innermost node" begin
         temp = GeoDynamo.create_shtns_temperature_field(Float64, cfg, ball)
         GeoDynamo.set_analytical_initial_conditions!(
             temp, :temperature, :hot_blob, amplitude = 1.0,

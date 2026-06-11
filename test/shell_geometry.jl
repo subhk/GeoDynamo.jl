@@ -43,7 +43,10 @@ const FINALIZE_MPI_SHELL = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
         )
         _, inner = GeoDynamo.create_radial_domains(params)
         @test inner !== nothing
-        @test inner.r[1, 4] ≈ 0.0
+        # off-center ball grid: no r=0 node (see ball design spec)
+        # Innermost node = (1-cos(π/nr_inner))/2 scaled by inner_core_radius
+        inner_core_radius = params.radius_ratio / (1 - params.radius_ratio)
+        @test inner.r[1, 4] ≈ (1 - cos(pi / params.nr_inner)) / 2 * inner_core_radius atol=1e-14
         @test inner.r[end, 4] ≈ params.radius_ratio / (1 - params.radius_ratio)
     end
 
