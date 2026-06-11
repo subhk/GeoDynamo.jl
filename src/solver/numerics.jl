@@ -1586,21 +1586,58 @@ function spectral_curl_torpol!(
     return dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i
 end
 
+# j = ∇×B under the Stage-2 stored-potential convention:
+#   T_j = (P″ − l(l+1)P/r²)/r = D_pol(P)/r,   P_j = −r·T
+# This is the SAME curl rule as the vorticity (compute_vorticity_spectral!) and
+# the induction projections (_induction_curl_potentials!). Decisive check:
+# applying it twice reproduces −(Δ_l T, D_pol P) — the code's own magnetic
+# diffusion operators (test/current_curl_convention.jl). The legacy formula
+# (λP/r² − P″ − 2P′/r; −λT/r²) mixed conventions and fed the Lorentz force a
+# wrong J; spectral_curl_torpol! now serves only the deferred ball-legacy path.
 function solver_compute_current_density_spectral!(magnetic_fields, outer_domain)
     T = eltype(parent(magnetic_fields.work_tor.data_real))
-    spectral_curl_torpol!(
-        parent(magnetic_fields.work_tor.data_real), parent(magnetic_fields.work_tor.data_imag),
-        parent(magnetic_fields.work_pol.data_real), parent(magnetic_fields.work_pol.data_imag),
-        parent(magnetic_fields.toroidal.data_real), parent(magnetic_fields.toroidal.data_imag),
-        parent(magnetic_fields.poloidal.data_real), parent(magnetic_fields.poloidal.data_imag),
-        magnetic_fields.l_factors,
-        magnetic_fields.∂r,
-        magnetic_fields.∂²r,
-        outer_domain,
-        magnetic_fields.toroidal.config,
-        T;
-        _work = magnetic_fields.curl_work
+    cfg = magnetic_fields.toroidal.config
+    nr = outer_domain.N
+    r_range = local_range(magnetic_fields.work_tor.pencil, 3)
+    length(r_range) == nr || error(
+        "current-density curl requires the radial axis fully local " *
+        "(got $(length(r_range)) of $nr levels); r-distributed support is a follow-up")
+
+    P_prof = Vector{T}(undef, nr)
+    d2P = Vector{T}(undef, nr)
+
+    for (src_t, src_p, dst_t, dst_p) in (
+        (parent(magnetic_fields.toroidal.data_real),
+         parent(magnetic_fields.poloidal.data_real),
+         parent(magnetic_fields.work_tor.data_real),
+         parent(magnetic_fields.work_pol.data_real)),
+        (parent(magnetic_fields.toroidal.data_imag),
+         parent(magnetic_fields.poloidal.data_imag),
+         parent(magnetic_fields.work_tor.data_imag),
+         parent(magnetic_fields.work_pol.data_imag)),
     )
+        @inbounds for lm_idx in 1:cfg.nlm
+            slot = local_spectral_storage_slot(cfg, lm_idx)
+            slot === nothing && continue
+            lm_idx <= length(magnetic_fields.l_factors) || continue
+            λ = T(magnetic_fields.l_factors[lm_idx])
+
+            for r_idx in 1:nr
+                P_prof[r_idx] = local_spectral_value(src_p, slot, r_idx)
+            end
+            apply_radial_derivative!(d2P, magnetic_fields.∂²r, P_prof)
+
+            for r_idx in 1:nr
+                r⁻¹ = T(outer_domain.r[r_idx, 3])
+                r⁻² = T(outer_domain.r[r_idx, 2])
+                r_val = T(outer_domain.r[r_idx, 4])
+                set_local_spectral_value!(dst_t, slot, r_idx,
+                    (d2P[r_idx] - λ * r⁻² * P_prof[r_idx]) * r⁻¹)
+                set_local_spectral_value!(dst_p, slot, r_idx,
+                    -r_val * local_spectral_value(src_t, slot, r_idx))
+            end
+        end
+    end
     return magnetic_fields
 end
 

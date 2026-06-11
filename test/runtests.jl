@@ -144,6 +144,7 @@ additional_tests = (
     "output_writer_extended.jl",
     "tolerance_and_timestep.jl",
     "topography_data.jl",
+    "current_curl_convention.jl",
     "gpu_backend.jl",
     "gpu_phase0_foundation.jl",
     "gpu_phase1_scalar_transform.jl",
