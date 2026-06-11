@@ -167,6 +167,7 @@ additional_tests = (
     "gpu_phase5n_solver_step.jl",
     "gpu_phase5n2_device_state.jl",
     "gpu_phase6_run.jl",
+    "gpu_simulation_dispatch.jl",
     "gpu_coverage.jl",
     "api_coverage.jl",
     "stefan_imex_coverage.jl",

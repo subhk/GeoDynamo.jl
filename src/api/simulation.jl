@@ -16,9 +16,12 @@ mutable struct Simulation{M, C, O}
     stop_iteration::Int
     wall_time_limit::Float64
     running::Bool
+    gpu::Bool
     callbacks::C
     output_writers::O
     _wall_start::Float64
+    _gpu_state::Any         # cached device-state bundle (built lazily)
+    _gpu_dt::Float64        # dt baked into _gpu_state (rebuild on change)
 end
 
 _to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol, Any}()
@@ -93,13 +96,22 @@ end
                timestepper, timestep_scheme, implicit_theta,
                etd_krylov_dimension, krylov_tolerance,
                callbacks=[], output_writers=[],
-               restart_from="")
+               gpu=:auto, restart_from="")
 
 Construct a `Simulation`.
 
 A positive timestep is required: pass it as `Δt` (canonical, Oceananigans convention) or `dt` (alias);
 passing both, neither, or a non-positive value throws an `ArgumentError`.
 `stop_time` accepts any `Real` and is converted to `Float64`.
+
+`gpu` selects the dense device-state stepping path (`gpu_solver_step!` with a
+cached bundle): `:auto` (default) uses it when the model lives on a GPU
+architecture, `true` forces it (also valid on the CPU/Array backend), `false`
+disables it. The path is CNAB2 + insulating-magnetic only — other
+configurations warn once and use the standard CPU stepping. The first step
+(and the first after a `Δt` change) runs on the CPU to bootstrap the CNAB2
+history; the host state is re-synced after every device step so callbacks,
+output writers, and the clock stay live.
 
 If `restart_from` is a non-empty string it is treated as a restart directory
 passed to `read_restart!` (via the legacy `TimeTracker`-based interface).
@@ -122,6 +134,7 @@ function Simulation(model::GeodynamoModel;
         courant::Union{Real, Nothing} = nothing,
         callbacks = (),
         output_writers = (),
+        gpu = :auto,
         restart_from::String = "")
     # Resolve the timestep: `Δt` is canonical (Oceananigans convention); `dt` is the ASCII alias.
     if dt !== nothing && Δt !== nothing
@@ -201,14 +214,46 @@ function Simulation(model::GeodynamoModel;
     callback_items = merge(_default_callbacks(), _to_ordered(callbacks, :callback))
     output_writer_items = _to_ordered(output_writers, :writer)
 
+    gpu_resolved = _resolve_gpu_stepping(gpu, model, timestep_options.timestepper)
+
     sync_clock!(model.clock, model.state)
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
         model, dt_f, stop_time_f, stop_iteration, Float64(wall_time_limit),
         false,
+        gpu_resolved,
         callback_items,
         output_writer_items,
+        0.0,
+        nothing,
         0.0
     )
+end
+
+# Resolve the `gpu` Simulation kwarg: `:auto` enables the dense device-state
+# stepping path when the model lives on a GPU architecture; `true` forces it
+# (also useful on the CPU/Array backend); `false` disables it. The device path
+# is CNAB2 + insulating-magnetic only — anything else warns and falls back to
+# the standard CPU stepping.
+function _resolve_gpu_stepping(gpu, model, timestepper)
+    resolved = if gpu === :auto
+        model.state.backend.architecture isa GPU
+    elseif gpu isa Bool
+        gpu
+    else
+        throw(ArgumentError("Simulation: gpu must be true, false, or :auto (got $gpu)"))
+    end
+    resolved || return false
+    if !(timestepper isa CNAB2)
+        @warn "Simulation: the GPU stepping path is CNAB2-only; using the CPU path" timestepper
+        return false
+    end
+    p = model.state.parameters
+    if p.include_magnetic && p.magnetic_inner_bc !== :insulating
+        @warn "Simulation: the GPU stepping path supports only an insulating magnetic " *
+              "inner core; using the CPU path" magnetic_inner_bc = p.magnetic_inner_bc
+        return false
+    end
+    return true
 end
 
 # ================================================================================
@@ -245,9 +290,41 @@ end
 Advance the simulation by one step at `sim.dt`, firing callbacks and writers.
 """
 function time_step!(sim::Simulation)
-    time_step!(sim.model, sim.dt)
+    if sim.gpu
+        _gpu_time_step!(sim)
+    else
+        time_step!(sim.model, sim.dt)
+    end
     _run_callbacks!(sim)
     _run_output_writers!(sim)
+    return sim
+end
+
+# One step on the dense device-state path (gpu_solver_step!) with the bundle
+# cached on the Simulation. The FIRST step (and the first step after a dt
+# change) runs on the CPU instead: it bootstraps the CNAB2 history exactly as
+# the reference path does, after which the device bundle is built from the
+# warmed state (the packed implicit matrices bake dt in, hence the rebuild).
+# After every device step the spectral state is synced back to the host
+# SolverState so callbacks, writers, diagnostics, and the clock stay live.
+function _gpu_time_step!(sim::Simulation)
+    model = sim.model
+    state = model.state
+    if sim._gpu_state === nothing || sim._gpu_dt != sim.dt
+        time_step!(model, sim.dt)               # CPU bootstrap step
+        gst = build_gpu_solver_state(state)
+        arch = state.backend.architecture
+        arch isa CPU || (gst = gpu_to_device(gst, arch))
+        sim._gpu_state = gst
+        sim._gpu_dt = sim.dt
+        return sim
+    end
+    gpu_solver_step!(sim._gpu_state)
+    sync_gpu_state_to_cpu!(state, sim._gpu_state)
+    state.step += 1
+    state.time += sim.dt
+    sync_clock!(model.clock, state)
+    model.clock.last_dt = sim.dt
     return sim
 end
 
