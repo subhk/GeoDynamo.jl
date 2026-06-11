@@ -90,7 +90,7 @@ Verify MPI is working:
 
     grid = SphericalShellGrid(GPU(); nr = 64, lmax = 31)
     model = GeodynamoModel(grid; include_magnetic = true)
-    simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+    simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
     ```
 
 ---
@@ -151,7 +151,7 @@ model = GeodynamoModel(grid; Ek=1e-4, Ra=1e6, include_magnetic=true)
 set!(model; temperature = RandomPerturbation(amplitude=0.1, lmax=10),
             magnetic    = AnalyticIC(:dipole; amplitude=1.0))
 
-sim = Simulation(model; dt=1e-5, stop_time=0.1, stop_iteration=10_000)
+sim = Simulation(model; Δt=1e-5, stop_time=0.1, stop_iteration=10_000)
 add_callback!(sim, sim -> @info("step", n=sim.model.clock.iteration);
               schedule=IterationInterval(100))
 run!(sim)
@@ -168,7 +168,7 @@ run!(sim)
 │       using GeoDynamo                                                       │
 │       grid = SphericalShellGrid(nr = 64, lmax = 31)                         │
 │       model = GeodynamoModel(grid; Ek = 1e-4, Ra = 1e6)                     │
-│       simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)           │
+│       simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)           │
 │       run!(simulation)                                                      │
 │   '                                                                         │
 │                                                                             │
@@ -238,7 +238,7 @@ model = GeodynamoModel(
         outer = FixedTemperature(0.0),
     ),
 )
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 state = simulation.model.state
 
 GeoDynamo.bcs.load_boundary_conditions!(state.temperature, GeoDynamo.TEMPERATURE, Dict(
@@ -266,7 +266,7 @@ set!(model;
      temperature = RandomPerturbation(amplitude=0.1, lmax=10),
      magnetic    = AnalyticIC(:dipole; amplitude=1.0))
 
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 For lower-level access the field-specific helpers remain available:
@@ -314,7 +314,7 @@ load_initial_conditions!("path/to/snapshot.nc")
     ┌─────────────────────────────────────────────────────────┐
     │  3. MODEL + SIMULATION                                  │
     │     GeodynamoModel(grid; ...)                           │
-    │     Simulation(model; dt, stop_time)                    │
+    │     Simulation(model; Δt, stop_time)                    │
     │     set_temperature_ic!(...) / randomize_*(...)         │
     └───────────────────────────┬─────────────────────────────┘
                                 ▼

@@ -56,7 +56,7 @@ model = GeodynamoModel(
     grid;
     velocity_bcs = BoundaryConditions(inner = NoSlip(), outer = NoSlip()),
 )
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 ---
@@ -260,7 +260,7 @@ model = GeodynamoModel(
     temperature_bcs = BoundaryConditions(inner = FixedTemperature(1.0), outer = FixedFlux(0.0)),
     composition_bcs = BoundaryConditions(inner = FixedTemperature(0.0), outer = FixedFlux(0.0)),
 )
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 ### Programmatic API
