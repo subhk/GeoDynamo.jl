@@ -34,22 +34,51 @@ GeoDynamo.jl provides three production-grade implicit-explicit (IMEX) time-stepp
 
 ## Governing Equations
 
-The geodynamo equations contain both linear (diffusion) and nonlinear (advection, Lorentz force) terms:
+The geodynamo equations contain both linear diffusion terms, advanced
+implicitly, and explicit forcing terms such as advection, Coriolis, buoyancy,
+and Lorentz force. GeoDynamo.jl uses magnetic-diffusion time units, and the
+velocity update keeps the Ekman number `E == Ek` as the mass coefficient on
+the time derivative.
 
 **Velocity:**
 ```math
-\frac{\partial \mathbf{u}}{\partial t} = \underbrace{E \nabla^2 \mathbf{u}}_{\text{viscous diffusion}} + \underbrace{\mathbf{N}_u(\mathbf{u}, \mathbf{B}, T)}_{\text{nonlinear terms}}
+E \frac{\partial \mathbf{u}}{\partial t}
+= \underbrace{E \nabla^2 \mathbf{u}}_{\text{viscous diffusion}}
++ \underbrace{\mathbf{N}_u(\mathbf{u}, \mathbf{B}, T, C)}_{\text{explicit forcing}}
+```
+
+The explicit momentum forcing assembled by the code is
+```math
+\mathbf{N}_u =
+E(\mathbf{u}\times\boldsymbol{\omega})
+-\hat{\mathbf{z}}\times\mathbf{u}
++\frac{Pm}{Pr}Ra\,rT\,\hat{\mathbf{r}}
++\frac{Pm}{Sc}Ra_C\,rC\,\hat{\mathbf{r}}
++\frac{1}{Pm}(\nabla\times\mathbf{B})\times\mathbf{B},
+\qquad \boldsymbol{\omega}=\nabla\times\mathbf{u}.
 ```
 
 **Magnetic field:**
 ```math
-\frac{\partial \mathbf{B}}{\partial t} = \underbrace{\nabla^2 \mathbf{B}}_{\text{magnetic diffusion}} + \underbrace{\nabla \times (\mathbf{u} \times \mathbf{B})}_{\text{induction}}
+\frac{\partial \mathbf{B}}{\partial t}
+= \underbrace{\nabla^2 \mathbf{B}}_{\text{magnetic diffusion}}
++ \underbrace{\nabla \times (\mathbf{u} \times \mathbf{B})}_{\text{induction}}
 ```
 
 **Temperature:**
 ```math
-\frac{\partial T}{\partial t} = \underbrace{\frac{Pm}{Pr} \nabla^2 T}_{\text{thermal diffusion}} + \underbrace{N_T(\mathbf{u}, T)}_{\text{advection}}
+\frac{\partial T}{\partial t}
+= \underbrace{\frac{Pm}{Pr} \nabla^2 T}_{\text{thermal diffusion}}
++ \underbrace{N_T(\mathbf{u}, T)}_{\text{explicit scalar forcing}},
+\qquad
+N_T = -\mathbf{u}\cdot\nabla T + Q_T.
 ```
+
+`Q_T` is the optional internal-heating/source profile. The compositional field,
+when enabled, follows the same scalar form with diffusivity `Pm/Sc` and
+`N_C = -\mathbf{u}\cdot\nabla C`.
+The magnetic and compositional terms are omitted from the velocity forcing when
+those fields are disabled.
 
 !!! info "Stiffness"
     The **stiffness** comes from diffusion terms with eigenvalues scaling as `ℓ(ℓ+1)/r²` in spherical harmonics—potentially very large for high-degree modes.
@@ -80,17 +109,21 @@ Taking the toroidal and poloidal components of the momentum equation yields sepa
 
 **Toroidal velocity (𝒯):**
 ```math
-\frac{\partial \mathcal{T}}{\partial t} = E \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{T} + N_{\mathcal{T}}
+E\frac{\partial \mathcal{T}}{\partial t}
+= E \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{T}
++ N_{\mathcal{T}}
 ```
 
 **Poloidal velocity (𝒫):**
 ```math
-\frac{\partial \mathcal{P}}{\partial t} = E \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{P} + N_{\mathcal{P}}
+E(\partial_t - D_{\ell})W = N_W,
+\qquad W = D_{\ell}\mathcal{P}
 ```
 
 where:
-- `E` is the Ekman number (viscous diffusion coefficient in magnetic time units)
+- `E` is the Ekman number and velocity mass coefficient in magnetic time units
 - `N_𝒯` and `N_𝒫` contain the nonlinear terms (Coriolis, advection, Lorentz force, buoyancy)
+- `W = D_ℓ𝒫` is the solver's poloidal split variable
 - The radial Laplacian operator in spectral space is:
 ```math
 \nabla^2_\ell = \frac{\partial^2}{\partial r^2} + \frac{2}{r}\frac{\partial}{\partial r} - \frac{\ell(\ell+1)}{r^2}
