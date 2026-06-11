@@ -267,6 +267,13 @@ after each step.
 function run!(sim::Simulation)
     sim._wall_start = time()
     sim.running = true
+    # A simulation already past its stop criteria must not take a step
+    # (e.g. a second run! after completion). Check the stop conditions
+    # directly rather than via _run_callbacks! so user callbacks do not
+    # fire an extra time before the first step.
+    stop_time_exceeded(sim)
+    stop_iteration_exceeded(sim)
+    wall_time_limit_exceeded(sim)
     while sim.running
         time_step!(sim)
     end

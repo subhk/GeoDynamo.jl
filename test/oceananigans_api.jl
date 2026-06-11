@@ -354,5 +354,10 @@ using Test
         GeoDynamo.run!(sim3)
         @test fired[] >= 2
         @test collect(keys(sim3.callbacks))[end] == :progress
+
+        # a completed simulation must not advance on a second run!
+        iter_after = model3.clock.iteration
+        GeoDynamo.run!(sim3)
+        @test model3.clock.iteration == iter_after
     end
 end
