@@ -322,4 +322,37 @@ using Test
         # vector fields reject direct values with a clear error
         @test_throws ArgumentError GeoDynamo.set!(model; velocity = (r, θ, φ) -> 1.0)
     end
+
+    @testset "default callbacks + sim.running" begin
+        using MPI
+        if !MPI.Initialized()
+            MPI.Init()
+        end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 16, nr_inner = 4)
+        model = GeoDynamo.GeodynamoModel(grid; Ek = 1e-2, Ra = 1e4)
+        sim = GeoDynamo.Simulation(model, Δt = 1e-4, stop_iteration = 3)
+        @test collect(keys(sim.callbacks))[1:4] ==
+            [:stop_time_exceeded, :stop_iteration_exceeded,
+             :wall_time_limit_exceeded, :nan_checker]
+        @test sim.running == false
+        GeoDynamo.run!(sim)
+        @test sim.running == false
+        @test model.clock.iteration == 3          # stopped BY the callback
+
+        model2 = GeoDynamo.GeodynamoModel(grid; Ek = 1e-2, Ra = 1e4)
+        sim2 = GeoDynamo.Simulation(model2, Δt = 1e-4, stop_time = 2.5e-4)
+        GeoDynamo.run!(sim2)
+        @test model2.clock.time >= 2.5e-4
+        @test sim2.running == false
+
+        model3 = GeoDynamo.GeodynamoModel(grid; Ek = 1e-2, Ra = 1e4)
+        fired = Ref(0)
+        sim3 = GeoDynamo.Simulation(model3, Δt = 1e-4, stop_iteration = 2,
+            callbacks = (progress = GeoDynamo.Callback(s -> fired[] += 1,
+                schedule = GeoDynamo.IterationInterval(1)),))
+        GeoDynamo.run!(sim3)
+        @test fired[] >= 2
+        @test collect(keys(sim3.callbacks))[end] == :progress
+    end
 end

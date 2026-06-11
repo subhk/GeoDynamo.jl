@@ -15,6 +15,7 @@ mutable struct Simulation{M, C, O}
     stop_time::Float64
     stop_iteration::Int
     wall_time_limit::Float64
+    running::Bool
     callbacks::C
     output_writers::O
     _wall_start::Float64
@@ -39,6 +40,51 @@ function _to_ordered(items, prefix::Symbol)
         end
     end
     return d
+end
+
+# ── Default callbacks (Oceananigans semantics): stop conditions live in the
+# callback table, not the run! loop. Each sets sim.running = false. ──────────
+
+function stop_time_exceeded(sim)
+    if sim.model.clock.time >= sim.stop_time - 1e-15
+        @info "Simulation is stopping after reaching stop time ($(prettysummary(sim.stop_time)))."
+        sim.running = false
+    end
+    return nothing
+end
+
+function stop_iteration_exceeded(sim)
+    if sim.model.clock.iteration >= sim.stop_iteration
+        @info "Simulation is stopping after reaching stop iteration $(prettysummary(sim.stop_iteration))."
+        sim.running = false
+    end
+    return nothing
+end
+
+function wall_time_limit_exceeded(sim)
+    if sim._wall_start > 0 && (time() - sim._wall_start) >= sim.wall_time_limit
+        @info "Simulation is stopping after exceeding the wall time limit ($(prettytime(sim.wall_time_limit)))."
+        sim.running = false
+    end
+    return nothing
+end
+
+function nan_checker(sim)
+    r = _health_check(sim.model)
+    if r.has_issue
+        @warn "NaN/Inf found in fields $(r.fields) at iteration $(sim.model.clock.iteration); stopping simulation."
+        sim.running = false
+    end
+    return nothing
+end
+
+function _default_callbacks()
+    OrderedDict{Symbol, Any}(
+        :stop_time_exceeded      => Callback(stop_time_exceeded,      IterationInterval(1)),
+        :stop_iteration_exceeded => Callback(stop_iteration_exceeded, IterationInterval(1)),
+        :wall_time_limit_exceeded => Callback(wall_time_limit_exceeded, IterationInterval(1)),
+        :nan_checker             => Callback(nan_checker,             IterationInterval(100)),
+    )
 end
 
 """
@@ -77,7 +123,7 @@ function Simulation(model::GeodynamoModel;
         callbacks = (),
         output_writers = (),
         restart_from::String = "")
-    # Resolve the timestep: `Δt` is a convenience alias for the canonical `dt`.
+    # Resolve the timestep: `Δt` is canonical (Oceananigans convention); `dt` is the ASCII alias.
     if dt !== nothing && Δt !== nothing
         throw(ArgumentError("Simulation: pass either `Δt` or `dt`, not both"))
     end
@@ -152,12 +198,13 @@ function Simulation(model::GeodynamoModel;
         model.state.runtime.timestep_state.dt = dt_f
     end
 
-    callback_items = _to_ordered(callbacks, :callback)
+    callback_items = merge(_default_callbacks(), _to_ordered(callbacks, :callback))
     output_writer_items = _to_ordered(output_writers, :writer)
 
     sync_clock!(model.clock, model.state)
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
         model, dt_f, stop_time_f, stop_iteration, Float64(wall_time_limit),
+        false,
         callback_items,
         output_writer_items,
         0.0
@@ -211,18 +258,16 @@ end
 """
     run!(sim::Simulation)
 
-Advance the simulation until `model.clock.time >= sim.stop_time` or
-`model.clock.iteration >= sim.stop_iteration`, whichever comes first.
-
-Each iteration calls `time_step!(sim)` which advances physics, syncs the clock,
-and fires scheduled callbacks and output writers.
+Advance the simulation until a stop criterion fires.  Stop conditions
+(`stop_time`, `stop_iteration`, `wall_time_limit`, NaN detection) are enforced
+by the default callbacks registered at construction; any callback may halt the
+run by setting `sim.running = false`.  Callbacks (including stop conditions) fire
+after each step.
 """
 function run!(sim::Simulation)
     sim._wall_start = time()
-    clock = sim.model.clock
-    while clock.time < sim.stop_time &&
-              clock.iteration < sim.stop_iteration &&
-              (time() - sim._wall_start) < sim.wall_time_limit
+    sim.running = true
+    while sim.running
         time_step!(sim)
     end
     return sim
