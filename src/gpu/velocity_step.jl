@@ -41,6 +41,7 @@ solution ONLY after every such read.  Do not move the field-update copies earlie
 """
 function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
         inv_dt, linear_weight, lmax::Int, bw::Int;
+        wsplit = nothing,
         T_phys = nothing, thermal_factor = zero(eltype(tor.spec_r)), r_vec = nothing,
         C_phys = nothing, comp_factor = zero(eltype(tor.spec_r)),
         J_r = nothing, J_θ = nothing, J_φ = nothing,
@@ -65,15 +66,26 @@ function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
     gpu_implicit_solve_field!(rt_r, rt_i, tor.lu,
         tor.bc_in_r, tor.bc_in_i, tor.bc_out_r, tor.bc_out_i, bw)
 
-    # 3. poloidal CNAB2 RHS (5c) from OLD pol spec, implicit solve (5d), then the
-    #    2×2 influence correction (5j) on the poloidal solution.
+    # 3. poloidal update. With a W-split operator pack (Stage-4B pressure-free
+    #    double-curl form, matching the CPU _apply_poloidal_wsplit_cnab2!):
+    #    W = D_pol·P advances by CNAB2 with N_W as forcing, then P is recovered
+    #    from W with Dirichlet walls + the endpoint influence corrections.
+    #    Without a pack (wsplit = nothing): the legacy projection-form CNAB2 +
+    #    2×2 influence correction (kernel-wiring tests; NOT CPU-parity).
     rp_r = similar(pol.spec_r); rp_i = similar(pol.spec_i)     # Phase-6: workspace
-    # rp ≠ pol.spec is REQUIRED — build_rhs reads pol.spec as input (ORDERING INVARIANT).
-    gpu_build_rhs_cnab2!(rp_r, rp_i, pol.spec_r, pol.spec_i, nlp_r, nlp_i,
-        pol.prev_nl_r, pol.prev_nl_i, pol.lin, inv_dt, linear_weight, bw)
-    gpu_implicit_solve_field!(rp_r, rp_i, pol.lu,
-        pol.bc_in_r, pol.bc_in_i, pol.bc_out_r, pol.bc_out_i, bw)
-    gpu_velocity_poloidal_influence_correction!(rp_r, rp_i, influence.Gre_b, influence.invG_b)
+    if wsplit !== nothing
+        gpu_poloidal_wsplit_advance!(rp_r, pol.spec_r, nlp_r, pol.prev_nl_r,
+            wsplit, inv_dt, linear_weight, bw)
+        gpu_poloidal_wsplit_advance!(rp_i, pol.spec_i, nlp_i, pol.prev_nl_i,
+            wsplit, inv_dt, linear_weight, bw)
+    else
+        # rp ≠ pol.spec is REQUIRED — build_rhs reads pol.spec as input (ORDERING INVARIANT).
+        gpu_build_rhs_cnab2!(rp_r, rp_i, pol.spec_r, pol.spec_i, nlp_r, nlp_i,
+            pol.prev_nl_r, pol.prev_nl_i, pol.lin, inv_dt, linear_weight, bw)
+        gpu_implicit_solve_field!(rp_r, rp_i, pol.lu,
+            pol.bc_in_r, pol.bc_in_i, pol.bc_out_r, pol.bc_out_i, bw)
+        gpu_velocity_poloidal_influence_correction!(rp_r, rp_i, influence.Gre_b, influence.invG_b)
+    end
 
     # 4. update the fields (AFTER every read of the old spec — ORDERING INVARIANT).
     tor.spec_r .= rt_r; tor.spec_i .= rt_i
@@ -82,4 +94,55 @@ function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
     tor.prev_nl_r .= nlt_r; tor.prev_nl_i .= nlt_i
     pol.prev_nl_r .= nlp_r; pol.prev_nl_i .= nlp_i
     return nothing
+end
+
+"""
+    gpu_poloidal_wsplit_advance!(P_new, P, nl, prev_nl, ws, inv_dt, linear_weight, bw) -> P_new
+
+One CNAB2 step of the Stage-4B poloidal W-split for ONE split-complex component
+(call once for real, once for imag), batched over all `(l,m)` modes.  Mirrors
+the CPU `_apply_poloidal_wsplit_cnab2!` (physics/velocity/solver.jl):
+
+1. `W = D_pol·P`, `LW = Ek·D_pol·W`
+2. `rhs = (Ek/dt)·W + (1−θ)·LW + 1.5·nl − 0.5·prev_nl`   (`nl` carries N_W)
+3. `W⁺ = A_W⁻¹·rhs` (banded LU per degree)
+4. Dirichlet P-recovery: zero `W⁺` endpoint rows, `P⁺ = A_P⁻¹·W⁺`
+5. endpoint-residual influence correction:
+   `ρᵢ = d1_rowᵢ·P⁺`, solve the per-degree 2×2 `M·a = −ρ`,
+   `P_new = P⁺ + a₁·h₁ + a₂·h₂`; the `l = 0` plane carries no poloidal flow.
+
+`ws` is the device-state `wsplit` operator pack (see `_build_wsplit_pack`).
+`inv_dt = Ek/dt` (the same mass-scaled value the toroidal CNAB2 uses) and
+`linear_weight = 1−θ`.  `P_new` must not alias `P`/`nl`/`prev_nl`.
+"""
+function gpu_poloidal_wsplit_advance!(P_new, P, nlv, prev_nl, ws,
+        inv_dt, linear_weight, bw::Int)
+    T = eltype(P)
+    nr = size(P, 3)
+    W = similar(P)
+    gpu_batched_banded_matvec_perl!(W, P, ws.dpol, bw)
+    LW = similar(P)
+    gpu_batched_banded_matvec_perl!(LW, W, ws.wlin, bw)
+    rhs = similar(P)
+    @. rhs = inv_dt * W + linear_weight * LW + T(1.5) * nlv - T(0.5) * prev_nl
+    Wp = similar(P)
+    gpu_batched_banded_solve!(Wp, rhs, ws.wlu, bw)
+    Wp[:, :, 1] .= zero(T)
+    Wp[:, :, nr] .= zero(T)
+    Pp = similar(P)
+    gpu_batched_banded_solve!(Pp, Wp, ws.plu, bw)
+    # endpoint first-derivative residuals, per (l,m)
+    rho1 = dropdims(sum(Pp .* reshape(ws.d1_inner, 1, 1, :); dims = 3); dims = 3)
+    rho2 = dropdims(sum(Pp .* reshape(ws.d1_outer, 1, 1, :); dims = 3); dims = 3)
+    M11 = reshape(ws.M[1, 1, :], :, 1); M12 = reshape(ws.M[1, 2, :], :, 1)
+    M21 = reshape(ws.M[2, 1, :], :, 1); M22 = reshape(ws.M[2, 2, :], :, 1)
+    det = @. M11 * M22 - M12 * M21
+    det = @. det + T(det == 0)             # unfilled degree slots → harmless 1
+    a1 = @. (-rho1 * M22 + rho2 * M12) / det
+    a2 = @. (-rho2 * M11 + rho1 * M21) / det
+    h1 = reshape(ws.h1, size(ws.h1, 1), 1, nr)   # (nl, 1, nr), zero-copy
+    h2 = reshape(ws.h2, size(ws.h2, 1), 1, nr)
+    @. P_new = Pp + a1 * h1 + a2 * h2
+    P_new[1, :, :] .= zero(T)              # l = 0 carries no poloidal flow
+    return P_new
 end
