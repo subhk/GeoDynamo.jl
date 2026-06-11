@@ -285,4 +285,41 @@ using Test
         @test_throws ArgumentError GeoDynamo.GeodynamoModel(grid; Ek = 1e-2, Ra = 1e4,
             boundary_conditions = (pressure = t_bcs,))
     end
+
+    @testset "set! with number / function / array" begin
+        using MPI
+        if !MPI.Initialized()
+            MPI.Init()
+        end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax = 8, mmax = 8, nlat = 16, nlon = 32, nr = 8, nr_inner = 4)
+        model = GeoDynamo.GeodynamoModel(grid; Ek = 1e-2, Ra = 1e4)
+        phys = GeoDynamo.get_main_physical_field(model.temperature)
+
+        # number → uniform: synthesize back and check the mean
+        GeoDynamo.set!(model; temperature = 0.5)
+        GeoDynamo.shtnskit_spectral_to_physical!(model.temperature.spectral, phys)
+        pd = parent(phys.data)
+        @test isapprox(sum(pd) / length(pd), 0.5; atol = 1e-6)
+
+        # function of (r, θ, φ): radial-only profile
+        GeoDynamo.set!(model; temperature = (r, θ, φ) -> r)
+        GeoDynamo.shtnskit_spectral_to_physical!(model.temperature.spectral, phys)
+        domain = model.state.backend.outer_core_domain
+        rvals = [domain.r[k, 4] for k in 1:domain.N]
+        pd = parent(phys.data)
+        @test all(isapprox(pd[1, 1, k], rvals[k]; atol = 1e-3) for k in axes(pd, 3))
+
+        # array of local physical size
+        arr = fill(0.25, size(parent(phys.data)))
+        GeoDynamo.set!(model; temperature = arr)
+        GeoDynamo.shtnskit_spectral_to_physical!(model.temperature.spectral, phys)
+        @test isapprox(parent(phys.data)[1, 1, 1], 0.25; atol = 1e-6)
+
+        # wrong-size array → error
+        @test_throws ArgumentError GeoDynamo.set!(model; temperature = zeros(2, 2, 2))
+
+        # vector fields reject direct values with a clear error
+        @test_throws ArgumentError GeoDynamo.set!(model; velocity = (r, θ, φ) -> 1.0)
+    end
 end
