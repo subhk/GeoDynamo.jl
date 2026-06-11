@@ -32,7 +32,18 @@ function sync_clock!(clock::Clock{T}, state) where {T}
     return clock
 end
 
-function Base.show(io::IO, ::MIME"text/plain", c::Clock)
-    print(io, "Clock(time=$(c.time), iteration=$(c.iteration), ",
-        "stage=$(c.stage), last_dt=$(c.last_dt))")
+# ================================================================================
+# Oceananigans-canonical `last_Δt` property alias for `last_dt`
+# ================================================================================
+
+function Base.getproperty(c::Clock, name::Symbol)
+    name === :last_Δt && return getfield(c, :last_dt)
+    return getfield(c, name)
 end
+
+function Base.setproperty!(c::Clock{T}, name::Symbol, x) where {T}
+    name === :last_Δt && return setfield!(c, :last_dt, T(x))
+    return setfield!(c, name, x)
+end
+
+Base.propertynames(c::Clock) = (fieldnames(Clock)..., :last_Δt)

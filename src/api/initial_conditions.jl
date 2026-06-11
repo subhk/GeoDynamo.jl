@@ -145,8 +145,11 @@ Apply initial condition `ic` to the named `field` of `model`.
 # Arguments
 - `model`  – a `GeodynamoModel` returned by `GeodynamoModel(...)`
 - `field`  – one of `:velocity`, `:temperature`, `:magnetic`, `:composition`
-- `ic`     – an IC descriptor: `RandomPerturbation`, `AnalyticIC`, `FileIC`, or
-             `ZeroIC`
+- `ic`     – an IC descriptor (`RandomPerturbation`, `AnalyticIC`, `FileIC`, or
+             `ZeroIC`), or — for the scalar fields `:temperature` and
+             `:composition` only — a direct value: a `Real` (uniform), a
+             function `(r, θ, φ) -> value` (radius, colatitude, longitude), or
+             an `AbstractArray{<:Real,3}` matching the local physical grid
 
 # Examples
 ```julia
@@ -154,6 +157,7 @@ set_initial_condition!(model, :temperature, RandomPerturbation(amplitude=0.1, lm
 set_initial_condition!(model, :magnetic,    AnalyticIC(:dipole; amplitude=1.0))
 set_initial_condition!(model, :velocity,    FileIC("/path/to/checkpoint.nc"))
 set_initial_condition!(model, :composition, ZeroIC())
+set_initial_condition!(model, :temperature, (r, θ, φ) -> 1 - r)
 ```
 """
 function set_initial_condition! end
@@ -237,6 +241,72 @@ function set_initial_condition!(
         field::Symbol,
         ::ZeroIC
 )
+    return model
+end
+
+# ── Oceananigans-style direct values: number / function / array ──────────────
+#
+# Scalar fields only (temperature, composition). The value is realized on the
+# field's physical grid, then transformed to spectral with the existing
+# analysis path. Vector fields (velocity, magnetic) keep descriptor ICs — a
+# pointwise function is ambiguous for a toroidal/poloidal decomposition.
+
+const _SCALAR_IC_FIELDS = (:temperature, :composition)
+
+function _check_scalar_ic_field(field::Symbol)
+    field in _SCALAR_IC_FIELDS || throw(ArgumentError(
+        "set!: direct values (numbers, functions, arrays) are only supported " *
+        "for scalar fields $(_SCALAR_IC_FIELDS); :$field needs a descriptor " *
+        "IC (RandomPerturbation, AnalyticIC, FileIC, ZeroIC) because of its " *
+        "toroidal–poloidal decomposition"))
+    return nothing
+end
+
+# Fill the field's main physical storage from fn(r, θ, φ) at the LOCAL grid
+# points (works under MPI: axes_local gives this rank's global index ranges),
+# then run the analysis transform into the spectral field.
+function _set_scalar_from_function!(model::GeodynamoModel, field::Symbol, fn)
+    f = _get_field(model, field)
+    phys = get_main_physical_field(f)
+    backend = model.state.backend
+    cfg = backend.shtns_config
+    domain = backend.outer_core_domain
+    θs = cfg.theta_grid
+    φs = cfg.phi_grid
+    data = parent(phys.data)
+    ax = phys.pencil.axes_local
+    for (kl, kg) in enumerate(ax[3])
+        for (jl, jg) in enumerate(ax[2])
+            for (il, ig) in enumerate(ax[1])
+                data[il, jl, kl] = fn(domain.r[kg, 4], θs[ig], φs[jg])
+            end
+        end
+    end
+    shtnskit_physical_to_spectral!(phys, f.spectral)
+    return model
+end
+
+function set_initial_condition!(model::GeodynamoModel, field::Symbol, value::Real)
+    _check_scalar_ic_field(field)
+    return _set_scalar_from_function!(model, field, (r, θ, φ) -> Float64(value))
+end
+
+function set_initial_condition!(model::GeodynamoModel, field::Symbol, fn::Function)
+    _check_scalar_ic_field(field)
+    return _set_scalar_from_function!(model, field, fn)
+end
+
+function set_initial_condition!(model::GeodynamoModel, field::Symbol,
+        arr::AbstractArray{<:Real, 3})
+    _check_scalar_ic_field(field)
+    f = _get_field(model, field)
+    phys = get_main_physical_field(f)
+    data = parent(phys.data)
+    size(arr) == size(data) || throw(ArgumentError(
+        "set!: array size $(size(arr)) does not match the local physical grid " *
+        "$(size(data)) for field :$field"))
+    copyto!(data, arr)
+    shtnskit_physical_to_spectral!(phys, f.spectral)
     return model
 end
 

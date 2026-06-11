@@ -364,9 +364,12 @@ const _SAFE_PARAMETER_CONSTRUCTORS = Dict{Symbol, Any}(
     :StressFree => StressFree,
     :FixedTemperature => FixedTemperature,
     :FixedFlux => FixedFlux,
+    :ValueBoundaryCondition => ValueBoundaryCondition,
+    :FluxBoundaryCondition => FluxBoundaryCondition,
     :InsulatingMagnetic => InsulatingMagnetic,
     :ConductingMagnetic => ConductingMagnetic,
-    :BoundaryConditions => BoundaryConditions
+    :BoundaryConditions => BoundaryConditions,
+    :FieldBoundaryConditions => FieldBoundaryConditions
 )
 
 function safe_eval_expr(expr, param_dict::Dict{Symbol, Any})

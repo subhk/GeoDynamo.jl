@@ -27,7 +27,7 @@ GeoDynamo.InitialConditions
     ```julia
     grid = SphericalShellGrid(nr = 64, lmax = 31)
     model = GeodynamoModel(grid; include_magnetic = true)
-    simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+    simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
     state = simulation.model.state
 
     set_temperature_ic!(state.temperature; profile = :conductive)

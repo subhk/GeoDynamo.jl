@@ -33,7 +33,7 @@ grid = SphericalShellGrid(
     nlon=128,
 )
 model = GeodynamoModel(grid; Ek=1e-4, Ra=1e6, include_magnetic=true)
-simulation = Simulation(model; dt=1e-5, stop_time=0.1)
+simulation = Simulation(model; Δt=1e-5, stop_time=0.1)
 run!(simulation)
 ```
 

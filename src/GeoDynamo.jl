@@ -504,17 +504,19 @@ export dense_to_cpu_spectral!, sync_gpu_state_to_cpu!
 export gpu_run!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
+export ValueBoundaryCondition, FluxBoundaryCondition, FieldBoundaryConditions
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
 export Clock
 export GeodynamoModel
 export fields, prognostic_fields
 export Simulation, run!, time_step!, add_callback!
 export AbstractTimestepper, CNAB2, EAB2, ERK2, ETD, ThetaMethod
-export TimeInterval, IterationInterval, WallTimeInterval
+export TimeInterval, IterationInterval, WallTimeInterval, SpecifiedTimes
 export FieldWriter, CheckpointWriter
 export RandomPerturbation, AnalyticIC, FileIC, ZeroIC
 export set_initial_condition!, set!
 export Callback, EnergyDiagnostics, SolenoidalMonitor, SimulationProgress, HealthCheck
+export prettytime, prettysummary
 
 # ================================================================================
 # Centralized Numerical Tolerance Constants
@@ -636,6 +638,7 @@ include("api/fields.jl")
 include("api/callbacks.jl")
 include("api/output_writers.jl")
 include("api/simulation.jl")
+include("api/units.jl")
 include("api/show.jl")
 # Import all Ball exports into GeoDynamo namespace
 using .GeoDynamoBall

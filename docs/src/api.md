@@ -53,6 +53,62 @@ jump to a section.
 
 ---
 
+## Simulation
+
+```julia
+using GeoDynamo
+
+grid  = SphericalShellGrid(CPU(); lmax=32, nr=64, nr_inner=16)
+model = GeodynamoModel(grid; Ek=1e-4, Ra=1e6, include_magnetic=true)
+
+sim = Simulation(model; Δt=1e-5, stop_time=0.1, stop_iteration=10_000)
+add_callback!(sim, sim -> @info("step", n=sim.model.clock.iteration);
+              schedule=IterationInterval(100))
+run!(sim)
+```
+
+!!! note "Δt and dt"
+    `Δt` is the canonical timestep keyword (Oceananigans convention); `dt` is
+    accepted as an alias. `sim.Δt` reads and writes the same value as `sim.dt`.
+
+`prettytime(t)` formats wall-clock durations ("2.341 seconds", "1.500 days").
+Model time is nondimensional and prints compactly (e.g. `time = 0.25`).
+
+Four callbacks are registered automatically on every new `Simulation`:
+`stop_time_exceeded`, `stop_iteration_exceeded`, `wall_time_limit_exceeded`,
+and `nan_checker`. A user callback registered under one of those names
+replaces the built-in stop guard — pick a different name unless that is what
+you want. Use `SpecifiedTimes(t1, t2, ...)` as a schedule to trigger output or
+callbacks at exact model times.
+
+---
+
+## Boundary Conditions
+
+Boundary conditions use Oceananigans-style names: `ValueBoundaryCondition`
+(Dirichlet), `FluxBoundaryCondition` (Neumann), wrapped per field in
+`FieldBoundaryConditions(inner=…, outer=…)`. The original names
+(`FixedTemperature`, `FixedFlux`, `BoundaryConditions`) remain as aliases.
+They can be passed per field or as one NamedTuple:
+
+```julia
+model = GeodynamoModel(grid;
+    boundary_conditions = (
+        temperature = FieldBoundaryConditions(
+            inner = ValueBoundaryCondition(1.0),
+            outer = ValueBoundaryCondition(0.0)),
+    ))
+```
+
+`set!` accepts numbers, functions of `(r, θ, φ)`, and physical-grid arrays for
+scalar fields:
+
+```julia
+set!(model; temperature = (r, θ, φ) -> 1 - r)
+```
+
+---
+
 ## External Dependencies
 
 GeoDynamo.jl builds on these Julia packages:
