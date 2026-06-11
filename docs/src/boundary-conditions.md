@@ -15,6 +15,67 @@ Each field type (velocity, magnetic, temperature, composition) has specific BC o
 
 ---
 
+## Specifying Boundary Conditions
+
+Boundary conditions are passed to [`GeodynamoModel`](@ref) per field, wrapped
+in `FieldBoundaryConditions(inner = ..., outer = ...)`:
+
+```julia
+t_bcs = FieldBoundaryConditions(
+    inner = ValueBoundaryCondition(1.0),   # Dirichlet: fixed value
+    outer = FluxBoundaryCondition(0.0),    # Neumann: fixed flux
+)
+```
+
+### BC type names
+
+The canonical names follow Oceananigans.jl; the original GeoDynamo names
+remain as aliases and keep working:
+
+| Canonical (Oceananigans-style) | Alias | Meaning |
+|:-------------------------------|:------|:--------|
+| `ValueBoundaryCondition(v)` | `FixedTemperature(v)` | Dirichlet — fixed value `v` |
+| `FluxBoundaryCondition(q)` | `FixedFlux(q)` | Neumann — fixed flux `q` |
+| `FieldBoundaryConditions(inner=…, outer=…)` | `BoundaryConditions(…)` | per-field inner/outer pair |
+| `NoSlip()` / `StressFree()` | — | velocity walls (no Oceananigans equivalent) |
+| `InsulatingMagnetic()` / `ConductingMagnetic()` | — | magnetic boundaries |
+
+### Two equivalent ways to pass them
+
+Per-field keywords:
+
+```julia
+model = GeodynamoModel(grid;
+    velocity_bcs    = FieldBoundaryConditions(inner = NoSlip(), outer = NoSlip()),
+    temperature_bcs = FieldBoundaryConditions(inner = ValueBoundaryCondition(1.0),
+                                              outer = ValueBoundaryCondition(0.0)),
+)
+```
+
+or one `boundary_conditions` NamedTuple (Oceananigans style):
+
+```julia
+model = GeodynamoModel(grid;
+    boundary_conditions = (
+        velocity    = FieldBoundaryConditions(inner = NoSlip(), outer = NoSlip()),
+        temperature = FieldBoundaryConditions(inner = ValueBoundaryCondition(1.0),
+                                              outer = ValueBoundaryCondition(0.0)),
+    ))
+```
+
+Specifying the same field through both paths throws an `ArgumentError`.
+
+### Defaults
+
+| Field | Default |
+|:------|:--------|
+| velocity | `inner = NoSlip()`, `outer = NoSlip()` |
+| temperature | `inner = FluxBoundaryCondition(1.0)`, `outer = ValueBoundaryCondition(0.0)` |
+| composition | `inner = FluxBoundaryCondition(0.0)`, `outer = ValueBoundaryCondition(0.0)` |
+| magnetic | insulating (`magnetic_inner_bc = :insulating`) |
+
+---
+
 ## Velocity Boundary Conditions
 
 Velocity fields use toroidal-poloidal decomposition: **u** = ∇×(T**r**) + ∇×∇×(P**r**)
