@@ -8,10 +8,13 @@
 
 """
     create_composition_matrices(config, domain, diffusivity, dt;
-                                 composition_bc_code, theta, T)
+                                 composition_bc_code, theta, T, inner_regularity)
 
 Create implicit time-stepping matrices for the composition equation with
 Dirichlet/Neumann boundary rows embedded in the radial system matrix.
+
+Pass `inner_regularity = true` for ball (full-sphere) geometry to impose the
+centre regularity condition Θ′(r₁) = l·Θ(r₁)/r₁ on the inner boundary row.
 """
 function create_composition_matrices(
         config::SHTnsKitConfig,
@@ -20,7 +23,8 @@ function create_composition_matrices(
         dt::Float64;
         composition_bc_code::Int,
         theta::Float64 = 0.5,
-        T::Type{<:Number} = Float64
+        T::Type{<:Number} = Float64,
+        inner_regularity::Bool = false
 )
     return create_scalar_matrices(
         config,
@@ -29,7 +33,8 @@ function create_composition_matrices(
         dt;
         scalar_bc_code = composition_bc_code,
         theta,
-        T
+        T,
+        inner_regularity
     )
 end
 
