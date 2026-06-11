@@ -313,6 +313,9 @@ function _apply_poloidal_wsplit_cnab2!(velocity, split::PoloidalSplitMatrices{T}
 
             # Inner residual: ball evaluates the W-regularity Robin row on the
             # W solution (pre-zeroing); shell evaluates the inner wall row on P.
+            # rho1w is a short-lived temporary consumed by the rho1 selection
+            # below; ball must read Wp before the wall-zeroing that follows,
+            # while shell reads Pp post-recovery (hence the two-variable idiom).
             rho1w = split.ball ?
                     dot(split.d1_row_inner, Wp) -
                     T((l + 1) * split.reg_r_inv) * Wp[1] : zero(T)
@@ -396,6 +399,10 @@ end
 # Green responses. cache_lookup maps l → the cache's per-l index.
 function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
         cache, cache_lookup, dt::Float64, Ek::Float64, half::Bool) where {T}
+    split.ball && error(
+        "_erk2_poloidal_recover!: ball-geometry ERK2 recovery not yet ported " *
+        "(shell influence algebra would silently misapply the regularity rows); " *
+        "see Task 7 of docs/superpowers/plans/2026-06-11-ball-geometry-mhd.md")
     cfg = velocity.poloidal.config
     nr = length(split.d1_row_inner)
     c = half ? dt / 2 : dt

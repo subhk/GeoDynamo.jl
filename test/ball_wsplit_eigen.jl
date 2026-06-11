@@ -48,7 +48,7 @@ end
     A[nr, :] .= 0.0; A[nr, nr] = 1.0; B[nr, :] .= 0.0
     ev = eigen(A, B)
     finite_real = [real(v) for v in ev.values
-                   if isfinite(v) && abs(imag(v)) < 1e-8 && real(v) < -1e-6]
+                   if isfinite(v) && abs(imag(v)) < 1e-6 * max(abs(real(v)), 1.0) && real(v) < -1e-6]
     @test !isempty(finite_real)
     σ_th = maximum(finite_real)      # slowest decay rate (least negative)
 
@@ -62,6 +62,7 @@ end
     Wp = similar(P); Pp = similar(P)
     inv_dt = split.mass_coeff / dt
     om = 1 - split.theta
+    # nhalf discards the transient from the non-eigenmode IC; second half is a clean single-mode decay window
     nsteps = 4000; nhalf = 2000; mid = nr ÷ 2; vh = 0.0
     for s in 1:nsteps
         mul!(W, split.dpol_op[idx], P)

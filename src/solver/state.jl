@@ -258,12 +258,12 @@ end
 # Stage-4B poloidal momentum W-split operators (CNAB2 path). Per spherical-
 # harmonic degree l: D_pol = ∂_rr − l(l+1)/r² applies (w_op), the W-advance
 # system (Ek/dt)I − θ·Ek·D_pol with PDE rows at the endpoints (the endpoint
-# freedom belongs to the influence corrections), the Dirichlet P-recovery
-# D_pol·P = W with P=0 rows, and the cached no-slip influence responses:
-# g_i = A_W⁻¹e_i, h_i = A_P⁻¹R(g_i), M = endpoint-P′ of the h's.
-# Ball (full-sphere): P-recovery inner row is the center-regularity Robin
-# P′(r₁) = (l+1)P(r₁)/r₁, and influence row 1 becomes the W-regularity Robin
-# W′(r₁) = (l+1)W(r₁)/r₁ evaluated on W (so M row 1 dots the W-space g's).
+# freedom belongs to the influence corrections), the P-recovery D_pol·P = W,
+# and the cached no-slip influence responses:
+# g_i = A_W⁻¹e_i, h_i = A_P⁻¹R(g_i).
+# Shell: M[j,i] = endpoint-P′ of h_i (both rows evaluate d/dr on h's).
+# Ball: row 1 of M = W-regularity Robin W′(r₁)−(l+1)W(r₁)/r₁ on the
+# W-space Green columns g_i; row 2 = endpoint-P′ on the h_i's (as shell).
 struct PoloidalSplitMatrices{T}
     dpol_op::Vector{BandedMatrix{T}}
     w_factor::Vector{BandedLU{T}}

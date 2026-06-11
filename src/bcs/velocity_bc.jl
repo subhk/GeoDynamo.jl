@@ -498,7 +498,8 @@ end
 
 Stage-4B W-split operators for the pressure-free poloidal momentum equation
     Ek(∂t − D_pol)W = N_W,   W = D_pol·P,   D_pol = ∂_rr − l(l+1)/r²
-with Dirichlet P-recovery (P=0 at both walls) and cached no-slip influence
+with P-recovery using Dirichlet rows at both walls (shell) or a Robin
+center-regularity inner row (`ball=true`), and cached no-slip influence
 responses enforcing P′=0 (velocity_bc_code == 1). Other BC codes error loudly
 until ported. See docs/superpowers/plans/2026-06-10-double-curl-stage4b-*.md.
 
