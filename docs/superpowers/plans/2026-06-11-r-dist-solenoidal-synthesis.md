@@ -30,7 +30,7 @@
 - Create: `test/r_dist_solenoidal_synthesis.jl`
 - Modify: `test/runtests.jl` (register)
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/r_dist_solenoidal_synthesis.jl`:
 
@@ -133,7 +133,7 @@ end
 end
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 ```bash
 ~/.julia/juliaup/julia-1.11.1+0.aarch64.apple.darwin14/bin/julia --startup-file=no --project=. \
@@ -142,7 +142,7 @@ end
 
 Expected: ERROR `UndefVarError: _storage_spheroidal_from_poloidal! not defined`.
 
-- [ ] **Step 3: Implement the helpers**
+- [x] **Step 3: Implement the helpers**
 
 In `src/solver/numerics.jl`, after `_fill_vr_alm!` (ends :870), add:
 
@@ -237,11 +237,11 @@ function _build_vector_scratch(config, plan)
 end
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Same command as Step 2. Expected: all PASS.
 
-- [ ] **Step 5: Register the test**
+- [x] **Step 5: Register the test**
 
 In `test/runtests.jl`, add next to the other solenoidal/transform includes
 (find with `grep -n solenoidal_transform_pair test/runtests.jl`):
@@ -250,7 +250,7 @@ In `test/runtests.jl`, add next to the other solenoidal/transform includes
 include("r_dist_solenoidal_synthesis.jl")
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/solver/numerics.jl src/physics/nonlinear.jl test/r_dist_solenoidal_synthesis.jl test/runtests.jl
@@ -268,7 +268,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/solver/numerics.jl:887-958` (`vector_spectral_to_physical_disttranspose!`)
 
-- [ ] **Step 1: Replace the function body**
+- [x] **Step 1: Replace the function body**
 
 Replace `vector_spectral_to_physical_disttranspose!` (:887-958) with:
 
@@ -349,7 +349,7 @@ comment block above the function (:872-886) — it still describes the
 convention; update its last paragraph mentioning Alm-layout derivative if
 present.
 
-- [ ] **Step 2: Run the targeted regression tests**
+- [x] **Step 2: Run the targeted regression tests**
 
 ```bash
 J=~/.julia/juliaup/julia-1.11.1+0.aarch64.apple.darwin14/bin/julia
@@ -362,7 +362,7 @@ $J --startup-file=no --project=. -e 'using Test, GeoDynamo;
 Expected: all PASS (the ∇·u hard gate and the transform-pair fixtures verify
 the restructure changed nothing at 1x1).
 
-- [ ] **Step 3: Run the allocation guards**
+- [x] **Step 3: Run the allocation guards**
 
 ```bash
 $J --startup-file=no --project=. -e 'using Test, GeoDynamo;
@@ -377,7 +377,7 @@ guard counts these, hoist `D1`/`prof`/`dpr` into the storage scratch
 (NamedTuple fields `D1sto`, `prof`, `dpr` built in `_build_vector_scratch`)
 rather than loosening the budget.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/solver/numerics.jl
@@ -397,7 +397,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 **Files:**
 - Modify: `src/solver/numerics.jl` (`_fill_vr_alm!` :847-870, `_spheroidal_from_poloidal!` :960-990)
 
-- [ ] **Step 1: Verify no remaining callers**
+- [x] **Step 1: Verify no remaining callers**
 
 ```bash
 grep -rn "_fill_vr_alm\|_spheroidal_from_poloidal" src/ test/
@@ -407,9 +407,9 @@ Expected: only the two definitions in `src/solver/numerics.jl` (verified
 2026-06-11; re-check in case of concurrent sessions). If a caller appeared,
 STOP and reconcile before deleting.
 
-- [ ] **Step 2: Delete both functions** (including their doc comments).
+- [x] **Step 2: Delete both functions** (including their doc comments).
 
-- [ ] **Step 3: Quick compile + targeted test**
+- [x] **Step 3: Quick compile + targeted test**
 
 ```bash
 $J --startup-file=no --project=. -e 'using GeoDynamo;
@@ -418,7 +418,7 @@ $J --startup-file=no --project=. -e 'using GeoDynamo;
 
 Expected: PASS, no `UndefVarError`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/solver/numerics.jl
@@ -431,7 +431,7 @@ Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 
 **Files:** none modified (validation only)
 
-- [ ] **Step 1: Hydro equivalence, all four grids**
+- [x] **Step 1: Hydro equivalence, all four grids**
 
 ```bash
 JULIA=$HOME/.julia/juliaup/julia-1.11.1+0.aarch64.apple.darwin14/bin/julia \
@@ -442,7 +442,7 @@ grep -E "max diff|equivalent|FAIL" /tmp/rd_eq_hydro.log
 Expected: `EXIT=0`; 1x1, 4x1, 1x4, 2x2 all present and equivalent < 1e-10.
 (Before this work, 1x4/2x2 died at the solenoidal gate.)
 
-- [ ] **Step 2: MHD equivalence (magnetic + composition), all four grids**
+- [x] **Step 2: MHD equivalence (magnetic + composition), all four grids**
 
 ```bash
 JULIA=$HOME/.julia/juliaup/julia-1.11.1+0.aarch64.apple.darwin14/bin/julia \
@@ -453,7 +453,7 @@ grep -E "max diff|equivalent|FAIL" /tmp/rd_eq_mhd.log
 Expected: `EXIT=0`, all 12 tensors < 1e-10 on every grid. This is the
 acceptance gate from the spec.
 
-- [ ] **Step 3: r-dist scaling smoke (optional but record the numbers)**
+- [x] **Step 3: r-dist scaling smoke (optional but record the numbers)**
 
 ```bash
 GEODYNAMO_PROC_GRID=1x4 OPENBLAS_NUM_THREADS=1 NP=4 $J --project=. -e '
@@ -468,7 +468,7 @@ Expected: `RESULT grid=1x4 np=4 step_ms=<number>` (no gate error). Repeat with
 `GEODYNAMO_PROC_GRID=2x2`. If `/tmp/scaling_p3.jl` is gone, skip — the
 equivalence suites above are the correctness gate.
 
-- [ ] **Step 4: Full suite**
+- [x] **Step 4: Full suite**
 
 ```bash
 $J --startup-file=no --project=. -e 'using Pkg; Pkg.test()' > /tmp/rd_full_suite.log 2>&1
@@ -478,7 +478,7 @@ echo "EXIT=$?"; tail -5 /tmp/rd_full_suite.log
 Expected: EXIT=0. If ~3 IC-normalization failures appear, re-run once before
 investigating (known flake).
 
-- [ ] **Step 5: Commit any stragglers, then finish**
+- [x] **Step 5: Commit any stragglers, then finish**
 
 ```bash
 git status --short   # should be clean apart from untracked DD_2DCODE/
