@@ -126,21 +126,11 @@ end
         GeoDynamo.solver_step!(st2)                      # warm-up: populate prev_nl + physical buffers
         gst = GeoDynamo.build_gpu_solver_state(st2)      # device state from the warmed CPU state
         GeoDynamo.solver_step!(st2)                      # CPU step n+1
-        GeoDynamo.gpu_solver_step!(gst)                  # GPU step n+1 (Array backend)
-
-        function cmp(name, cpu_spec, gpu_r, gpu_i)
-            cr, ci = GeoDynamo.cpu_spectral_to_dense(cpu_spec, cfg, nr, Float64)
-            ar = isapprox(cr, gpu_r; atol = 1e-8, rtol = 1e-6)
-            ai = isapprox(ci, gpu_i; atol = 1e-8, rtol = 1e-6)
-            (ar && ai) || @info "GATE diff" field = name maxabs_r = maximum(abs, cr .- gpu_r) maxabs_i = maximum(abs, ci .- gpu_i)
-            @test ar && ai
-        end
-        cmp("temperature", st2.fields.temperature.spectral, gst.temperature.spec_r, gst.temperature.spec_i)
-        cmp("velocity_tor", st2.fields.velocity.toroidal, gst.velocity.tor.spec_r, gst.velocity.tor.spec_i)
-        cmp("velocity_pol", st2.fields.velocity.poloidal, gst.velocity.pol.spec_r, gst.velocity.pol.spec_i)
-        cmp("magnetic_tor", st2.fields.magnetic.toroidal, gst.magnetic.tor.spec_r, gst.magnetic.tor.spec_i)
-        cmp("magnetic_pol", st2.fields.magnetic.poloidal, gst.magnetic.pol.spec_r, gst.magnetic.pol.spec_i)
-        cmp("composition", st2.fields.composition.spectral, gst.composition.spec_r, gst.composition.spec_i)
+        # Stage-2 gate: gpu_solver_step! routes through the GPU vector
+        # transforms, which are not yet ported to the solenoidal P convention
+        # and refuse loudly (src/gpu/vector_transform.jl). The GPU≈CPU
+        # full-step parity asserts that lived here return when the port lands.
+        @test_throws ErrorException GeoDynamo.gpu_solver_step!(gst)
     end
 
     @testset "GPU≈CPU full step on GPU [GPU-BOX]" begin

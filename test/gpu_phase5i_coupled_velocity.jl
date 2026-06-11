@@ -33,50 +33,24 @@ MPI.Initialized() || MPI.Init()
 
     @testset "coupled == core + buoyancy + Lorentz manual chain [LOCAL]" begin
         ntr=zeros(nl,nm,nr); nti=zeros(nl,nm,nr); npr=zeros(nl,nm,nr); npi=zeros(nl,nm,nr)
-        GeoDynamo.gpu_velocity_nonlinear!(ntr,nti, npr,npi, tor_r,tor_i, pol_r,pol_i,
+        # Stage-2 gate: gpu_velocity_nonlinear! routes through the GPU vector
+        # transforms, which are not yet ported to the solenoidal P convention
+        # and refuse loudly (src/gpu/vector_transform.jl). The manual-chain
+        # parity asserts that lived here return when the GPU port lands.
+        @test_throws ErrorException GeoDynamo.gpu_velocity_nonlinear!(
+            ntr,nti, npr,npi, tor_r,tor_i, pol_r,pol_i,
             cfg, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, cfg.lmax, bw;
             T_phys = Tp, thermal_factor = tf, r_vec = r_vec, C_phys = Cp, comp_factor = cf,
             J_r = Jr, J_θ = Jθ, J_φ = Jφ, B_r = Br, B_θ = Bθ, B_φ = Bφ, lorentz_coeff = lc)
-
-        # manual chain: core pipeline + buoyancy ×2 + Lorentz, then analyze
-        spec(a,b) = GeoDynamo.GPUSpectralField{Float64,typeof(a)}(cfg, nl, nm, nr, a, b)
-        ph() = GeoDynamo.allocate_gpu_physical_field(Float64, CPU(), cfg, nr)
-        ur=ph(); uθ=ph(); uφ=ph()
-        GeoDynamo.gpu_vector_spectral_to_physical!(ur,uθ,uφ, spec(tor_r,tor_i), spec(pol_r,pol_i), cfg, lfac, rscale)
-        wtr=zeros(nl,nm,nr); wti=zeros(nl,nm,nr); wpr=zeros(nl,nm,nr); wpi=zeros(nl,nm,nr)
-        GeoDynamo.gpu_spectral_curl!(wtr,wti, wpr,wpi, tor_r,tor_i, pol_r,pol_i, d1,d2, lfac, rinv, rinv2, bw)
-        wr=ph(); wθ=ph(); wφ=ph()
-        GeoDynamo.gpu_vector_spectral_to_physical!(wr,wθ,wφ, spec(wtr,wti), spec(wpr,wpi), cfg, lfac, rscale)
-        ar=ph(); aθ=ph(); aφ=ph()
-        GeoDynamo.gpu_cross!(ar.data,aθ.data,aφ.data, ur.data,uθ.data,uφ.data, wr.data,wθ.data,wφ.data, E)
-        GeoDynamo.gpu_coriolis_sub!(ar.data,aθ.data,aφ.data, ur.data,uθ.data,uφ.data, sinθ, cosθ)
-        GeoDynamo.gpu_buoyancy_add!(ar.data, Tp, r_vec, tf)
-        GeoDynamo.gpu_buoyancy_add!(ar.data, Cp, r_vec, cf)
-        GeoDynamo.gpu_cross_add!(ar.data,aθ.data,aφ.data, Jr,Jθ,Jφ, Br,Bθ,Bφ, lc)
-        mntr=zeros(nl,nm,nr); mnti=zeros(nl,nm,nr); mnpr=zeros(nl,nm,nr); mnpi=zeros(nl,nm,nr)
-        GeoDynamo.gpu_vector_physical_to_spectral!(spec(mntr,mnti), spec(mnpr,mnpi), aθ, aφ, cfg)
-
-        @test all(isfinite, ntr) && all(isfinite, nti) && all(isfinite, npr) && all(isfinite, npi)
-        @test ntr == mntr
-        @test nti == mnti
-        @test npr == mnpr
-        @test npi == mnpi
     end
 
     @testset "no couplings == velocity-only (5g unchanged) [LOCAL]" begin
-        # Call the no-kwargs path twice into independent output arrays and assert exact equality.
-        # Both calls take the velocity-only path (zero coupling), confirming determinism /
-        # backward-compat of the 5g core independently of the Phase-5i additions.
+        # Stage-2 gate (see above): the velocity-only path also synthesizes u
+        # through the vector transforms, so it refuses identically until ported.
         a1=zeros(nl,nm,nr); a2=zeros(nl,nm,nr); a3=zeros(nl,nm,nr); a4=zeros(nl,nm,nr)
-        GeoDynamo.gpu_velocity_nonlinear!(a1,a2, a3,a4, tor_r,tor_i, pol_r,pol_i,
+        @test_throws ErrorException GeoDynamo.gpu_velocity_nonlinear!(
+            a1,a2, a3,a4, tor_r,tor_i, pol_r,pol_i,
             cfg, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, cfg.lmax, bw)
-        b1=zeros(nl,nm,nr); b2=zeros(nl,nm,nr); b3=zeros(nl,nm,nr); b4=zeros(nl,nm,nr)
-        GeoDynamo.gpu_velocity_nonlinear!(b1,b2, b3,b4, tor_r,tor_i, pol_r,pol_i,
-            cfg, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, cfg.lmax, bw)
-        @test a1 == b1   # exact: deterministic velocity-only path (compat baseline)
-        @test a2 == b2
-        @test a3 == b3
-        @test a4 == b4
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5i gate) [GPU-BOX]" begin
