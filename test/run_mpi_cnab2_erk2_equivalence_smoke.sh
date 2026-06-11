@@ -22,7 +22,9 @@ set -euo pipefail
 : "${NRANKS:=2}"
 : "${MPIEXEC_TIMEOUT:=180}"
 : "${GEODYNAMO_PROC_GRID:=${NRANKS}x1}"
-export MPIEXEC_TIMEOUT NRANKS GEODYNAMO_PROC_GRID
+# Pin BLAS to 1 thread per rank — multi-threaded BLAS oversubscribes under MPI.
+: "${OPENBLAS_NUM_THREADS:=1}"
+export MPIEXEC_TIMEOUT NRANKS GEODYNAMO_PROC_GRID OPENBLAS_NUM_THREADS
 
 cd "$(dirname "$0")/.."
 
