@@ -6,7 +6,7 @@
     mutable struct Simulation{M,C,O}
 
 Holds a `GeodynamoModel` together with time-stepping controls, callbacks, and
-output writers.  Create with `Simulation(model; dt, ...)` and advance with
+output writers.  Create with `Simulation(model; Δt, ...)` and advance with
 `run!(sim)`.
 """
 mutable struct Simulation{M, C, O}
@@ -43,7 +43,7 @@ end
 
 """
     Simulation(model::GeodynamoModel;
-               dt, stop_time=Inf, stop_iteration=typemax(Int),
+               Δt, stop_time=Inf, stop_iteration=typemax(Int),
                timestepper, timestep_scheme, implicit_theta,
                etd_krylov_dimension, krylov_tolerance,
                callbacks=[], output_writers=[],
@@ -51,7 +51,7 @@ end
 
 Construct a `Simulation`.
 
-A positive timestep is required: pass it as `dt` (canonical) or `Δt` (alias);
+A positive timestep is required: pass it as `Δt` (canonical, Oceananigans convention) or `dt` (alias);
 passing both, neither, or a non-positive value throws an `ArgumentError`.
 `stop_time` accepts any `Real` and is converted to `Float64`.
 
@@ -79,11 +79,11 @@ function Simulation(model::GeodynamoModel;
         restart_from::String = "")
     # Resolve the timestep: `Δt` is a convenience alias for the canonical `dt`.
     if dt !== nothing && Δt !== nothing
-        throw(ArgumentError("Simulation: pass either `dt` or `Δt`, not both"))
+        throw(ArgumentError("Simulation: pass either `Δt` or `dt`, not both"))
     end
     dt_in = dt !== nothing ? dt : Δt
     dt_in === nothing &&
-        throw(ArgumentError("Simulation: a timestep is required (pass `dt=` or `Δt=`)"))
+        throw(ArgumentError("Simulation: a timestep is required (pass `Δt=` or `dt=`)"))
     dt_in > 0 ||
         throw(ArgumentError("Simulation: dt = $dt_in must be positive"))
     stop_time_f = Float64(stop_time)
@@ -238,3 +238,21 @@ function add_callback!(sim::Simulation, func; schedule,
     sim.callbacks[name] = Callback(func; schedule = schedule)
     return sim
 end
+
+# ================================================================================
+# Oceananigans-canonical `Δt` property
+# (api-layer exception to the ASCII policy, approved 2026-06-11).
+# The struct field stays ASCII `dt`; `Δt` is a virtual alias.
+# ================================================================================
+
+function Base.getproperty(sim::Simulation, name::Symbol)
+    name === :Δt && return getfield(sim, :dt)
+    return getfield(sim, name)
+end
+
+function Base.setproperty!(sim::Simulation, name::Symbol, x)
+    name === :Δt && return setfield!(sim, :dt, Float64(x))
+    return setfield!(sim, name, x)
+end
+
+Base.propertynames(sim::Simulation) = (fieldnames(Simulation)..., :Δt)

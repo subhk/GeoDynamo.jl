@@ -218,4 +218,22 @@ using Test
         @test GeoDynamo.should_fire(s, ctx(2.0)) == true     # passed 1.0
         @test GeoDynamo.should_fire(s, ctx(3.0)) == false    # exhausted
     end
+
+    @testset "Δt canonical property" begin
+        using MPI
+        if !MPI.Initialized()
+            MPI.Init()
+        end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 16, nr_inner = 4)
+        model = GeoDynamo.GeodynamoModel(grid; Ek = 1e-2, Ra = 1e4)
+        sim = GeoDynamo.Simulation(model, Δt = 1e-4, stop_iteration = 1)
+        @test sim.Δt == 1e-4
+        @test sim.dt == 1e-4                       # ASCII field still readable
+        sim.Δt = 2e-4
+        @test sim.dt == 2e-4
+        @test :Δt in propertynames(sim)
+        @test model.clock.last_Δt == model.clock.last_dt
+        @test :last_Δt in propertynames(model.clock)
+    end
 end
