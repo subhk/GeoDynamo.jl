@@ -73,87 +73,24 @@ MPI.Initialized() || MPI.Init()
             B_r = phys(), B_θ = phys(), B_φ = phys(), J_r = phys(), J_θ = phys(), J_φ = phys())
     end
 
+    # Stage-2 gate: gpu_solver_step! routes through the GPU vector transforms
+    # (velocity/magnetic synthesis + nonlinear analysis), which are not yet
+    # ported to the solenoidal P convention and refuse loudly
+    # (src/gpu/vector_transform.jl). The full-step manual-chain parity and
+    # magnetic/composition gating asserts that lived in these testsets return
+    # when the GPU port lands.
     @testset "full step == manual chain (exact) [LOCAL]" begin
         st = build_state()
-        # snapshot the OLD spectral + OLD lagged buffers BEFORE the step (deep copies)
-        v0 = deepcopy(st.velocity); m0 = deepcopy(st.magnetic); t0 = deepcopy(st.temperature); c0 = deepcopy(st.composition)
-        T0 = copy(st.T_phys); C0 = copy(st.C_phys)
-        B0 = (copy(st.B_r), copy(st.B_θ), copy(st.B_φ)); J0 = (copy(st.J_r), copy(st.J_θ), copy(st.J_φ))
-
-        GeoDynamo.gpu_solver_step!(st)
-
-        # ---- manual chain ----
-        spec(a,b) = GeoDynamo.GPUSpectralField{Float64,typeof(a)}(cfg, nl, nm, nr, a, b)
-        ph() = GeoDynamo.allocate_gpu_physical_field(Float64, CPU(), cfg, nr)
-        # 1. shared u from OLD velocity
-        ur=ph(); uθ=ph(); uφ=ph()
-        GeoDynamo.gpu_vector_spectral_to_physical!(ur, uθ, uφ, spec(v0.tor.spec_r, v0.tor.spec_i),
-            spec(v0.pol.spec_r, v0.pol.spec_i), cfg, lfac, rscale)
-        # 2. current-step physical buffers from OLD spectral (for NEXT step's velocity)
-        Tn=ph(); GeoDynamo.gpu_scalar_spectral_to_physical!(Tn, spec(t0.spec_r,t0.spec_i), cfg)
-        Cn=ph(); GeoDynamo.gpu_scalar_spectral_to_physical!(Cn, spec(c0.spec_r,c0.spec_i), cfg)
-        Br=ph(); Bθ=ph(); Bφ=ph()
-        GeoDynamo.gpu_vector_spectral_to_physical!(Br, Bθ, Bφ, spec(m0.tor.spec_r,m0.tor.spec_i),
-            spec(m0.pol.spec_r,m0.pol.spec_i), cfg, lfac, rscale)
-        jtr=zeros(nl,nm,nr); jti=zeros(nl,nm,nr); jpr=zeros(nl,nm,nr); jpi=zeros(nl,nm,nr)
-        GeoDynamo.gpu_spectral_curl!(jtr,jti,jpr,jpi, m0.tor.spec_r,m0.tor.spec_i, m0.pol.spec_r,m0.pol.spec_i,
-            d1,d2,lfac,rinv,rinv2,bw)
-        Jr=ph(); Jθ=ph(); Jφ=ph()
-        GeoDynamo.gpu_vector_spectral_to_physical!(Jr, Jθ, Jφ, spec(jtr,jti), spec(jpr,jpi), cfg, lfac, rscale)
-        # 3. velocity step with LAGGED buffers (T0/C0/B0/J0)
-        mvtor = deepcopy(v0.tor); mvpol = deepcopy(v0.pol)
-        GeoDynamo.gpu_velocity_field_step!(mvtor, mvpol, cfg, st.nlops_vel, st.influence, inv_dt_v, linw, cfg.lmax, bw;
-            T_phys=T0, thermal_factor=thermal_factor, r_vec=r_vec, C_phys=C0, comp_factor=comp_factor,
-            J_r=J0[1], J_θ=J0[2], J_φ=J0[3], B_r=B0[1], B_θ=B0[2], B_φ=B0[3], lorentz_coeff=lorentz_coeff)
-        # 4. magnetic step with shared u
-        mmtor = deepcopy(m0.tor); mmpol = deepcopy(m0.pol)
-        GeoDynamo.gpu_magnetic_field_step!(mmtor, mmpol, ur.data, uθ.data, uφ.data, cfg, st.nlops_mag, inv_dt_m, linw, cfg.lmax, bw)
-        # 5. temperature + 6. composition with shared u
-        mt = deepcopy(t0); mc = deepcopy(c0)
-        GeoDynamo.gpu_scalar_field_step!(mt.spec_r, mt.spec_i, mt.prev_nl_r, mt.prev_nl_i, ur.data, uθ.data, uφ.data, cfg,
-            d1, mvals, rinv, mt.lin, mt.lu, mt.bc_in_r, mt.bc_in_i, mt.bc_out_r, mt.bc_out_i, inv_dt_t, linw, cfg.lmax, bw)
-        GeoDynamo.gpu_scalar_field_step!(mc.spec_r, mc.spec_i, mc.prev_nl_r, mc.prev_nl_i, ur.data, uθ.data, uφ.data, cfg,
-            d1, mvals, rinv, mc.lin, mc.lu, mc.bc_in_r, mc.bc_in_i, mc.bc_out_r, mc.bc_out_i, inv_dt_c, linw, cfg.lmax, bw)
-
-        # ---- compare updated spectral state ----
-        @test st.velocity.tor.spec_r == mvtor.spec_r && st.velocity.pol.spec_r == mvpol.spec_r
-        @test st.velocity.tor.spec_i == mvtor.spec_i && st.velocity.pol.spec_i == mvpol.spec_i
-        @test st.magnetic.tor.spec_r == mmtor.spec_r && st.magnetic.pol.spec_i == mmpol.spec_i
-        @test st.magnetic.tor.spec_i == mmtor.spec_i && st.magnetic.pol.spec_r == mmpol.spec_r
-        @test st.temperature.spec_r == mt.spec_r && st.temperature.spec_i == mt.spec_i
-        @test st.composition.spec_r == mc.spec_r && st.composition.spec_i == mc.spec_i
-        # ---- compare rolled physical buffers (current-step synthesis) ----
-        @test st.T_phys == Tn.data && st.C_phys == Cn.data
-        @test st.B_r == Br.data && st.J_φ == Jφ.data
-        @test st.B_θ == Bθ.data && st.B_φ == Bφ.data
-        @test st.J_r == Jr.data && st.J_θ == Jθ.data
-        @test all(isfinite, st.velocity.tor.spec_r) && all(isfinite, st.magnetic.tor.spec_r)
+        @test_throws ErrorException GeoDynamo.gpu_solver_step!(st)
     end
 
     @testset "gating: no magnetic / no composition [LOCAL]" begin
-        # Build two fully independent identical states (same RNG seed) so mutations
-        # in one do not affect the other.
         st_base = build_state()
-        # st_a: composition=nothing — gate should suppress compositional buoyancy in velocity step
-        st_a = let s = deepcopy(st_base); (; s..., composition = nothing); end
-        # st_b: composition present but comp_factor=0 — buoyancy contribution is zero in velocity step
-        st_b = let s = deepcopy(st_base); (; s..., comp_factor = 0.0); end
-        GeoDynamo.gpu_solver_step!(st_a)
-        GeoDynamo.gpu_solver_step!(st_b)
-        # The gate (composition=nothing → C_phys=nothing, comp_factor=0) must produce
-        # exactly the same velocity as explicitly zeroing comp_factor.
-        @test st_a.velocity.tor.spec_r == st_b.velocity.tor.spec_r
-        @test all(isfinite, st_a.velocity.tor.spec_r)
-        @test all(isfinite, st_a.temperature.spec_r)
-
-        # Also verify a fully stripped state (no magnetic/composition) runs cleanly
         st_stripped = let s = deepcopy(st_base)
             (; s..., magnetic = nothing, composition = nothing,
                B_r = nothing, B_θ = nothing, B_φ = nothing, J_r = nothing, J_θ = nothing, J_φ = nothing)
         end
-        GeoDynamo.gpu_solver_step!(st_stripped)
-        @test all(isfinite, st_stripped.velocity.tor.spec_r)
-        @test all(isfinite, st_stripped.temperature.spec_r)
+        @test_throws ErrorException GeoDynamo.gpu_solver_step!(st_stripped)
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5n gate) [GPU-BOX]" begin

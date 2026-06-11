@@ -33,56 +33,32 @@ end
 @testset "GPU Phase 6 — gpu_run! loop + IO host-gather" begin
     NSTEPS = 4
 
+    # Stage-2 gate: gpu_run!/gpu_solver_step! route through the GPU vector
+    # transforms, which are not yet ported to the solenoidal P convention and
+    # refuse loudly (src/gpu/vector_transform.jl). The GPU-trajectory parity,
+    # step-decomposition, and output_fn asserts that lived in these testsets
+    # return when the GPU port lands.
     @testset "N-step GPU trajectory == N-step CPU (insulating) [LOCAL]" begin
         st = build_small_cpu_state()
-        cfg = st.backend.shtns_config
-        nr = st.runtime.outer_core_domain.N
         GeoDynamo.solver_step!(st)                        # warm-up
         gst = GeoDynamo.build_gpu_solver_state(st)
-        GeoDynamo.gpu_run!(gst, NSTEPS)                   # GPU: NSTEPS steps
-        for _ in 1:NSTEPS; GeoDynamo.solver_step!(st); end # CPU: NSTEPS steps
-
-        function cmp(name, cpu_spec, gpu_r, gpu_i)
-            cr, ci = GeoDynamo.cpu_spectral_to_dense(cpu_spec, cfg, nr, Float64)
-            ar = isapprox(cr, gpu_r; atol = 1e-7, rtol = 1e-5)
-            ai = isapprox(ci, gpu_i; atol = 1e-7, rtol = 1e-5)
-            (ar && ai) || @info "TRAJ diff" field = name maxabs_r = maximum(abs, cr .- gpu_r) maxabs_i = maximum(abs, ci .- gpu_i)
-            @test ar && ai
-        end
-        cmp("temperature", st.fields.temperature.spectral, gst.temperature.spec_r, gst.temperature.spec_i)
-        cmp("velocity_tor", st.fields.velocity.toroidal, gst.velocity.tor.spec_r, gst.velocity.tor.spec_i)
-        cmp("velocity_pol", st.fields.velocity.poloidal, gst.velocity.pol.spec_r, gst.velocity.pol.spec_i)
-        cmp("magnetic_tor", st.fields.magnetic.toroidal, gst.magnetic.tor.spec_r, gst.magnetic.tor.spec_i)
-        cmp("magnetic_pol", st.fields.magnetic.poloidal, gst.magnetic.pol.spec_r, gst.magnetic.pol.spec_i)
-        cmp("composition", st.fields.composition.spectral, gst.composition.spec_r, gst.composition.spec_i)
+        @test_throws ErrorException GeoDynamo.gpu_run!(gst, NSTEPS)
     end
 
     @testset "step decomposition: gpu_run!(N) == N × gpu_solver_step! [LOCAL]" begin
         st = build_small_cpu_state(); GeoDynamo.solver_step!(st)
         a = GeoDynamo.build_gpu_solver_state(st)
         b = GeoDynamo.build_gpu_solver_state(st)
-        GeoDynamo.gpu_run!(a, 3)
-        for _ in 1:3; GeoDynamo.gpu_solver_step!(b); end
-        @test a.velocity.tor.spec_r == b.velocity.tor.spec_r
-        @test a.temperature.spec_r == b.temperature.spec_r
-        @test a.magnetic.pol.spec_i == b.magnetic.pol.spec_i
+        @test_throws ErrorException GeoDynamo.gpu_run!(a, 3)
+        @test_throws ErrorException GeoDynamo.gpu_solver_step!(b)
     end
 
     @testset "output_fn host-gather hook [LOCAL]" begin
         st = build_small_cpu_state(); GeoDynamo.solver_step!(st)
         gst = GeoDynamo.build_gpu_solver_state(st)
         snaps = Tuple{Int, Any}[]
-        GeoDynamo.gpu_run!(gst, 4; output_every = 2,
+        @test_throws ErrorException GeoDynamo.gpu_run!(gst, 4; output_every = 2,
             output_fn = (hs, step) -> push!(snaps, (step, hs)))
-        @test length(snaps) == 2                          # steps 2 and 4
-        @test first.(snaps) == [2, 4]
-        # snapshots are host (Array) deep copies, independent of the live state
-        s2 = snaps[1][2]
-        @test s2.temperature.spec_r isa Array
-        @test s2.temperature.spec_r !== gst.temperature.spec_r
-        before = copy(s2.temperature.spec_r)
-        GeoDynamo.gpu_solver_step!(gst)                   # advance live state further
-        @test s2.temperature.spec_r == before            # snapshot unchanged
     end
 
     @testset "nsteps=0 no-op + arg guard [LOCAL]" begin
@@ -95,25 +71,10 @@ end
     end
 
     @testset "gpu_run!(::SolverState) runs GPU + syncs back == CPU [LOCAL]" begin
+        # Stage-2 gate (see above): the SolverState convenience entry refuses
+        # identically until the GPU vector transforms are ported.
         stA = build_small_cpu_state(); GeoDynamo.solver_step!(stA)   # warm-up
-        stB = build_small_cpu_state(); GeoDynamo.solver_step!(stB)   # identical warm-up
-        cfg = stA.backend.shtns_config; nr = stA.runtime.outer_core_domain.N
-        step0 = stA.step; t0 = stA.time
-        GeoDynamo.gpu_run!(stA, NSTEPS)                              # GPU path + sync-back into stA
-        for _ in 1:NSTEPS; GeoDynamo.solver_step!(stB); end          # CPU path
-        # stA's spectral fields (synced from the GPU run) match the CPU trajectory
-        for (fa, fb) in [(stA.fields.temperature.spectral, stB.fields.temperature.spectral),
-                         (stA.fields.velocity.toroidal,    stB.fields.velocity.toroidal),
-                         (stA.fields.velocity.poloidal,    stB.fields.velocity.poloidal),
-                         (stA.fields.magnetic.toroidal,    stB.fields.magnetic.toroidal),
-                         (stA.fields.composition.spectral, stB.fields.composition.spectral)]
-            ar, ai = GeoDynamo.cpu_spectral_to_dense(fa, cfg, nr, Float64)
-            br, bi = GeoDynamo.cpu_spectral_to_dense(fb, cfg, nr, Float64)
-            @test isapprox(ar, br; atol = 1e-7, rtol = 1e-5)
-            @test isapprox(ai, bi; atol = 1e-7, rtol = 1e-5)
-        end
-        @test stA.step == step0 + NSTEPS                            # step/time advanced
-        @test stA.time ≈ t0 + NSTEPS * stA.parameters.timestep
+        @test_throws ErrorException GeoDynamo.gpu_run!(stA, NSTEPS)
     end
 
     @testset "dense_to_cpu_spectral! roundtrip + sync_gpu_state_to_cpu! [LOCAL]" begin

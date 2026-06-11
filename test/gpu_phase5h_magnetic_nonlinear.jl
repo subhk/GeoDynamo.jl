@@ -27,30 +27,13 @@ MPI.Initialized() || MPI.Init()
 
     @testset "magnetic nonlinear == manual chain [LOCAL]" begin
         ntr=zeros(nl,nm,nr); nti=zeros(nl,nm,nr); npr=zeros(nl,nm,nr); npi=zeros(nl,nm,nr)
-        GeoDynamo.gpu_magnetic_nonlinear!(ntr,nti, npr,npi, btr,bti, bpr,bpi, u_r,u_θ,u_φ,
+        # Stage-2 gate: gpu_magnetic_nonlinear! routes through the GPU vector
+        # transforms, which are not yet ported to the solenoidal P convention
+        # and refuse loudly (src/gpu/vector_transform.jl). The manual-chain
+        # parity asserts that lived here return when the GPU port lands.
+        @test_throws ErrorException GeoDynamo.gpu_magnetic_nonlinear!(
+            ntr,nti, npr,npi, btr,bti, bpr,bpi, u_r,u_θ,u_φ,
             cfg, d1, d2, lfac, rinv, rinv2, rscale, cfg.lmax, bw)
-
-        # manual chain
-        spec(a,b) = GeoDynamo.GPUSpectralField{Float64,typeof(a)}(cfg, nl, nm, nr, a, b)
-        ph() = GeoDynamo.allocate_gpu_physical_field(Float64, CPU(), cfg, nr)
-        # 1. B → physical
-        Br=ph(); Bθ=ph(); Bφ=ph()
-        GeoDynamo.gpu_vector_spectral_to_physical!(Br,Bθ,Bφ, spec(btr,bti), spec(bpr,bpi), cfg, lfac, rscale)
-        # 2. uB = u×B
-        ubr=ph(); ubθ=ph(); ubφ=ph()
-        GeoDynamo.gpu_cross!(ubr.data,ubθ.data,ubφ.data, u_r,u_θ,u_φ, Br.data,Bθ.data,Bφ.data, 1.0)
-        # 3. uB → spectral (work_tor, work_pol)
-        wtr=zeros(nl,nm,nr); wti=zeros(nl,nm,nr); wpr=zeros(nl,nm,nr); wpi=zeros(nl,nm,nr)
-        GeoDynamo.gpu_vector_physical_to_spectral!(spec(wtr,wti), spec(wpr,wpi), ubθ, ubφ, cfg)
-        # 4. curl(work) → nl
-        mntr=zeros(nl,nm,nr); mnti=zeros(nl,nm,nr); mnpr=zeros(nl,nm,nr); mnpi=zeros(nl,nm,nr)
-        GeoDynamo.gpu_spectral_curl!(mntr,mnti, mnpr,mnpi, wtr,wti, wpr,wpi, d1,d2, lfac, rinv, rinv2, bw)
-
-        @test ntr == mntr
-        @test nti == mnti
-        @test npr == mnpr
-        @test npi == mnpi
-        @test all(isfinite, ntr) && all(isfinite, npr)
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5h gate) [GPU-BOX]" begin

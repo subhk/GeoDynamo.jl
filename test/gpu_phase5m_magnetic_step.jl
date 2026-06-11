@@ -76,31 +76,17 @@ MPI.Initialized() || MPI.Init()
         return (rt_r, rt_i, rp_r, rp_i, nlt_r, nlt_i, nlp_r, nlp_i)
     end
 
+    # Stage-2 gate: gpu_magnetic_field_step! routes through
+    # gpu_magnetic_nonlinear! → the GPU vector transforms, which are not yet
+    # ported to the solenoidal P convention and refuse loudly
+    # (src/gpu/vector_transform.jl). The manual-chain parity + continuity
+    # asserts that lived in these testsets return when the GPU port lands.
     @testset "step == manual chain, no continuity (exact) [LOCAL]" begin
-        tor, pol = run_gpu(:cpu, false)
-        rt_r, rt_i, rp_r, rp_i, nlt_r, nlt_i, nlp_r, nlp_i = manual(false)
-        @test tor.spec_r == rt_r && tor.spec_i == rt_i
-        @test pol.spec_r == rp_r && pol.spec_i == rp_i
-        @test tor.prev_nl_r == nlt_r && tor.prev_nl_i == nlt_i
-        @test pol.prev_nl_r == nlp_r && pol.prev_nl_i == nlp_i
-        @test all(isfinite, tor.spec_r) && all(isfinite, pol.spec_r)
+        @test_throws ErrorException run_gpu(:cpu, false)
     end
 
     @testset "step == manual chain, CONTINUITY_MAG (exact) [LOCAL]" begin
-        tor, pol = run_gpu(:cpu, true)
-        rt_r, rt_i, rp_r, rp_i, nlt_r, nlt_i, nlp_r, nlp_i = manual(true)
-        @test tor.spec_r == rt_r && tor.spec_i == rt_i
-        @test pol.spec_r == rp_r && pol.spec_i == rp_i
-        @test tor.prev_nl_r == nlt_r && pol.prev_nl_r == nlp_r
-        @test tor.prev_nl_i == nlt_i
-        @test pol.prev_nl_i == nlp_i
-    end
-
-    @testset "continuity changes the toroidal result [LOCAL]" begin
-        # sanity: the CONTINUITY_MAG BC actually does something (toroidal differs)
-        t0, _ = run_gpu(:cpu, false)
-        t1, _ = run_gpu(:cpu, true)
-        @test t0.spec_r != t1.spec_r
+        @test_throws ErrorException run_gpu(:cpu, true)
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5m gate) [GPU-BOX]" begin
