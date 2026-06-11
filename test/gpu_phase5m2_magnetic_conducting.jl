@@ -67,59 +67,25 @@ MPI.Initialized() || MPI.Init()
                  lin = lin_pol, lu = lu_pol)
         ic = (; tor_adm = tor_adm, pol_adm = pol_adm,
                 tor_ic_r = copy(itr0), tor_ic_i = copy(iti0), pol_ic_r = copy(ipr0), pol_ic_i = copy(ipi0))
-        GeoDynamo.gpu_magnetic_field_step!(tor, pol, copy(u_r), copy(u_θ), copy(u_φ), cfg, nlops,
-                                           inv_dt, linear_weight, cfg.lmax, bw; ic = ic)
-
-        # ---- manual chain ----
-        bt_r = copy(bt_r0); bt_i = copy(bt_i0); bp_r = copy(bp_r0); bp_i = copy(bp_i0)
-        pnt_r = copy(pnt_r0); pnt_i = copy(pnt_i0); pnp_r = copy(pnp_r0); pnp_i = copy(pnp_i0)
-        nlt_r = similar(bt_r); nlt_i = similar(bt_i); nlp_r = similar(bp_r); nlp_i = similar(bp_i)
-        GeoDynamo.gpu_magnetic_nonlinear!(nlt_r, nlt_i, nlp_r, nlp_i, bt_r, bt_i, bp_r, bp_i,
-            copy(u_r), copy(u_θ), copy(u_φ), cfg, d1, d2, lfac, rinv, rinv2, rscale, cfg.lmax, bw)
-        φt_r = zeros(nl, nm); φt_i = zeros(nl, nm); φp_r = zeros(nl, nm); φp_i = zeros(nl, nm)
-        GeoDynamo.gpu_inner_core_history_flux!(φt_r, φt_i, copy(itr0), copy(iti0), tor_adm)
-        GeoDynamo.gpu_inner_core_history_flux!(φp_r, φp_i, copy(ipr0), copy(ipi0), pol_adm)
-        z = zeros(nl, nm)
-        rt_r = similar(bt_r); rt_i = similar(bt_i); rp_r = similar(bp_r); rp_i = similar(bp_i)
-        GeoDynamo.gpu_build_rhs_cnab2!(rt_r, rt_i, bt_r, bt_i, nlt_r, nlt_i, pnt_r, pnt_i, lin_tor, inv_dt, linear_weight, bw)
-        GeoDynamo.gpu_implicit_solve_field!(rt_r, rt_i, lu_tor, φt_r, φt_i, z, z, bw)
-        GeoDynamo.gpu_build_rhs_cnab2!(rp_r, rp_i, bp_r, bp_i, nlp_r, nlp_i, pnp_r, pnp_i, lin_pol, inv_dt, linear_weight, bw)
-        GeoDynamo.gpu_implicit_solve_field!(rp_r, rp_i, lu_pol, φp_r, φp_i, z, z, bw)
-        # reconstruct from the NEW outer-core ICB value (g = rt[:,:,1] / rp[:,:,1])
-        ntr_r = similar(itr0); ntr_i = similar(iti0); npr_r = similar(ipr0); npr_i = similar(ipi0)
-        GeoDynamo.gpu_reconstruct_inner_core!(ntr_r, ntr_i, copy(itr0), copy(iti0), rt_r[:, :, 1], rt_i[:, :, 1], tor_adm)
-        GeoDynamo.gpu_reconstruct_inner_core!(npr_r, npr_i, copy(ipr0), copy(ipi0), rp_r[:, :, 1], rp_i[:, :, 1], pol_adm)
-
-        @test tor.spec_r == rt_r && tor.spec_i == rt_i
-        @test pol.spec_r == rp_r && pol.spec_i == rp_i
-        @test tor.prev_nl_r == nlt_r && tor.prev_nl_i == nlt_i
-        @test pol.prev_nl_r == nlp_r && pol.prev_nl_i == nlp_i
-        @test ic.tor_ic_r == ntr_r && ic.tor_ic_i == ntr_i
-        @test ic.pol_ic_r == npr_r && ic.pol_ic_i == npr_i
-        @test all(isfinite, ic.tor_ic_r) && all(isfinite, ic.pol_ic_r)
+        # Stage-2 gate: gpu_magnetic_field_step! routes through
+        # gpu_magnetic_nonlinear! → the GPU vector transforms, which are not yet
+        # ported to the solenoidal P convention and refuse loudly
+        # (src/gpu/vector_transform.jl). The manual-chain parity asserts that
+        # lived here return when the GPU port lands.
+        @test_throws ErrorException GeoDynamo.gpu_magnetic_field_step!(
+            tor, pol, copy(u_r), copy(u_θ), copy(u_φ), cfg, nlops,
+            inv_dt, linear_weight, cfg.lmax, bw; ic = ic)
     end
 
     @testset "insulating path unchanged when ic=nothing [LOCAL]" begin
-        # ic=nothing must reproduce the Phase-5m insulating result exactly
+        # Stage-2 gate (see above): the insulating path refuses identically.
         tor = (; spec_r = copy(bt_r0), spec_i = copy(bt_i0), prev_nl_r = copy(pnt_r0), prev_nl_i = copy(pnt_i0),
                  lin = lin_tor, lu = lu_tor)
         pol = (; spec_r = copy(bp_r0), spec_i = copy(bp_i0), prev_nl_r = copy(pnp_r0), prev_nl_i = copy(pnp_i0),
                  lin = lin_pol, lu = lu_pol)
-        GeoDynamo.gpu_magnetic_field_step!(tor, pol, copy(u_r), copy(u_θ), copy(u_φ), cfg, nlops,
-                                           inv_dt, linear_weight, cfg.lmax, bw)   # no ic, no continuity
-        # manual insulating (no continuity, all-zero BC)
-        bt_r = copy(bt_r0); bt_i = copy(bt_i0); bp_r = copy(bp_r0); bp_i = copy(bp_i0)
-        nlt_r = similar(bt_r); nlt_i = similar(bt_i); nlp_r = similar(bp_r); nlp_i = similar(bp_i)
-        GeoDynamo.gpu_magnetic_nonlinear!(nlt_r, nlt_i, nlp_r, nlp_i, bt_r, bt_i, bp_r, bp_i,
-            copy(u_r), copy(u_θ), copy(u_φ), cfg, d1, d2, lfac, rinv, rinv2, rscale, cfg.lmax, bw)
-        z = zeros(nl, nm)
-        rt_r = similar(bt_r); rt_i = similar(bt_i); rp_r = similar(bp_r); rp_i = similar(bp_i)
-        GeoDynamo.gpu_build_rhs_cnab2!(rt_r, rt_i, bt_r, bt_i, nlt_r, nlt_i, copy(pnt_r0), copy(pnt_i0), lin_tor, inv_dt, linear_weight, bw)
-        GeoDynamo.gpu_implicit_solve_field!(rt_r, rt_i, lu_tor, z, z, z, z, bw)
-        GeoDynamo.gpu_build_rhs_cnab2!(rp_r, rp_i, bp_r, bp_i, nlp_r, nlp_i, copy(pnp_r0), copy(pnp_i0), lin_pol, inv_dt, linear_weight, bw)
-        GeoDynamo.gpu_implicit_solve_field!(rp_r, rp_i, lu_pol, z, z, z, z, bw)
-        @test tor.spec_r == rt_r && tor.spec_i == rt_i
-        @test pol.spec_r == rp_r && pol.spec_i == rp_i
+        @test_throws ErrorException GeoDynamo.gpu_magnetic_field_step!(
+            tor, pol, copy(u_r), copy(u_θ), copy(u_φ), cfg, nlops,
+            inv_dt, linear_weight, cfg.lmax, bw)   # no ic, no continuity
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5m2 gate) [GPU-BOX]" begin
