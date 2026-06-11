@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Getting Started · GeoDynamo.jl</title><meta name="title" content="Getting Started · GeoDynamo.jl"/><meta property="og:title" content="Getting Started · GeoDynamo.jl"/><meta property="twitter:title" content="Getting Started · GeoDynamo.jl"/><meta name="description" content="Documentation for GeoDynamo.jl."/><meta property="og:description" content="Documentation for GeoDynamo.jl."/><meta property="twitter:description" content="Documentation for GeoDynamo.jl."/><meta property="og:url" content="https://subhk.github.io/GeoDynamo.jl/stable/getting-started/"/><meta property="twitter:url" content="https://subhk.github.io/GeoDynamo.jl/stable/getting-started/"/><link rel="canonical" href="https://subhk.github.io/GeoDynamo.jl/stable/getting-started/"/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script><link href="../assets/custom.css" rel="stylesheet" type="text/css"/></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../">GeoDynamo.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li class="is-active"><a class="tocitem" href>Getting Started</a><ul class="internal"><li><a class="tocitem" href="#Prerequisites"><span>Prerequisites</span></a></li><li><a class="tocitem" href="#Installation"><span>Installation</span></a></li><li class="toplevel"><a class="tocitem" href="#Oceananigans-style:-set!-dispatches-to-set*initial*condition!-per-field"><span>Oceananigans-style: set! dispatches to set<em>initial</em>condition! per field</span></a></li><li class="toplevel"><a class="tocitem" href="#Temperature"><span>Temperature</span></a></li><li class="toplevel"><a class="tocitem" href="#Velocity"><span>Velocity</span></a></li><li class="toplevel"><a class="tocitem" href="#Magnetic-Field"><span>Magnetic Field</span></a></li><li class="toplevel"><a class="tocitem" href="#From-restart-file"><span>From restart file</span></a></li><li class="toplevel"><a class="tocitem" href="#From-snapshot"><span>From snapshot</span></a></li><li><a class="tocitem" href="#Next-Steps"><span>Next Steps</span></a></li></ul></li><li><a class="tocitem" href="../configuration/">Configuration</a></li><li><a class="tocitem" href="../initial-conditions/">Initial Conditions</a></li><li><a class="tocitem" href="../boundary-conditions/">Boundary Conditions</a></li><li><a class="tocitem" href="../timestepping/">Time Integration</a></li><li><a class="tocitem" href="../shtnskit/">Spherical Harmonics</a></li><li><a class="tocitem" href="../topography/">Boundary Topography</a></li><li><a class="tocitem" href="../io/">Data Output</a></li><li><a class="tocitem" href="../developer/">Developer Guide</a></li><li><span class="tocitem">API Reference</span><ul><li><a class="tocitem" href="../api/">Overview</a></li><li><a class="tocitem" href="../api/solver/">Solver &amp; Timestep</a></li><li><a class="tocitem" href="../api/fields/">Physics &amp; Fields</a></li><li><a class="tocitem" href="../api/transforms/">Transforms &amp; Spectral</a></li><li><a class="tocitem" href="../api/internals/">Internals</a></li><li><a class="tocitem" href="../api/boundary-conditions/">Boundary Conditions</a></li><li><a class="tocitem" href="../api/topography/">Boundary Topography</a></li><li><a class="tocitem" href="../api/initial-conditions/">Initial Conditions</a></li><li><a class="tocitem" href="../api/shell/">Shell Geometry</a></li><li><a class="tocitem" href="../api/ball/">Ball Geometry</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Getting Started</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Getting Started</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/subhk/GeoDynamo.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/subhk/GeoDynamo.jl/blob/main/docs/src/getting-started.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Getting-Started"><a class="docs-heading-anchor" href="#Getting-Started">Getting Started</a><a id="Getting-Started-1"></a><a class="docs-heading-anchor-permalink" href="#Getting-Started" title="Permalink"></a></h1><p>Welcome to GeoDynamo.jl! This guide will get you from zero to running your first simulation.</p><hr/><h2 id="Prerequisites"><a class="docs-heading-anchor" href="#Prerequisites">Prerequisites</a><a id="Prerequisites-1"></a><a class="docs-heading-anchor-permalink" href="#Prerequisites" title="Permalink"></a></h2><div class="admonition is-info" id="What-You-Need-1d28332d5eee325b"><header class="admonition-header">What You Need<a class="admonition-anchor" href="#What-You-Need-1d28332d5eee325b" title="Permalink"></a></header><div class="admonition-body"><table><tr><th style="text-align: left">Requirement</th><th style="text-align: left">Version</th></tr><tr><td style="text-align: left">Julia</td><td style="text-align: left"><strong>1.10</strong> or <strong>1.11</strong></td></tr><tr><td style="text-align: left">MPI</td><td style="text-align: left">OpenMPI, MPICH, or Intel MPI</td></tr><tr><td style="text-align: left">NetCDF</td><td style="text-align: left">C libraries for output</td></tr></table></div></div><hr/><h2 id="Installation"><a class="docs-heading-anchor" href="#Installation">Installation</a><a id="Installation-1"></a><a class="docs-heading-anchor-permalink" href="#Installation" title="Permalink"></a></h2><h3 id="Step-1:-Install-Julia"><a class="docs-heading-anchor" href="#Step-1:-Install-Julia">Step 1: Install Julia</a><a id="Step-1:-Install-Julia-1"></a><a class="docs-heading-anchor-permalink" href="#Step-1:-Install-Julia" title="Permalink"></a></h3><p>Download from <a href="https://julialang.org/downloads/">julialang.org/downloads</a> and ensure it&#39;s on your <code>PATH</code>.</p><h3 id="Step-2:-Install-MPI-and-NetCDF"><a class="docs-heading-anchor" href="#Step-2:-Install-MPI-and-NetCDF">Step 2: Install MPI &amp; NetCDF</a><a id="Step-2:-Install-MPI-and-NetCDF-1"></a><a class="docs-heading-anchor-permalink" href="#Step-2:-Install-MPI-and-NetCDF" title="Permalink"></a></h3><p>=== &quot;Ubuntu/Debian&quot;</p><pre><code class="language-bash hljs">    sudo apt install mpich libnetcdf-dev
+    ```
+
+=== &quot;macOS&quot;
+    ```bash
+    brew install mpich netcdf
+    ```
+
+=== &quot;Fedora/RHEL&quot;
+    ```bash
+    sudo dnf install mpich netcdf-devel
+    ```
+
+Verify MPI is working:
+</code></pre><p>╭─────────────────────────────────────────────────────────────────────────────╮ │  Verify MPI                                                                 │ ├─────────────────────────────────────────────────────────────────────────────┤ │                                                                             │ │   $ mpiexec –version                                                       │ │                                                                             │ ╰─────────────────────────────────────────────────────────────────────────────╯</p><pre><code class="nohighlight hljs">
+### Step 3: Clone GeoDynamo.jl
+</code></pre><p>╭─────────────────────────────────────────────────────────────────────────────╮ │  Clone repository                                                           │ ├─────────────────────────────────────────────────────────────────────────────┤ │                                                                             │ │   $ git clone https://github.com/subhk/GeoDynamo.jl                         │ │   $ cd GeoDynamo.jl                                                         │ │                                                                             │ ╰─────────────────────────────────────────────────────────────────────────────╯</p><pre><code class="nohighlight hljs">
+### Step 4: Install Dependencies
+</code></pre><p>╭─────────────────────────────────────────────────────────────────────────────╮ │  Install Julia packages                                                     │ ├─────────────────────────────────────────────────────────────────────────────┤ │                                                                             │ │   $ julia –project -e &#39;using Pkg; Pkg.instantiate(); Pkg.precompile()&#39;     │ │                                                                             │ ╰─────────────────────────────────────────────────────────────────────────────╯</p><pre><code class="nohighlight hljs">
+!!! tip &quot;Development Mode&quot;
+    For development with a local SHTnsKit checkout at `../SHTnsKit.jl`:
+    ```bash
+    julia --project -e &#39;using Pkg; Pkg.develop(PackageSpec(path=&quot;../SHTnsKit.jl&quot;))&#39;
+    ```
+
+!!! tip &quot;Optional CUDA GPU Backend&quot;
+    The rewritten solver includes a single-device GPU path with CUDA-backed
+    SHTnsKit transforms when CUDA is available. To use it, add CUDA to your
+    environment and load it before building the solver:
+    ```julia
+    using GeoDynamo
+    using CUDA
+
+    grid = SphericalShellGrid(GPU(); nr = 64, lmax = 31)
+    model = GeodynamoModel(grid; include_magnetic = true)
+    simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
+    ```
+
+---
+
+## Verification
+
+### Test the Installation
+</code></pre><p>╭─────────────────────────────────────────────────────────────────────────────╮ │  Quick test                                                                 │ ├─────────────────────────────────────────────────────────────────────────────┤ │                                                                             │ │   $ julia –project test/shtnskit_roundtrip.jl                              │ │                                                                             │ ╰─────────────────────────────────────────────────────────────────────────────╯</p><pre><code class="nohighlight hljs"></code></pre><p>╭─────────────────────────────────────────────────────────────────────────────╮ │  Full test suite                                                            │ ├─────────────────────────────────────────────────────────────────────────────┤ │                                                                             │ │   $ julia –project -e &#39;using Pkg; Pkg.test(&quot;GeoDynamo&quot;)&#39;                   │ │                                                                             │ ╰─────────────────────────────────────────────────────────────────────────────╯</p><pre><code class="nohighlight hljs">
+### Check SHTnsKit Features
+</code></pre><p>julia julia&gt; using GeoDynamo</p><p>julia&gt; info = get<em>shtnskit</em>version<em>info() julia&gt; @show info.version julia&gt; @show info.has</em>qst<em>transforms julia&gt; @show info.has</em>energy_functions</p><pre><code class="nohighlight hljs">
+!!! warning &quot;Missing Features?&quot;
+    Update SHTnsKit with:
+    ```julia
+    using Pkg; Pkg.update(&quot;SHTnsKit&quot;)
+    ```
+
+---
+
+## Your First Simulation
+
+### Minimal Example
+</code></pre><p>julia using GeoDynamo</p><p>grid  = SphericalShellGrid(CPU(); lmax=32, nr=64, nr<em>inner=16) model = GeodynamoModel(grid; Ek=1e-4, Ra=1e6, include</em>magnetic=true)</p><p>set!(model; temperature = RandomPerturbation(amplitude=0.1, lmax=10),             magnetic    = AnalyticIC(:dipole; amplitude=1.0))</p><p>sim = Simulation(model; Δt=1e-5, stop<em>time=0.1, stop</em>iteration=10<em>000) add</em>callback!(sim, sim -&gt; @info(&quot;step&quot;, n=sim.model.clock.iteration);               schedule=IterationInterval(100)) run!(sim)</p><pre><code class="nohighlight hljs">
+### Running with MPI
+</code></pre><p>╭─────────────────────────────────────────────────────────────────────────────╮ │  MPI execution (4 processes)                                                │ ├─────────────────────────────────────────────────────────────────────────────┤ │                                                                             │ │   $ mpiexec -n 4 julia –project -e &#39;                                       │ │       using GeoDynamo                                                       │ │       grid = SphericalShellGrid(nr = 64, lmax = 31)                         │ │       model = GeodynamoModel(grid; Ek = 1e-4, Ra = 1e6)                     │ │       simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)           │ │       run!(simulation)                                                      │ │   &#39;                                                                         │ │                                                                             │ ╰─────────────────────────────────────────────────────────────────────────────╯</p><pre><code class="nohighlight hljs">
+!!! success &quot;Output&quot;
+    NetCDF files are written to `./output/` by default. See [Data Output](io.md) for details.
+
+---
+
+## Understanding the Physics
+
+GeoDynamo.jl solves the Boussinesq MHD equations in a rotating spherical shell:
+</code></pre><p>┌─────────────────────────────────────────────────────────────────────┐ │                                                                     │ │   ∂u/∂t  =  viscous diffusion  +  buoyancy  +  Lorentz force       │ │                     ↓                 ↓              ↓              │ │                   E∇²u            Ra·T·r̂        (∇×B)×B            │ │                                                                     │ │   ∂T/∂t  =  thermal diffusion  -  advection                        │ │                     ↓                  ↓                            │ │                (Pm/Pr)∇²T            u·∇T                           │ │                                                                     │ │   ∂B/∂t  =  magnetic diffusion  +  induction                       │ │                     ↓                  ↓                            │ │                   ∇²B              ∇×(u×B)                          │ │                                                                     │ │   Constraints:      ∇·u = 0           ∇·B = 0                      │ │                                                                     │ └─────────────────────────────────────────────────────────────────────┘</p><pre><code class="nohighlight hljs">
+!!! info &quot;Toroidal-Poloidal Decomposition&quot;
+    Fields are represented as:
+    ```math
+    \boldsymbol{u} = \nabla \times (T \hat{r}) + \nabla \times \nabla \times (P \hat{r})
+    ```
+    This automatically satisfies the divergence-free constraint.
+
+---
+
+## Boundary Conditions
+
+### Default Setup (Shell Geometry)
+
+| Field | Inner (ICB) | Outer (CMB) | Model keyword |
+|:------|:------------|:------------|:----------|
+| **Velocity** | No-slip | No-slip | `velocity_bcs = BoundaryConditions(inner = NoSlip(), outer = NoSlip())` |
+| **Velocity** | Stress-free | Stress-free | `velocity_bcs = BoundaryConditions(inner = StressFree(), outer = StressFree())` |
+| **Temperature** | Fixed T | Fixed T | `temperature_bcs = BoundaryConditions(inner = FixedTemperature(1), outer = FixedTemperature(0))` |
+| **Magnetic** | Insulating | Insulating | (automatic) |
+| **Composition** | Fixed C | Fixed C | `composition_bcs = BoundaryConditions(inner = FixedTemperature(1), outer = FixedTemperature(0))` |
+
+### Custom Boundaries
+</code></pre><p>julia using GeoDynamo</p><p>grid = SphericalShellGrid(nr = 64, lmax = 31) model = GeodynamoModel(     grid;     temperature<em>bcs = BoundaryConditions(         inner = FixedTemperature(1.0),         outer = FixedTemperature(0.0),     ), ) simulation = Simulation(model; Δt = 1e-5, stop</em>time = 0.02) state = simulation.model.state</p><p>GeoDynamo.bcs.load<em>boundary</em>conditions!(state.temperature, GeoDynamo.TEMPERATURE, Dict(     :inner =&gt; (:uniform, 1.0),     :outer =&gt; (:dirichlet, 0.0), ))</p><pre><code class="nohighlight hljs">
+---
+
+## Initial Conditions
+
+### Setting Up Fields
+
+Use the high-level `set!` interface to apply initial conditions by field name:
+</code></pre><p>julia using GeoDynamo</p><p>grid  = SphericalShellGrid(CPU(); lmax=32, nr=64, nr<em>inner=16) model = GeodynamoModel(grid; include</em>magnetic = true)</p><h1 id="Oceananigans-style:-set!-dispatches-to-set*initial*condition!-per-field"><a class="docs-heading-anchor" href="#Oceananigans-style:-set!-dispatches-to-set*initial*condition!-per-field">Oceananigans-style: set! dispatches to set<em>initial</em>condition! per field</a><a id="Oceananigans-style:-set!-dispatches-to-set*initial*condition!-per-field-1"></a><a class="docs-heading-anchor-permalink" href="#Oceananigans-style:-set!-dispatches-to-set*initial*condition!-per-field" title="Permalink"></a></h1><p>set!(model;      temperature = RandomPerturbation(amplitude=0.1, lmax=10),      magnetic    = AnalyticIC(:dipole; amplitude=1.0))</p><p>simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)</p><pre><code class="nohighlight hljs">
+For lower-level access the field-specific helpers remain available:
+</code></pre><p>julia state = simulation.model.state</p><h1 id="Temperature"><a class="docs-heading-anchor" href="#Temperature">Temperature</a><a id="Temperature-1"></a><a class="docs-heading-anchor-permalink" href="#Temperature" title="Permalink"></a></h1><p>set<em>temperature</em>ic!(state.temperature; profile = :conductive) randomize<em>scalar</em>field!(state.temperature; amplitude = 1e-3)</p><h1 id="Velocity"><a class="docs-heading-anchor" href="#Velocity">Velocity</a><a id="Velocity-1"></a><a class="docs-heading-anchor-permalink" href="#Velocity" title="Permalink"></a></h1><p>randomize<em>vector</em>field!(state.velocity.velocity; amplitude = 1e-4)</p><h1 id="Magnetic-Field"><a class="docs-heading-anchor" href="#Magnetic-Field">Magnetic Field</a><a id="Magnetic-Field-1"></a><a class="docs-heading-anchor-permalink" href="#Magnetic-Field" title="Permalink"></a></h1><p>randomize<em>magnetic</em>field!(state.magnetic; amplitude = 1e-5)</p><pre><code class="nohighlight hljs">
+### Loading from Files
+</code></pre><p>julia</p><h1 id="From-restart-file"><a class="docs-heading-anchor" href="#From-restart-file">From restart file</a><a id="From-restart-file-1"></a><a class="docs-heading-anchor-permalink" href="#From-restart-file" title="Permalink"></a></h1><p>read<em>restart!(&quot;output/geodynamo</em>shell<em>rank</em>0000<em>restart</em>1.nc&quot;)</p><h1 id="From-snapshot"><a class="docs-heading-anchor" href="#From-snapshot">From snapshot</a><a id="From-snapshot-1"></a><a class="docs-heading-anchor-permalink" href="#From-snapshot" title="Permalink"></a></h1><p>load<em>initial</em>conditions!(&quot;path/to/snapshot.nc&quot;)</p><pre><code class="nohighlight hljs">
+---
+
+## Workflow Overview
+</code></pre><pre><code class="nohighlight hljs">┌─────────────────────────────────────────────────────────┐
+│  1. GRID                                                │
+│     SphericalShellGrid(...)                             │
+└───────────────────────────┬─────────────────────────────┘
+                            ▼
+┌─────────────────────────────────────────────────────────┐
+│  2. BOUNDARIES (optional)                               │
+│     bcs.load_boundary_conditions!(state.temperature,    │
+│         TEMPERATURE, Dict(...))                         │
+└───────────────────────────┬─────────────────────────────┘
+                            ▼
+┌─────────────────────────────────────────────────────────┐
+│  3. MODEL + SIMULATION                                  │
+│     GeodynamoModel(grid; ...)                           │
+│     Simulation(model; Δt, stop_time)                    │
+│     set_temperature_ic!(...) / randomize_*(...)         │
+└───────────────────────────┬─────────────────────────────┘
+                            ▼
+┌─────────────────────────────────────────────────────────┐
+│  4. RUN                                                 │
+│     run!(simulation)                                    │
+└───────────────────────────┬─────────────────────────────┘
+                            ▼
+┌─────────────────────────────────────────────────────────┐
+│  5. ANALYZE                                             │
+│     Inspect NetCDF output in ./output/                  │
+└───────────────────────────┬─────────────────────────────┘
+                            ▼
+┌─────────────────────────────────────────────────────────┐
+│  6. RESTART (optional)                                  │
+│     read_restart!(...) → run!(simulation)               │
+└─────────────────────────────────────────────────────────┘</code></pre><p>```</p><hr/><h2 id="Next-Steps"><a class="docs-heading-anchor" href="#Next-Steps">Next Steps</a><a id="Next-Steps-1"></a><a class="docs-heading-anchor-permalink" href="#Next-Steps" title="Permalink"></a></h2><div class="admonition is-success" id="Where-to-Go-From-Here-5374e2840f3a3e54"><header class="admonition-header">Where to Go From Here<a class="admonition-anchor" href="#Where-to-Go-From-Here-5374e2840f3a3e54" title="Permalink"></a></header><div class="admonition-body"><table><tr><th style="text-align: left">I want to...</th><th style="text-align: left">Read...</th></tr><tr><td style="text-align: left">Understand all parameters</td><td style="text-align: left"><a href="../configuration/">Configuration</a></td></tr><tr><td style="text-align: left">Learn about time integration</td><td style="text-align: left"><a href="../timestepping/">Time Integration</a></td></tr><tr><td style="text-align: left">Explore spherical harmonics</td><td style="text-align: left"><a href="../shtnskit/">Spherical Harmonics</a></td></tr><tr><td style="text-align: left">Configure output files</td><td style="text-align: left"><a href="../io/">Data Output</a></td></tr><tr><td style="text-align: left">Add non-spherical boundaries</td><td style="text-align: left"><a href="../topography/">Boundary Topography</a></td></tr><tr><td style="text-align: left">Contribute code</td><td style="text-align: left"><a href="../developer/">Developer Guide</a></td></tr></table></div></div></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../">« Home</a><a class="docs-footer-nextpage" href="../configuration/">Configuration »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Thursday 11 June 2026 13:38">Thursday 11 June 2026</span>. Using Julia version 1.11.9.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
