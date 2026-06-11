@@ -119,7 +119,45 @@ Clock(time = 0, iteration = 0, last_Δt = 0)
   display as `Inf`.
 - Grid `show`/`summary` unchanged except number formatting via `prettysummary`.
 
-## 7. Tests + docs
+## 7. Boundary conditions (added on user request 2026-06-11)
+
+Oceananigans-style canonical names, existing names kept as aliases
+(non-breaking):
+
+- `ValueBoundaryCondition(v)` — Dirichlet; canonical for what
+  `FixedTemperature(v)` expresses. `const FixedTemperature = ValueBoundaryCondition`-
+  style alias (or thin wrapper preserving the current struct) so old code and
+  show output keep working.
+- `FluxBoundaryCondition(v)` — Neumann/flux; `FixedFlux(v)` aliased to it.
+- `FieldBoundaryConditions(; inner, outer)` — canonical container;
+  `BoundaryConditions` aliased. Spherical inner/outer stands in for
+  Oceananigans' bottom/top (documented).
+- `NoSlip()`, `StressFree()`, `InsulatingMagnetic()`, `ConductingMagnetic()`
+  stay as-is — domain-specific, no Oceananigans equivalent.
+- `GeodynamoModel` gains Oceananigans-style
+  `boundary_conditions = (velocity=…, temperature=…, composition=…)`
+  NamedTuple kwarg; existing `velocity_bcs`/`temperature_bcs`/`composition_bcs`
+  kwargs stay as aliases (error if a field is specified through both).
+- `show` for BC types: `ValueBoundaryCondition(0.0)`,
+  `FieldBoundaryConditions(inner=NoSlip(), outer=NoSlip())` one-liners.
+
+## 8. Initial conditions via set! (added on user request 2026-06-11)
+
+Oceananigans `set!(model; T=fn_or_array_or_number)` semantics for SCALAR
+fields (temperature, composition):
+
+- Number → uniform value everywhere.
+- Function `(r, θ, φ) -> value` (radius, colatitude, longitude) → evaluated on
+  the physical grid `(nlat, nlon, nr)`, then transformed to spectral via the
+  existing scalar analysis path.
+- Array of size `(nlat, nlon, nr)` → transformed to spectral directly.
+- Existing descriptor types (`RandomPerturbation`, `AnalyticIC`, `FileIC`,
+  `ZeroIC`) keep working unchanged.
+
+Vector fields (velocity, magnetic) keep descriptor-only ICs — a function IC is
+ambiguous for toroidal/poloidal decomposition; documented limitation.
+
+## 9. Tests + docs
 
 - Extend `test/oceananigans_api.jl`:
   - `prettytime` table cases (0, sub-μs, ms, seconds, minutes, days; singular).
@@ -134,8 +172,16 @@ Clock(time = 0, iteration = 0, last_Δt = 0)
   - Default callbacks present + ordered first; `run!` stops at `stop_time` with
     `sim.running == false`; `stop_iteration` likewise.
   - `SpecifiedTimes` fires exactly once per entry across steps.
-- `docs/src/api.md` examples switch to `Δt`; mention `dt` alias and
-  `prettytime` export.
+  - BC aliases: `ValueBoundaryCondition(0.0)` ≡ `FixedTemperature(0.0)` accepted
+    by the model; `FieldBoundaryConditions` ≡ `BoundaryConditions`;
+    `boundary_conditions=(temperature=…,)` NamedTuple kwarg reaches the solver;
+    both-paths conflict errors.
+  - `set!` scalar paths: number (uniform — check physical mean), function of
+    `(r, θ, φ)` (compare against analytic spectral coefficients on a simple
+    pattern, e.g. conductive profile), array round-trip; vector field with
+    function → informative error.
+- `docs/src/api.md` examples switch to `Δt`; mention `dt` alias,
+  `prettytime` export, and the new BC names + `set!` forms.
 
 ## Risks / constraints
 
