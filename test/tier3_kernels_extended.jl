@@ -1,8 +1,8 @@
 # Tier-3 extended kernel coverage for three numeric-kernel files:
 #   * src/fields/transforms.jl   — spectral helpers, energy/enstrophy fallbacks,
 #                                  rotations, in-place transforms, filters
-#   * src/physics/nonlinear.jl   — scalar advection, internal sources, ball
-#                                  regularity, geometric (1/r) factors
+#   * src/physics/nonlinear.jl   — scalar advection, internal sources,
+#                                  geometric (1/r) factors
 #   * src/physics/magnetic/solver.jl — conducting-inner-core ICB coupling helpers
 #
 # Every @test asserts a known-correct value: an analytic number, a round-trip
@@ -246,42 +246,25 @@ end
         @test all(==(7.0), parent(temp2.advection_physical.data))
     end
 
-    # --- solver_enforce_ball_scalar_regularity! ---------------------------
-    # At the geometric centre (radial index 1) every l>0 spectral mode must
-    # vanish; l=0 is preserved (nonlinear.jl ~893-920).
-    @testset "ball scalar regularity zeros l>0 at centre" begin
-        spec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-        for (l, m) in [(0, 0), (1, 0), (2, 0), (3, 0)]
-            mi = G.get_mode_index(cfg, l, m)
-            s = G.local_spectral_storage_slot(cfg, mi)
-            G.set_local_spectral_value!(parent(spec.data_real), s, 1, 5.0)
-            G.set_local_spectral_value!(parent(spec.data_real), s, 2, 9.0)
-        end
-        G.solver_enforce_ball_scalar_regularity!(spec)
-        s00 = G.local_spectral_storage_slot(cfg, G.get_mode_index(cfg, 0, 0))
-        @test G.local_spectral_value(parent(spec.data_real), s00, 1) == 5.0   # l=0 kept
-        for l in (1, 2, 3)
-            s = G.local_spectral_storage_slot(cfg, G.get_mode_index(cfg, l, 0))
-            @test G.local_spectral_value(parent(spec.data_real), s, 1) == 0.0  # zeroed at r=1
-            @test G.local_spectral_value(parent(spec.data_real), s, 2) == 9.0  # untouched off-centre
-        end
-    end
-
-    # --- scalar_nonlinear_to_spectral! ball branch ------------------------
-    # The :ball geometry path runs the analysis then enforces centre regularity,
-    # so any l>0 mode at r=1 must be zero (nonlinear.jl ~923-940).
-    @testset "scalar_nonlinear_to_spectral! ball enforces regularity" begin
+    # --- scalar_nonlinear_to_spectral! is geometry-blind -------------------
+    # The legacy :ball branch (centre-plane zeroing) is gone: the ball grid is
+    # off-center with no r=0 node, so :ball and :shell run the IDENTICAL
+    # analysis and must produce bit-equal, finite spectra.
+    @testset "scalar_nonlinear_to_spectral! geometry-blind" begin
         phys = G.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.r)
         fill!(parent(phys.data), 1.0)
-        spec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-        ret = G.scalar_nonlinear_to_spectral!(phys, spec, :ball)
-        @test ret === spec
-        for l in (1, 2, 3, 4)
-            mi = G.get_mode_index(cfg, l, 0)
-            s = G.local_spectral_storage_slot(cfg, mi)
-            s === nothing && continue
-            @test G.local_spectral_value(parent(spec.data_real), s, 1) == 0.0
-        end
+        spec_ball = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+        spec_shell = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+        ret = G.scalar_nonlinear_to_spectral!(phys, spec_ball, :ball)
+        @test ret === spec_ball
+        G.scalar_nonlinear_to_spectral!(phys, spec_shell, :shell)
+        @test all(isfinite, parent(spec_ball.data_real))
+        @test all(isfinite, parent(spec_ball.data_imag))
+        @test parent(spec_ball.data_real) == parent(spec_shell.data_real)
+        @test parent(spec_ball.data_imag) == parent(spec_shell.data_imag)
+        # the analysis itself is live: constant physical field => nonzero l=0 mode
+        s00 = G.local_spectral_storage_slot(cfg, G.get_mode_index(cfg, 0, 0))
+        @test abs(G.local_spectral_value(parent(spec_ball.data_real), s00, 1)) > 0.0
     end
 
     # --- apply_geometric_factors_spectral! --------------------------------

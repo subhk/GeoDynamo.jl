@@ -524,11 +524,8 @@ function compute_velocity_nonlinear!(𝒰::SHTnsVelocityFields{T},
     compute_all_nonlinear_terms!(𝒰, temp_field, comp_field, mag_field, outer_core_domain)
 
     # Step 5: Use enhanced vector analysis with efficient data layout
-    if geometry === :ball
-        ball_vector_analysis!(𝒰.advection_physical, 𝒰.nl_toroidal, 𝒰.nl_poloidal)
-    else
-        shtnskit_vector_analysis!(𝒰.advection_physical, 𝒰.nl_toroidal, 𝒰.nl_poloidal)
-    end
+    # (geometry-blind since the ball grid has no r=0 node — off-center grid)
+    shtnskit_vector_analysis!(𝒰.advection_physical, 𝒰.nl_toroidal, 𝒰.nl_poloidal)
 end
 
 # =================================================

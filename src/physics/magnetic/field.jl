@@ -455,13 +455,9 @@ function compute_induction_term!(ℬ::SHTnsMagneticFields{T}, 𝒰; geometry::Sy
     # SHTns vector analysis decomposes the physical cross product into
     # toroidal/poloidal coefficients so the curl operator can be applied with
     # the same spectral machinery used elsewhere.
-    if geometry === :ball
-        ball_vector_analysis!(ℬ.induction_physical,
-            ℬ.work_tor, ℬ.work_pol)
-    else
-        shtnskit_vector_analysis!(ℬ.induction_physical,
-            ℬ.work_tor, ℬ.work_pol)
-    end
+    # (geometry-blind since the ball grid has no r=0 node — off-center grid)
+    shtnskit_vector_analysis!(ℬ.induction_physical,
+        ℬ.work_tor, ℬ.work_pol)
 
     # Step 3: Compute ∇×(u×B) in SPECTRAL space
     # ------------------------------------------

@@ -653,9 +653,6 @@ export create_ball_physical_field, create_ball_vector_field
 export create_ball_velocity_fields, create_ball_magnetic_fields
 export create_ball_temperature_field, create_ball_composition_field
 export create_ball_hybrid_temperature_boundaries, create_ball_hybrid_composition_boundaries
-export enforce_ball_scalar_regularity!, enforce_ball_vector_regularity!
-export apply_ball_temperature_regularity!, apply_ball_composition_regularity!
-export ball_physical_to_spectral!, ball_vector_analysis!
 
 # Re-export Shell functions for convenience
 export ShellConfig, create_shell_pencils

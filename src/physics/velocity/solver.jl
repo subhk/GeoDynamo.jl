@@ -35,13 +35,7 @@ function accumulate_velocity_nonlinear_terms!(
 end
 
 function finish_velocity_nonlinear!(velocity_fields; geometry::Symbol)
-    if geometry === :ball
-        return solver_ball_vector_analysis!(
-            velocity_fields.advection_physical,
-            velocity_fields.nl_toroidal,
-            velocity_fields.nl_poloidal
-        )
-    end
+    # geometry-blind since the ball grid has no r=0 node (off-center grid)
     # Stage-4B momentum projections. Toroidal: r̂·∇× of momentum gives
     # Ek(∂t − Δ_l)T = T_F — the raw toroidal sphtor scalar of the force is
     # exactly the RHS (structure unchanged). Poloidal: r̂·∇×∇× gives

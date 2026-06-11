@@ -914,53 +914,13 @@ function solver_add_internal_sources_local!(
     return 𝔽
 end
 
-function solver_enforce_ball_scalar_regularity!(spec::SpectralFieldType)
-    cfg = spec.config
-    spec_real = parent(spec.data_real)
-    spec_imag = parent(spec.data_imag)
-
-    lm_range = local_spectral_mode_indices(cfg)
-    r_range = local_range(cfg.pencils.spec, 3)
-
-    if !(1 in r_range)
-        return spec
-    end
-
-    r_local_idx = 1 - first(r_range) + 1
-    T = eltype(spec_real)
-
-    @inbounds for lm_idx in lm_range
-        if lm_idx <= cfg.nlm
-            slot = local_spectral_storage_slot(cfg, lm_idx)
-            slot === nothing && continue
-            l = cfg.l_values[lm_idx]
-            if l > 0
-                set_local_spectral_value!(spec_real, slot, r_local_idx, zero(T))
-                set_local_spectral_value!(spec_imag, slot, r_local_idx, zero(T))
-            end
-        end
-    end
-
-    return spec
-end
-
-function ball_scalar_physical_to_spectral!(
-        phys::PhysicalFieldType{T},
-        spec::SpectralFieldType{T}
-) where {T}
-    scalar_physical_to_spectral!(phys, spec)
-    solver_enforce_ball_scalar_regularity!(spec)
-    return spec
-end
-
 function scalar_nonlinear_to_spectral!(
         phys::PhysicalFieldType{T},
         spec::SpectralFieldType{T},
         geometry::Symbol
 ) where {T}
-    if geometry === :ball
-        return ball_scalar_physical_to_spectral!(phys, spec)
-    end
+    # geometry-blind since the ball grid has no r=0 node (off-center grid);
+    # regularity at r=0 lives in the implicit-matrix Robin rows, not here.
     return scalar_physical_to_spectral!(phys, spec)
 end
 
