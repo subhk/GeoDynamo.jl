@@ -32,40 +32,37 @@ export ball_physical_to_spectral!, ball_vector_analysis!
 """
     create_ball_radial_domain(nr) -> RadialDomain
 
-Create a radial domain for a solid sphere (inner radius = 0).
-Uses a cosine-stretched grid similar to the shell for compatibility,
-but sets the inner radius to zero and adjusts the coordinate columns
-to match expectations of downstream operators.
+Create a radial domain for a solid sphere using an off-center cosine grid:
+
+    r_n = (1 − cos(πn/N)) / 2,  n = 1, …, N
+
+The outermost node r_N = 1 exactly (cos(π) = −1). The innermost node
+r_1 = (1 − cos(π/N))/2 > 0 — there is **no node at the centre r = 0**.
+All negative-power columns (1/r, 1/r²) are therefore finite and honest;
+no regularisation guard is needed.  Regularity at r = 0 is imposed
+separately through l-dependent Robin boundary rows in the implicit
+matrices.
 """
 function create_ball_radial_domain(nr::Int; radial_bandwidth::Int = 4)
     N = nr
     if N < 2
         error("Ball radial domain requires nr >= 2, got nr=$N")
     end
-    # r[:,4] holds the base radius coordinate in existing code
-    r = zeros(Float64, N, 7)
-    # Cosine clustering towards r=0 and r=1 like Chebyshev nodes mapped to [0,1]
-    for n in 1:N
-        # x in [-1,1]
-        x = cos(pi * (N - n) / (N - 1))
-        # map to [0,1]
-        r[n, 4] = 0.5 * (1.0 + x)
-    end
-    # Outer radius is always normalized to 1.0
-    R = 1.0
 
-    # Fill powers of r in other columns for compatibility (after any scaling)
-    # Guard against Inf at r=0 (ball center) for negative powers
+    # Off-center cosine grid: r_n = (1 − cos(πn/N))/2, n = 1..N.
+    # r_N = 1 exactly; r_1 = (1 − cos(π/N))/2 > 0 — no node at the center.
+    # Regularity at r=0 is imposed through l-dependent Robin boundary rows in
+    # the implicit matrices, not through grid values, so every 1/r, 1/r²
+    # operator entry stays finite and honest.
+    r = zeros(Float64, N, 7)
+    for n in 1:N
+        r[n, 4] = 0.5 * (1.0 - cos(pi * n / N))
+    end
     for p in 1:7
         if p != 4
             power = p - 4
             for i in 1:N
-                r_val = r[i, 4]
-                if r_val == 0.0 && power < 0
-                    r[i, p] = 0.0  # Regularize: treat 1/r^n as 0 at the origin
-                else
-                    r[i, p] = r_val ^ power
-                end
+                r[i, p] = r[i, 4]^power
             end
         end
     end

@@ -1,4 +1,5 @@
 using Test
+using Random
 const Ball = GeoDynamo.GeoDynamoBall
 
 @testset "Ball geometry regularity and roundtrip" begin
