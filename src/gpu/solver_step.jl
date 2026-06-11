@@ -5,12 +5,14 @@
 # updates + roll_solver_histories!).  No new kernels.  Velocity runs first and
 # synthesizes the shared physical velocity u, reused by every other field.
 #
-# THE LAG (matches CPU exactly): velocity's buoyancy + Lorentz read the physical
-# T/C/B/J synthesized during the PREVIOUS step (CPU never refreshes them before
-# velocity).  So this step (a) runs velocity with the persistent LAGGED buffers
-# `state.T_phys/C_phys/B_*/J_*`, and (b) re-synthesizes those buffers from the OLD
-# spectral state (before the implicit overwrites it) for the NEXT step's velocity,
-# rolling them at the end.  u itself is NOT lagged (fresh synth of current velocity).
+# BUFFER FRESHNESS (matches CPU exactly): compute_solver_nonlinear_terms!
+# refreshes the scalar physical fields from the CURRENT spectral state BEFORE
+# the velocity force assembly (the buoyancy-lag fix), so buoyancy reads FRESH
+# T/C synthesized at the start of this step.  The Lorentz inputs B/J keep the
+# one-step lag: CPU's prepare_magnetic_fields! runs AFTER velocity, so the
+# Lorentz force reads the physical B/J left by the PREVIOUS step's magnetic
+# pass (`state.B_*`/`J_*`, rolled at the end of each step here).
+# u itself is NOT lagged (fresh synth of current velocity).
 #
 # `state` (NamedTuple) holds the per-field bundles, shared operators, coupling
 # factors, and the persistent physical buffers.  magnetic/composition optional
@@ -43,7 +45,9 @@ function gpu_solver_step!(state)
         spec(v.pol.spec_r, v.pol.spec_i), cfg,
         state.nlops_vel.d1, state.nlops_vel.lfac, state.nlops_vel.rinv, state.nlops_vel.rinv2, bw)
 
-    # --- (2) current-step physical buffers from OLD spectral (for the NEXT step's velocity lag) ---
+    # --- (2) physical buffers from the OLD (start-of-step) spectral state:
+    #         T/C feed THIS step's buoyancy (fresh, CPU semantics);
+    #         B/J feed the NEXT step's Lorentz (one-step lag, CPU semantics) ---
     Tn = ph(); gpu_scalar_spectral_to_physical!(Tn, spec(state.temperature.spec_r, state.temperature.spec_i), cfg)
     Cn = state.composition === nothing ? nothing :
         (c = ph(); gpu_scalar_spectral_to_physical!(c, spec(state.composition.spec_r, state.composition.spec_i), cfg); c)
@@ -63,11 +67,12 @@ function gpu_solver_step!(state)
         Bn_r = br.data; Bn_θ = bθ.data; Bn_φ = bφ.data; Jn_r = jr.data; Jn_θ = jθ.data; Jn_φ = jφ.data
     end
 
-    # --- (3) velocity step with the LAGGED physical buffers (previous step's synthesis) ---
+    # --- (3) velocity step: FRESH T/C (CPU refreshes scalars before velocity),
+    #         LAGGED B/J (CPU's magnetic pass runs after velocity) ---
     gpu_velocity_field_step!(v.tor, v.pol, cfg, state.nlops_vel, state.influence,
         state.inv_dt_vel, linw, lmax, bw;
-        T_phys = state.T_phys, thermal_factor = state.thermal_factor, r_vec = state.r_vec,
-        C_phys = state.composition === nothing ? nothing : state.C_phys,
+        T_phys = Tn.data, thermal_factor = state.thermal_factor, r_vec = state.r_vec,
+        C_phys = Cn === nothing ? nothing : Cn.data,
         comp_factor = state.composition === nothing ? zero(eltype(v.tor.spec_r)) : state.comp_factor,
         J_r = state.J_r, J_θ = state.J_θ, J_φ = state.J_φ,
         B_r = state.B_r, B_θ = state.B_θ, B_φ = state.B_φ, lorentz_coeff = state.lorentz_coeff)
