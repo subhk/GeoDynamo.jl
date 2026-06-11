@@ -576,17 +576,20 @@ function integrate_solver_erk2_step!(state::SolverState{
     params = state.parameters
     runtime = state.runtime
     domain = state.backend.outer_core_domain
-    nr = domain.N
     velocity_bc_code = _velocity_bc_code(params.velocity_bcs)
     temperature_bc_code = _thermal_bc_code(params.temperature_bcs)
     composition_bc_code = _composition_bc_code(params.composition_bcs)
     theta = _timestepper_implicit_theta(params.timestepper, params)
+    # Ball (full-sphere) geometry replaces every inner wall row with the
+    # center-regularity Robin row; outer rows are unchanged.
+    inner_regularity = params.geometry === :ball
 
     # Build the boundary embedding for each active field up front so the stage
     # march can stay uniform across temperature, velocity, magnetic, and composition.
     temp_bc = _get_or_build_erk2_boundary_spec!(
         state.timestep_caches, :temperature, temperature_bc_code,
-        () -> build_solver_erk2_scalar_bc(T, domain, temperature_bc_code)
+        () -> build_solver_erk2_scalar_bc(T, domain, temperature_bc_code;
+            inner_regularity)
     )
     temp_bc_values = get_bc_vectors(state.fields.temperature)
     temp_bc = with_boundary_mode_values(
@@ -603,7 +606,8 @@ function integrate_solver_erk2_step!(state::SolverState{
             domain,
             velocity_bc_code;
             config = runtime.shtns_config,
-            rot_omega = 0.0
+            rot_omega = 0.0,
+            inner_regularity
         )
     )
     # Stage-4B W-split (ERK2 port): the stage machinery advances V := Ek·D_pol·P
@@ -706,11 +710,11 @@ function integrate_solver_erk2_step!(state::SolverState{
     if params.include_magnetic && state.fields.magnetic !== nothing
         mag_tor_bc = _get_or_build_erk2_boundary_spec!(
             state.timestep_caches, :magnetic_tor, 0,
-            () -> build_solver_erk2_magnetic_tor_bc(T, nr)
+            () -> build_solver_erk2_magnetic_tor_bc(T, domain; inner_regularity)
         )
         mag_pol_bc = _get_or_build_erk2_boundary_spec!(
             state.timestep_caches, :magnetic_pol, 0,
-            () -> build_solver_erk2_magnetic_pol_bc(T, domain)
+            () -> build_solver_erk2_magnetic_pol_bc(T, domain; inner_regularity)
         )
 
         mag_tor_cache = get_solver_erk2_magnetic_toroidal_cache!(
@@ -772,7 +776,8 @@ function integrate_solver_erk2_step!(state::SolverState{
     if state.fields.composition !== nothing
         comp_bc = _get_or_build_erk2_boundary_spec!(
             state.timestep_caches, :composition, composition_bc_code,
-            () -> build_solver_erk2_scalar_bc(T, domain, composition_bc_code)
+            () -> build_solver_erk2_scalar_bc(T, domain, composition_bc_code;
+                inner_regularity)
         )
         comp_bc_values = get_bc_vectors(state.fields.composition)
         comp_bc = with_boundary_mode_values(

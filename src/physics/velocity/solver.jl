@@ -142,7 +142,8 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{
             runtime.outer_core_domain,
             velocity_bc;
             config = runtime.shtns_config,
-            rot_omega = 0.0
+            rot_omega = 0.0,
+            inner_regularity = state.parameters.geometry === :ball
         )
         solver_eab2_update_krylov_cached!(
             velocity.toroidal,
@@ -391,12 +392,14 @@ end
 # P ← recover(V) with Dirichlet walls + φ1-column influence corrections.
 # `half` selects the stage (dt/2, phi1_half) vs finalize (dt, phi1_full)
 # Green responses. cache_lookup maps l → the cache's per-l index.
+# Ball geometry: row 1 of the 2×2 influence system is the inner W-regularity
+# residual W′(r₁) − (l+1)W(r₁)/r₁ instead of the inner wall row on P, mirroring
+# `create_velocity_poloidal_split_matrices` / `_apply_poloidal_wsplit_cnab2!`.
+# ρ₁ is evaluated on Wv = V/Ek BEFORE wall-zeroing; the Green columns g are
+# V-space (c·φ1·e_i), so the M row-1 dots carry an explicit invEk to share
+# Wv's scale (row 2 stays in P-space on both sides — no scale factor needed).
 function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
         cache, cache_lookup, dt::Float64, Ek::Float64, half::Bool) where {T}
-    split.ball && error(
-        "_erk2_poloidal_recover!: ball-geometry ERK2 recovery not yet ported " *
-        "(shell influence algebra would silently misapply the regularity rows); " *
-        "see Task 7 of docs/superpowers/plans/2026-06-11-ball-geometry-mhd.md")
     cfg = velocity.poloidal.config
     nr = length(split.d1_row_inner)
     c = half ? dt / 2 : dt
@@ -425,25 +428,46 @@ function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
             for r_idx in 1:nr
                 Wv[r_idx] = invEk * local_spectral_value(v_arr, slot, r_idx)
             end
+            # Ball: inner W-regularity residual, read off Wv BEFORE the
+            # wall-zeroing below consumes it.
+            rho1w = split.ball ?
+                    dot(split.d1_row_inner, Wv) -
+                    T((l + 1) * split.reg_r_inv) * Wv[1] : zero(T)
             Wv[1] = zero(T); Wv[nr] = zero(T)
             solve_banded!(Pt, split.p_factor[idx], Wv)
 
             # Green responses through the SAME recovery (R zeroes the walls).
+            # Ball: the W-regularity row applies to the V-space columns g —
+            # invEk matches Wv's scale (V = Ek·W).
             phi = phis[cidx]
             for r_idx in 1:nr
                 g[r_idx] = c * phi[r_idx, 1]
             end
+            m11b = split.ball ?
+                   T(invEk) * (dot(split.d1_row_inner, g) -
+                               T((l + 1) * split.reg_r_inv) * g[1]) : zero(T)
             g[1] = zero(T); g[nr] = zero(T)
             solve_banded!(h1, split.p_factor[idx], g)
             for r_idx in 1:nr
                 g[r_idx] = c * phi[r_idx, nr]
             end
+            m12b = split.ball ?
+                   T(invEk) * (dot(split.d1_row_inner, g) -
+                               T((l + 1) * split.reg_r_inv) * g[1]) : zero(T)
             g[1] = zero(T); g[nr] = zero(T)
             solve_banded!(h2, split.p_factor[idx], g)
 
-            m11 = dot(split.d1_row_inner, h1); m12 = dot(split.d1_row_inner, h2)
+            local m11, m12, r1
+            if split.ball
+                m11 = m11b; m12 = m12b
+                r1 = rho1w
+            else
+                m11 = dot(split.d1_row_inner, h1)
+                m12 = dot(split.d1_row_inner, h2)
+                r1 = dot(split.d1_row_inner, Pt)
+            end
             m21 = dot(split.d1_row_outer, h1); m22 = dot(split.d1_row_outer, h2)
-            r1 = dot(split.d1_row_inner, Pt); r2 = dot(split.d1_row_outer, Pt)
+            r2 = dot(split.d1_row_outer, Pt)
             det = m11 * m22 - m12 * m21
             a1 = (-r1 * m22 + r2 * m12) / det
             a2 = (-r2 * m11 + r1 * m21) / det

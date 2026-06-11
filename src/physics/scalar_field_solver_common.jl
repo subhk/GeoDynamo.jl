@@ -134,7 +134,8 @@ function _apply_scalar_implicit_update!(
             key,
             runtime.outer_core_domain.N,
         )
-        scalar_bc = build_solver_erk2_scalar_bc(T, runtime.outer_core_domain, bc_code)
+        scalar_bc = build_solver_erk2_scalar_bc(T, runtime.outer_core_domain, bc_code;
+            inner_regularity = state.parameters.geometry === :ball)
         bc_spec = with_boundary_mode_values(
             scalar_bc,
             bc.inner_real,

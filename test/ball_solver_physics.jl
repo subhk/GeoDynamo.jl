@@ -67,3 +67,28 @@ end
     nl = parent(vel.nl_poloidal.data_real)
     @test maximum(abs, nl) > 1e-14       # N_W assembled (projection path live)
 end
+
+# ERK2 on the ball uses the same regularity rows (descriptors) and the mixed
+# 2x2 influence recovery as CNAB2; both schemes are 2nd order on the same
+# equations, so short trajectories must agree to scheme-difference accuracy.
+@testset "ball ERK2 vs CNAB2 consistency" begin
+    p_cn = _ball_test_params(; Ra = 1e4)
+    p_rk = _ball_test_params(; Ra = 1e4, timestepper = GeoDynamo.ERK2())
+    s_cn = GeoDynamo.initialize_simulation(Float64, p_cn)
+    s_rk = GeoDynamo.initialize_simulation(Float64, p_rk)
+    for s in (s_cn, s_rk)
+        GeoDynamo.initialize_solver_fields!(s)
+        _seed_temperature_mode!(s, 2, 2, 1e-3)
+    end
+    for i in 1:20
+        GeoDynamo.solver_step!(s_cn)
+        GeoDynamo.solver_step!(s_rk)
+    end
+    a = parent(s_cn.fields.velocity.poloidal.data_real)
+    b = parent(s_rk.fields.velocity.poloidal.data_real)
+    denom = max(maximum(abs, a), maximum(abs, b), 1e-30)
+    relΔ = maximum(abs, a .- b) / denom
+    @info "ball ERK2 vs CNAB2 poloidal after 20 steps" relΔ
+    @test relΔ < 0.05
+    @test all(isfinite, b)
+end
