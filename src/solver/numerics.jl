@@ -952,8 +952,6 @@ function vector_spectral_to_physical_disttranspose!(
         config, plan,
         toroidal, poloidal, vector_field, domain, vr_factor;
         raw_spheroidal::Bool = false)
-    lmax, mmax = config.lmax, config.mmax
-
     sc  = _vector_scratch(config, plan)
     Slm = sc.Slm   # spheroidal/poloidal
     Tlm = sc.Tlm   # toroidal
@@ -963,30 +961,28 @@ function vector_spectral_to_physical_disttranspose!(
     Vr_alm = sc.Vr_alm
     solve  = sc.solve
 
-    # 1. spec storage → Slm / Tlm via the m-axis bridge + r_comm l-transpose.
-    #    Slm holds the stored POLOIDAL potential P at this point.
-    spec_storage_to_solve!(config, solve, parent(poloidal.data_real),
-                           parent(poloidal.data_imag), plan)
+    solenoidal = !raw_spheroidal && domain !== nothing
+
+    # 1. Spheroidal input to the sphtor synthesis. Solenoidal convention:
+    #    S = (∂_r P)/r, computed in STORAGE layout where r is fully local
+    #    (works on r-distributed grids; the Alm layout only has an r-slab).
+    #    Raw mode feeds the stored coefficients verbatim (tangential-basis
+    #    primitive — see the doc comment above).
+    if solenoidal
+        _storage_spheroidal_from_poloidal!(sc.Ssto_re, sc.Ssto_im,
+            parent(poloidal.data_real), parent(poloidal.data_imag),
+            config, domain)
+        spec_storage_to_solve!(config, solve, sc.Ssto_re, sc.Ssto_im, plan)
+    else
+        spec_storage_to_solve!(config, solve, parent(poloidal.data_real),
+                               parent(poloidal.data_imag), plan)
+    end
     from_spec_solve!(config, Slm, solve, plan)
+
+    # 2. Toroidal, unchanged.
     spec_storage_to_solve!(config, solve, parent(toroidal.data_real),
                            parent(toroidal.data_imag), plan)
     from_spec_solve!(config, Tlm, solve, plan)
-
-    solenoidal = !raw_spheroidal && domain !== nothing
-    r_range_ph = PencilArrays.range_local(vector_field.θ_component.pencil)[3]
-
-    if solenoidal
-        length(r_range_ph) == domain.N || error(
-            "solenoidal vector synthesis requires the radial axis fully local " *
-            "(got $(length(r_range_ph)) of $(domain.N) levels); " *
-            "r-distributed support is a Stage-2 follow-up")
-        # 2a. v_r coefficients from the ORIGINAL P (before Slm is mutated to S).
-        _fill_vr_alm!(parent(Vr_alm), parent(Slm), plan.m_local, r_range_ph,
-            domain, lmax, mmax, vr_factor)
-        # 2b. In-place spheroidal coupling: Slm ← S = (∂_r P)/r.
-        _spheroidal_from_poloidal!(parent(Slm), plan.m_local, r_range_ph,
-            domain, lmax, mmax, create_derivative_matrix(Float64, 1, domain))
-    end
 
     # 3. Distributed sphtor synthesis: (Slm, Tlm) → (Vt, Vp), batched over nr_local.
     SHTnsKit.dist_synthesis_sphtor!(plan, Vt, Vp, Slm, Tlm)
@@ -1002,17 +998,17 @@ function vector_spectral_to_physical_disttranspose!(
     v_r     = parent(vector_field.r_component.data)
     _copy_spatial2_to_physical2!(v_theta, v_phi, parent(Vt), parent(Vp))
 
-    # 5. Radial component v_r = l(l+1)·P/r² via scalar dist_synthesis! (filled
-    #    in 2a from the original P). In raw mode with a domain, fill from the
-    #    raw coefficients (legacy behavior); without a domain, zero-fill.
-    if solenoidal
+    # 5. v_r = vr_factor(l,r)·P (both the solenoidal and the legacy
+    #    raw-with-domain paths), computed in storage layout and bridged.
+    #    Without a domain there are no radii: zero-fill.
+    if domain !== nothing
+        _storage_vr_coeffs!(sc.Vrsto_re, sc.Vrsto_im,
+            parent(poloidal.data_real), parent(poloidal.data_imag),
+            config, domain, vr_factor)
+        spec_storage_to_solve!(config, solve, sc.Vrsto_re, sc.Vrsto_im, plan)
+        from_spec_solve!(config, Vr_alm, solve, plan)
         SHTnsKit.dist_synthesis!(plan, Vr, Vr_alm)
         # Function barrier: Vr is ::Any from sc (IdDict); parent(Vr) would be ::Any.
-        _copy_spatial_to_physical!(v_r, parent(Vr))
-    elseif domain !== nothing
-        _fill_vr_alm!(parent(Vr_alm), parent(Slm), plan.m_local, r_range_ph,
-            domain, lmax, mmax, vr_factor)
-        SHTnsKit.dist_synthesis!(plan, Vr, Vr_alm)
         _copy_spatial_to_physical!(v_r, parent(Vr))
     else
         fill!(v_r, zero(eltype(v_r)))
