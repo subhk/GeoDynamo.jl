@@ -59,7 +59,9 @@ function gpu_solver_step!(state)
             spec(m.pol.spec_r, m.pol.spec_i), cfg,
             state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw)
         jtr = similar(m.tor.spec_r); jti = similar(m.tor.spec_i); jpr = similar(m.pol.spec_r); jpi = similar(m.pol.spec_i)
-        gpu_spectral_curl!(jtr, jti, jpr, jpi, m.tor.spec_r, m.tor.spec_i, m.pol.spec_r, m.pol.spec_i,
+        # current-density curl in the CPU's stored-potential form (NOT the
+        # vorticity curl) — the Lorentz J must match the CPU pipeline exactly.
+        gpu_current_curl!(jtr, jti, jpr, jpi, m.tor.spec_r, m.tor.spec_i, m.pol.spec_r, m.pol.spec_i,
             state.nlops_mag.d1, state.nlops_mag.d2, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw)
         jr = ph(); jθ = ph(); jφ = ph()
         gpu_vector_spectral_to_physical!(jr, jθ, jφ, spec(jtr, jti), spec(jpr, jpi), cfg,
@@ -71,6 +73,7 @@ function gpu_solver_step!(state)
     #         LAGGED B/J (CPU's magnetic pass runs after velocity) ---
     gpu_velocity_field_step!(v.tor, v.pol, cfg, state.nlops_vel, state.influence,
         state.inv_dt_vel, linw, lmax, bw;
+        wsplit = get(state, :wsplit, nothing),
         T_phys = Tn.data, thermal_factor = state.thermal_factor, r_vec = state.r_vec,
         C_phys = Cn === nothing ? nothing : Cn.data,
         comp_factor = state.composition === nothing ? zero(eltype(v.tor.spec_r)) : state.comp_factor,
