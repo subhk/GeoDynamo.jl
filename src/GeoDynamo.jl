@@ -510,7 +510,7 @@ export GeodynamoModel
 export fields, prognostic_fields
 export Simulation, run!, time_step!, add_callback!
 export AbstractTimestepper, CNAB2, EAB2, ERK2, ETD, ThetaMethod
-export TimeInterval, IterationInterval, WallTimeInterval
+export TimeInterval, IterationInterval, WallTimeInterval, SpecifiedTimes
 export FieldWriter, CheckpointWriter
 export RandomPerturbation, AnalyticIC, FileIC, ZeroIC
 export set_initial_condition!, set!

@@ -206,4 +206,16 @@ using Test
         @test GeoDynamo.prettysummary(-Inf) == "-Inf"
         @test GeoDynamo.prettysummary(123456.0) == "123456"
     end
+
+    @testset "SpecifiedTimes schedule" begin
+        s = GeoDynamo.SpecifiedTimes(0.5, 0.1, 0.1, 1.0)   # unsorted + dup on purpose
+        @test s.times == [0.1, 0.5, 1.0]
+        ctx(t) = GeoDynamo._ScheduleContext(t, 0, 0.0)
+        @test GeoDynamo.should_fire(s, ctx(0.05)) == false
+        @test GeoDynamo.should_fire(s, ctx(0.1)) == true     # reaches 0.1
+        @test GeoDynamo.should_fire(s, ctx(0.2)) == false    # 0.1 already fired
+        @test GeoDynamo.should_fire(s, ctx(0.7)) == true     # passed 0.5
+        @test GeoDynamo.should_fire(s, ctx(2.0)) == true     # passed 1.0
+        @test GeoDynamo.should_fire(s, ctx(3.0)) == false    # exhausted
+    end
 end
