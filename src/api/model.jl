@@ -150,6 +150,20 @@ function GeodynamoModel(grid::SphericalShellGrid;
         magnetic_inner_bc)
 end
 
+# ────────────────────────────────────────────────────────────────────────────────
+# Oceananigans-style field access: model.velocity / model.temperature /
+# model.magnetic / model.composition forward to the solver state's fields
+# (`nothing` when the field is disabled).
+# ────────────────────────────────────────────────────────────────────────────────
+const _MODEL_FIELD_PROPS = (:velocity, :temperature, :magnetic, :composition)
+
+function Base.getproperty(m::GeodynamoModel, name::Symbol)
+    name in _MODEL_FIELD_PROPS &&
+        return getproperty(getfield(m, :state).fields, name)
+    return getfield(m, name)
+end
+Base.propertynames(m::GeodynamoModel) = (fieldnames(GeodynamoModel)..., _MODEL_FIELD_PROPS...)
+
 function GeodynamoModel(grid::SphericalBallGrid;
         T::Type = Float64,
         Ek::Real = 1e-4,

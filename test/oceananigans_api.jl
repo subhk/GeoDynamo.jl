@@ -219,6 +219,22 @@ using Test
         @test GeoDynamo.should_fire(s, ctx(3.0)) == false    # exhausted
     end
 
+    @testset "model field properties" begin
+        using MPI
+        if !MPI.Initialized()
+            MPI.Init()
+        end
+        grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 16, nr_inner = 4)
+        model = GeoDynamo.GeodynamoModel(grid; Ek = 1e-2, Ra = 1e4)   # no magnetic/composition
+        @test model.velocity === model.state.fields.velocity
+        @test model.temperature === model.state.fields.temperature
+        @test model.magnetic === nothing
+        @test model.composition === nothing
+        @test :velocity in propertynames(model)
+        @test :magnetic in propertynames(model)
+    end
+
     @testset "Δt canonical property" begin
         using MPI
         if !MPI.Initialized()
