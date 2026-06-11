@@ -74,21 +74,24 @@ r_n = (1 − cos(π·n/N)) / 2,   n = 1..N
 
 Smooth fields near the center behave as:
 
-- poloidal P, toroidal T (velocity and magnetic): ~ r^{l+1}
+- poloidal P (velocity and magnetic): ~ r^{l+1} (from B_r = λP/r², u_r = λP/r²
+  smooth ⇒ component ~ r^{l−1}; D_pol eigenfunctions are r·j_l(αr) ~ r^{l+1})
+- toroidal t (velocity and magnetic): ~ r^l — the stored toroidal unknown is
+  the RAW sphtor scalar (the ∇×(T̃r̂) potential satisfies T̃ ~ r^{l+1}, but the
+  code stores t = T̃/r; rigid rotation has u_φ = Ωr·sinθ ⇒ t ~ r = r^l at l=1;
+  Δ_l eigenfunctions j_l(αr) ~ r^l confirm)
 - scalars Θ: ~ r^l
-- W = D_pol·P: ~ r^{l+1}
-
-(W derivation: P = a·r^{l+1} + b·r^{l+3} + …; D_pol = ∂_rr − l(l+1)/r²
-annihilates r^{l+1}, and D_pol(r^{l+3}) = (4l+6)·r^{l+1}, so W's leading term
-is r^{l+1}.)
+- W = D_pol·P: ~ r^{l+1} (P = a·r^{l+1} + b·r^{l+3} + …; D_pol annihilates
+  r^{l+1} and D_pol(r^{l+3}) = (4l+6)·r^{l+1})
 
 Every inner-boundary row therefore becomes one Robin form, exact for the
 leading behavior:
 
 ```
 f′(r₁) = β · f(r₁) / r₁
-   β = l+1   for velocity P, T, W, magnetic P, T
-   β = l     for scalars (l=0 gives Θ′(r₁)=0 — Neumann falls out automatically)
+   β = l+1   for velocity P, W, magnetic P
+   β = l     for velocity/magnetic toroidal t and scalars
+             (l=0 gives f′(r₁)=0 — Neumann falls out automatically)
 ```
 
 Implementation: matrix builders that currently stamp inner *wall* rows gain a
@@ -98,21 +101,40 @@ matrix sets are already per-l (PoloidalSplitMatrices lookup; scalar / toroidal
 
 Per system:
 
-| System | Inner row (ball) | Outer row (unchanged) |
+| System | Inner row (ball) | Outer row |
 |---|---|---|
-| Velocity toroidal | T′ = (l+1)T/r₁ | no-slip T=0 / stress-free T′=T/r |
-| W solve (`w_factor`) | W′ = (l+1)W/r₁ | Dirichlet W |
-| P recovery (`p_factor`) | P′ = (l+1)P/r₁ | P=0 wall |
-| Scalars (T, C) | Θ′ = l·Θ/r₁ | per BC code |
-| Magnetic toroidal | T′ = (l+1)T/r₁ | insulating T=0 |
-| Magnetic poloidal | P′ = (l+1)P/r₁ | insulating ∂rP + (l+1)P/r = 0 |
+| Velocity toroidal | t′ = l·t/r₁ | no-slip t=0 / stress-free t′=t/r (unchanged) |
+| W solve | none — PDE rows everywhere, W-regularity enforced via influence | none (as shell) |
+| P recovery (`p_factor`) | P′ = (l+1)P/r₁ | P=0 wall (unchanged) |
+| Scalars (T, C) | Θ′ = l·Θ/r₁ | per BC code (unchanged) |
+| Magnetic toroidal | t′ = l·t/r₁ | insulating t=0 (unchanged) |
+| Magnetic poloidal | P′ = (l+1)P/r₁ | insulating — see audit below |
 
-**Influence correction shrinks 2×2 → 1×1 for ball.** Only the outer no-slip
-(P′=0) / stress-free (P″−(2/r)P′=0) condition needs a Green column; the inner
-regularity condition sits directly in the factored `w_factor`/`p_factor`
-matrices and needs no correction. `create_velocity_poloidal_split_matrices`
-builds one Green pair (g_outer, h_outer) and a scalar influence coefficient
-for ball instead of the 2×2 M.
+**Magnetic insulating-row audit (suspected pre-existing one-off):** under the
+Stage-4 convention B_r = λP/r², the exterior vacuum solution has P ~ r^{−l},
+so the outer insulating row should be (∂r + l/r)P = 0 — the code currently
+stamps (∂r + (l+1)/r). Discriminator: classic full-sphere dipole free decay,
+slowest l=1 mode σ = π² (condition j_{l−1}(α) = 0). The ball magnetic
+free-decay test asserts σ = π²; if it fails with the current row and passes
+with (∂r + l/r), fix the row (shell shares the builder — the fix applies to
+both geometries, with the derivation recorded in the code comment). The inner
+shell insulating row (∂r − l/r, interior P ~ r^{l+1} ⇒ should be (l+1)/r) gets
+the same scrutiny.
+
+**Influence correction stays 2×2 for ball, with MIXED residual rows.** The
+4th-order P problem needs four conditions: outer P=0 (p_factor Dirichlet row),
+inner P-regularity (p_factor Robin row), outer no-slip P′=0 / stress-free
+(influence row 2, on P — unchanged), and inner W-regularity W′=(l+1)W/r₁
+(influence row 1, evaluated on W rather than P — this is the second inner
+condition; it cannot live in `w_factor` for ERK2, where the exponential
+propagator has PDE rows everywhere, so both timesteppers enforce it via the
+influence machinery for one shared code shape). Concretely: ρ₁ =
+d1ᵢₙₙₑᵣ·W − (l+1)/r₁·W[1] (CNAB2: W = Wp before wall-zeroing; ERK2: on V —
+the common Ek factor is carried explicitly), M[1,i] = the same row applied to
+the W-space Green columns g_i; row 2 and the correction P += a₁h₁ + a₂h₂ are
+unchanged from the shell. `PoloidalSplitMatrices` gains `ball::Bool` and
+`reg_r_inv` (=1/r₁); for ball, `d1_row_inner` holds the pure first-derivative
+endpoint row.
 
 ## 6. Nonlinear paths
 
