@@ -247,16 +247,18 @@ l>0 modes (variations): Neumann at both boundaries
 
 ```julia
 # Fixed temperature boundaries
-enforce_temperature_boundary_constraints!(temp_field, Dict(
-    :inner => :dirichlet, :inner_value => 1.0,
-    :outer => :dirichlet, :outer_value => 0.0
-))
+temperature_bcs = BoundaryConditions(
+    inner = FixedTemperature(1.0),
+    outer = FixedTemperature(0.0),
+)
 
-# Heat flux boundaries (l=0 Dirichlet applied automatically)
-enforce_temperature_boundary_constraints!(temp_field, Dict(
-    :inner => :flux, :inner_flux => 0.1,
-    :outer => :flux, :outer_flux => 0.0
-))
+# Heat flux boundaries
+temperature_bcs = BoundaryConditions(
+    inner = FixedFlux(0.1),
+    outer = FixedFlux(0.0),
+)
+
+model = GeodynamoModel(grid; temperature_bcs)
 ```
 
 ---
@@ -286,10 +288,12 @@ Same as temperature: when both boundaries have flux conditions, the l=0 mode use
 
 ```julia
 # Fixed composition at ICB, zero flux at CMB
-enforce_composition_boundary_constraints!(comp_field, Dict(
-    :inner => :dirichlet, :inner_value => 1.0,
-    :outer => :flux, :outer_flux => 0.0
-))
+composition_bcs = BoundaryConditions(
+    inner = FixedTemperature(1.0),
+    outer = FixedFlux(0.0),
+)
+
+model = GeodynamoModel(grid; include_composition = true, composition_bcs)
 ```
 
 ---
@@ -327,25 +331,26 @@ simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ### Programmatic API
 
 ```julia
-# Velocity
-enforce_velocity_boundary_constraints!(𝒰, :no_slip)
-enforce_velocity_boundary_constraints!(𝒰, :stress_free)
+# Per-field keyword form
+model = GeodynamoModel(grid;
+    velocity_bcs = BoundaryConditions(inner = NoSlip(), outer = StressFree()),
+    temperature_bcs = BoundaryConditions(inner = FixedTemperature(1.0),
+                                         outer = FixedFlux(0.0)),
+    composition_bcs = BoundaryConditions(inner = FixedFlux(0.01),
+                                         outer = FixedTemperature(0.0)),
+    magnetic_inner_bc = :insulating,
+)
 
-# Magnetic
-enforce_magnetic_boundary_constraints!(ℬ, :insulating)
-enforce_magnetic_boundary_constraints!(ℬ, :conducting_inner_core)
-
-# Temperature
-enforce_temperature_boundary_constraints!(𝒯, Dict(
-    :inner => :dirichlet, :inner_value => 1.0,
-    :outer => :neumann, :outer_flux => 0.0
-))
-
-# Composition
-enforce_composition_boundary_constraints!(𝔽, Dict(
-    :inner => :flux, :inner_flux => 0.01,
-    :outer => :dirichlet, :outer_value => 0.0
-))
+# Oceananigans-style NamedTuple form
+model = GeodynamoModel(grid;
+    boundary_conditions = (
+        velocity = FieldBoundaryConditions(inner = NoSlip(), outer = NoSlip()),
+        temperature = FieldBoundaryConditions(inner = ValueBoundaryCondition(1.0),
+                                              outer = FluxBoundaryCondition(0.0)),
+    ),
+    magnetic_inner_bc = :conducting_inner_core,
+    include_magnetic = true,
+)
 ```
 
 ---

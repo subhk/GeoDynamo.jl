@@ -23,20 +23,23 @@ Download from [julialang.org/downloads](https://julialang.org/downloads/) and en
 
 ### Step 2: Install MPI & NetCDF
 
-=== "Ubuntu/Debian"
-    ```bash
-    sudo apt install mpich libnetcdf-dev
-    ```
+#### Ubuntu/Debian
 
-=== "macOS"
-    ```bash
-    brew install mpich netcdf
-    ```
+```bash
+sudo apt install mpich libnetcdf-dev
+```
 
-=== "Fedora/RHEL"
-    ```bash
-    sudo dnf install mpich netcdf-devel
-    ```
+#### macOS
+
+```bash
+brew install mpich netcdf
+```
+
+#### Fedora/RHEL
+
+```bash
+sudo dnf install mpich netcdf-devel
+```
 
 Verify MPI is working:
 
@@ -238,14 +241,12 @@ model = GeodynamoModel(
         inner = FixedTemperature(1.0),
         outer = FixedTemperature(0.0),
     ),
+    velocity_bcs = BoundaryConditions(
+        inner = NoSlip(),
+        outer = StressFree(),
+    ),
 )
 simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
-state = simulation.model.state
-
-GeoDynamo.bcs.load_boundary_conditions!(state.temperature, GeoDynamo.TEMPERATURE, Dict(
-    :inner => (:uniform, 1.0),
-    :outer => (:dirichlet, 0.0),
-))
 ```
 
 ---
@@ -270,30 +271,29 @@ set!(model;
 simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
-For lower-level access the field-specific helpers remain available:
+Equivalent descriptor calls are also accepted at model construction:
 
 ```julia
-state = simulation.model.state
-
-# Temperature
-set_temperature_ic!(state.temperature; profile = :conductive)
-randomize_scalar_field!(state.temperature; amplitude = 1e-3)
-
-# Velocity
-randomize_vector_field!(state.velocity.velocity; amplitude = 1e-4)
-
-# Magnetic Field
-randomize_magnetic_field!(state.magnetic; amplitude = 1e-5)
+model = GeodynamoModel(grid;
+    include_magnetic = true,
+    initial_conditions = (
+        temperature = AnalyticIC(:conductive),
+        velocity = RandomPerturbation(amplitude = 1e-4, lmax = 8),
+        magnetic = AnalyticIC(:dipole; amplitude = 1.0),
+    ),
+)
 ```
 
 ### Loading from Files
 
 ```julia
-# From restart file
-read_restart!("output/geodynamo_shell_rank_0000_restart_1.nc")
+# Continue from a restart directory. The restart reader is collective, so call
+# this under MPI after MPI.Init().
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.1,
+                        restart_from = "output")
 
-# From snapshot
-load_initial_conditions!("path/to/snapshot.nc")
+# Fresh initial condition from a compatible IC file
+set!(model; temperature = FileIC("path/to/temperature_ic.nc"))
 ```
 
 ---
@@ -308,15 +308,14 @@ load_initial_conditions!("path/to/snapshot.nc")
                                 ▼
     ┌─────────────────────────────────────────────────────────┐
     │  2. BOUNDARIES (optional)                               │
-    │     bcs.load_boundary_conditions!(state.temperature,    │
-    │         TEMPERATURE, Dict(...))                         │
+    │     BoundaryConditions(inner = ..., outer = ...)         │
     └───────────────────────────┬─────────────────────────────┘
                                 ▼
     ┌─────────────────────────────────────────────────────────┐
     │  3. MODEL + SIMULATION                                  │
     │     GeodynamoModel(grid; ...)                           │
     │     Simulation(model; Δt, stop_time)                    │
-    │     set_temperature_ic!(...) / randomize_*(...)         │
+    │     set!(model; temperature = ..., magnetic = ...)       │
     └───────────────────────────┬─────────────────────────────┘
                                 ▼
     ┌─────────────────────────────────────────────────────────┐
@@ -331,7 +330,7 @@ load_initial_conditions!("path/to/snapshot.nc")
                                 ▼
     ┌─────────────────────────────────────────────────────────┐
     │  6. RESTART (optional)                                  │
-    │     read_restart!(...) → run!(simulation)               │
+    │     Simulation(model; restart_from = "output")          │
     └─────────────────────────────────────────────────────────┘
 ```
 

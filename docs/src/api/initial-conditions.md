@@ -19,7 +19,6 @@ GeoDynamo.InitialConditions
 │   └── randomize_scalar_field!
 │
 ├── Vector Fields
-│   ├── set_velocity_initial_conditions!
 │   └── randomize_vector_field!
 │
 ├── Magnetic Field
