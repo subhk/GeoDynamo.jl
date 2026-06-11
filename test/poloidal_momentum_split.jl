@@ -91,3 +91,50 @@ end
     @test ke_end < 0.7 * ke_peak         # decaying past the transient
     @test all(isfinite, parent(vel.poloidal.data_real))
 end
+
+@testset "stress-free walls: W-split runs, wall conditions hold" begin
+    params = GeoDynamo.SolverParameters(
+        architecture = :cpu, geometry = :shell,
+        nr = 16, nr_inner = 4, lmax = 8, mmax = 8, nlat = 20, nlon = 40,
+        Ra = 1e4, Ek = 1e-2, Pr = 1.0, Pm = 1.0, Sc = 1.0,
+        timestep = 1e-4, start_time = 0.0, end_time = 1.0, stop_iteration = 100000,
+        include_magnetic = false, include_composition = false,
+        timestepper = GeoDynamo.CNAB2(), topography_enabled = false, stefan_enabled = false,
+        velocity_bcs = GeoDynamo.BoundaryConditions(
+            inner = GeoDynamo.StressFree(), outer = GeoDynamo.StressFree()),
+    )
+    state = GeoDynamo.initialize_simulation(Float64, params)
+    for _ in 1:20
+        GeoDynamo.solver_step!(state)
+    end
+    vel = state.fields.velocity
+    P = parent(vel.poloidal.data_real)
+    @test all(isfinite, P)
+    @test _pm_ke(state) > 0.0    # buoyancy drives flow under stress-free too
+
+    # wall conditions on a representative active mode: P(±) = 0 and the
+    # stress-free residual P″ − (2/r)P′ ≈ 0 at both walls
+    cfg = vel.poloidal.config
+    dom = state.backend.outer_core_domain
+    D1 = GeoDynamo.create_derivative_matrix(Float64, 1, dom)
+    D2 = GeoDynamo.create_derivative_matrix(Float64, 2, dom)
+    nr = dom.N
+    checked = 0
+    for lm in 1:cfg.nlm
+        l = cfg.l_values[lm]
+        l == 0 && continue
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+        slot === nothing && continue
+        prof = [GeoDynamo.local_spectral_value(P, slot, r) for r in 1:nr]
+        scale = maximum(abs, prof)
+        scale < 1e-12 && continue
+        dp = D1 * prof; d2p = D2 * prof
+        @test abs(prof[1]) < 1e-8 * scale
+        @test abs(prof[nr]) < 1e-8 * scale
+        @test abs(d2p[1] - 2 / dom.r[1, 4] * dp[1]) < 1e-6 * maximum(abs, d2p)
+        @test abs(d2p[nr] - 2 / dom.r[nr, 4] * dp[nr]) < 1e-6 * maximum(abs, d2p)
+        checked += 1
+        checked >= 3 && break
+    end
+    @test checked >= 3
+end
