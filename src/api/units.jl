@@ -4,17 +4,21 @@
 # nondimensional (diffusion-time units), so model times/timesteps print via
 # `prettysummary` instead (user decision, see the 2026-06-11 parity spec).
 
+# Printf.@sprintf is in scope via the parent module's `using Printf`.
+
 """
     prettytime(t)
 
 Format a duration `t` in seconds as a human-readable string, e.g.
 `"2.341 seconds"`, `"1.500 days"`, `"100 ns"`. Follows Oceananigans
 conventions: picks ns/μs/ms/seconds/minutes/hours/days; integer-valued
-quantities drop the decimals and pluralize correctly.
+quantities drop the decimals; second/minute/hour/day pluralize (sub-second unit symbols do not). NaN returns "NaN"; negative durations format as "-<formatted>".
 """
 function prettytime(t::Real)
     t == 0 && return "0 seconds"
-    isfinite(t) || return string(t > 0 ? "Inf" : "-Inf", " days")
+    isnan(t) && return "NaN"
+    t < 0 && return "-" * prettytime(-t)
+    isfinite(t) || return "Inf days"
 
     if t < 1e-6
         value, units = t * 1e9, "ns"
@@ -55,9 +59,9 @@ round-trip float printing.
 """
 prettysummary(x::Integer) = x == typemax(typeof(x)) ? "Inf" : string(x)
 function prettysummary(x::Real)
-    isfinite(x) || return string(Float64(x) > 0 ? "Inf" : "-Inf")
+    isfinite(x) || return isnan(x) ? "NaN" : (Float64(x) > 0 ? "Inf" : "-Inf")
     f = Float64(x)
     isinteger(f) && abs(f) < 1e15 && return string(Int(f))
-    return string(f)
+    return string(x)
 end
 prettysummary(x) = string(x)

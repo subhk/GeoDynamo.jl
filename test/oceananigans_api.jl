@@ -190,6 +190,8 @@ using Test
         @test GeoDynamo.prettytime(3600) == "1 hour"
         @test GeoDynamo.prettytime(129600) == "1.500 days"
         @test GeoDynamo.prettytime(Inf) == "Inf days"
+        @test GeoDynamo.prettytime(NaN) == "NaN"
+        @test GeoDynamo.prettytime(-90) == "-1.500 minutes"
 
         @test GeoDynamo.prettysummary(0) == "0"
         @test GeoDynamo.prettysummary(1) == "1"
@@ -200,5 +202,8 @@ using Test
         @test GeoDynamo.prettysummary(0.35) == "0.35"
         @test GeoDynamo.prettysummary(Inf) == "Inf"
         @test GeoDynamo.prettysummary(typemax(Int)) == "Inf"
+        @test GeoDynamo.prettysummary(NaN) == "NaN"
+        @test GeoDynamo.prettysummary(-Inf) == "-Inf"
+        @test GeoDynamo.prettysummary(123456.0) == "123456"
     end
 end
