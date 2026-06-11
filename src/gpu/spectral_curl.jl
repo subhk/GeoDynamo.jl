@@ -67,35 +67,3 @@ function gpu_spectral_curl!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
     @. dst_pol_i = -src_tor_i / ri
     return nothing
 end
-
-"""
-    gpu_current_curl!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
-                      src_tor_r, src_tor_i, src_pol_r, src_pol_i,
-                      d1, d2, lfac, rinv, rinv2, bw) -> nothing
-
-Current-density curl `j = ∇×B` in the CPU's stored-potential form
-(`_spectral_curl_torpol!`, physics/magnetic/field.jl):
-  `j_tor = lfac·rinv2·P − d2·P − 2·rinv·(d1·P)`,  `j_pol = −lfac·rinv2·T`.
-This is a DIFFERENT scalar pair from the vorticity curl
-([`gpu_spectral_curl!`](@ref)) — the CPU Lorentz pipeline feeds these
-potentials into the same Stage-2 vector synthesis, so the GPU must mirror
-this exact form for J to match.  `dst_*` must not alias `src_*`.
-"""
-function gpu_current_curl!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
-        src_tor_r, src_tor_i, src_pol_r, src_pol_i, d1, d2, lfac, rinv, rinv2, bw::Int)
-    d1Pr = similar(src_pol_r); d1Pi = similar(src_pol_i)
-    gpu_batched_banded_matvec!(d1Pr, src_pol_r, d1, bw)
-    gpu_batched_banded_matvec!(d1Pi, src_pol_i, d1, bw)
-    d2Pr = similar(src_pol_r); d2Pi = similar(src_pol_i)
-    gpu_batched_banded_matvec!(d2Pr, src_pol_r, d2, bw)
-    gpu_batched_banded_matvec!(d2Pi, src_pol_i, d2, bw)
-    lf  = reshape(lfac, :, 1, 1)
-    ri  = reshape(rinv, 1, 1, :)
-    ri2 = reshape(rinv2, 1, 1, :)
-    T = eltype(dst_tor_r)
-    @. dst_tor_r = lf * ri2 * src_pol_r - d2Pr - T(2) * ri * d1Pr
-    @. dst_tor_i = lf * ri2 * src_pol_i - d2Pi - T(2) * ri * d1Pi
-    @. dst_pol_r = -lf * ri2 * src_tor_r
-    @. dst_pol_i = -lf * ri2 * src_tor_i
-    return nothing
-end

@@ -59,9 +59,9 @@ function gpu_solver_step!(state)
             spec(m.pol.spec_r, m.pol.spec_i), cfg,
             state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw)
         jtr = similar(m.tor.spec_r); jti = similar(m.tor.spec_i); jpr = similar(m.pol.spec_r); jpi = similar(m.pol.spec_i)
-        # current-density curl in the CPU's stored-potential form (NOT the
-        # vorticity curl) — the Lorentz J must match the CPU pipeline exactly.
-        gpu_current_curl!(jtr, jti, jpr, jpi, m.tor.spec_r, m.tor.spec_i, m.pol.spec_r, m.pol.spec_i,
+        # J = ∇×B with the Stage-2 curl (same rule as the vorticity) — the CPU
+        # current density now uses this convention too (curl∘curl = −diffusion).
+        gpu_spectral_curl!(jtr, jti, jpr, jpi, m.tor.spec_r, m.tor.spec_i, m.pol.spec_r, m.pol.spec_i,
             state.nlops_mag.d1, state.nlops_mag.d2, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw)
         jr = ph(); jθ = ph(); jφ = ph()
         gpu_vector_spectral_to_physical!(jr, jθ, jφ, spec(jtr, jti), spec(jpr, jpi), cfg,
