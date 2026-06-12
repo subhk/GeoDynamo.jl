@@ -359,11 +359,12 @@ function create_solver_fields(::Type{T}, backend::SolverBackend{<:AbstractArchit
 end
 
 function build_velocity_implicit_matrices(cfg, domain, E, dt, velocity_bc_code;
+        theta::Float64 = 0.5,
         inner_regularity::Bool = false)
     return (
         tor = SOLVER_VELOCITY_TOROIDAL_MATRIX_BUILDER(
             cfg, domain, E, dt; velocity_bc_code = velocity_bc_code, mass_coeff = E,
-            inner_regularity = inner_regularity
+            theta = theta, inner_regularity = inner_regularity
         ),
         pol = SOLVER_VELOCITY_POLOIDAL_MATRIX_BUILDER(
             cfg, domain, E, dt; velocity_bc_code = velocity_bc_code, mass_coeff = E,
@@ -373,12 +374,13 @@ function build_velocity_implicit_matrices(cfg, domain, E, dt, velocity_bc_code;
 end
 
 function build_magnetic_implicit_matrices(cfg, domain, dt;
+        theta::Float64 = 0.5,
         inner_regularity::Bool = false)
     return (
         tor = SOLVER_MAGNETIC_TOROIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt;
-            inner_regularity = inner_regularity),
+            theta = theta, inner_regularity = inner_regularity),
         pol = SOLVER_MAGNETIC_POLOIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt;
-            inner_regularity = inner_regularity)
+            theta = theta, inner_regularity = inner_regularity)
     )
 end
 
@@ -422,18 +424,20 @@ end
     diffusivity,
     dt,
     temperature_bc_code,
-    inner_regularity::Bool = false) = SOLVER_TEMPERATURE_MATRIX_BUILDER(
+    inner_regularity::Bool = false;
+    theta::Float64 = 0.5) = SOLVER_TEMPERATURE_MATRIX_BUILDER(
     cfg, domain, diffusivity, dt; temperature_bc_code = temperature_bc_code,
-    inner_regularity = inner_regularity)
+    theta = theta, inner_regularity = inner_regularity)
 
 @inline solver_build_composition_implicit_matrix(cfg,
     domain,
     diffusivity,
     dt,
     composition_bc_code,
-    inner_regularity::Bool = false) = SOLVER_COMPOSITION_MATRIX_BUILDER(
+    inner_regularity::Bool = false;
+    theta::Float64 = 0.5) = SOLVER_COMPOSITION_MATRIX_BUILDER(
     cfg, domain, diffusivity, dt; composition_bc_code = composition_bc_code,
-    inner_regularity = inner_regularity)
+    theta = theta, inner_regularity = inner_regularity)
 
 # Shared core for both the eager (construction-time) and rebuild (dt-change)
 # implicit-matrix paths. `dt` is the authoritative timestep — callers pass it
@@ -446,6 +450,7 @@ function _build_implicit_matrices_dict(
     matrices = Dict{Symbol, OldImplicitMatrices{T}}()
     velocity = build_velocity_implicit_matrices(
         cfg, outer, p.Ek, dt, _velocity_bc_code(p.velocity_bcs);
+        theta = theta,
         inner_regularity = inner_regularity)
     matrices[:velocity_tor] = velocity.tor
     matrices[:velocity_pol] = velocity.pol
@@ -465,6 +470,7 @@ function _build_implicit_matrices_dict(
         magnetic_ic_admittance = magnetic.admittance
     else
         magnetic = build_magnetic_implicit_matrices(cfg, outer, dt;
+            theta = theta,
             inner_regularity = inner_regularity)
     end
     matrices[:magnetic_tor] = magnetic.tor
@@ -472,11 +478,11 @@ function _build_implicit_matrices_dict(
 
     matrices[:temperature] = solver_build_temperature_implicit_matrix(
         cfg, outer, p.Pm / p.Pr, dt, _thermal_bc_code(p.temperature_bcs),
-        inner_regularity)
+        inner_regularity; theta = theta)
     if p.include_composition
         matrices[:composition] = solver_build_composition_implicit_matrix(
             cfg, outer, p.Pm / p.Sc, dt, _composition_bc_code(p.composition_bcs),
-            inner_regularity)
+            inner_regularity; theta = theta)
     end
     return matrices, magnetic_ic_admittance
 end
