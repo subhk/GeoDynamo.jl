@@ -1,6 +1,13 @@
 # Initial Conditions
 
-The `InitialConditions` module provides helpers for setting up simulation fields.
+!!! tip "Looking for the how-to guide?"
+    This page is the auto-generated reference for the internal
+    `InitialConditions` module. For setting up initial conditions with the
+    public API (`set!`, `RandomPerturbation`, `AnalyticIC`, direct values),
+    see the [Initial Conditions guide](../initial-conditions.md).
+
+The `InitialConditions` module provides the low-level helpers behind the
+public IC API.
 
 ## At a Glance
 
@@ -12,7 +19,6 @@ GeoDynamo.InitialConditions
 │   └── randomize_scalar_field!
 │
 ├── Vector Fields
-│   ├── set_velocity_initial_conditions!
 │   └── randomize_vector_field!
 │
 ├── Magnetic Field
@@ -23,16 +29,16 @@ GeoDynamo.InitialConditions
     └── save_initial_conditions
 ```
 
-!!! example "Usage"
+!!! example "Usage (public API)"
     ```julia
     grid = SphericalShellGrid(nr = 64, lmax = 31)
     model = GeodynamoModel(grid; include_magnetic = true)
-    simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
-    state = simulation.model.state
 
-    set_temperature_ic!(state.temperature; profile = :conductive)
-    randomize_scalar_field!(state.temperature; amplitude = 1e-3)
-    randomize_magnetic_field!(state.magnetic; amplitude = 1e-5)
+    set!(model;
+         temperature = AnalyticIC(:conductive),
+         magnetic    = RandomPerturbation(amplitude = 1e-5, lmax = 8))
+
+    simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
     ```
 
 ## Initial Condition API

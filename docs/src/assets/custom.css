@@ -15,6 +15,11 @@
     --geodynamo-danger: #ef4444;
     --geodynamo-info: #06b6d4;
     --geodynamo-gradient: linear-gradient(135deg, #2563eb 0%, #8b5cf6 100%);
+    --geodynamo-text: #1f2937;
+    --geodynamo-muted: #64748b;
+    --geodynamo-border: #e5e7eb;
+    --geodynamo-surface: #ffffff;
+    --geodynamo-surface-soft: #f8fafc;
 
     /* Spacing */
     --spacing-xs: 0.25rem;
@@ -39,29 +44,65 @@
 }
 
 /* ----------------------------------------------------------------------------
+   Page Layout - readable, scan-friendly documentation
+   ---------------------------------------------------------------------------- */
+
+.docs-main {
+    background:
+        linear-gradient(180deg, rgba(248, 250, 252, 0.85) 0%, rgba(255, 255, 255, 0) 18rem),
+        #ffffff;
+}
+
+article.content {
+    max-width: 1020px;
+    margin: 0 auto;
+    padding: var(--spacing-xl) clamp(1rem, 3vw, 2.75rem) var(--spacing-2xl);
+    color: var(--geodynamo-text);
+}
+
+article.content > :first-child {
+    margin-top: 0;
+}
+
+.docs-navbar {
+    border-bottom: 1px solid var(--geodynamo-border);
+    box-shadow: var(--shadow-sm);
+}
+
+.docs-navbar .breadcrumb a,
+.docs-navbar .docs-navbar-link {
+    color: #475569;
+}
+
+.docs-navbar .docs-navbar-link:hover {
+    color: var(--geodynamo-primary);
+}
+
+/* ----------------------------------------------------------------------------
    Hero Section Styling
    ---------------------------------------------------------------------------- */
 
 /* Style the first h1 as a hero */
 article > h1:first-of-type {
-    font-size: 2.5rem;
+    font-size: clamp(2.1rem, 4vw, 3rem);
     font-weight: 800;
     background: var(--geodynamo-gradient);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
-    letter-spacing: -0.03em;
+    letter-spacing: 0;
     padding-bottom: var(--spacing-lg);
     border-bottom: none;
-    margin-bottom: var(--spacing-md);
+    margin-bottom: var(--spacing-sm);
 }
 
 /* Subtitle styling for the tagline */
 article > h1:first-of-type + p {
-    font-size: 1.25rem;
-    color: #64748b;
+    font-size: 1.15rem;
+    color: var(--geodynamo-muted);
     font-weight: 500;
     margin-bottom: var(--spacing-xl);
+    max-width: 760px;
 }
 
 /* ----------------------------------------------------------------------------
@@ -71,7 +112,7 @@ article > h1:first-of-type + p {
 /* Main headings */
 article h1 {
     font-weight: 700;
-    letter-spacing: -0.025em;
+    letter-spacing: 0;
     padding-bottom: var(--spacing-md);
     border-bottom: 3px solid var(--geodynamo-primary);
     margin-bottom: var(--spacing-xl);
@@ -79,10 +120,10 @@ article h1 {
 
 article h2 {
     font-weight: 600;
-    letter-spacing: -0.02em;
+    letter-spacing: 0;
     margin-top: var(--spacing-2xl);
     padding-bottom: var(--spacing-sm);
-    border-bottom: 2px solid #e5e7eb;
+    border-bottom: 2px solid var(--geodynamo-border);
     position: relative;
 }
 
@@ -104,8 +145,12 @@ article h3 {
 
 /* Better paragraph spacing */
 article p {
-    line-height: 1.75;
+    line-height: 1.72;
     margin-bottom: var(--spacing-md);
+}
+
+article strong {
+    color: #111827;
 }
 
 /* ----------------------------------------------------------------------------
@@ -114,23 +159,29 @@ article p {
 
 /* Style success admonitions as feature cards */
 article .admonition.is-success,
-article .admonition.success {
+article .admonition.success,
+article .admonition.is-category-success {
     border-left: none;
     border: 1px solid rgba(16, 185, 129, 0.2);
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
-    box-shadow: var(--shadow-md);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: var(--shadow-sm);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 article .admonition.is-success:hover,
-article .admonition.success:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
+article .admonition.success:hover,
+article .admonition.is-category-success:hover {
+    border-color: rgba(16, 185, 129, 0.38);
+    box-shadow: var(--shadow-md);
 }
 
 article .admonition.is-success .admonition-title,
-article .admonition.success .admonition-title {
+article .admonition.success .admonition-title,
+article .admonition.is-success .admonition-header,
+article .admonition.success .admonition-header,
+article .admonition.is-category-success .admonition-title,
+article .admonition.is-category-success .admonition-header {
     background: transparent;
     color: #065f46;
     font-size: 1rem;
@@ -143,7 +194,7 @@ article .admonition.success .admonition-title {
 
 /* Inline code */
 article code:not(pre code) {
-    background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+    background: #f1f5f9;
     padding: 0.15em 0.4em;
     border-radius: var(--radius-sm);
     font-size: 0.9em;
@@ -153,8 +204,8 @@ article code:not(pre code) {
 
 /* Code blocks */
 article pre {
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-lg);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
     border: 1px solid #1e293b;
     margin: var(--spacing-lg) 0;
     position: relative;
@@ -186,8 +237,11 @@ article pre::after {
 
 article pre code {
     font-size: 0.875rem;
-    line-height: 1.7;
+    line-height: 1.65;
     font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+    display: block;
+    overflow-x: auto;
+    padding-bottom: 0.1rem;
 }
 
 /* ASCII art code blocks - special styling */
@@ -200,10 +254,27 @@ article pre:has(code:not([class*="language-"])) code {
     color: #ffffff;
 }
 
-/* Julia code blocks */
+/* Julia examples: readable docs snippets, not terminal panels */
 article pre:has(code.language-julia),
 article pre.language-julia {
-    background: linear-gradient(135deg, #1a1b26 0%, #16161e 100%);
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    border-color: #d1d5db;
+}
+
+article pre:has(code.language-julia)::before,
+article pre.language-julia::before {
+    background: linear-gradient(180deg, #f9fafb 0%, #eef2f7 100%);
+    border-bottom-color: #d1d5db;
+}
+
+article pre:has(code.language-julia)::after,
+article pre.language-julia::after {
+    color: #9ca3af;
+}
+
+article pre:has(code.language-julia) code,
+article pre.language-julia code {
+    color: #111827;
 }
 
 /* Bash code blocks */
@@ -231,11 +302,11 @@ article table {
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    border-radius: var(--radius-lg);
+    border-radius: var(--radius-md);
     overflow: hidden;
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-sm);
     margin: var(--spacing-lg) 0;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--geodynamo-border);
 }
 
 article table thead {
@@ -245,18 +316,19 @@ article table thead {
 article table th {
     font-weight: 600;
     text-align: left;
-    padding: var(--spacing-md) var(--spacing-lg);
-    border-bottom: 2px solid #e5e7eb;
+    padding: 0.85rem var(--spacing-lg);
+    border-bottom: 2px solid var(--geodynamo-border);
     color: #374151;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
 }
 
 article table td {
-    padding: var(--spacing-md) var(--spacing-lg);
+    padding: 0.85rem var(--spacing-lg);
     border-bottom: 1px solid #f3f4f6;
     vertical-align: top;
+    line-height: 1.58;
 }
 
 article table tbody tr {
@@ -282,8 +354,8 @@ article table td:first-child {
    ---------------------------------------------------------------------------- */
 
 article .admonition {
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
     margin: var(--spacing-xl) 0;
     border: none;
     border-left: 4px solid;
@@ -293,6 +365,16 @@ article .admonition {
 article .admonition-title {
     font-weight: 600;
     font-size: 0.95rem;
+    padding: var(--spacing-md) var(--spacing-lg);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+article .admonition-header {
+    font-weight: 650;
+    letter-spacing: 0;
     padding: var(--spacing-md) var(--spacing-lg);
     margin: 0;
     display: flex;
@@ -325,7 +407,9 @@ article .admonition.tip {
 }
 
 article .admonition.is-tip .admonition-title,
-article .admonition.tip .admonition-title {
+article .admonition.tip .admonition-title,
+article .admonition.is-tip .admonition-header,
+article .admonition.tip .admonition-header {
     background: rgba(16, 185, 129, 0.15);
     color: #065f46;
 }
@@ -342,7 +426,11 @@ article .admonition.note {
 article .admonition.is-info .admonition-title,
 article .admonition.info .admonition-title,
 article .admonition.is-note .admonition-title,
-article .admonition.note .admonition-title {
+article .admonition.note .admonition-title,
+article .admonition.is-info .admonition-header,
+article .admonition.info .admonition-header,
+article .admonition.is-note .admonition-header,
+article .admonition.note .admonition-header {
     background: rgba(6, 182, 212, 0.15);
     color: #155e75;
 }
@@ -355,7 +443,9 @@ article .admonition.warning {
 }
 
 article .admonition.is-warning .admonition-title,
-article .admonition.warning .admonition-title {
+article .admonition.warning .admonition-title,
+article .admonition.is-warning .admonition-header,
+article .admonition.warning .admonition-header {
     background: rgba(245, 158, 11, 0.15);
     color: #92400e;
 }
@@ -368,7 +458,9 @@ article .admonition.danger {
 }
 
 article .admonition.is-danger .admonition-title,
-article .admonition.danger .admonition-title {
+article .admonition.danger .admonition-title,
+article .admonition.is-danger .admonition-header,
+article .admonition.danger .admonition-header {
     background: rgba(239, 68, 68, 0.15);
     color: #991b1b;
 }
@@ -381,7 +473,9 @@ article .admonition.example {
 }
 
 article .admonition.is-example .admonition-title,
-article .admonition.example .admonition-title {
+article .admonition.example .admonition-title,
+article .admonition.is-example .admonition-header,
+article .admonition.example .admonition-header {
     background: rgba(139, 92, 246, 0.15);
     color: #5b21b6;
 }
@@ -400,16 +494,12 @@ article a {
 
 article a:hover {
     color: var(--geodynamo-primary-dark);
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
 }
 
 article a:hover::after {
-    content: '';
-    position: absolute;
-    bottom: -2px;
-    left: 0;
-    width: 100%;
-    height: 2px;
-    background: var(--geodynamo-gradient);
+    display: none;
 }
 
 /* ----------------------------------------------------------------------------
@@ -430,11 +520,11 @@ article hr {
 article ul,
 article ol {
     margin: var(--spacing-md) 0;
-    padding-left: var(--spacing-lg);
+    padding-left: 1.35rem;
 }
 
 article li {
-    margin-bottom: var(--spacing-sm);
+    margin-bottom: 0.42rem;
     line-height: 1.6;
 }
 
@@ -458,7 +548,7 @@ article blockquote {
     background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
     padding: var(--spacing-lg);
     margin: var(--spacing-lg) 0;
-    border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
     font-style: italic;
     color: #374151;
     box-shadow: var(--shadow-sm);
@@ -478,8 +568,8 @@ article mjx-container {
 /* Centered math display */
 article mjx-container[display="true"] {
     background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
-    border-radius: var(--radius-lg);
-    border: 1px solid #e5e7eb;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--geodynamo-border);
     box-shadow: var(--shadow-sm);
 }
 
@@ -492,18 +582,20 @@ article mjx-container[display="true"] {
 }
 
 .docs-sidebar .docs-menu a {
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-sm);
     padding: var(--spacing-sm) var(--spacing-md);
-    transition: all 0.2s ease;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
     margin: 2px 0;
+    border-left: 3px solid transparent;
 }
 
 .docs-sidebar .docs-menu a:hover {
     background-color: #f3f4f6;
-    transform: translateX(2px);
+    border-left-color: #bfdbfe;
 }
 
-.docs-sidebar .docs-menu a.is-active {
+.docs-sidebar .docs-menu a.is-active,
+.docs-sidebar .docs-menu li.is-active > a {
     background: var(--geodynamo-gradient);
     color: white;
     font-weight: 600;
@@ -524,11 +616,21 @@ article mjx-container[display="true"] {
    Search
    ---------------------------------------------------------------------------- */
 
+button.docs-search-query,
 .docs-search input {
     border-radius: var(--radius-lg);
-    border: 2px solid #e5e7eb;
+    border: 1px solid var(--geodynamo-border);
     padding: var(--spacing-sm) var(--spacing-md);
     transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    background: var(--geodynamo-surface);
+    color: #475569;
+}
+
+.docs-search input:focus,
+button.docs-search-query:focus {
+    border-color: var(--geodynamo-primary);
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+    outline: none;
 }
 
 .docs-search input:focus {
@@ -542,11 +644,11 @@ article mjx-container[display="true"] {
    ---------------------------------------------------------------------------- */
 
 article .docstring {
-    border: 1px solid #e5e7eb;
-    border-radius: var(--radius-lg);
+    border: 1px solid var(--geodynamo-border);
+    border-radius: var(--radius-md);
     margin: var(--spacing-xl) 0;
     overflow: hidden;
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-sm);
 }
 
 article .docstring header {
@@ -592,7 +694,6 @@ article h2:has(+ table) + table td {
 article h2:has(+ table) + table td:hover {
     background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
     border-color: var(--geodynamo-primary-light);
-    transform: translateY(-1px);
 }
 
 /* ----------------------------------------------------------------------------
@@ -679,6 +780,35 @@ html[data-theme="dark"] {
     --geodynamo-primary-light: #93c5fd;
     --geodynamo-primary-dark: #3b82f6;
     --geodynamo-gradient: linear-gradient(135deg, #3b82f6 0%, #a78bfa 100%);
+    --geodynamo-text: #e5e7eb;
+    --geodynamo-muted: #94a3b8;
+    --geodynamo-border: #374151;
+    --geodynamo-surface: #111827;
+    --geodynamo-surface-soft: #1f2937;
+}
+
+html[data-theme="dark"] .docs-main {
+    background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(17, 24, 39, 0) 18rem),
+        #111827;
+}
+
+html[data-theme="dark"] article.content {
+    color: var(--geodynamo-text);
+}
+
+html[data-theme="dark"] article strong {
+    color: #f8fafc;
+}
+
+html[data-theme="dark"] .docs-navbar {
+    border-bottom-color: #374151;
+    box-shadow: none;
+}
+
+html[data-theme="dark"] .docs-navbar .breadcrumb a,
+html[data-theme="dark"] .docs-navbar .docs-navbar-link {
+    color: #cbd5e1;
 }
 
 html[data-theme="dark"] article > h1:first-of-type {
@@ -699,6 +829,7 @@ html[data-theme="dark"] article code:not(pre code) {
 
 html[data-theme="dark"] article table {
     border-color: #374151;
+    box-shadow: none;
 }
 
 html[data-theme="dark"] article table thead {
@@ -712,6 +843,10 @@ html[data-theme="dark"] article table th {
 
 html[data-theme="dark"] article table td {
     border-bottom-color: #1f2937;
+}
+
+html[data-theme="dark"] article table td:first-child {
+    color: #f3f4f6;
 }
 
 html[data-theme="dark"] article table tbody tr:hover {
@@ -758,7 +893,8 @@ html[data-theme="dark"] article .admonition.danger {
 }
 
 html[data-theme="dark"] article .admonition.is-success,
-html[data-theme="dark"] article .admonition.success {
+html[data-theme="dark"] article .admonition.success,
+html[data-theme="dark"] article .admonition.is-category-success {
     background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
 }
 
@@ -770,6 +906,21 @@ html[data-theme="dark"] article .admonition.example {
 html[data-theme="dark"] article .admonition-title {
     background: rgba(0, 0, 0, 0.2) !important;
     color: #f3f4f6 !important;
+}
+
+html[data-theme="dark"] article .admonition-header {
+    background: rgba(0, 0, 0, 0.2) !important;
+    color: #f3f4f6 !important;
+}
+
+html[data-theme="dark"] article .docstring {
+    border-color: #374151;
+    box-shadow: none;
+}
+
+html[data-theme="dark"] article .docstring header {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+    border-bottom-color: #374151;
 }
 
 /* Dark mode math blocks */
@@ -795,6 +946,14 @@ html[data-theme="dark"] article blockquote {
 
 html[data-theme="dark"] .docs-sidebar .docs-menu a:hover {
     background-color: #1f2937;
+    border-left-color: #60a5fa;
+}
+
+html[data-theme="dark"] button.docs-search-query,
+html[data-theme="dark"] .docs-search input {
+    background: #111827;
+    border-color: #374151;
+    color: #e5e7eb;
 }
 
 html[data-theme="dark"] article pre {

@@ -39,18 +39,17 @@ end
         rinv2 = rinv .^ 2
         dtr = zeros(nl,nm,N); dti = zeros(nl,nm,N); dpr = zeros(nl,nm,N); dpi = zeros(nl,nm,N)
         GeoDynamo.gpu_spectral_curl!(dtr, dti, dpr, dpi, str, sti, spr, spi, d1.data, d2.data, lfac, rinv, rinv2, bw)
-        # independent reference per (l,m): d1·P, d2·P via apply_radial_derivative!, then the formula
+        # independent reference per (l,m): current Stage-2 convention
+        # T_curl = (P'' - l(l+1)P/r^2)/r, P_curl = -r*T.
         for l in 1:nl, m in 1:nm
-            d1Pr = zeros(N); d2Pr = zeros(N); d1Pi = zeros(N); d2Pi = zeros(N)
-            GeoDynamo.apply_radial_derivative!(d1Pr, d1, collect(spr[l,m,:]))
+            d2Pr = zeros(N); d2Pi = zeros(N)
             GeoDynamo.apply_radial_derivative!(d2Pr, d2, collect(spr[l,m,:]))
-            GeoDynamo.apply_radial_derivative!(d1Pi, d1, collect(spi[l,m,:]))
             GeoDynamo.apply_radial_derivative!(d2Pi, d2, collect(spi[l,m,:]))
             for r in 1:N
-                @test dtr[l,m,r] == lfac[l]*rinv2[r]*spr[l,m,r] - d2Pr[r] - 2.0*rinv[r]*d1Pr[r]
-                @test dti[l,m,r] == lfac[l]*rinv2[r]*spi[l,m,r] - d2Pi[r] - 2.0*rinv[r]*d1Pi[r]
-                @test dpr[l,m,r] == -lfac[l]*rinv2[r]*str[l,m,r]
-                @test dpi[l,m,r] == -lfac[l]*rinv2[r]*sti[l,m,r]
+                @test dtr[l,m,r] == rinv[r] * (d2Pr[r] - lfac[l]*rinv2[r]*spr[l,m,r])
+                @test dti[l,m,r] == rinv[r] * (d2Pi[r] - lfac[l]*rinv2[r]*spi[l,m,r])
+                @test dpr[l,m,r] == -str[l,m,r] / rinv[r]
+                @test dpi[l,m,r] == -sti[l,m,r] / rinv[r]
             end
         end
     end

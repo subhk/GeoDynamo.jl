@@ -6,7 +6,16 @@
 [![codecov](https://codecov.io/gh/subhk/GeoDynamo.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/subhk/GeoDynamo.jl)
 
 
-GeoDynamo.jl is a Julia package for simulating self-sustained planetary dynamos in rotating spherical shells or full balls. It combines toroidal–poloidal decompositions, fast SHTns-based spherical harmonic transforms, and MPI-enabled PencilArrays to reach large problem sizes on modern clusters.
+GeoDynamo.jl is a Julia solver for rotating convection and self-sustained
+planetary dynamos in spherical shells and full balls. It is built for the common
+workflow in geodynamo studies: choose a spherical grid, set physical control
+parameters and boundary conditions, initialize the velocity/thermal/magnetic
+fields, then write NetCDF snapshots and restart files while the model advances.
+
+Under the hood GeoDynamo.jl combines toroidal–poloidal vector fields,
+SHTns-based spherical harmonic transforms, IMEX time stepping, MPI pencil
+decomposition, and NetCDF output. The public API is intentionally compact, so a
+small script can still describe a full reproducible run.
 
 ## Installation
 
@@ -60,6 +69,118 @@ For MPI-parallel runs:
 
 ```bash
 mpiexecjl -n 4 julia my_simulation.jl
+```
+
+## Complete Setup Example
+
+This example shows the usual pieces in one place: boundary conditions, initial
+conditions, field output, checkpoint output, and the run command.
+
+Save it as `examples/my_shell_run.jl` or paste it into your own script:
+
+```julia
+using MPI
+using GeoDynamo
+
+MPI.Init()
+
+# 1. Resolution and geometry
+grid = SphericalShellGrid(
+    nr = 64,
+    nr_inner = 16,
+    lmax = 31,
+    mmax = 31,
+    nlat = 64,
+    nlon = 128,
+)
+
+# 2. Boundary conditions
+velocity_bcs = BoundaryConditions(
+    inner = NoSlip(),
+    outer = StressFree(),
+)
+
+temperature_bcs = BoundaryConditions(
+    inner = FixedTemperature(1.0),
+    outer = FixedTemperature(0.0),
+)
+
+# 3. Model parameters
+model = GeodynamoModel(
+    grid;
+    Ek = 1e-4,
+    Ra = 1e6,
+    Pr = 1.0,
+    Pm = 1.0,
+    velocity_bcs = velocity_bcs,
+    temperature_bcs = temperature_bcs,
+    include_magnetic = true,
+)
+
+# 4. Initial conditions
+set!(model;
+    temperature = AnalyticIC(:conductive),
+    velocity = RandomPerturbation(amplitude = 1e-4, lmax = 8, seed = 1234),
+    magnetic = AnalyticIC(:dipole; amplitude = 1.0),
+)
+
+# 5. Output writers
+field_writer = FieldWriter(
+    "output";
+    schedule = TimeInterval(0.01),
+    fields = [:velocity, :temperature, :magnetic],
+)
+
+checkpoint_writer = CheckpointWriter(
+    "restart";
+    schedule = TimeInterval(0.05),
+)
+
+# 6. Time integration
+simulation = Simulation(
+    model;
+    Δt = 1e-5,
+    stop_time = 0.1,
+    output_writers = (
+        fields = field_writer,
+        checkpoints = checkpoint_writer,
+    ),
+)
+
+run!(simulation)
+```
+
+Run the script with MPI so the NetCDF writer is active:
+
+```bash
+mpiexecjl -n 4 julia --project examples/my_shell_run.jl
+```
+
+The field writer creates history files under `output/`, and the checkpoint
+writer creates restart files under `restart/`. To continue from a restart
+directory:
+
+```julia
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.2, restart_from = "restart")
+run!(simulation)
+```
+
+For compositional convection, enable the composition equation and add matching
+boundary and initial conditions:
+
+```julia
+composition_bcs = BoundaryConditions(
+    inner = FixedTemperature(1.0),
+    outer = FixedTemperature(0.0),
+)
+
+model = GeodynamoModel(
+    grid;
+    include_composition = true,
+    composition_bcs = composition_bcs,
+)
+
+set!(model; composition = AnalyticIC(:stratified; amplitude = 1.0))
 ```
 
 ## Boundary Conditions

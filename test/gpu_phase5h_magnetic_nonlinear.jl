@@ -27,13 +27,29 @@ MPI.Initialized() || MPI.Init()
 
     @testset "magnetic nonlinear == manual chain [LOCAL]" begin
         ntr=zeros(nl,nm,nr); nti=zeros(nl,nm,nr); npr=zeros(nl,nm,nr); npi=zeros(nl,nm,nr)
-        # Stage-2 gate: gpu_magnetic_nonlinear! routes through the GPU vector
-        # transforms, which are not yet ported to the solenoidal P convention
-        # and refuse loudly (src/gpu/vector_transform.jl). The manual-chain
-        # parity asserts that lived here return when the GPU port lands.
-        @test_throws ErrorException GeoDynamo.gpu_magnetic_nonlinear!(
+        GeoDynamo.gpu_magnetic_nonlinear!(
             ntr,nti, npr,npi, btr,bti, bpr,bpi, u_r,u_θ,u_φ,
             cfg, d1, d2, lfac, rinv, rinv2, rscale, cfg.lmax, bw)
+
+        arch = CPU()
+        spec(a, b) = GeoDynamo.GPUSpectralField{eltype(a), typeof(a)}(cfg, size(a,1), size(a,2), size(a,3), a, b)
+        ph() = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfg, nr)
+        Br=ph(); Bθ=ph(); Bφ=ph()
+        GeoDynamo.gpu_vector_spectral_to_physical!(
+            Br,Bθ,Bφ, spec(btr,bti), spec(bpr,bpi), cfg, d1, lfac, rinv, rinv2, bw)
+        ubr=ph(); ubθ=ph(); ubφ=ph()
+        GeoDynamo.gpu_cross!(ubr.data,ubθ.data,ubφ.data, u_r,u_θ,u_φ, Br.data,Bθ.data,Bφ.data, 1.0)
+        wtr=zeros(nl,nm,nr); wti=zeros(nl,nm,nr); wpr=zeros(nl,nm,nr); wpi=zeros(nl,nm,nr)
+        GeoDynamo.gpu_vector_physical_to_spectral!(spec(wtr,wti), spec(wpr,wpi), ubθ,ubφ, cfg)
+        rtr=zeros(nl,nm,nr); rti=zeros(nl,nm,nr); rpr=zeros(nl,nm,nr); rpi=zeros(nl,nm,nr)
+        GeoDynamo.gpu_scalar_physical_to_spectral!(spec(rtr,rti), ubr, cfg)
+        GeoDynamo.gpu_induction_curl_potentials!(
+            rtr,rti,rpr,rpi, wpr,wpi,wtr,wti, d1,rinv,bw)
+
+        @test ntr == rtr
+        @test nti == rti
+        @test npr == rpr
+        @test npi == rpi
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5h gate) [GPU-BOX]" begin

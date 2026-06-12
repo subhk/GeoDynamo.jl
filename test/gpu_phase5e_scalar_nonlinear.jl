@@ -27,9 +27,13 @@ MPI.Initialized() || MPI.Init()
         nl_r = zeros(nl,nm,nr); nl_i = zeros(nl,nm,nr)
         GeoDynamo.gpu_scalar_nonlinear!(nl_r, nl_i, s_r, s_i, u_r, u_θ, u_φ, cfg, d1, mvals, rinv, cfg.lmax, bw)
 
-        # manual reference: the same kernels, same order
-        gr_r=zeros(nl,nm,nr); gr_i=zeros(nl,nm,nr); gt_r=zeros(nl,nm,nr); gt_i=zeros(nl,nm,nr); gp_r=zeros(nl,nm,nr); gp_i=zeros(nl,nm,nr)
-        GeoDynamo.gpu_scalar_gradient!(gr_r,gr_i, gt_r,gt_i, gp_r,gp_i, s_r,s_i, d1, mvals, rinv, cfg.lmax, bw)
+        # manual reference: the same kernels, same order. Tangential gradients
+        # use the EXACT sphtor route (S = scalar, T = 0 → (∂θf, (1/sinθ)∂φf),
+        # ×1/r) matching gpu_scalar_nonlinear! and the CPU
+        # transform_field_and_gradients_to_physical!.
+        gr_r=zeros(nl,nm,nr); gr_i=zeros(nl,nm,nr)
+        GeoDynamo.gpu_batched_banded_matvec!(gr_r, s_r, d1, bw)
+        GeoDynamo.gpu_batched_banded_matvec!(gr_i, s_i, d1, bw)
         # Note: actual signatures are:
         #   gpu_scalar_spectral_to_physical!(phys, spec, config) — phys first
         #   gpu_scalar_physical_to_spectral!(spec, phys, config) — spec first
@@ -37,8 +41,13 @@ MPI.Initialized() || MPI.Init()
         mkphys() = GeoDynamo.allocate_gpu_physical_field(Float64, CPU(), cfg, nr)
         grP=mkphys(); gtP=mkphys(); gpP=mkphys()
         GeoDynamo.gpu_scalar_spectral_to_physical!(grP, mkspec(gr_r,gr_i), cfg)
-        GeoDynamo.gpu_scalar_spectral_to_physical!(gtP, mkspec(gt_r,gt_i), cfg)
-        GeoDynamo.gpu_scalar_spectral_to_physical!(gpP, mkspec(gp_r,gp_i), cfg)
+        for k in 1:nr
+            S_k = complex.(view(s_r, :, :, k), view(s_i, :, :, k))
+            T_k = zeros(ComplexF64, nl, nm)
+            gt, gp = GeoDynamo._vector_synth_sphtor(cfg.sht_config, S_k, T_k)
+            gtP.data[:, :, k] .= gt .* rinv[k]
+            gpP.data[:, :, k] .= gp .* rinv[k]
+        end
         adv = mkphys()
         GeoDynamo.gpu_scalar_advection!(adv.data, u_r, u_θ, u_φ, grP.data, gtP.data, gpP.data)
         advspec_r = zeros(nl,nm,nr); advspec_i = zeros(nl,nm,nr)

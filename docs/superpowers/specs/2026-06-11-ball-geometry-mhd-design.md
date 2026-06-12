@@ -228,6 +228,7 @@ Items 1–6 are CI tests; item 7 is a benchmark script + report.
 - **Concurrent sessions.** Repo receives commits/branch switches mid-work:
   scoped `git add` only, commit promptly, merge on diverge, never rebase.
 
+
 ## 11. Status (2026-06-12) — IMPLEMENTED + BENCHMARK-VALIDATED
 
 All plan tasks complete on `feat/ball-geometry-mhd` (base `0f103d0`, 14 commits
@@ -271,3 +272,4 @@ gates), exit 0.
 - Marti script diagnostics are single-rank (guarded, returns NaN multi-rank).
 - §7's "outer-only Green column" sentence was superseded by the mixed-2×2
   design in §5 (both timesteppers use it).
+

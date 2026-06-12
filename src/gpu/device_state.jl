@@ -125,6 +125,40 @@ function _build_influence_pack(st, nl::Int, nr::Int, ::Type{T}) where {T}
     return (; Gre_b, invG_b)
 end
 
+# Stage-4B poloidal W-split operators packed per degree (slot l+1), mirroring
+# PoloidalSplitMatrices (state.jl) for the batched GPU step:
+#   dpol/wlin: per-l banded operators (2bw+1, nr, nl)
+#   wlu/plu:   per-l banded LU factors (same layout, BandedLU.lu payload)
+#   h1/h2:     no-slip influence Green responses, (nl, nr) so a zero-copy
+#              reshape to (nl, 1, nr) broadcasts against (nl, nm) corrections
+#   M:         2×2 endpoint-influence matrices, (2, 2, nl)
+#   d1_inner/d1_outer: endpoint first-derivative residual rows (length nr)
+function _build_wsplit_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {T}
+    velocity_bc = _velocity_bc_code(st.parameters.velocity_bcs)
+    split = _get_or_build_poloidal_split!(st, velocity_bc)
+    split_bw = split.dpol_op[1].bandwidth
+    split_bw == bw || error(
+        "W-split bandwidth $split_bw ≠ velocity operator bandwidth $bw")
+    dpol = zeros(T, 2bw + 1, nr, nl); wlin = zeros(T, 2bw + 1, nr, nl)
+    wlu = zeros(T, 2bw + 1, nr, nl); plu = zeros(T, 2bw + 1, nr, nl)
+    h1 = zeros(T, nl, nr); h2 = zeros(T, nl, nr)
+    M = zeros(T, 2, 2, nl)
+    for (i, l) in enumerate(split.l_values)
+        s = l + 1
+        s <= nl || continue
+        dpol[:, :, s] .= split.dpol_op[i].data
+        wlin[:, :, s] .= split.w_linear[i].data
+        wlu[:, :, s] .= split.w_factor[i].lu
+        plu[:, :, s] .= split.p_factor[i].lu
+        h1[s, :] .= split.h1[i]
+        h2[s, :] .= split.h2[i]
+        M[:, :, s] .= split.influence[i]
+    end
+    return (; dpol, wlin, wlu, plu, h1, h2, M,
+        d1_inner = Vector{T}(split.d1_row_inner),
+        d1_outer = Vector{T}(split.d1_row_outer))
+end
+
 """
     build_gpu_solver_state(cpu_state) -> NamedTuple
 
@@ -167,7 +201,7 @@ function build_gpu_solver_state(st)
     rinv = T[dom.r[k, 3] for k in 1:nr]
     rinv2 = T[dom.r[k, 2] for k in 1:nr]
     r_vec = T[dom.r[k, 4] for k in 1:nr]
-    rscale = copy(rinv)                       # 1/r scaling for v_r; lfac=l(l+1) multiplied at the call site
+    rscale = copy(rinv)                       # legacy operator-bundle field; Stage-2 vector synthesis uses rinv/rinv2 directly
     sinθ = T[vel.coriolis_factors[1, i] for i in 1:cfg.nlat]
     cosθ = T[vel.coriolis_factors[2, i] for i in 1:cfg.nlat]
     mvals = T[m for m in 0:cfg.mmax]
@@ -220,6 +254,7 @@ function build_gpu_solver_state(st)
                   sbundle(cmp_, cmp_.spectral, cmp_.prev_nonlinear, :composition)
 
     influence = _build_influence_pack(st, nl, nr, T)
+    wsplit = _build_wsplit_pack(st, nl, nr, bw, T)
 
     # NOTE: d1/d2/lfac/rinv/rinv2/rscale are SHARED (same backing array) across
     # nlops_vel, nlops_mag, and the top-level d1/rinv fields — safe because
@@ -235,7 +270,7 @@ function build_gpu_solver_state(st)
         config = cfg, lmax = cfg.lmax, bw = bw, linear_weight = linw,
         nlops_vel = (; d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E = T(p.Ek)),
         nlops_mag = (; d1, d2, lfac, rinv, rinv2, rscale),
-        influence = influence,
+        influence = influence, wsplit = wsplit,
         d1 = d1, mvals = mvals, rinv = rinv, r_vec = r_vec,
         thermal_factor = T((p.Pm / p.Pr) * p.Ra),
         comp_factor = T((p.Pm / p.Sc) * p.RaC),
@@ -246,6 +281,7 @@ function build_gpu_solver_state(st)
         inv_dt_comp = T((p.Pm / p.Sc) / p.timestep),
         velocity = velocity, magnetic = magnetic,
         temperature = temperature, composition = composition,
+        work = GPUWorkspace(),
         T_phys = T_phys, C_phys = C_phys,
         B_r = Bp[1], B_θ = Bp[2], B_φ = Bp[3],
         J_r = Jp[1], J_θ = Jp[2], J_φ = Jp[3])
@@ -255,7 +291,11 @@ end
 # NamedTuples element-wise (preserving keys), everything else (scalars, config,
 # nothing, Symbols) passes through unchanged.
 function _to_device(x, arch)
-    if x isa AbstractArray
+    if x isa GPUWorkspace
+        # scratch pools are backend-specific; reset so buffers are recreated
+        # lazily on the destination backend
+        return GPUWorkspace()
+    elseif x isa AbstractArray
         return on_architecture(arch, x)
     elseif x isa NamedTuple
         return map(v -> _to_device(v, arch), x)

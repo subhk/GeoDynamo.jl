@@ -500,21 +500,24 @@ export gpu_pack_inner_core, gpu_inner_core_history_flux!, gpu_reconstruct_inner_
 export gpu_magnetic_field_step!
 export gpu_solver_step!
 export build_gpu_solver_state, cpu_spectral_to_dense, gpu_to_device
+export build_gpu_erk2_state, gpu_erk2_solver_step!
 export dense_to_cpu_spectral!, sync_gpu_state_to_cpu!
 export gpu_run!
 export SphericalShellGrid, SphericalBallGrid
 export NoSlip, StressFree, FixedTemperature, FixedFlux
+export ValueBoundaryCondition, FluxBoundaryCondition, FieldBoundaryConditions
 export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
 export Clock
 export GeodynamoModel
 export fields, prognostic_fields
 export Simulation, run!, time_step!, add_callback!
 export AbstractTimestepper, CNAB2, EAB2, ERK2, ETD, ThetaMethod
-export TimeInterval, IterationInterval, WallTimeInterval
+export TimeInterval, IterationInterval, WallTimeInterval, SpecifiedTimes
 export FieldWriter, CheckpointWriter
 export RandomPerturbation, AnalyticIC, FileIC, ZeroIC
 export set_initial_condition!, set!
 export Callback, EnergyDiagnostics, SolenoidalMonitor, SimulationProgress, HealthCheck
+export prettytime, prettysummary
 
 # ================================================================================
 # Centralized Numerical Tolerance Constants
@@ -536,6 +539,7 @@ rcond_fallback_tol(::Type{T}) where {T} = sqrt(eps(T))
 # Architecture type hierarchy — must be first so all subsequent includes can use AbstractArchitecture
 include("core/architecture.jl")
 include("gpu/device.jl")
+include("gpu/workspace.jl")
 include("gpu/fields.jl")
 include("gpu/scalar_transform.jl")
 include("gpu/nonlinear.jl")
@@ -628,6 +632,8 @@ include("gpu/magnetic_step.jl")
 include("gpu/solver_step.jl")
 include("gpu/device_state.jl")
 include("gpu/run.jl")
+include("gpu/erk2_state.jl")
+include("gpu/erk2_step.jl")
 include("api/clock.jl")
 include("api/model.jl")
 include("api/initial_conditions.jl")
@@ -636,6 +642,7 @@ include("api/fields.jl")
 include("api/callbacks.jl")
 include("api/output_writers.jl")
 include("api/simulation.jl")
+include("api/units.jl")
 include("api/show.jl")
 # Import all Ball exports into GeoDynamo namespace
 using .GeoDynamoBall
