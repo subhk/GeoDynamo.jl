@@ -132,6 +132,35 @@ end
         @test isapprox(ci, gst.velocity.tor.spec_i; atol = 1e-10, rtol = 1e-10)
     end
 
+    @testset "gpu_run!(::SolverState) CPU continuation after sync [LOCAL]" begin
+        # After gpu_run!(st, N), the CPU state must be fully coherent for further
+        # CPU stepping: spectral fields, CNAB2 prev_nl histories, AND the lagged
+        # physical buffers (T/C/B/J) all synced. One more solver_step! on the
+        # handed-off state must match a pure-CPU trajectory of the same length.
+        stA = build_small_cpu_state(); GeoDynamo.solver_step!(stA)   # GPU handoff path
+        stB = build_small_cpu_state(); GeoDynamo.solver_step!(stB)   # pure-CPU reference
+        GeoDynamo.gpu_run!(stA, NSTEPS)
+        for _ in 1:NSTEPS
+            GeoDynamo.solver_step!(stB)
+        end
+        GeoDynamo.solver_step!(stA)                                  # CPU continuation
+        GeoDynamo.solver_step!(stB)
+        cfg = stA.backend.shtns_config
+        nr = stA.runtime.outer_core_domain.N
+        for (fa, fb) in [
+                (stA.fields.temperature.spectral, stB.fields.temperature.spectral),
+                (stA.fields.velocity.toroidal,    stB.fields.velocity.toroidal),
+                (stA.fields.velocity.poloidal,    stB.fields.velocity.poloidal),
+                (stA.fields.magnetic.toroidal,    stB.fields.magnetic.toroidal),
+                (stA.fields.magnetic.poloidal,    stB.fields.magnetic.poloidal),
+                (stA.fields.composition.spectral, stB.fields.composition.spectral)]
+            ar, ai = GeoDynamo.cpu_spectral_to_dense(fa, cfg, nr, Float64)
+            br, bi = GeoDynamo.cpu_spectral_to_dense(fb, cfg, nr, Float64)
+            @test isapprox(ar, br; atol = 1e-8, rtol = 1e-6)
+            @test isapprox(ai, bi; atol = 1e-8, rtol = 1e-6)
+        end
+    end
+
     @testset "dense_to_cpu_spectral! roundtrip + sync_gpu_state_to_cpu! [LOCAL]" begin
         st = build_small_cpu_state(); GeoDynamo.solver_step!(st)
         cfg = st.backend.shtns_config; nr = st.runtime.outer_core_domain.N

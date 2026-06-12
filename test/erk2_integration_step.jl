@@ -42,11 +42,11 @@ using MPI
         stop_iteration = 5,
         include_magnetic = true,
         include_composition = true,
-        timestepper = GeoDynamo.ERK2(),
+        timestepper = GeoDynamo.ExponentialRungeKutta2(),
         topography_enabled = false,
         stefan_enabled = false
     )
-    @test params.timestepper isa GeoDynamo.ERK2
+    @test params.timestepper isa GeoDynamo.ExponentialRungeKutta2
     @test params.include_magnetic == true
     @test params.include_composition == true
 

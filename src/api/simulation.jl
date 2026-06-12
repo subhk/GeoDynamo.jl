@@ -21,7 +21,7 @@ mutable struct Simulation{M, C, O}
     output_writers::O
     _wall_start::Float64
     _gpu_state::Any         # cached device-state bundle (built lazily)
-    _gpu_erk2::Any          # cached ERK2 operator pack (ERK2 timestepper only)
+    _gpu_erk2::Any          # cached ExponentialRungeKutta2 operator pack
     _gpu_dt::Float64        # dt baked into _gpu_state (rebuild on change)
 end
 
@@ -108,7 +108,8 @@ passing both, neither, or a non-positive value throws an `ArgumentError`.
 `gpu` selects the dense device-state stepping path (`gpu_solver_step!` with a
 cached bundle): `:auto` (default) uses it when the model lives on a GPU
 architecture, `true` forces it (also valid on the CPU/Array backend), `false`
-disables it. The path supports CNAB2 and ERK2 (insulating magnetic) — other
+disables it. The path supports CNAB2, ExponentialRungeKutta2, and RungeKutta3
+(insulating magnetic) — other
 configurations warn once and use the standard CPU stepping. The first step
 (and the first after a `Δt` change) runs on the CPU to bootstrap the CNAB2
 history; the host state is re-synced after every device step so callbacks,
@@ -234,8 +235,8 @@ end
 # Resolve the `gpu` Simulation kwarg: `:auto` enables the dense device-state
 # stepping path when the model lives on a GPU architecture; `true` forces it
 # (also useful on the CPU/Array backend); `false` disables it. The device path
-# supports CNAB2 and ERK2 (insulating magnetic) — anything else warns and falls back to
-# the standard CPU stepping.
+# supports CNAB2, ExponentialRungeKutta2, and RungeKutta3 (insulating magnetic) — anything else warns and
+# falls back to the standard CPU stepping.
 function _resolve_gpu_stepping(gpu, model, timestepper)
     resolved = if gpu === :auto
         model.state.backend.architecture isa GPU
@@ -245,8 +246,8 @@ function _resolve_gpu_stepping(gpu, model, timestepper)
         throw(ArgumentError("Simulation: gpu must be true, false, or :auto (got $gpu)"))
     end
     resolved || return false
-    if !(timestepper isa CNAB2 || timestepper isa ERK2)
-        @warn "Simulation: the GPU stepping path supports CNAB2 and ERK2 only; " *
+    if !(timestepper isa CNAB2 || timestepper isa ExponentialRungeKutta2 || timestepper isa RungeKutta3)
+        @warn "Simulation: the GPU stepping path supports CNAB2, ExponentialRungeKutta2, and RungeKutta3 only; " *
               "using the CPU path" timestepper
         return false
     end
@@ -316,7 +317,7 @@ function _gpu_time_step!(sim::Simulation)
     if sim._gpu_state === nothing || sim._gpu_dt != sim.dt
         time_step!(model, sim.dt)               # CPU bootstrap step
         gst = build_gpu_solver_state(state)
-        erk = state.parameters.timestepper isa ERK2 ? build_gpu_erk2_state(state) : nothing
+        erk = state.parameters.timestepper isa ExponentialRungeKutta2 ? build_gpu_erk2_state(state) : nothing
         arch = state.backend.architecture
         if !(arch isa CPU)
             gst = gpu_to_device(gst, arch)
@@ -327,10 +328,12 @@ function _gpu_time_step!(sim::Simulation)
         sim._gpu_dt = sim.dt
         return sim
     end
-    if sim._gpu_erk2 === nothing
-        gpu_solver_step!(sim._gpu_state)
-    else
+    if state.parameters.timestepper isa ExponentialRungeKutta2
         gpu_erk2_solver_step!(sim._gpu_state, sim._gpu_erk2)
+    elseif state.parameters.timestepper isa RungeKutta3
+        gpu_cb3_solver_step!(sim._gpu_state)
+    else
+        gpu_solver_step!(sim._gpu_state)
     end
     sync_gpu_state_to_cpu!(state, sim._gpu_state)
     state.step += 1

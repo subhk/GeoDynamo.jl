@@ -499,6 +499,7 @@ export gpu_velocity_field_step!
 export gpu_pack_inner_core, gpu_inner_core_history_flux!, gpu_reconstruct_inner_core!
 export gpu_magnetic_field_step!
 export gpu_solver_step!
+export gpu_cb3_solver_step!
 export build_gpu_solver_state, cpu_spectral_to_dense, gpu_to_device
 export dense_to_cpu_spectral!, sync_gpu_state_to_cpu!
 export gpu_run!
@@ -510,7 +511,11 @@ export Clock
 export GeodynamoModel
 export fields, prognostic_fields
 export Simulation, run!, time_step!, add_callback!
-export AbstractTimestepper, CNAB2, EAB2, ERK2, ETD, ThetaMethod
+export AbstractTimestepper, CNAB2,
+       ExponentialAdamsBashforth2, EAB2,
+       ExponentialRungeKutta2, ERK2,
+       RungeKutta3, CB3,
+       ETD, ThetaMethod
 export TimeInterval, IterationInterval, WallTimeInterval, SpecifiedTimes
 export FieldWriter, CheckpointWriter
 export RandomPerturbation, AnalyticIC, FileIC, ZeroIC
@@ -632,6 +637,7 @@ include("gpu/device_state.jl")
 include("gpu/run.jl")
 include("gpu/erk2_state.jl")
 include("gpu/erk2_step.jl")
+include("gpu/cb3_step.jl")
 include("api/clock.jl")
 include("api/model.jl")
 include("api/initial_conditions.jl")

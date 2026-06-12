@@ -177,7 +177,7 @@ For simulations with a solid, electrically conducting inner core:
 
     **Scope (current implementation):** equal conductivity `σ_ic = σ_oc`; inner core
     co-rotating with the frame (no differential rotation / advection); `CNAB2`
-    timestepper only (conducting + `EAB2` raises an error). Variable
+    timestepper only (conducting + `ExponentialAdamsBashforth2` raises an error). Variable
     `inner_core_conductivity_ratio` and inner-core rotation are not yet wired into
     the magnetic solve. Design + scope rationale:
     `docs/superpowers/specs/2026-05-26-conducting-inner-core-design.md`.

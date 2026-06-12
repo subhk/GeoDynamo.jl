@@ -155,7 +155,7 @@ end
         return state
     end
     sC = run10(GeoDynamo.CNAB2())
-    sE = run10(GeoDynamo.ERK2())
+    sE = run10(GeoDynamo.ExponentialRungeKutta2())
     # both schemes are 2nd order on the same equations: trajectories agree to
     # scheme-difference accuracy (not bit-exact)
     pC = parent(sC.fields.velocity.poloidal.data_real)

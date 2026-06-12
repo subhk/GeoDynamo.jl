@@ -136,7 +136,7 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{
             domain = runtime.outer_core_domain,
             work = radial_work
         )
-    elseif timestepper isa EAB2
+    elseif timestepper isa ExponentialAdamsBashforth2
         alu_map = (state.timestep_caches.etd_velocity_toroidal::EAB2CacheEntry{T}).map
         radial_work = get_radial_work!(
             state.timestep_caches,

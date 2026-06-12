@@ -15,7 +15,7 @@ function build_small_erk2_state()
         radial_bandwidth = 3, radius_ratio = 0.35,
         Ek = 1e-3, Ra = 1e5, Pm = 1.0, Pr = 1.0, timestep = 1e-4,
         include_magnetic = true, include_composition = true,
-        timestepper = GeoDynamo.ERK2(),
+        timestepper = GeoDynamo.ExponentialRungeKutta2(),
         temperature_bcs = GeoDynamo.BoundaryConditions(
             inner = GeoDynamo.FixedTemperature(0.0), outer = GeoDynamo.FixedTemperature(0.0)),
         composition_bcs = GeoDynamo.BoundaryConditions(
@@ -78,7 +78,7 @@ end
             radial_bandwidth = 3, radius_ratio = 0.35,
             Ek = 1e-3, Ra = 1e5, Pm = 1.0, Pr = 1.0, timestep = 1e-4,
             include_magnetic = false, include_composition = false,
-            timestepper = GeoDynamo.ERK2(),
+            timestepper = GeoDynamo.ExponentialRungeKutta2(),
             temperature_bcs = GeoDynamo.BoundaryConditions(
                 inner = GeoDynamo.FixedTemperature(0.0), outer = GeoDynamo.FixedTemperature(0.0)))
         st = GeoDynamo.initialize_solver_state(Float64; params = params)

@@ -23,14 +23,20 @@ MPI.Initialized() || MPI.Init()
         @test GeoDynamo._timestepper_implicit_theta(GeoDynamo.ThetaMethod(theta = 0.25), nothing) == 0.25
         @test GeoDynamo._timestepper_scheme(GeoDynamo.ThetaMethod()) === :theta
 
-        # EAB2 / ETD krylov accessors
-        @test GeoDynamo._timestepper_krylov_dimension(GeoDynamo.EAB2(krylov_dimension = 15), nothing) == 15
-        @test GeoDynamo._timestepper_krylov_tolerance(GeoDynamo.EAB2(tolerance = 1e-6), nothing) == 1e-6
+        # Canonical long timestepper names and compatibility aliases.
+        @test GeoDynamo.EAB2 === GeoDynamo.ExponentialAdamsBashforth2
+        @test GeoDynamo.ERK2 === GeoDynamo.ExponentialRungeKutta2
+        @test GeoDynamo.CB3 === GeoDynamo.RungeKutta3
+
+        # ExponentialAdamsBashforth2 / ETD krylov accessors
+        @test GeoDynamo._timestepper_krylov_dimension(GeoDynamo.ExponentialAdamsBashforth2(krylov_dimension = 15), nothing) == 15
+        @test GeoDynamo._timestepper_krylov_tolerance(GeoDynamo.ExponentialAdamsBashforth2(tolerance = 1e-6), nothing) == 1e-6
         @test GeoDynamo._timestepper_krylov_dimension(GeoDynamo.ETD(krylov_dimension = 12), nothing) == 12
         @test GeoDynamo._timestepper_krylov_tolerance(GeoDynamo.ETD(tolerance = 1e-7), nothing) == 1e-7
-        @test GeoDynamo._timestepper_scheme(GeoDynamo.EAB2()) === :eab2
+        @test GeoDynamo._timestepper_scheme(GeoDynamo.ExponentialAdamsBashforth2()) === :eab2
         @test GeoDynamo._timestepper_scheme(GeoDynamo.ETD()) === :etd
-        @test GeoDynamo._timestepper_scheme(GeoDynamo.ERK2()) === :erk2
+        @test GeoDynamo._timestepper_scheme(GeoDynamo.ExponentialRungeKutta2()) === :erk2
+        @test GeoDynamo._timestepper_scheme(GeoDynamo.RungeKutta3()) === :cb3
 
         # generic fallback accessors (non-krylov / non-theta schemes)
         @test GeoDynamo._timestepper_krylov_dimension(GeoDynamo.CNAB2(), nothing) == 20
@@ -38,12 +44,15 @@ MPI.Initialized() || MPI.Init()
 
         # _timestepper_from_scheme for every scheme + unknown
         eab = GeoDynamo._timestepper_from_scheme(:eab2, nothing, 15, 1e-7)
-        @test eab isa GeoDynamo.EAB2 && eab.krylov_dimension == 15 && eab.tolerance == 1e-7
+        @test eab isa GeoDynamo.ExponentialAdamsBashforth2 &&
+              eab.krylov_dimension == 15 &&
+              eab.tolerance == 1e-7
         etd = GeoDynamo._timestepper_from_scheme(:etd, nothing, 12, 1e-6)
         @test etd isa GeoDynamo.ETD && etd.krylov_dimension == 12 && etd.tolerance == 1e-6
         @test GeoDynamo._timestepper_from_scheme(:theta, 0.3, nothing, nothing).theta == 0.3
         @test GeoDynamo._timestepper_from_scheme(:cnab2, 0.7, nothing, nothing).implicit_theta == 0.7
-        @test GeoDynamo._timestepper_from_scheme(:erk2, nothing, nothing, nothing) isa GeoDynamo.ERK2
+        @test GeoDynamo._timestepper_from_scheme(:erk2, nothing, nothing, nothing) isa GeoDynamo.ExponentialRungeKutta2
+        @test GeoDynamo._timestepper_from_scheme(:cb3, nothing, nothing, nothing) isa GeoDynamo.RungeKutta3
         @test_throws ArgumentError GeoDynamo._timestepper_from_scheme(:bogus, nothing, nothing, nothing)
     end
 

@@ -78,13 +78,6 @@ function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
     #    2×2 influence correction (kernel-wiring tests; NOT CPU-parity).
     rp_r = similar(pol.spec_r); rp_i = similar(pol.spec_i)     # Phase-6: workspace
 
-    # rp ≠ pol.spec is REQUIRED — build_rhs reads pol.spec as input (ORDERING INVARIANT).
-    gpu_build_rhs_cnab2!(rp_r, rp_i, pol.spec_r, pol.spec_i, nlp_r, nlp_i,
-        pol.prev_nl_r, pol.prev_nl_i, pol.lin, inv_dt, linear_weight, bw)
-    gpu_implicit_solve_field!(rp_r, rp_i, pol.lu,
-        pol.bc_in_r, pol.bc_in_i, pol.bc_out_r, pol.bc_out_i, bw)
-    gpu_velocity_poloidal_influence_correction!(rp_r, rp_i, influence.Gre_b, influence.invG_b)
-  
     if wsplit !== nothing
         gpu_poloidal_wsplit_advance!(rp_r, pol.spec_r, nlp_r, pol.prev_nl_r,
             wsplit, inv_dt, linear_weight, bw)

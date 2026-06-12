@@ -5,7 +5,7 @@ using Test
         params = GeoDynamo.SolverParameters(
             nr = 128, lmax = 64, mmax = 64, nlat = 128, nlon = 256,
             Ra = 1e8, Ek = 1e-5, Pr = 0.5, Pm = 2.0,
-            timestep = 5e-5, timestepper = GeoDynamo.ERK2(),
+            timestep = 5e-5, timestepper = GeoDynamo.ExponentialRungeKutta2(),
             geometry = :shell, radius_ratio = 0.35,
             velocity_bcs = GeoDynamo.BoundaryConditions(
                 inner = GeoDynamo.NoSlip(),
@@ -27,7 +27,7 @@ using Test
             @test loaded.Pr == params.Pr
             @test loaded.Pm == params.Pm
             @test loaded.timestep == params.timestep
-            @test loaded.timestepper isa GeoDynamo.ERK2
+            @test loaded.timestepper isa GeoDynamo.ExponentialRungeKutta2
             @test loaded.velocity_bcs isa typeof(params.velocity_bcs)
             @test loaded.geometry == params.geometry
             @test loaded.radius_ratio == params.radius_ratio

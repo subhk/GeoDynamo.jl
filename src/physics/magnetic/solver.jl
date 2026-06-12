@@ -322,9 +322,9 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{
             prev_bc_inner_imag = inner_bc === nothing ? nothing : inner_bc[4],
             work = radial_work
         )
-    elseif timestepper isa EAB2
+    elseif timestepper isa ExponentialAdamsBashforth2
         if inner_bc !== nothing
-            throw(ArgumentError("CONTINUITY_MAG toroidal magnetic inner-boundary increments are not implemented for EAB2() timestepping"))
+            throw(ArgumentError("CONTINUITY_MAG toroidal magnetic inner-boundary increments are not implemented for ExponentialAdamsBashforth2() timestepping"))
         end
         alu_map = (state.timestep_caches.etd_magnetic_toroidal::EAB2CacheEntry{T}).map
         radial_work = get_radial_work!(
@@ -438,7 +438,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{
             :poloidal,
             work = radial_work
         )
-    elseif timestepper isa EAB2
+    elseif timestepper isa ExponentialAdamsBashforth2
         alu_map = (state.timestep_caches.etd_magnetic_poloidal::EAB2CacheEntry{T}).map
         radial_work = get_radial_work!(
             state.timestep_caches,
