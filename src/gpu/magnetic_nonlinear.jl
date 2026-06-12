@@ -3,7 +3,7 @@
 # Mirrors the CPU Stage-4 induction projection: E = u×B is not solenoidal, so
 # raw tangential analysis gives (S_E,T_E), scalar analysis of E_r gives Q_E, and
 # the curl potentials are T = -(Q_E - ∂r(r*S_E))/r, P = -r*T_E.
-# (Per-call scratch — Phase-6 may cache. Inner-core rotation coupling deferred.)
+# (Scratch pooled via GPUWorkspace when `ws` is supplied. Inner-core rotation coupling deferred.)
 # =============================================================================
 
 function gpu_induction_curl_potentials!(

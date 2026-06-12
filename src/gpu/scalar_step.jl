@@ -3,7 +3,7 @@
 # pieces: nonlinear (5e) → RHS (5c) → implicit solve (5d) → field update +
 # nl_prev rollover.  Mirrors apply_temperature_implicit_update! + the CNAB2
 # history rollover (temperature/solver.jl:121-208).  Runs on Array (locally
-# testable) and CuArray.  (Per-call scratch — Phase-6 may cache.)
+# testable) and CuArray.  (Scratch is pooled via GPUWorkspace when `ws` is supplied.)
 # =============================================================================
 
 """
@@ -31,7 +31,7 @@ function gpu_scalar_field_step!(spec_r, spec_i, prev_nl_r, prev_nl_i, u_r, u_θ,
     rhs_r = gpu_scratch!(ws, Symbol(tag, :_rr), spec_r)
     rhs_i = gpu_scratch!(ws, Symbol(tag, :_ri), spec_i)
     gpu_build_rhs_cnab2!(rhs_r, rhs_i, spec_r, spec_i, nl_r, nl_i, prev_nl_r, prev_nl_i,
-                         lin_batched, inv_dt, linear_weight, bw)
+                         lin_batched, inv_dt, linear_weight, bw; ws, tag = Symbol(tag, :_rhs))
     # 3. implicit solve (BC rows + batched solve, in-place → solution in rhs) (5d)
     gpu_implicit_solve_field!(rhs_r, rhs_i, lu_batched, bc_in_r, bc_in_i, bc_out_r, bc_out_i, bw)
     # ⚠️ ORDERING INVARIANT: build_rhs (step 2) reads the OLD spec; the solve (step 3) writes

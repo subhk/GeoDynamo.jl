@@ -15,7 +15,7 @@
 # reconstructed via gpu_reconstruct_inner_core! (5l) using the new outer-core
 # ICB value.  The CONTINUITY_MAG flag is superseded and ignored when ic is given.
 #
-# Runs on Array + CuArray.  (Per-call scratch — Phase-6 may cache.)
+# Runs on Array + CuArray.  (Scratch is pooled via GPUWorkspace when `ws` is supplied.)
 #
 # Bundles:  tor/pol :: (; spec_r, spec_i, prev_nl_r, prev_nl_i, lin, lu)
 #           nlops   :: (; d1, d2, lfac, rinv, rinv2, rscale)
@@ -80,8 +80,8 @@ function gpu_magnetic_field_step!(tor, pol, u_r, u_θ, u_φ, config, nlops,
     bcin_pol_r = gpu_scratch!(ws, :mstep_bipr, z); bcin_pol_i = gpu_scratch!(ws, :mstep_bipi, z)
     if ic !== nothing
         # conducting: φ0 supersedes the CONTINUITY_MAG increment (continuity_mag ignored).
-        gpu_inner_core_history_flux!(bcin_tor_r, bcin_tor_i, ic.tor_ic_r, ic.tor_ic_i, ic.tor_adm)
-        gpu_inner_core_history_flux!(bcin_pol_r, bcin_pol_i, ic.pol_ic_r, ic.pol_ic_i, ic.pol_adm)
+        gpu_inner_core_history_flux!(bcin_tor_r, bcin_tor_i, ic.tor_ic_r, ic.tor_ic_i, ic.tor_adm; ws)
+        gpu_inner_core_history_flux!(bcin_pol_r, bcin_pol_i, ic.pol_ic_r, ic.pol_ic_i, ic.pol_adm; ws)
     elseif continuity_mag
         @views bcin_tor_r .= .-nlp_r[:, :, 1] .+ pol.prev_nl_r[:, :, 1]
         @views bcin_tor_i .= .-nlp_i[:, :, 1] .+ pol.prev_nl_i[:, :, 1]
@@ -94,13 +94,13 @@ function gpu_magnetic_field_step!(tor, pol, u_r, u_θ, u_φ, config, nlops,
     # 3. toroidal CNAB2 RHS (5c) from OLD tor spec, then implicit solve (5d).
     rt_r = gpu_scratch!(ws, :mstep_rtr, tor.spec_r); rt_i = gpu_scratch!(ws, :mstep_rti, tor.spec_i)  # rt ≠ tor.spec — build_rhs reads tor.spec
     gpu_build_rhs_cnab2!(rt_r, rt_i, tor.spec_r, tor.spec_i, nlt_r, nlt_i,
-        tor.prev_nl_r, tor.prev_nl_i, tor.lin, inv_dt, linear_weight, bw)
+        tor.prev_nl_r, tor.prev_nl_i, tor.lin, inv_dt, linear_weight, bw; ws, tag = :mrhs_t)
     gpu_implicit_solve_field!(rt_r, rt_i, tor.lu, bcin_tor_r, bcin_tor_i, z, z, bw)
 
     # 4. poloidal CNAB2 RHS (5c) from OLD pol spec, implicit solve (5d).
     rp_r = gpu_scratch!(ws, :mstep_rpr, pol.spec_r); rp_i = gpu_scratch!(ws, :mstep_rpi, pol.spec_i)  # rp ≠ pol.spec — build_rhs reads pol.spec
     gpu_build_rhs_cnab2!(rp_r, rp_i, pol.spec_r, pol.spec_i, nlp_r, nlp_i,
-        pol.prev_nl_r, pol.prev_nl_i, pol.lin, inv_dt, linear_weight, bw)
+        pol.prev_nl_r, pol.prev_nl_i, pol.lin, inv_dt, linear_weight, bw; ws, tag = :mrhs_p)
     gpu_implicit_solve_field!(rp_r, rp_i, pol.lu, bcin_pol_r, bcin_pol_i, z, z, bw)
 
     # 5. update the fields (AFTER every read of old spec / old pol.prev_nl — ORDERING INVARIANT).
@@ -115,8 +115,8 @@ function gpu_magnetic_field_step!(tor, pol, u_r, u_θ, u_φ, config, nlops,
         gp_r = pol.spec_r[:, :, 1]; gp_i = pol.spec_i[:, :, 1]
         nic_tr = gpu_scratch!(ws, :mstep_ictr, ic.tor_ic_r); nic_ti = gpu_scratch!(ws, :mstep_icti, ic.tor_ic_i)
         nic_pr = gpu_scratch!(ws, :mstep_icpr, ic.pol_ic_r); nic_pi = gpu_scratch!(ws, :mstep_icpi, ic.pol_ic_i)
-        gpu_reconstruct_inner_core!(nic_tr, nic_ti, ic.tor_ic_r, ic.tor_ic_i, gt_r, gt_i, ic.tor_adm)
-        gpu_reconstruct_inner_core!(nic_pr, nic_pi, ic.pol_ic_r, ic.pol_ic_i, gp_r, gp_i, ic.pol_adm)
+        gpu_reconstruct_inner_core!(nic_tr, nic_ti, ic.tor_ic_r, ic.tor_ic_i, gt_r, gt_i, ic.tor_adm; ws)
+        gpu_reconstruct_inner_core!(nic_pr, nic_pi, ic.pol_ic_r, ic.pol_ic_i, gp_r, gp_i, ic.pol_adm; ws)
         ic.tor_ic_r .= nic_tr; ic.tor_ic_i .= nic_ti
         ic.pol_ic_r .= nic_pr; ic.pol_ic_i .= nic_pi
     end

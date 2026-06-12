@@ -45,7 +45,8 @@ hand the field straight to kernel wrappers, which are dispatch barriers.
     allocate_gpu_physical_field(T, arch, config, nr)
 @inline function gpu_scratch_phys!(ws::GPUWorkspace, key::Symbol, ::Type{T},
         arch, config, nr) where {T}
-    return get!(() -> allocate_gpu_physical_field(T, arch, config, nr), ws.pool, key)
+    f = get!(() -> allocate_gpu_physical_field(T, arch, config, nr), ws.pool, key)
+    return f::GPUPhysicalField{T}   # element type pinned; backing array via call-site barriers
 end
 
 """

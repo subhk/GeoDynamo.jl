@@ -16,7 +16,8 @@ _vector_anal_sphtor(cfg_sht, vt::AbstractMatrix, vp::AbstractMatrix) =
 
 # ── In-place per-level transforms (Array backend) ───────────────────────────
 # The host (Array) path routes through a pooled SHTPlan → allocation-free and
-# bit-identical to the functional calls (verified). Device arrays fall back to
+# numerically equivalent to the functional calls (sub-ulp: different FP
+# association inside SHTnsKit, ~1e-15 over a few steps). Device arrays fall back to
 # the functional SHTnsKit gpu path (no in-place GPU API; the CUDA pool manages
 # those allocations). With no workspace the functional path is used as well —
 # building an SHTPlan per call would cost more than it saves.

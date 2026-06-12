@@ -53,8 +53,8 @@ end
 # solve the boundary stencil row for the endpoint, with optional l-correction
 # and the l0-Dirichlet special case. Empty (l < m) modes are skipped.
 @kernel function _erk2_bc_kernel!(X, b::Int, kind::Int32, @Const(stencil),
-        r_inv, l_sign, use_l_corr::Bool, fixed_corr, l0_dir::Bool,
-        @Const(val), ptol, nr::Int)
+        r_inv::Float64, l_sign::Float64, use_l_corr::Bool, fixed_corr::Float64,
+        l0_dir::Bool, @Const(val), ptol::Float64, nr::Int)
     li, mi = @index(Global, NTuple)
     T = eltype(X)
     l = li - 1
@@ -130,17 +130,23 @@ function _gpu_erk2_recover_P!(P, V, wsplit, rec, Ek, bw::Int, ws, tag::Symbol; h
     Wv[:, :, 1] .= zero(T); Wv[:, :, nr] .= zero(T)
     Pt = gpu_scratch!(ws, Symbol(tag, :_Pt), P)
     gpu_batched_banded_solve!(Pt, Wv, wsplit.plu, bw)
-    rho1 = dropdims(sum(Pt .* reshape(wsplit.d1_inner, 1, 1, :); dims = 3); dims = 3)
-    rho2 = dropdims(sum(Pt .* reshape(wsplit.d1_outer, 1, 1, :); dims = 3); dims = 3)
+    nl_, nm_ = size(P, 1), size(P, 2)
+    rho1 = gpu_scratch!(ws, Symbol(tag, :_r1), P, (nl_, nm_))
+    rho2 = gpu_scratch!(ws, Symbol(tag, :_r2), P, (nl_, nm_))
+    dprod = gpu_scratch!(ws, Symbol(tag, :_dp), P)
+    dprod .= Pt .* reshape(wsplit.d1_inner, 1, 1, :)
+    sum!(reshape(rho1, nl_, nm_, 1), dprod)
+    dprod .= Pt .* reshape(wsplit.d1_outer, 1, 1, :)
+    sum!(reshape(rho2, nl_, nm_, 1), dprod)
     M = half ? rec.Mh : rec.Mf
     h1 = half ? rec.h1h : rec.h1f
     h2 = half ? rec.h2h : rec.h2f
-    M11 = reshape(M[1, 1, :], :, 1); M12 = reshape(M[1, 2, :], :, 1)
-    M21 = reshape(M[2, 1, :], :, 1); M22 = reshape(M[2, 2, :], :, 1)
-    det = @. M11 * M22 - M12 * M21
-    det = @. det + T(det == 0)
-    a1 = @. (-rho1 * M22 + rho2 * M12) / det
-    a2 = @. (-rho2 * M11 + rho1 * M21) / det
+    M11 = reshape(@view(M[1, 1, :]), :, 1); M12 = reshape(@view(M[1, 2, :]), :, 1)
+    M21 = reshape(@view(M[2, 1, :]), :, 1); M22 = reshape(@view(M[2, 2, :]), :, 1)
+    a1 = gpu_scratch!(ws, Symbol(tag, :_a1), P, (nl_, nm_))
+    a2 = gpu_scratch!(ws, Symbol(tag, :_a2), P, (nl_, nm_))
+    @. a1 = (-rho1 * M22 + rho2 * M12) / (M11 * M22 - M12 * M21 + T((M11 * M22 - M12 * M21) == 0))
+    @. a2 = (-rho2 * M11 + rho1 * M21) / (M11 * M22 - M12 * M21 + T((M11 * M22 - M12 * M21) == 0))
     h1r = reshape(h1, size(h1, 1), 1, nr)
     h2r = reshape(h2, size(h2, 1), 1, nr)
     @. P = Pt + a1 * h1r + a2 * h2r   # Pt local var (pooled buffer) — safe

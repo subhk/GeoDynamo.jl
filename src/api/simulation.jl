@@ -334,11 +334,7 @@ function _gpu_time_step!(sim::Simulation)
         sim._gpu_dt = sim.dt
         return sim
     end
-    if sim._gpu_erk2 === nothing
-        gpu_solver_step!(sim._gpu_state)
-    else
-        gpu_erk2_solver_step!(sim._gpu_state, sim._gpu_erk2)
-    end
+    _dispatch_gpu_step!(sim._gpu_state, sim._gpu_erk2)
     state.step += 1
     state.time += sim.dt
     sync_clock!(model.clock, state)        # counters are host-side — no device read
@@ -370,6 +366,12 @@ function _gpu_host_read_pending(sim::Simulation)
     end
     return false
 end
+
+# Function barrier: sim._gpu_state/_gpu_erk2 are ::Any slots; dispatching
+# through typed arguments here lets the step orchestrators specialize on the
+# concrete bundle NamedTuple instead of running under dynamic dispatch.
+_dispatch_gpu_step!(state, ::Nothing) = gpu_solver_step!(state)
+_dispatch_gpu_step!(state, erk2) = gpu_erk2_solver_step!(state, erk2)
 
 # Bring the host SolverState up to date with the device bundle (no-op when
 # already synced or when not on the GPU path).

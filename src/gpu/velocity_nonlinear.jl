@@ -56,7 +56,7 @@ matching the CPU accumulation order `thermal → compositional → Lorentz`:
 With no keywords (the defaults), the function is exactly the Phase-5g velocity-only path.
 All arrays (including `r_vec`, `sinθ`, `cosθ`) must live on the same backend (Array or
 CuArray); mixing host and device arrays errors at broadcast time.
-(Per-call scratch — Phase-6 may cache.)
+(Scratch is pooled via GPUWorkspace when `ws` is supplied.)
 """
 function gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, tor_i, pol_r, pol_i,
         config, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, lmax::Int, bw::Int;

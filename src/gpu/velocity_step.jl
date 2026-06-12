@@ -5,7 +5,7 @@
 # poloidal influence-matrix correction (5j) → field update + nl_prev rollover.
 # Mirrors apply_velocity_toroidal_implicit_update! + apply_velocity_poloidal_
 # implicit_update! + the CNAB2 history rollover.  No new kernels — pure
-# composition.  Runs on Array + CuArray.  (Per-call scratch — Phase-6 may cache.)
+# composition.  Runs on Array + CuArray.  (Scratch is pooled via GPUWorkspace when `ws` is supplied.)
 #
 # Per-component state is grouped into NamedTuple bundles `tor`/`pol` (mutated in
 # place through their array fields) to keep the argument list legible:
@@ -68,7 +68,7 @@ function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
     rt_r = gpu_scratch!(ws, :vstep_rtr, tor.spec_r); rt_i = gpu_scratch!(ws, :vstep_rti, tor.spec_i)
     # rt ≠ tor.spec is REQUIRED — build_rhs reads tor.spec as input (ORDERING INVARIANT).
     gpu_build_rhs_cnab2!(rt_r, rt_i, tor.spec_r, tor.spec_i, nlt_r, nlt_i,
-        tor.prev_nl_r, tor.prev_nl_i, tor.lin, inv_dt, linear_weight, bw)
+        tor.prev_nl_r, tor.prev_nl_i, tor.lin, inv_dt, linear_weight, bw; ws, tag = :vrhs_t)
     gpu_implicit_solve_field!(rt_r, rt_i, tor.lu,
         tor.bc_in_r, tor.bc_in_i, tor.bc_out_r, tor.bc_out_i, bw)
 
@@ -95,7 +95,7 @@ function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
     else
         # rp ≠ pol.spec is REQUIRED — build_rhs reads pol.spec as input (ORDERING INVARIANT).
         gpu_build_rhs_cnab2!(rp_r, rp_i, pol.spec_r, pol.spec_i, nlp_r, nlp_i,
-            pol.prev_nl_r, pol.prev_nl_i, pol.lin, inv_dt, linear_weight, bw)
+            pol.prev_nl_r, pol.prev_nl_i, pol.lin, inv_dt, linear_weight, bw; ws, tag = :vrhs_p)
         gpu_implicit_solve_field!(rp_r, rp_i, pol.lu,
             pol.bc_in_r, pol.bc_in_i, pol.bc_out_r, pol.bc_out_i, bw)
         gpu_velocity_poloidal_influence_correction!(rp_r, rp_i, influence.Gre_b, influence.invG_b)
@@ -152,14 +152,21 @@ function gpu_poloidal_wsplit_advance!(P_new, P, nlv, prev_nl, wsplit,
     Pp = gpu_scratch!(ws, Symbol(tag, :_Pp), P)
     gpu_batched_banded_solve!(Pp, Wp, wsplit.plu, bw)
     # endpoint first-derivative residuals, per (l,m)
-    rho1 = dropdims(sum(Pp .* reshape(wsplit.d1_inner, 1, 1, :); dims = 3); dims = 3)
-    rho2 = dropdims(sum(Pp .* reshape(wsplit.d1_outer, 1, 1, :); dims = 3); dims = 3)
-    M11 = reshape(wsplit.M[1, 1, :], :, 1); M12 = reshape(wsplit.M[1, 2, :], :, 1)
-    M21 = reshape(wsplit.M[2, 1, :], :, 1); M22 = reshape(wsplit.M[2, 2, :], :, 1)
-    det = @. M11 * M22 - M12 * M21
-    det = @. det + T(det == 0)             # unfilled degree slots → harmless 1
-    a1 = @. (-rho1 * M22 + rho2 * M12) / det
-    a2 = @. (-rho2 * M11 + rho1 * M21) / det
+    nl_, nm_ = size(P, 1), size(P, 2)
+    rho1 = gpu_scratch!(ws, Symbol(tag, :_r1), P, (nl_, nm_))
+    rho2 = gpu_scratch!(ws, Symbol(tag, :_r2), P, (nl_, nm_))
+    dprod = gpu_scratch!(ws, Symbol(tag, :_dp), P)
+    dprod .= Pp .* reshape(wsplit.d1_inner, 1, 1, :)
+    sum!(reshape(rho1, nl_, nm_, 1), dprod)
+    dprod .= Pp .* reshape(wsplit.d1_outer, 1, 1, :)
+    sum!(reshape(rho2, nl_, nm_, 1), dprod)
+    M11 = reshape(@view(wsplit.M[1, 1, :]), :, 1); M12 = reshape(@view(wsplit.M[1, 2, :]), :, 1)
+    M21 = reshape(@view(wsplit.M[2, 1, :]), :, 1); M22 = reshape(@view(wsplit.M[2, 2, :]), :, 1)
+    a1 = gpu_scratch!(ws, Symbol(tag, :_a1), P, (nl_, nm_))
+    a2 = gpu_scratch!(ws, Symbol(tag, :_a2), P, (nl_, nm_))
+    # det folded into the a-broadcasts; unfilled degree slots get det=0 → guard to 1
+    @. a1 = (-rho1 * M22 + rho2 * M12) / (M11 * M22 - M12 * M21 + T((M11 * M22 - M12 * M21) == 0))
+    @. a2 = (-rho2 * M11 + rho1 * M21) / (M11 * M22 - M12 * M21 + T((M11 * M22 - M12 * M21) == 0))
     h1 = reshape(wsplit.h1, size(wsplit.h1, 1), 1, nr)   # (nl, 1, nr), zero-copy
     h2 = reshape(wsplit.h2, size(wsplit.h2, 1), 1, nr)
     @. P_new = Pp + a1 * h1 + a2 * h2

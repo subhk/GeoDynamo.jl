@@ -17,7 +17,7 @@
 # `state` (NamedTuple) holds the per-field bundles, shared operators, coupling
 # factors, and the persistent physical buffers.  magnetic/composition optional
 # (nothing → skipped).  Per-field rollover (nl→prev_nl) happens inside each step.
-# Runs on Array + CuArray.  (Per-call scratch — Phase-6 may cache.  The velocity
+# Runs on Array + CuArray.  (Scratch pooled via GPUWorkspace (`state.work`).  The velocity
 # step recomputes u internally; redundant with the shared u but identical since
 # both synth the same OLD velocity.)  Device-state builder + GPU≈CPU gate = 5n2.
 # =============================================================================

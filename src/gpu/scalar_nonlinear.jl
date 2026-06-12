@@ -14,7 +14,7 @@ Compute a scalar field's nonlinear term `nl = analyze( −(u·∇s) )`: gradient
 `−(u_r·∇r + u_θ·∇θ + u_φ·∇φ)` against the supplied physical velocity → analyze the
 product back to spectral.  `nl_*`/`s_*` are dense `(nl,nm,nr)`; `u_*` physical
 `(nlat,nlon,nr)`; `d1`/`mvals`/`rinv` as in `gpu_scalar_gradient!`.  All on the
-same backend; `nl_*` distinct from `s_*`.  (Per-call scratch — Phase-6 may cache.)
+same backend; `nl_*` distinct from `s_*`.  (Scratch is pooled via GPUWorkspace when `ws` is supplied.)
 """
 function gpu_scalar_nonlinear!(nl_r, nl_i, s_r, s_i, u_r, u_θ, u_φ, config, d1, mvals, rinv, lmax::Int, bw::Int;
         ws = nothing, tag::Symbol = :snl)
