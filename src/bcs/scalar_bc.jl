@@ -33,9 +33,19 @@ function _apply_scalar_boundary_rows!(
         scalar_bc_code::Int,
         l::Int,
         bw::Int,
-        N::Int
+        N::Int,
+        inner_regularity::Bool = false,
+        r_inv_inner::Float64 = 0.0
 ) where {T}
-    if _scalar_inner_is_dirichlet(scalar_bc_code)
+    if inner_regularity
+        # Ball center regularity: Θ ~ r^l ⇒ Θ′(r₁) = l·Θ(r₁)/r₁  (β = l;
+        # l=0 reduces to Θ′(r₁)=0). Exact to leading order; consistency
+        # error O(r₁²) shrinks as N⁻² (see ball design spec §5).
+        @inbounds for j in 1:(1 + bw)
+            system_data[bw + 1 + 1 - j, j] = d1_data[bw + 1 + 1 - j, j]
+        end
+        system_data[bw + 1, 1] -= T(l * r_inv_inner)
+    elseif _scalar_inner_is_dirichlet(scalar_bc_code)
         system_data[bw + 1, 1] = one(T)
     else
         @inbounds for j in 1:(1 + bw)
@@ -62,10 +72,18 @@ function _apply_scalar_boundary_rows!(
 end
 
 """
-    create_scalar_matrices(config, domain, diffusivity, dt; scalar_bc_code, theta, T)
+    create_scalar_matrices(config, domain, diffusivity, dt; scalar_bc_code, theta, T,
+                           inner_regularity)
 
 Create implicit scalar time-stepping matrices with Dirichlet/Neumann boundary
 conditions embedded in the first and last radial rows.
+
+When `inner_regularity = true` the inner boundary row implements the ball
+centre regularity condition Θ′(r₁) = l·Θ(r₁)/r₁ (Robin with β = l; reduces
+to Neumann Θ′=0 for l=0). This is appropriate for full-sphere geometry where
+there is no physical inner boundary; the outer row is still determined by
+`scalar_bc_code`. Defaults to `false` (shell geometry, standard BCs on both
+ends).
 """
 function create_scalar_matrices(
         config::SHTnsKitConfig,
@@ -74,7 +92,8 @@ function create_scalar_matrices(
         dt::Float64;
         scalar_bc_code::Int,
         theta::Float64 = 0.5,
-        T::Type{<:Number} = Float64
+        T::Type{<:Number} = Float64,
+        inner_regularity::Bool = false
 )
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
@@ -111,7 +130,8 @@ function create_scalar_matrices(
         system_data[bw + 1, :] .+= inv_dt
 
         _zero_scalar_boundary_rows!(system_data, bw, N)
-        _apply_scalar_boundary_rows!(system_data, d1_matrix.data, scalar_bc_code, l, bw, N)
+        _apply_scalar_boundary_rows!(system_data, d1_matrix.data,
+            scalar_bc_code, l, bw, N, inner_regularity, domain.r[1, 3])
 
         system_matrix = BandedMatrix{T}(system_data, bw, N)
         system_matrices[idx] = system_matrix

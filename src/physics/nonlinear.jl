@@ -914,53 +914,12 @@ function solver_add_internal_sources_local!(
     return 𝔽
 end
 
-function solver_enforce_ball_scalar_regularity!(spec::SpectralFieldType)
-    cfg = spec.config
-    spec_real = parent(spec.data_real)
-    spec_imag = parent(spec.data_imag)
-
-    lm_range = local_spectral_mode_indices(cfg)
-    r_range = local_range(cfg.pencils.spec, 3)
-
-    if !(1 in r_range)
-        return spec
-    end
-
-    r_local_idx = 1 - first(r_range) + 1
-    T = eltype(spec_real)
-
-    @inbounds for lm_idx in lm_range
-        if lm_idx <= cfg.nlm
-            slot = local_spectral_storage_slot(cfg, lm_idx)
-            slot === nothing && continue
-            l = cfg.l_values[lm_idx]
-            if l > 0
-                set_local_spectral_value!(spec_real, slot, r_local_idx, zero(T))
-                set_local_spectral_value!(spec_imag, slot, r_local_idx, zero(T))
-            end
-        end
-    end
-
-    return spec
-end
-
-function ball_scalar_physical_to_spectral!(
+function scalar_nonlinear_to_spectral!(
         phys::PhysicalFieldType{T},
         spec::SpectralFieldType{T}
 ) where {T}
-    scalar_physical_to_spectral!(phys, spec)
-    solver_enforce_ball_scalar_regularity!(spec)
-    return spec
-end
-
-function scalar_nonlinear_to_spectral!(
-        phys::PhysicalFieldType{T},
-        spec::SpectralFieldType{T},
-        geometry::Symbol
-) where {T}
-    if geometry === :ball
-        return ball_scalar_physical_to_spectral!(phys, spec)
-    end
+    # geometry-blind: the ball grid has no r=0 node (off-center grid);
+    # regularity at r=0 lives in the implicit-matrix Robin rows, not here.
     return scalar_physical_to_spectral!(phys, spec)
 end
 
@@ -970,7 +929,6 @@ function solver_compute_velocity_nonlinear!(
         composition_field,
         magnetic_field,
         domain::RadialDomainType;
-        geometry::Symbol = solver_default_geometry(),
         params::Union{Nothing, SolverParameters} = nothing
 ) where {T}
     solver_params = isnothing(params) ? create_solver_parameters() : params
@@ -983,7 +941,7 @@ function solver_compute_velocity_nonlinear!(
         domain,
         solver_params
     )
-    finish_velocity_nonlinear!(velocity_fields; geometry)
+    finish_velocity_nonlinear!(velocity_fields)
     return velocity_fields
 end
 
@@ -992,19 +950,19 @@ function solver_compute_magnetic_nonlinear!(
         velocity_fields,
         outer_domain::RadialDomainType,
         inner_domain::RadialDomainType,
-        rotation_rate::Float64 = 0.0;
-        geometry::Symbol = solver_default_geometry()
+        rotation_rate::Float64 = 0.0
 ) where {T}
     prepare_magnetic_fields!(magnetic_fields, outer_domain)
     apply_magnetic_nonlinear_terms!(
         magnetic_fields,
         velocity_fields;
-        geometry,
         rotation_rate
     )
     return magnetic_fields
 end
 
+# NOTE: `geometry` is accepted for API back-compat only — the unified scalar
+# nonlinear path is geometry-blind (off-center ball grid; no r=0 node).
 function GeoDynamo.compute_temperature_nonlinear!(
         temp_𝔽::TemperatureFieldType{T},
         vel_fields,
@@ -1016,11 +974,11 @@ function GeoDynamo.compute_temperature_nonlinear!(
         temp_𝔽,
         vel_fields,
         outer_core_domain,
-        ws;
-        geometry
+        ws
     )
 end
 
+# NOTE: `geometry` is accepted for API back-compat only — see above.
 function GeoDynamo.compute_composition_nonlinear!(
         𝔽::CompositionFieldType{T},
         vel_fields,
@@ -1032,8 +990,7 @@ function GeoDynamo.compute_composition_nonlinear!(
         𝔽,
         vel_fields,
         outer_core_domain,
-        ws;
-        geometry
+        ws
     )
 end
 
@@ -1062,8 +1019,7 @@ function compute_solver_nonlinear_terms!(state::SolverState)
         state.fields.composition,
         state.fields.magnetic,
         state.backend.outer_core_domain,
-        params = state.parameters,
-        geometry = state.parameters.geometry
+        params = state.parameters
     )
 
     if state.parameters.include_magnetic && state.fields.magnetic !== nothing

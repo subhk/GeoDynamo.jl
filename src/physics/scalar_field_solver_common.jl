@@ -18,7 +18,7 @@
 
 """
     _solver_compute_scalar_nonlinear!(𝔽, vel_fields, outer_core_domain, ws;
-                                      add_internal_sources, geometry)
+                                      add_internal_sources)
 
 Field-agnostic scalar nonlinear assembly: zero work arrays, compute gradients,
 transform field+gradients to physical space, form advection (and, for
@@ -32,7 +32,6 @@ function _solver_compute_scalar_nonlinear!(
         outer_core_domain::RadialDomainType,
         ws::SolverGradientWorkspace{T};
         add_internal_sources::Bool,
-        geometry::Symbol = solver_default_geometry(),
 ) where {T}
     t_start = timing_enabled() ? mpi_wtime() : 0.0
 
@@ -68,7 +67,6 @@ function _solver_compute_scalar_nonlinear!(
     scalar_nonlinear_to_spectral!(
         𝔽.advection_physical,
         𝔽.nonlinear,
-        geometry,
     )
     if timing_enabled()
         𝔽.transform_time[] += mpi_wtime() - t_transform
@@ -134,7 +132,8 @@ function _apply_scalar_implicit_update!(
             key,
             runtime.outer_core_domain.N,
         )
-        scalar_bc = build_solver_erk2_scalar_bc(T, runtime.outer_core_domain, bc_code)
+        scalar_bc = build_solver_erk2_scalar_bc(T, runtime.outer_core_domain, bc_code;
+            inner_regularity = state.parameters.geometry === :ball)
         bc_spec = with_boundary_mode_values(
             scalar_bc,
             bc.inner_real,

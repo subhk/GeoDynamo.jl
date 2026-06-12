@@ -27,8 +27,6 @@ GeoDynamo.GeoDynamoBall.create_ball_velocity_fields
 GeoDynamo.GeoDynamoBall.create_ball_temperature_field
 GeoDynamo.GeoDynamoBall.create_ball_composition_field
 GeoDynamo.GeoDynamoBall.create_ball_magnetic_fields
-GeoDynamo.GeoDynamoBall.enforce_ball_scalar_regularity!
-GeoDynamo.GeoDynamoBall.enforce_ball_vector_regularity!
 ```
 
 ```@autodocs
@@ -42,7 +40,5 @@ Filter = t -> !(t in (
     GeoDynamo.GeoDynamoBall.create_ball_temperature_field,
     GeoDynamo.GeoDynamoBall.create_ball_composition_field,
     GeoDynamo.GeoDynamoBall.create_ball_magnetic_fields,
-    GeoDynamo.GeoDynamoBall.enforce_ball_scalar_regularity!,
-    GeoDynamo.GeoDynamoBall.enforce_ball_vector_regularity!,
 ))
 ```

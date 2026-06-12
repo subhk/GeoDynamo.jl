@@ -190,23 +190,25 @@ At the CMB, the mantle is an electrical insulator. The magnetic field must match
 \boxed{T_{\ell m}|_{r_o} + \varepsilon \sum G h_{LM} \partial_r T_{\ell' m'}|_{r_o} = 0}
 ```
 
-**Poloidal matches potential:**
+**Poloidal matches potential** (under ``B_r = \ell(\ell+1)P/r^2`` the exterior
+potential field corresponds to ``P \propto r^{-\ell}``):
 ```math
-\boxed{\left(\partial_r + \frac{\ell+1}{r_o}\right) P_{\ell m}
+\boxed{\left(\partial_r + \frac{\ell}{r_o}\right) P_{\ell m}
       + \varepsilon \sum h_{LM} \left[
-        G\,\partial_r\!\left(\partial_r P_{\ell' m'} + \frac{\ell'+1}{r_o}P_{\ell' m'}\right)
+        G\,\partial_r\!\left(\partial_r P_{\ell' m'} + \frac{\ell'}{r_o}P_{\ell' m'}\right)
         - G^{(\times)}\,\frac{T_{\ell' m'}}{r_o^2}
       \right] = 0}
 ```
 
 ### ICB Insulating Condition
 
-For an insulating inner core, similar conditions apply with opposite radial matching:
+For an insulating inner core, similar conditions apply with opposite radial
+matching (interior potential field, ``P \propto r^{\ell+1}``):
 
 ```math
-\left(\partial_r - \frac{\ell}{r_i}\right) P_{\ell m}
+\left(\partial_r - \frac{\ell+1}{r_i}\right) P_{\ell m}
  + \varepsilon \sum h_{LM} \left[
-   G\,\partial_r\!\left(\partial_r P_{\ell' m'} - \frac{\ell'}{r_i}P_{\ell' m'}\right)
+   G\,\partial_r\!\left(\partial_r P_{\ell' m'} - \frac{\ell'+1}{r_i}P_{\ell' m'}\right)
    - G^{(\times)}\,\frac{T_{\ell' m'}}{r_i^2}
  \right] = 0
 ```

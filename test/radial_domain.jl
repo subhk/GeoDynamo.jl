@@ -56,24 +56,26 @@ const FINALIZE_MPI_RD = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true
         @test dom.N == nr
         @test size(dom.r) == (nr, 7)
 
-        # Ball starts at r=0
-        @test dom.r[1, 4] ≈ 0.0 atol=1e-15
+        # off-center ball grid: no r=0 node (see ball design spec)
+        # Innermost node at r₁ = (1 - cos(π/N))/2 > 0
+        @test dom.r[1, 4] ≈ (1 - cos(pi / nr)) / 2 atol=1e-15
 
-        # Outer radius > 0
+        # Outer radius exactly 1
         @test dom.r[nr, 4] > 0
 
         # r values monotonically increasing
         @test all(diff(dom.r[:, 4]) .> 0)
 
-        # At r=0, negative powers should be regularized to 0
-        @test dom.r[1, 1] == 0.0  # r^(-3)
-        @test dom.r[1, 2] == 0.0  # r^(-2)
-        @test dom.r[1, 3] == 0.0  # r^(-1)
+        # off-center ball grid: no r=0 node (see ball design spec)
+        # All negative-power columns are honest (finite nonzero) — no r=0 regularization needed
+        @test dom.r[1, 1] ≈ 1.0 / dom.r[1, 4]^3 atol=1e-10  # r^(-3)
+        @test dom.r[1, 2] ≈ 1.0 / dom.r[1, 4]^2 atol=1e-10  # r^(-2)
+        @test dom.r[1, 3] ≈ 1.0 / dom.r[1, 4]   atol=1e-10  # r^(-1)
 
         # Radial operators populated at construction (regression: silent-zeros footgun)
         @test any(!iszero, dom.radial_laplacian)
         @test any(!iszero, dom.dr_matrices[1])
-        @test all(isfinite, dom.radial_laplacian)  # r=0 regularization must not leak Inf/NaN
+        @test all(isfinite, dom.radial_laplacian)  # off-center grid must not produce Inf/NaN
     end
 
     @testset "Ball domain requires nr >= 2" begin
