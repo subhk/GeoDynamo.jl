@@ -71,12 +71,42 @@ end
         @test all(isfinite, parent(model.state.fields.temperature.spectral.data_real))
     end
 
-    @testset "non-CNAB2 timestepper warns and falls back" begin
+    @testset "ERK2 gpu=true matches the CPU ERK2 path" begin
+        cpu_model = _dispatch_model()
+        cpu_sim = GeoDynamo.Simulation(cpu_model; Δt = 1e-4,
+            stop_iteration = NSTEPS, gpu = false, timestepper = GeoDynamo.ERK2())
+        GeoDynamo.run!(cpu_sim)
+
+        gpu_model = _dispatch_model()
+        gpu_sim = GeoDynamo.Simulation(gpu_model; Δt = 1e-4,
+            stop_iteration = NSTEPS, gpu = true, timestepper = GeoDynamo.ERK2())
+        @test gpu_sim.gpu == true
+        GeoDynamo.run!(gpu_sim)
+        @test gpu_model.clock.iteration == NSTEPS
+        @test gpu_sim._gpu_erk2 !== nothing           # ERK2 pack built + cached
+
+        cfg = cpu_model.state.backend.shtns_config
+        nr = cpu_model.state.runtime.outer_core_domain.N
+        for (fa, fb) in [
+                (cpu_model.state.fields.temperature.spectral,
+                 gpu_model.state.fields.temperature.spectral),
+                (cpu_model.state.fields.velocity.toroidal,
+                 gpu_model.state.fields.velocity.toroidal),
+                (cpu_model.state.fields.velocity.poloidal,
+                 gpu_model.state.fields.velocity.poloidal)]
+            ar, ai = GeoDynamo.cpu_spectral_to_dense(fa, cfg, nr, Float64)
+            br, bi = GeoDynamo.cpu_spectral_to_dense(fb, cfg, nr, Float64)
+            @test isapprox(ar, br; atol = 1e-10, rtol = 1e-8)
+            @test isapprox(ai, bi; atol = 1e-10, rtol = 1e-8)
+        end
+    end
+
+    @testset "unsupported timestepper warns and falls back" begin
         model = _dispatch_model()
         local sim
-        @test_logs (:warn, r"CNAB2-only") match_mode = :any begin
+        @test_logs (:warn, r"CNAB2 and ERK2 only") match_mode = :any begin
             sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 1,
-                gpu = true, timestepper = GeoDynamo.ERK2())
+                gpu = true, timestepper = GeoDynamo.ThetaMethod())
         end
         @test sim.gpu == false
     end
