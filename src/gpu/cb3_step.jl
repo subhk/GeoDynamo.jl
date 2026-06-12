@@ -129,7 +129,11 @@ function gpu_cb3_solver_step!(state)
 
         has_mag = state.magnetic !== nothing
         has_comp = state.composition !== nothing
-        nl = _gpu_erk2_nl_arrays(state.velocity.tor.spec_r, has_mag, has_comp)
+        work = get(state, :work, nothing)
+        # Pooled nl buffers, distinct per stage (the stage's solves consume them
+        # before the next stage; a unique tag keeps the pool keys non-aliasing).
+        nl = _gpu_erk2_nl_arrays(state.velocity.tor.spec_r, has_mag, has_comp,
+            work, Symbol(:cb3_nl, stage_index))
         _gpu_erk2_nonlinear_pass!(state, nl)
 
         _gpu_cb3_solve_field!(

@@ -51,11 +51,13 @@ Real/imag handled independently (curl is real-linear).  The `dst_*` arrays must
 NOT alias any `src_*` array.
 """
 function gpu_spectral_curl!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
-        src_tor_r, src_tor_i, src_pol_r, src_pol_i, d1, d2, lfac, rinv, rinv2, bw::Int)
+        src_tor_r, src_tor_i, src_pol_r, src_pol_i, d1, d2, lfac, rinv, rinv2, bw::Int;
+        ws = nothing, tag::Symbol = :curl)
     # 2 mat-vec launches, each with its own synchronize. The first-derivative
     # operator is kept in the signature for compatibility with existing nlops
     # bundles but is not used by the Stage-2 curl formula.
-    d2Pr = similar(src_pol_r); d2Pi = similar(src_pol_i)
+    d2Pr = gpu_scratch!(ws, Symbol(tag, :_d2r), src_pol_r)
+    d2Pi = gpu_scratch!(ws, Symbol(tag, :_d2i), src_pol_i)
     gpu_batched_banded_matvec!(d2Pr, src_pol_r, d2, bw)
     gpu_batched_banded_matvec!(d2Pi, src_pol_i, d2, bw)
     lf  = reshape(lfac, :, 1, 1)

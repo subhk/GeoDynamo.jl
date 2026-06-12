@@ -80,11 +80,16 @@ end
 
 function _pack_erk2_cache(cache::ERK2StageCache{T}, nl::Int, nr::Int) where {T}
     cache.use_krylov && error("GPU ERK2 pack: Krylov caches are not supported")
+    # Low-storage fold: the finalize  u⁺ = E_f·u₀ + dt·φ1_f·n₀ + 2dt·φ2·(n_st − n₀)
+    # is regrouped as  u⁺ = acc + 2dt·φ2·n_st  with  acc = E_f·u₀ + dt·M1·n₀ and
+    # M1 := φ1_f − 2·φ2 precomputed here — φ1_full never ships to the device and
+    # the per-field linear/k1/n₀ stage buffers collapse into the single `acc`.
+    M1 = [cache.phi1_full[i] .- 2 .* cache.phi2_full[i] for i in eachindex(cache.phi1_full)]
     return (;
         Eh = _pack_erk2_dense(cache.E_half, cache.l_values, nl, nr),
         Ef = _pack_erk2_dense(cache.E_full, cache.l_values, nl, nr),
         p1h = _pack_erk2_dense(cache.phi1_half, cache.l_values, nl, nr),
-        p1f = _pack_erk2_dense(cache.phi1_full, cache.l_values, nl, nr),
+        M1 = _pack_erk2_dense(M1, cache.l_values, nl, nr),
         p2f = _pack_erk2_dense(cache.phi2_full, cache.l_values, nl, nr))
 end
 

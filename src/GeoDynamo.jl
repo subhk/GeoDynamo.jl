@@ -501,6 +501,7 @@ export gpu_magnetic_field_step!
 export gpu_solver_step!
 export gpu_cb3_solver_step!
 export build_gpu_solver_state, cpu_spectral_to_dense, gpu_to_device
+export build_gpu_erk2_state, gpu_erk2_solver_step!
 export dense_to_cpu_spectral!, sync_gpu_state_to_cpu!
 export gpu_run!
 export SphericalShellGrid, SphericalBallGrid
@@ -543,6 +544,7 @@ rcond_fallback_tol(::Type{T}) where {T} = sqrt(eps(T))
 # Architecture type hierarchy — must be first so all subsequent includes can use AbstractArchitecture
 include("core/architecture.jl")
 include("gpu/device.jl")
+include("gpu/workspace.jl")
 include("gpu/fields.jl")
 include("gpu/scalar_transform.jl")
 include("gpu/nonlinear.jl")

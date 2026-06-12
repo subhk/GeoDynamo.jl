@@ -111,6 +111,31 @@ end
         @test sim.gpu == false
     end
 
+    @testset "gpu_sync = :output matches :every" begin
+        a_model = _dispatch_model()
+        a_sim = GeoDynamo.Simulation(a_model; Δt = 1e-4, stop_iteration = NSTEPS,
+            gpu = true, gpu_sync = :every)
+        GeoDynamo.run!(a_sim)
+
+        b_model = _dispatch_model()
+        b_sim = GeoDynamo.Simulation(b_model; Δt = 1e-4, stop_iteration = NSTEPS,
+            gpu = true, gpu_sync = :output)
+        GeoDynamo.run!(b_sim)
+        @test b_sim._gpu_dirty == false           # final state synced by run!
+
+        cfg = a_model.state.backend.shtns_config
+        nr = a_model.state.runtime.outer_core_domain.N
+        for (fa, fb) in [
+                (a_model.state.fields.temperature.spectral, b_model.state.fields.temperature.spectral),
+                (a_model.state.fields.velocity.poloidal, b_model.state.fields.velocity.poloidal)]
+            ar, _ = GeoDynamo.cpu_spectral_to_dense(fa, cfg, nr, Float64)
+            br, _ = GeoDynamo.cpu_spectral_to_dense(fb, cfg, nr, Float64)
+            @test ar == br                         # identical math, lazy mirror
+        end
+
+        @test_throws ArgumentError GeoDynamo.Simulation(a_model; Δt = 1e-4, gpu_sync = :sometimes)
+    end
+
     @testset ":auto is off on the CPU architecture" begin
         model = _dispatch_model()
         sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 1)
