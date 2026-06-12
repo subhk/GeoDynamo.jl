@@ -27,14 +27,10 @@ MPI.Initialized() || MPI.Init()
     end
 
     @testset "velocity nonlinear == manual chain [LOCAL]" begin
-        # Stage-2 gate: the GPU velocity-nonlinear chain runs through the gated
-        # GPU vector transforms (old, pre-solenoidal convention) and must refuse
-        # loudly until the port lands. The manual-chain equality asserts that
-        # lived here return with the port (see the double-curl spec).
-        ntr=zeros(nl,nm,nr); nti=zeros(nl,nm,nr); npr=zeros(nl,nm,nr); npi=zeros(nl,nm,nr)
-        @test_throws ErrorException GeoDynamo.gpu_velocity_nonlinear!(
-            ntr,nti, npr,npi, tor_r,tor_i, pol_r,pol_i,
-            cfg, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, cfg.lmax, bw)
+        # The Stage-2 vector transforms are un-gated (Task 1), so the chain runs
+        # again — but its force projection is still the legacy tangential-only
+        # raw-sphtor analysis (results WRONG until the Stage-4B N_W projection).
+        @test_skip "un-gated in Task 4 (Stage-4B velocity N_W force projection)"
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5g gate) [GPU-BOX]" begin

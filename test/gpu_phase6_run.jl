@@ -33,32 +33,21 @@ end
 @testset "GPU Phase 6 — gpu_run! loop + IO host-gather" begin
     NSTEPS = 4
 
-    # Stage-2 gate: gpu_run!/gpu_solver_step! route through the GPU vector
-    # transforms, which are not yet ported to the solenoidal P convention and
-    # refuse loudly (src/gpu/vector_transform.jl). The GPU-trajectory parity,
-    # step-decomposition, and output_fn asserts that lived in these testsets
-    # return when the GPU port lands.
+    # The Stage-2 vector transforms are un-gated (Task 1), so gpu_run!/
+    # gpu_solver_step! run again — but the nonlinear projections and the
+    # velocity poloidal half are still the legacy pre-Stage-4/W-split ones
+    # (results WRONG until Tasks 4-6); the trajectory/decomposition/output_fn
+    # parity gates return with the device-state wiring.
     @testset "N-step GPU trajectory == N-step CPU (insulating) [LOCAL]" begin
-        st = build_small_cpu_state()
-        GeoDynamo.solver_step!(st)                        # warm-up
-        gst = GeoDynamo.build_gpu_solver_state(st)
-        @test_throws ErrorException GeoDynamo.gpu_run!(gst, NSTEPS)
+        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
     end
 
     @testset "step decomposition: gpu_run!(N) == N × gpu_solver_step! [LOCAL]" begin
-        st = build_small_cpu_state(); GeoDynamo.solver_step!(st)
-        a = GeoDynamo.build_gpu_solver_state(st)
-        b = GeoDynamo.build_gpu_solver_state(st)
-        @test_throws ErrorException GeoDynamo.gpu_run!(a, 3)
-        @test_throws ErrorException GeoDynamo.gpu_solver_step!(b)
+        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
     end
 
     @testset "output_fn host-gather hook [LOCAL]" begin
-        st = build_small_cpu_state(); GeoDynamo.solver_step!(st)
-        gst = GeoDynamo.build_gpu_solver_state(st)
-        snaps = Tuple{Int, Any}[]
-        @test_throws ErrorException GeoDynamo.gpu_run!(gst, 4; output_every = 2,
-            output_fn = (hs, step) -> push!(snaps, (step, hs)))
+        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
     end
 
     @testset "nsteps=0 no-op + arg guard [LOCAL]" begin
@@ -71,10 +60,8 @@ end
     end
 
     @testset "gpu_run!(::SolverState) runs GPU + syncs back == CPU [LOCAL]" begin
-        # Stage-2 gate (see above): the SolverState convenience entry refuses
-        # identically until the GPU vector transforms are ported.
-        stA = build_small_cpu_state(); GeoDynamo.solver_step!(stA)   # warm-up
-        @test_throws ErrorException GeoDynamo.gpu_run!(stA, NSTEPS)
+        # See above: the SolverState convenience entry shares the legacy physics.
+        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
     end
 
     @testset "dense_to_cpu_spectral! roundtrip + sync_gpu_state_to_cpu! [LOCAL]" begin

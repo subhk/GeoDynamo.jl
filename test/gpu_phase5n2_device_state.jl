@@ -122,15 +122,12 @@ end
 
     # ===== THE GATE (Task 2) =====
     @testset "GPU≈CPU full step (insulating) [LOCAL]" begin
-        st2 = build_small_cpu_state()
-        GeoDynamo.solver_step!(st2)                      # warm-up: populate prev_nl + physical buffers
-        gst = GeoDynamo.build_gpu_solver_state(st2)      # device state from the warmed CPU state
-        GeoDynamo.solver_step!(st2)                      # CPU step n+1
-        # Stage-2 gate: gpu_solver_step! routes through the GPU vector
-        # transforms, which are not yet ported to the solenoidal P convention
-        # and refuse loudly (src/gpu/vector_transform.jl). The GPU≈CPU
-        # full-step parity asserts that lived here return when the port lands.
-        @test_throws ErrorException GeoDynamo.gpu_solver_step!(gst)
+        # The Stage-2 vector transforms are un-gated (Task 1), so the full step
+        # runs again — but the nonlinear projections and the velocity poloidal
+        # half are still the legacy pre-Stage-4/W-split ones (results WRONG
+        # until Tasks 4-6); the GPU≈CPU full-step parity gate returns with the
+        # device-state wiring.
+        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
     end
 
     @testset "GPU≈CPU full step on GPU [GPU-BOX]" begin

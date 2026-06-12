@@ -167,7 +167,8 @@ function build_gpu_solver_state(st)
     rinv = T[dom.r[k, 3] for k in 1:nr]
     rinv2 = T[dom.r[k, 2] for k in 1:nr]
     r_vec = T[dom.r[k, 4] for k in 1:nr]
-    rscale = copy(rinv)                       # 1/r scaling for v_r; lfac=l(l+1) multiplied at the call site
+    r2 = T[dom.r[k, 6] for k in 1:nr]         # r² — Q-based poloidal analysis (Stage-2)
+    rscale = copy(rinv2)                      # Stage-2 solenoidal: v_r = l(l+1)·P/r² ⇒ 1/r² (was 1/r pre-Stage-2)
     sinθ = T[vel.coriolis_factors[1, i] for i in 1:cfg.nlat]
     cosθ = T[vel.coriolis_factors[2, i] for i in 1:cfg.nlat]
     mvals = T[m for m in 0:cfg.mmax]
@@ -221,9 +222,9 @@ function build_gpu_solver_state(st)
 
     influence = _build_influence_pack(st, nl, nr, T)
 
-    # NOTE: d1/d2/lfac/rinv/rinv2/rscale are SHARED (same backing array) across
-    # nlops_vel, nlops_mag, and the top-level d1/rinv fields — safe because
-    # gpu_solver_step! treats all operator arrays read-only.
+    # NOTE: d1/d2/lfac/rinv/rinv2/rscale/r/r2 are SHARED (same backing array)
+    # across nlops_vel, nlops_mag, and the top-level d1/rinv/r_vec fields — safe
+    # because gpu_solver_step! treats all operator arrays read-only.
 
     # --- physical lag buffers (current state of the CPU physical fields) ---
     T_phys = _phys_scalar(tmp.temperature)
@@ -233,8 +234,8 @@ function build_gpu_solver_state(st)
 
     return (;
         config = cfg, lmax = cfg.lmax, bw = bw, linear_weight = linw,
-        nlops_vel = (; d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E = T(p.Ek)),
-        nlops_mag = (; d1, d2, lfac, rinv, rinv2, rscale),
+        nlops_vel = (; d1, d2, lfac, rinv, rinv2, rscale, r = r_vec, r2, sinθ, cosθ, E = T(p.Ek)),
+        nlops_mag = (; d1, d2, lfac, rinv, rinv2, rscale, r = r_vec, r2),
         influence = influence,
         d1 = d1, mvals = mvals, rinv = rinv, r_vec = r_vec,
         thermal_factor = T((p.Pm / p.Pr) * p.Ra),

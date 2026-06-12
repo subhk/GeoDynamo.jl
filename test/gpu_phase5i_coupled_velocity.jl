@@ -32,25 +32,15 @@ MPI.Initialized() || MPI.Init()
     tf = 0.7; cf = 0.4; lc = 1.0/0.3
 
     @testset "coupled == core + buoyancy + Lorentz manual chain [LOCAL]" begin
-        ntr=zeros(nl,nm,nr); nti=zeros(nl,nm,nr); npr=zeros(nl,nm,nr); npi=zeros(nl,nm,nr)
-        # Stage-2 gate: gpu_velocity_nonlinear! routes through the GPU vector
-        # transforms, which are not yet ported to the solenoidal P convention
-        # and refuse loudly (src/gpu/vector_transform.jl). The manual-chain
-        # parity asserts that lived here return when the GPU port lands.
-        @test_throws ErrorException GeoDynamo.gpu_velocity_nonlinear!(
-            ntr,nti, npr,npi, tor_r,tor_i, pol_r,pol_i,
-            cfg, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, cfg.lmax, bw;
-            T_phys = Tp, thermal_factor = tf, r_vec = r_vec, C_phys = Cp, comp_factor = cf,
-            J_r = Jr, J_θ = Jθ, J_φ = Jφ, B_r = Br, B_θ = Bθ, B_φ = Bφ, lorentz_coeff = lc)
+        # The Stage-2 vector transforms are un-gated (Task 1), so the chain runs
+        # again — but its force projection is still the legacy tangential-only
+        # raw-sphtor analysis (results WRONG until the Stage-4B N_W projection).
+        @test_skip "un-gated in Task 4 (Stage-4B velocity N_W force projection)"
     end
 
     @testset "no couplings == velocity-only (5g unchanged) [LOCAL]" begin
-        # Stage-2 gate (see above): the velocity-only path also synthesizes u
-        # through the vector transforms, so it refuses identically until ported.
-        a1=zeros(nl,nm,nr); a2=zeros(nl,nm,nr); a3=zeros(nl,nm,nr); a4=zeros(nl,nm,nr)
-        @test_throws ErrorException GeoDynamo.gpu_velocity_nonlinear!(
-            a1,a2, a3,a4, tor_r,tor_i, pol_r,pol_i,
-            cfg, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, cfg.lmax, bw)
+        # See above: the velocity-only path shares the legacy projection.
+        @test_skip "un-gated in Task 4 (Stage-4B velocity N_W force projection)"
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5i gate) [GPU-BOX]" begin

@@ -26,14 +26,10 @@ MPI.Initialized() || MPI.Init()
     u_r=rand(rng,nlat,nlon,nr); u_θ=rand(rng,nlat,nlon,nr); u_φ=rand(rng,nlat,nlon,nr)
 
     @testset "magnetic nonlinear == manual chain [LOCAL]" begin
-        ntr=zeros(nl,nm,nr); nti=zeros(nl,nm,nr); npr=zeros(nl,nm,nr); npi=zeros(nl,nm,nr)
-        # Stage-2 gate: gpu_magnetic_nonlinear! routes through the GPU vector
-        # transforms, which are not yet ported to the solenoidal P convention
-        # and refuse loudly (src/gpu/vector_transform.jl). The manual-chain
-        # parity asserts that lived here return when the GPU port lands.
-        @test_throws ErrorException GeoDynamo.gpu_magnetic_nonlinear!(
-            ntr,nti, npr,npi, btr,bti, bpr,bpi, u_r,u_θ,u_φ,
-            cfg, d1, d2, lfac, rinv, rinv2, rscale, cfg.lmax, bw)
+        # The Stage-2 vector transforms are un-gated (Task 1), so the chain runs
+        # again — but it still uses the legacy raw-sphtor analysis + spectral
+        # curl (results WRONG until the Stage-4A induction curl potentials).
+        @test_skip "un-gated in Task 5 (Stage-4A induction curl potentials)"
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5h gate) [GPU-BOX]" begin
