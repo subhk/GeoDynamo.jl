@@ -4,13 +4,48 @@ include(joinpath(@__DIR__, "gpu_test_preamble.jl"))
 import SHTnsKit
 using Random
 
-function _phase3_rand_band(::Type{T}, N, bw; seed) where {T}
-    rng = MersenneTwister(seed)
-    data = zeros(T, 2bw + 1, N)
-    for j in 1:N, i in max(1, j - bw):min(N, j + bw)
-        data[bw + 1 + i - j, j] = rand(rng, T) - T(0.5)
+# ---------------------------------------------------------------------------
+# Stage-2 solenoidal fixtures (shell domain; radial axis fully local).
+# CPU reference = the public vector transform pair (numerics.jl):
+#   synthesis: tangential sphtor of (S = (∂_r P)/r, T); v_r = scalar synth of
+#              P·l(l+1)/r²
+#   analysis:  sphtor → raw (S,T), toroidal ← T; poloidal ← Q-based recovery
+#              P = r²·Q/λ with Q = scalar analysis of v_r (l=0 zeroed)
+# ---------------------------------------------------------------------------
+const VT_NR = 16
+
+_vt_spec(cfg, dom) = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+_vt_vec(cfg, dom)  = GeoDynamo.create_shtns_vector_field(Float64, cfg, dom,
+    (cfg.pencils.θ, cfg.pencils.φ, cfg.pencils.r))
+
+# Smooth band-limited random fill with endpoint-vanishing radial profiles
+# (the solenoidal_transform_pair.jl idiom).
+function _vt_fill!(specs, cfg, dom)
+    for spec in specs
+        sr = parent(spec.data_real); si = parent(spec.data_imag)
+        for lm in 1:cfg.nlm
+            slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
+            l = cfg.l_values[lm]; m = cfg.m_values[lm]
+            l >= 1 || continue
+            for r_idx in 1:dom.N
+                x = (dom.r[r_idx, 4] - dom.r[1, 4]) / (dom.r[dom.N, 4] - dom.r[1, 4])
+                v = sinpi(x) * randn() * 1e-2
+                GeoDynamo.set_local_spectral_value!(sr, slot, r_idx, v)
+                m > 0 && GeoDynamo.set_local_spectral_value!(si, slot, r_idx, 0.7v)
+            end
+        end
     end
-    return GeoDynamo.BandedMatrix{T}(data, bw, N)
+    return nothing
+end
+
+# Scatter a CPU slot-packed spectral field into a freshly allocated dense GPU
+# spectral field on `arch`.
+function _vt_to_gpu(spec_cpu, cfg, arch)
+    g = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, VT_NR)
+    dr, di = GeoDynamo.cpu_spectral_to_dense(spec_cpu, cfg, VT_NR, Float64)
+    copyto!(g.data_real, dr); copyto!(g.data_imag, di)
+    return g
 end
 
 @testset "GPU Phase 3 — Vector Transform" begin
@@ -34,7 +69,7 @@ end
         nr = 3
         pr = rand(Float64, nl, nm, nr); pi_ = rand(Float64, nl, nm, nr)
         lfac = Float64[l * (l + 1) for l in 0:cfg.lmax]      # length nl
-        rscale = [1.0 / (0.5 + 0.1k)^2 for k in 1:nr]         # length nr (Stage-2 1/r^2)
+        rscale = [1.0 / (0.5 + 0.1k)^2 for k in 1:nr]         # length nr (Stage-2: 1/r²)
         vr = zeros(Float64, nl, nm, nr); vi = zeros(Float64, nl, nm, nr)
         GeoDynamo.gpu_vr_scale!(vr, vi, pr, pi_, lfac, rscale)
         refr = similar(vr); refi = similar(vi)
@@ -46,114 +81,161 @@ end
         @test vr == refr && vi == refi
     end
 
-    @testset "vector spectral_to_physical [LOCAL]" begin
-        nr = 3
-        bw = 1
-        d1 = _phase3_rand_band(Float64, nr, bw; seed = 31)
-        arch = CPU()
-        tor = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr)
-        pol = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr)
-        vr = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfg, nr)
-        vθ = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfg, nr)
-        vφ = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfg, nr)
-        for k in 1:nr
-            pol.data_real[3,1,k] = Float64(k); tor.data_real[4,2,k] = 0.5; tor.data_imag[4,2,k] = -0.25
-        end
-        lfac = Float64[l*(l+1) for l in 0:cfg.lmax]
-        rinv = [1.0/(0.5 + 0.1k) for k in 1:nr]
-        rinv2 = rinv .^ 2
-        GeoDynamo.gpu_vector_spectral_to_physical!(
-            vr, vθ, vφ, tor, pol, cfg, d1.data, lfac, rinv, rinv2, bw)
+    # --- Stage-2 fixtures shared by the equivalence testsets below ---
+    dom  = GeoDynamo.create_radial_domain(VT_NR)
+    cfgv = GeoDynamo.create_shtnskit_config(lmax = 8, mmax = 8, nlat = 24, nlon = 48,
+        nr = VT_NR)
+    # The SAME banded ∂r operator the CPU _spheroidal_from_poloidal! builds.
+    D1 = GeoDynamo.create_derivative_matrix(Float64, 1, dom)
+    bw = (size(D1.data, 1) - 1) ÷ 2
+    lfacv  = Float64[l * (l + 1) for l in 0:cfgv.lmax]
+    rscale = dom.r[1:VT_NR, 2]   # 1/r² — Stage-2 v_r factor (u_r = l(l+1)·P/r²)
+    rinv   = dom.r[1:VT_NR, 3]   # 1/r  — spheroidal coupling S = (∂_r P)/r
+    r2     = dom.r[1:VT_NR, 6]   # r²   — Q-based poloidal recovery P = r²·Q/λ
 
-        S_r = similar(pol.data_real); S_i = similar(pol.data_imag)
-        GeoDynamo.gpu_batched_banded_matvec!(S_r, pol.data_real, d1.data, bw)
-        GeoDynamo.gpu_batched_banded_matvec!(S_i, pol.data_imag, d1.data, bw)
-        ri = reshape(rinv, 1, 1, :)
-        @. S_r = S_r * ri
-        @. S_i = S_i * ri
-        vr_r = similar(pol.data_real); vr_i = similar(pol.data_imag)
-        GeoDynamo.gpu_vr_scale!(vr_r, vr_i, pol.data_real, pol.data_imag, lfac, rinv2)
-
-        for k in 1:nr
-            S_k = complex.(S_r[:, :, k], S_i[:, :, k])
-            T_k = complex.(tor.data_real[:, :, k], tor.data_imag[:, :, k])
-            rt, rp = SHTnsKit.synthesis_sphtor(cfg.sht_config, S_k, T_k; real_output = true)
-            @test isapprox(vθ.data[:, :, k], rt; atol = 1e-12, rtol = 1e-10)
-            @test isapprox(vφ.data[:, :, k], rp; atol = 1e-12, rtol = 1e-10)
-            vr_k = complex.(vr_r[:, :, k], vr_i[:, :, k])
-            @test isapprox(vr.data[:, :, k],
-                SHTnsKit.synthesis(cfg.sht_config, vr_k; real_output = true);
-                atol = 1e-12, rtol = 1e-10)
-        end
+    @testset "domain.r power columns (p ⇒ r^(p-4))" begin
+        @test all(k -> isapprox(dom.r[k, 6], dom.r[k, 4]^2), 1:VT_NR)
+        @test all(k -> isapprox(dom.r[k, 2], 1.0 / dom.r[k, 4]^2), 1:VT_NR)
+        @test all(k -> isapprox(dom.r[k, 3], 1.0 / dom.r[k, 4]), 1:VT_NR)
     end
 
-    @testset "vector physical_to_spectral + roundtrip [LOCAL]" begin
-        nr = 3
-        bw = 1
-        d1 = _phase3_rand_band(Float64, nr, bw; seed = 41)
+    @testset "GPU vector synthesis == CPU (Stage-2 solenoidal) [LOCAL]" begin
+        Random.seed!(1101)
+        tor = _vt_spec(cfgv, dom); pol = _vt_spec(cfgv, dom)
+        _vt_fill!((tor, pol), cfgv, dom)
+        V = _vt_vec(cfgv, dom)
+        GeoDynamo.vector_spectral_to_physical!(tor, pol, V; domain = dom)
+        vr_c = copy(parent(V.r_component.data))
+        vθ_c = copy(parent(V.θ_component.data))
+        vφ_c = copy(parent(V.φ_component.data))
+
         arch = CPU()
-        tor = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr)
-        pol = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr)
-        vr = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfg, nr)
-        vθ = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfg, nr)
-        vφ = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfg, nr)
-        for k in 1:nr
-            pol.data_real[3,1,k] = Float64(k); tor.data_real[4,2,k] = 0.5; tor.data_imag[4,2,k] = -0.25
-        end
-        tor0_r = copy(tor.data_real); tor0_i = copy(tor.data_imag)
-        pol0_r = copy(pol.data_real); pol0_i = copy(pol.data_imag)
-        lfac = Float64[l*(l+1) for l in 0:cfg.lmax]
-        rinv = [1.0/(0.5+0.1k) for k in 1:nr]
-        rinv2 = rinv .^ 2
-        GeoDynamo.gpu_vector_spectral_to_physical!(
-            vr, vθ, vφ, tor, pol, cfg, d1.data, lfac, rinv, rinv2, bw)
-        fill!(tor.data_real, 0.0); fill!(tor.data_imag, 0.0)
-        fill!(pol.data_real, 0.0); fill!(pol.data_imag, 0.0)
-        GeoDynamo.gpu_vector_physical_to_spectral!(
-            tor, pol, vr, vθ, vφ, cfg, lfac, rinv2)
-        @test isapprox(tor.data_real, tor0_r; atol = 1e-10, rtol = 1e-10)
-        @test isapprox(tor.data_imag, tor0_i; atol = 1e-10, rtol = 1e-10)
-        @test isapprox(pol.data_real, pol0_r; atol = 1e-10, rtol = 1e-10)
-        @test isapprox(pol.data_imag, pol0_i; atol = 1e-10, rtol = 1e-10)
+        tor_g = _vt_to_gpu(tor, cfgv, arch); pol_g = _vt_to_gpu(pol, cfgv, arch)
+        gvr = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR)
+        gvθ = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR)
+        gvφ = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR)
+        GeoDynamo.gpu_vector_spectral_to_physical!(gvr, gvθ, gvφ, tor_g, pol_g, cfgv,
+            lfacv, rscale, D1.data, rinv, bw)
+        # 1e-13: CPU couples S=(∂_r P)/r via BandedMatrix mul! whose accumulation
+        # order can differ from the GPU banded kernel.
+        @test maximum(abs, gvr.data .- vr_c) <= 1e-13 * max(1.0, maximum(abs, vr_c))
+        @test maximum(abs, gvθ.data .- vθ_c) <= 1e-13 * max(1.0, maximum(abs, vθ_c))
+        @test maximum(abs, gvφ.data .- vφ_c) <= 1e-13 * max(1.0, maximum(abs, vφ_c))
+    end
+
+    @testset "GPU vector analysis == CPU (Q-based poloidal) [LOCAL]" begin
+        Random.seed!(1102)
+        tor = _vt_spec(cfgv, dom); pol = _vt_spec(cfgv, dom)
+        _vt_fill!((tor, pol), cfgv, dom)
+        V = _vt_vec(cfgv, dom)
+        # Physical data from the CPU synthesis → solenoidal-consistent input.
+        GeoDynamo.vector_spectral_to_physical!(tor, pol, V; domain = dom)
+        tor2 = _vt_spec(cfgv, dom); pol2 = _vt_spec(cfgv, dom)
+        GeoDynamo.vector_physical_to_spectral!(V, tor2, pol2; domain = dom)
+        ct_r, ct_i = GeoDynamo.cpu_spectral_to_dense(tor2, cfgv, VT_NR, Float64)
+        cp_r, cp_i = GeoDynamo.cpu_spectral_to_dense(pol2, cfgv, VT_NR, Float64)
+
+        arch = CPU()
+        gvr = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR)
+        gvθ = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR)
+        gvφ = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR)
+        copyto!(gvr.data, parent(V.r_component.data))
+        copyto!(gvθ.data, parent(V.θ_component.data))
+        copyto!(gvφ.data, parent(V.φ_component.data))
+        tor_g = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfgv, VT_NR)
+        pol_g = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfgv, VT_NR)
+        GeoDynamo.gpu_vector_physical_to_spectral!(tor_g, pol_g, gvθ, gvφ, cfgv;
+            vr = gvr, lfac = lfacv, r2 = r2)
+        @test maximum(abs, tor_g.data_real .- ct_r) <= 1e-13 * max(1.0, maximum(abs, ct_r))
+        @test maximum(abs, tor_g.data_imag .- ct_i) <= 1e-13 * max(1.0, maximum(abs, ct_i))
+        @test maximum(abs, pol_g.data_real .- cp_r) <= 1e-13 * max(1.0, maximum(abs, cp_r))
+        @test maximum(abs, pol_g.data_imag .- cp_i) <= 1e-13 * max(1.0, maximum(abs, cp_i))
+        # Solenoidal (default) mode without vr/lfac/r2 must refuse loudly.
+        @test_throws ArgumentError GeoDynamo.gpu_vector_physical_to_spectral!(
+            tor_g, pol_g, gvθ, gvφ, cfgv)
+    end
+
+    @testset "GPU raw_spheroidal mode == CPU (tangential-basis primitive) [LOCAL]" begin
+        Random.seed!(1103)
+        tor = _vt_spec(cfgv, dom); pol = _vt_spec(cfgv, dom)
+        _vt_fill!((tor, pol), cfgv, dom)
+
+        # Raw synthesis: S = stored coefficients verbatim (no P′/r prep);
+        # v_r still l(l+1)·P/r² (domain supplied on the CPU side).
+        V = _vt_vec(cfgv, dom)
+        GeoDynamo.vector_spectral_to_physical!(tor, pol, V; domain = dom,
+            raw_spheroidal = true)
+        vr_c = copy(parent(V.r_component.data))
+        vθ_c = copy(parent(V.θ_component.data))
+        vφ_c = copy(parent(V.φ_component.data))
+
+        arch = CPU()
+        tor_g = _vt_to_gpu(tor, cfgv, arch); pol_g = _vt_to_gpu(pol, cfgv, arch)
+        gvr = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR)
+        gvθ = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR)
+        gvφ = GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR)
+        GeoDynamo.gpu_vector_spectral_to_physical!(gvr, gvθ, gvφ, tor_g, pol_g, cfgv,
+            lfacv, rscale, D1.data, rinv, bw; raw_spheroidal = true)
+        @test maximum(abs, gvr.data .- vr_c) <= 1e-13 * max(1.0, maximum(abs, vr_c))
+        @test maximum(abs, gvθ.data .- vθ_c) <= 1e-13 * max(1.0, maximum(abs, vθ_c))
+        @test maximum(abs, gvφ.data .- vφ_c) <= 1e-13 * max(1.0, maximum(abs, vφ_c))
+
+        # Raw analysis: poloidal slot ← raw sphtor S; v_r NOT consumed.
+        torR = _vt_spec(cfgv, dom); polR = _vt_spec(cfgv, dom)
+        GeoDynamo.vector_physical_to_spectral!(V, torR, polR; domain = dom,
+            raw_spheroidal = true)
+        ct_r, ct_i = GeoDynamo.cpu_spectral_to_dense(torR, cfgv, VT_NR, Float64)
+        cp_r, cp_i = GeoDynamo.cpu_spectral_to_dense(polR, cfgv, VT_NR, Float64)
+        torR_g = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfgv, VT_NR)
+        polR_g = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfgv, VT_NR)
+        GeoDynamo.gpu_vector_physical_to_spectral!(torR_g, polR_g, gvθ, gvφ, cfgv;
+            raw_spheroidal = true)
+        @test maximum(abs, torR_g.data_real .- ct_r) <= 1e-13 * max(1.0, maximum(abs, ct_r))
+        @test maximum(abs, torR_g.data_imag .- ct_i) <= 1e-13 * max(1.0, maximum(abs, ct_i))
+        @test maximum(abs, polR_g.data_real .- cp_r) <= 1e-13 * max(1.0, maximum(abs, cp_r))
+        @test maximum(abs, polR_g.data_imag .- cp_i) <= 1e-13 * max(1.0, maximum(abs, cp_i))
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-3 gate) [GPU-BOX]" begin
         if !GeoDynamo.gpu_functional()
             @test_skip "requires a functional CUDA GPU"
         else
-            nr = 3
-            bw = 1
-            d1 = _phase3_rand_band(Float64, nr, bw; seed = 51)
-            lfac = Float64[l*(l+1) for l in 0:cfg.lmax]
-            rinv = [1.0/(0.5+0.1k) for k in 1:nr]
-            rinv2 = rinv .^ 2
-            mk(arch) = (GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr),
-                        GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr),
-                        GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfg, nr),
-                        GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfg, nr),
-                        GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfg, nr))
-            ctor, cpol, cvr, cvθ, cvφ = mk(CPU())
-            for k in 1:nr
-                cpol.data_real[3,1,k] = Float64(k); ctor.data_real[4,2,k] = 0.5; ctor.data_imag[4,2,k] = -0.25
-            end
-            GeoDynamo.gpu_vector_spectral_to_physical!(
-                cvr, cvθ, cvφ, ctor, cpol, cfg, d1.data, lfac, rinv, rinv2, bw)  # CPU ref
+            Random.seed!(1104)
+            tor = _vt_spec(cfgv, dom); pol = _vt_spec(cfgv, dom)
+            _vt_fill!((tor, pol), cfgv, dom)
+            mkphys(arch) = (GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR),
+                            GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR),
+                            GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfgv, VT_NR))
+            # CPU (Array-backend) reference through the SAME GPU code path
+            ctor = _vt_to_gpu(tor, cfgv, CPU()); cpol = _vt_to_gpu(pol, cfgv, CPU())
+            cvr, cvθ, cvφ = mkphys(CPU())
+            GeoDynamo.gpu_vector_spectral_to_physical!(cvr, cvθ, cvφ, ctor, cpol, cfgv,
+                lfacv, rscale, D1.data, rinv, bw)
+            ctor2 = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, CPU(), cfgv, VT_NR)
+            cpol2 = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, CPU(), cfgv, VT_NR)
+            GeoDynamo.gpu_vector_physical_to_spectral!(ctor2, cpol2, cvθ, cvφ, cfgv;
+                vr = cvr, lfac = lfacv, r2 = r2)
 
-            gtor, gpol, gvr, gvθ, gvφ = mk(GPU())
-            d!(dst, src) = (copyto!(dst.data_real, src.data_real); copyto!(dst.data_imag, src.data_imag))
-            d!(gtor, ctor); d!(gpol, cpol)
-            gd1 = GeoDynamo.on_architecture(GPU(), d1.data)
-            glfac = GeoDynamo.on_architecture(GPU(), lfac)
-            grinv = GeoDynamo.on_architecture(GPU(), rinv)
-            grinv2 = GeoDynamo.on_architecture(GPU(), rinv2)
-            GeoDynamo.gpu_vector_spectral_to_physical!(
-                gvr, gvθ, gvφ, gtor, gpol, cfg, gd1, glfac, grinv, grinv2, bw)  # GPU
+            dev(x) = GeoDynamo.on_architecture(GPU(), x)
+            gtor = _vt_to_gpu(tor, cfgv, GPU()); gpol = _vt_to_gpu(pol, cfgv, GPU())
+            gvr, gvθ, gvφ = mkphys(GPU())
+            GeoDynamo.gpu_vector_spectral_to_physical!(gvr, gvθ, gvφ, gtor, gpol, cfgv,
+                dev(lfacv), dev(rscale), dev(Matrix(D1.data)), dev(rinv), bw)
             @test gvr.data isa CUDA.CuArray
             @test gvθ.data isa CUDA.CuArray
             @test gvφ.data isa CUDA.CuArray
             @test isapprox(Array(gvr.data), cvr.data; atol = 1e-12, rtol = 1e-10)
             @test isapprox(Array(gvθ.data), cvθ.data; atol = 1e-12, rtol = 1e-10)
             @test isapprox(Array(gvφ.data), cvφ.data; atol = 1e-12, rtol = 1e-10)
+
+            gtor2 = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, GPU(), cfgv, VT_NR)
+            gpol2 = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, GPU(), cfgv, VT_NR)
+            GeoDynamo.gpu_vector_physical_to_spectral!(gtor2, gpol2, gvθ, gvφ, cfgv;
+                vr = gvr, lfac = dev(lfacv), r2 = dev(r2))
+            @test isapprox(Array(gtor2.data_real), ctor2.data_real; atol = 1e-12, rtol = 1e-10)
+            @test isapprox(Array(gtor2.data_imag), ctor2.data_imag; atol = 1e-12, rtol = 1e-10)
+            @test isapprox(Array(gpol2.data_real), cpol2.data_real; atol = 1e-12, rtol = 1e-10)
+            @test isapprox(Array(gpol2.data_imag), cpol2.data_imag; atol = 1e-12, rtol = 1e-10)
         end
     end
 end

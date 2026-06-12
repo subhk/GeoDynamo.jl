@@ -44,9 +44,8 @@ function gpu_solver_step!(state)
     # --- (1) shared physical velocity u from the OLD velocity spectral (fresh) ---
     u = ph(:st_ur); uθ = ph(:st_ut); uφ = ph(:st_up)
     gpu_vector_spectral_to_physical!(u, uθ, uφ, spec(v.tor.spec_r, v.tor.spec_i),
-        spec(v.pol.spec_r, v.pol.spec_i), cfg,
-        state.nlops_vel.d1, state.nlops_vel.lfac, state.nlops_vel.rinv, state.nlops_vel.rinv2, bw;
-        ws, tag = :st_us)
+        spec(v.pol.spec_r, v.pol.spec_i), cfg, state.nlops_vel.lfac, state.nlops_vel.rscale,
+        state.nlops_vel.d1, state.nlops_vel.rinv, bw)
 
     # --- (2) physical buffers from the OLD (start-of-step) spectral state:
     #         T/C feed THIS step's buoyancy (fresh, CPU semantics);
@@ -59,20 +58,15 @@ function gpu_solver_step!(state)
         m = state.magnetic
         br = ph(:st_Br); bθ = ph(:st_Bt); bφ = ph(:st_Bp)
         gpu_vector_spectral_to_physical!(br, bθ, bφ, spec(m.tor.spec_r, m.tor.spec_i),
-            spec(m.pol.spec_r, m.pol.spec_i), cfg,
-            state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw;
-            ws, tag = :st_Bs)
-        jtr = gpu_scratch!(ws, :st_jtr, m.tor.spec_r); jti = gpu_scratch!(ws, :st_jti, m.tor.spec_i)
-        jpr = gpu_scratch!(ws, :st_jpr, m.pol.spec_r); jpi = gpu_scratch!(ws, :st_jpi, m.pol.spec_i)
-        # J = ∇×B with the Stage-2 curl (same rule as the vorticity) — the CPU
-        # current density now uses this convention too (curl∘curl = −diffusion).
+            spec(m.pol.spec_r, m.pol.spec_i), cfg, state.nlops_mag.lfac, state.nlops_mag.rscale,
+            state.nlops_mag.d1, state.nlops_mag.rinv, bw)
+        jtr = similar(m.tor.spec_r); jti = similar(m.tor.spec_i); jpr = similar(m.pol.spec_r); jpi = similar(m.pol.spec_i)
         gpu_spectral_curl!(jtr, jti, jpr, jpi, m.tor.spec_r, m.tor.spec_i, m.pol.spec_r, m.pol.spec_i,
-            state.nlops_mag.d1, state.nlops_mag.d2, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw;
-            ws, tag = :st_jc)
-        jr = ph(:st_Jr); jθ = ph(:st_Jt); jφ = ph(:st_Jp)
+            state.nlops_mag.d1, state.nlops_mag.d2, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2,
+            state.nlops_mag.r, bw)
+        jr = ph(); jθ = ph(); jφ = ph()
         gpu_vector_spectral_to_physical!(jr, jθ, jφ, spec(jtr, jti), spec(jpr, jpi), cfg,
-            state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw;
-            ws, tag = :st_Js)
+            state.nlops_mag.lfac, state.nlops_mag.rscale, state.nlops_mag.d1, state.nlops_mag.rinv, bw)
         Bn_r = br.data; Bn_θ = bθ.data; Bn_φ = bφ.data; Jn_r = jr.data; Jn_θ = jθ.data; Jn_φ = jφ.data
     end
 

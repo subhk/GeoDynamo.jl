@@ -71,24 +71,19 @@ function gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, 
     sz = size(tor_r); nr = sz[3]
     T = eltype(tor_r)
     spec(a, b) = GPUSpectralField{eltype(a), typeof(a)}(config, sz[1], sz[2], nr, a, b)
-    ph(k::Symbol) = gpu_scratch_phys!(ws, Symbol(tag, k), T, arch, config, nr)
+    ph() = allocate_gpu_physical_field(eltype(tor_r), arch, config, nr)
+    curl_r = r_vec === nothing ? inv.(rinv) : r_vec
     # 1. velocity (tor,pol) → physical (u_r,u_θ,u_φ)
-    ur = ph(:_ur); uθ = ph(:_ut); uφ = ph(:_up)
-    gpu_vector_spectral_to_physical!(
-        ur, uθ, uφ, spec(tor_r, tor_i), spec(pol_r, pol_i),
-        config, d1, lfac, rinv, rinv2, bw; ws, tag = Symbol(tag, :_us))
+    ur = ph(); uθ = ph(); uφ = ph()
+    gpu_vector_spectral_to_physical!(ur, uθ, uφ, spec(tor_r, tor_i), spec(pol_r, pol_i), config,
+        lfac, rscale, d1, rinv, bw)
     # 2. vorticity ω = ∇×u (spectral)
-    wtr = gpu_scratch!(ws, Symbol(tag, :_wtr), tor_r)
-    wti = gpu_scratch!(ws, Symbol(tag, :_wti), tor_i)
-    wpr = gpu_scratch!(ws, Symbol(tag, :_wpr), pol_r)
-    wpi = gpu_scratch!(ws, Symbol(tag, :_wpi), pol_i)
-    gpu_spectral_curl!(wtr, wti, wpr, wpi, tor_r, tor_i, pol_r, pol_i, d1, d2, lfac, rinv, rinv2, bw;
-        ws, tag = Symbol(tag, :_wc))
+    wtr = similar(tor_r); wti = similar(tor_i); wpr = similar(pol_r); wpi = similar(pol_i)
+    gpu_spectral_curl!(wtr, wti, wpr, wpi, tor_r, tor_i, pol_r, pol_i, d1, d2, lfac, rinv, rinv2, curl_r, bw)
     # 3. vorticity → physical (ω_r,ω_θ,ω_φ)
-    wr = ph(:_or); wθ = ph(:_ot); wφ = ph(:_op)
-    gpu_vector_spectral_to_physical!(
-        wr, wθ, wφ, spec(wtr, wti), spec(wpr, wpi),
-        config, d1, lfac, rinv, rinv2, bw; ws, tag = Symbol(tag, :_os))
+    wr = ph(); wθ = ph(); wφ = ph()
+    gpu_vector_spectral_to_physical!(wr, wθ, wφ, spec(wtr, wti), spec(wpr, wpi), config,
+        lfac, rscale, d1, rinv, bw)
     # 4. adv = E·(u×ω) − ẑ×u  (physical)
     ar = ph(:_ar); aθ = ph(:_at); aφ = ph(:_ap)
     gpu_cross!(ar.data, aθ.data, aφ.data, ur.data, uθ.data, uφ.data, wr.data, wθ.data, wφ.data, E)
@@ -105,14 +100,10 @@ function gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, 
     if J_r !== nothing
         gpu_cross_add!(ar.data, aθ.data, aφ.data, J_r, J_θ, J_φ, B_r, B_θ, B_φ, lorentz_coeff)  # adv += lorentz_coeff·(J×B)
     end
-    # 5. Raw tangential force analysis → (nl_pol = S_F, nl_tor = T_F), then
-    #    radial scalar analysis and Stage-4B poloidal projection.
+    # 5. analyze the tangential force → (nl_pol = S, nl_tor = T); adv_r discarded
+    # TODO(Task 4): Stage-4B projection (N_W = ∂r(r·S_F) − Q_F) replaces this — raw
+    # mode keeps the legacy shape compiling, results are WRONG until then.
     gpu_vector_physical_to_spectral!(spec(nl_tor_r, nl_tor_i), spec(nl_pol_r, nl_pol_i), aθ, aφ, config;
-        ws, tag = Symbol(tag, :_fa))
-    q_r = gpu_scratch!(ws, Symbol(tag, :_qr), nl_pol_r)
-    q_i = gpu_scratch!(ws, Symbol(tag, :_qi), nl_pol_i)
-    gpu_scalar_physical_to_spectral!(spec(q_r, q_i), ar, config; ws, tag = Symbol(tag, :_qs))
-    gpu_poloidal_force_projection!(nl_pol_r, nl_pol_i, q_r, q_i, d1, rinv, bw;
-        ws, tag = Symbol(tag, :_pp))
+        raw_spheroidal = true)
     return nothing
 end
