@@ -20,13 +20,16 @@ per-l linear operators `L`, `lu_batched` the per-l LU factors of the system matr
 """
 function gpu_scalar_field_step!(spec_r, spec_i, prev_nl_r, prev_nl_i, u_r, u_θ, u_φ, config,
         d1, mvals, rinv, lin_batched, lu_batched, bc_in_r, bc_in_i, bc_out_r, bc_out_i,
-        inv_dt, linear_weight, lmax::Int, bw::Int)
+        inv_dt, linear_weight, lmax::Int, bw::Int; ws = nothing, tag::Symbol = :sstep)
     # 1. nonlinear term (5e). nl captured here from the OLD spec.
-    nl_r = similar(spec_r); nl_i = similar(spec_i)        # Phase-6: move to a workspace struct
-    gpu_scalar_nonlinear!(nl_r, nl_i, spec_r, spec_i, u_r, u_θ, u_φ, config, d1, mvals, rinv, lmax, bw)
+    nl_r = gpu_scratch!(ws, Symbol(tag, :_nlr), spec_r)
+    nl_i = gpu_scratch!(ws, Symbol(tag, :_nli), spec_i)
+    gpu_scalar_nonlinear!(nl_r, nl_i, spec_r, spec_i, u_r, u_θ, u_φ, config, d1, mvals, rinv, lmax, bw;
+        ws, tag = Symbol(tag, :_nl))
     # 2. CNAB2 RHS from the OLD field, nl, prev_nl (5c). rhs is a separate scratch buffer —
     #    rhs ≠ spec is REQUIRED because build_rhs reads spec as input.
-    rhs_r = similar(spec_r); rhs_i = similar(spec_i)      # Phase-6: move to a workspace struct
+    rhs_r = gpu_scratch!(ws, Symbol(tag, :_rr), spec_r)
+    rhs_i = gpu_scratch!(ws, Symbol(tag, :_ri), spec_i)
     gpu_build_rhs_cnab2!(rhs_r, rhs_i, spec_r, spec_i, nl_r, nl_i, prev_nl_r, prev_nl_i,
                          lin_batched, inv_dt, linear_weight, bw)
     # 3. implicit solve (BC rows + batched solve, in-place → solution in rhs) (5d)

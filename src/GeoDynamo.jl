@@ -538,6 +538,7 @@ rcond_fallback_tol(::Type{T}) where {T} = sqrt(eps(T))
 # Architecture type hierarchy — must be first so all subsequent includes can use AbstractArchitecture
 include("core/architecture.jl")
 include("gpu/device.jl")
+include("gpu/workspace.jl")
 include("gpu/fields.jl")
 include("gpu/scalar_transform.jl")
 include("gpu/nonlinear.jl")

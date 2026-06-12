@@ -94,11 +94,13 @@ function gpu_erk2_enforce_bcs!(X, bc, nr::Int; imag::Bool = false)
 end
 
 # prepare + stage for one split-complex component. Returns (linear, k1, stage).
-function _gpu_erk2_prepare(u, n, fld, dt, bc, nr; imag::Bool)
-    linear = similar(u); gpu_batched_dense_matvec_perl!(linear, u, fld.Ef)
-    k1 = similar(u);     gpu_batched_dense_matvec_perl!(k1, n, fld.p1f)
-    stage = similar(u);  gpu_batched_dense_matvec_perl!(stage, u, fld.Eh)
-    sphi = similar(u);   gpu_batched_dense_matvec_perl!(sphi, n, fld.p1h)
+# linear/k1/stage persist until the finalize → pooled under per-field tags;
+# only sphi is transient.
+function _gpu_erk2_prepare(u, n, fld, dt, bc, nr, ws, tag::Symbol; imag::Bool)
+    linear = gpu_scratch!(ws, Symbol(tag, :_lin), u); gpu_batched_dense_matvec_perl!(linear, u, fld.Ef)
+    k1 = gpu_scratch!(ws, Symbol(tag, :_k1), u);      gpu_batched_dense_matvec_perl!(k1, n, fld.p1f)
+    stage = gpu_scratch!(ws, Symbol(tag, :_st), u);   gpu_batched_dense_matvec_perl!(stage, u, fld.Eh)
+    sphi = gpu_scratch!(ws, Symbol(tag, :_sp), u);    gpu_batched_dense_matvec_perl!(sphi, n, fld.p1h)
     T = eltype(u)
     @. stage = stage + T(dt / 2) * sphi
     gpu_erk2_enforce_bcs!(stage, bc, nr; imag)
@@ -106,11 +108,11 @@ function _gpu_erk2_prepare(u, n, fld, dt, bc, nr; imag::Bool)
 end
 
 # finalize one component into `dst`.
-function _gpu_erk2_finalize!(dst, linear, k1, n0, nstage, fld, dt, bc, nr; imag::Bool)
+function _gpu_erk2_finalize!(dst, linear, k1, n0, nstage, fld, dt, bc, nr, ws, tag::Symbol; imag::Bool)
     T = eltype(dst)
-    delta = similar(dst)
+    delta = gpu_scratch!(ws, Symbol(tag, :_dl), dst)
     @. delta = nstage - n0
-    corr = similar(dst)
+    corr = gpu_scratch!(ws, Symbol(tag, :_co), dst)
     gpu_batched_dense_matvec_perl!(corr, delta, fld.p2f)
     @. dst = linear + T(dt) * k1 + T(2 * dt) * corr
     gpu_erk2_enforce_bcs!(dst, bc, nr; imag)
@@ -120,16 +122,16 @@ end
 # P ← recover(V): V/Ek with zeroed walls through the Dirichlet P-solve, then
 # the φ1-column influence correction with the packed per-degree Greens
 # (`half` picks the dt/2 vs dt set). Mirrors _erk2_poloidal_recover!.
-function _gpu_erk2_recover_P!(P, V, ws, rec, Ek, bw::Int; half::Bool)
+function _gpu_erk2_recover_P!(P, V, wsplit, rec, Ek, bw::Int, ws, tag::Symbol; half::Bool)
     T = eltype(P)
     nr = size(P, 3)
-    Wv = similar(P)
+    Wv = gpu_scratch!(ws, Symbol(tag, :_Wv), P)
     @. Wv = V / T(Ek)
     Wv[:, :, 1] .= zero(T); Wv[:, :, nr] .= zero(T)
-    Pt = similar(P)
-    gpu_batched_banded_solve!(Pt, Wv, ws.plu, bw)
-    rho1 = dropdims(sum(Pt .* reshape(ws.d1_inner, 1, 1, :); dims = 3); dims = 3)
-    rho2 = dropdims(sum(Pt .* reshape(ws.d1_outer, 1, 1, :); dims = 3); dims = 3)
+    Pt = gpu_scratch!(ws, Symbol(tag, :_Pt), P)
+    gpu_batched_banded_solve!(Pt, Wv, wsplit.plu, bw)
+    rho1 = dropdims(sum(Pt .* reshape(wsplit.d1_inner, 1, 1, :); dims = 3); dims = 3)
+    rho2 = dropdims(sum(Pt .* reshape(wsplit.d1_outer, 1, 1, :); dims = 3); dims = 3)
     M = half ? rec.Mh : rec.Mf
     h1 = half ? rec.h1h : rec.h1f
     h2 = half ? rec.h2h : rec.h2f
@@ -141,7 +143,7 @@ function _gpu_erk2_recover_P!(P, V, ws, rec, Ek, bw::Int; half::Bool)
     a2 = @. (-rho2 * M11 + rho1 * M21) / det
     h1r = reshape(h1, size(h1, 1), 1, nr)
     h2r = reshape(h2, size(h2, 1), 1, nr)
-    @. P = Pt + a1 * h1r + a2 * h2r
+    @. P = Pt + a1 * h1r + a2 * h2r   # Pt local var (pooled buffer) — safe
     P[1, :, :] .= zero(T)
     return P
 end
@@ -157,12 +159,14 @@ function _gpu_erk2_nonlinear_pass!(state, out)
     arch = arch_of(v.tor.spec_r)
     nr = size(v.tor.spec_r, 3)
     spec(a, b) = GPUSpectralField{eltype(a), typeof(a)}(cfg, size(a, 1), size(a, 2), size(a, 3), a, b)
-    ph() = allocate_gpu_physical_field(eltype(v.tor.spec_r), arch, cfg, nr)
+    ws = get(state, :work, nothing)
+    Tel = eltype(v.tor.spec_r)
+    ph(k::Symbol) = gpu_scratch_phys!(ws, k, Tel, arch, cfg, nr)
 
     # fresh scalars (CPU refreshes them before the velocity force assembly)
-    Tn = ph(); gpu_scalar_spectral_to_physical!(Tn, spec(state.temperature.spec_r, state.temperature.spec_i), cfg)
+    Tn = ph(:e_T); gpu_scalar_spectral_to_physical!(Tn, spec(state.temperature.spec_r, state.temperature.spec_i), cfg; ws, tag = :e_Ts)
     Cn = state.composition === nothing ? nothing :
-        (c = ph(); gpu_scalar_spectral_to_physical!(c, spec(state.composition.spec_r, state.composition.spec_i), cfg); c)
+        (c = ph(:e_C); gpu_scalar_spectral_to_physical!(c, spec(state.composition.spec_r, state.composition.spec_i), cfg; ws, tag = :e_Cs); c)
 
     # velocity nonlinear with the LAGGED B/J buffers
     gpu_velocity_nonlinear!(out.vt_r, out.vt_i, out.vp_r, out.vp_i,
@@ -170,6 +174,7 @@ function _gpu_erk2_nonlinear_pass!(state, out)
         state.nlops_vel.d1, state.nlops_vel.d2, state.nlops_vel.lfac,
         state.nlops_vel.rinv, state.nlops_vel.rinv2, state.nlops_vel.rscale,
         state.nlops_vel.sinθ, state.nlops_vel.cosθ, state.nlops_vel.E, lmax, bw;
+        ws = ws, tag = :e_vnl,
         T_phys = Tn.data, thermal_factor = state.thermal_factor, r_vec = state.r_vec,
         C_phys = Cn === nothing ? nothing : Cn.data,
         comp_factor = state.composition === nothing ? zero(eltype(v.tor.spec_r)) : state.comp_factor,
@@ -178,27 +183,30 @@ function _gpu_erk2_nonlinear_pass!(state, out)
         lorentz_coeff = state.lorentz_coeff)
 
     # shared u for induction + scalar advection (current velocity spec)
-    u = ph(); uθ = ph(); uφ = ph()
+    u = ph(:e_ur); uθ = ph(:e_ut); uφ = ph(:e_up)
     gpu_vector_spectral_to_physical!(u, uθ, uφ, spec(v.tor.spec_r, v.tor.spec_i),
         spec(v.pol.spec_r, v.pol.spec_i), cfg,
-        state.nlops_vel.d1, state.nlops_vel.lfac, state.nlops_vel.rinv, state.nlops_vel.rinv2, bw)
+        state.nlops_vel.d1, state.nlops_vel.lfac, state.nlops_vel.rinv, state.nlops_vel.rinv2, bw;
+        ws, tag = :e_us)
 
     if state.magnetic !== nothing
         m = state.magnetic
         # refresh B/J buffers from the current magnetic spec (CPU magnetic pass)
-        br = ph(); bθ = ph(); bφ = ph()
+        br = ph(:e_Br); bθ = ph(:e_Bt); bφ = ph(:e_Bp)
         gpu_vector_spectral_to_physical!(br, bθ, bφ, spec(m.tor.spec_r, m.tor.spec_i),
             spec(m.pol.spec_r, m.pol.spec_i), cfg,
-            state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw)
-        jtr = similar(m.tor.spec_r); jti = similar(m.tor.spec_i)
-        jpr = similar(m.pol.spec_r); jpi = similar(m.pol.spec_i)
+            state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw;
+            ws, tag = :e_Bs)
+        jtr = gpu_scratch!(ws, :e_jtr, m.tor.spec_r); jti = gpu_scratch!(ws, :e_jti, m.tor.spec_i)
+        jpr = gpu_scratch!(ws, :e_jpr, m.pol.spec_r); jpi = gpu_scratch!(ws, :e_jpi, m.pol.spec_i)
         gpu_spectral_curl!(jtr, jti, jpr, jpi, m.tor.spec_r, m.tor.spec_i,
             m.pol.spec_r, m.pol.spec_i,
             state.nlops_mag.d1, state.nlops_mag.d2, state.nlops_mag.lfac,
-            state.nlops_mag.rinv, state.nlops_mag.rinv2, bw)
-        jr = ph(); jθ = ph(); jφ = ph()
+            state.nlops_mag.rinv, state.nlops_mag.rinv2, bw; ws, tag = :e_jc)
+        jr = ph(:e_Jr); jθ = ph(:e_Jt); jφ = ph(:e_Jp)
         gpu_vector_spectral_to_physical!(jr, jθ, jφ, spec(jtr, jti), spec(jpr, jpi), cfg,
-            state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw)
+            state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw;
+            ws, tag = :e_Js)
         state.B_r .= br.data; state.B_θ .= bθ.data; state.B_φ .= bφ.data
         state.J_r .= jr.data; state.J_θ .= jθ.data; state.J_φ .= jφ.data
 
@@ -206,14 +214,17 @@ function _gpu_erk2_nonlinear_pass!(state, out)
             m.tor.spec_r, m.tor.spec_i, m.pol.spec_r, m.pol.spec_i,
             u.data, uθ.data, uφ.data, cfg,
             state.nlops_mag.d1, state.nlops_mag.d2, state.nlops_mag.lfac,
-            state.nlops_mag.rinv, state.nlops_mag.rinv2, state.nlops_mag.rscale, lmax, bw)
+            state.nlops_mag.rinv, state.nlops_mag.rinv2, state.nlops_mag.rscale, lmax, bw;
+            ws, tag = :e_mnl)
     end
 
     gpu_scalar_nonlinear!(out.t_r, out.t_i, state.temperature.spec_r, state.temperature.spec_i,
-        u.data, uθ.data, uφ.data, cfg, state.d1, state.mvals, state.rinv, lmax, bw)
+        u.data, uθ.data, uφ.data, cfg, state.d1, state.mvals, state.rinv, lmax, bw;
+        ws, tag = :e_tnl)
     if state.composition !== nothing
         gpu_scalar_nonlinear!(out.c_r, out.c_i, state.composition.spec_r, state.composition.spec_i,
-            u.data, uθ.data, uφ.data, cfg, state.d1, state.mvals, state.rinv, lmax, bw)
+            u.data, uθ.data, uφ.data, cfg, state.d1, state.mvals, state.rinv, lmax, bw;
+            ws, tag = :e_cnl)
     end
 
     state.T_phys .= Tn.data
@@ -221,16 +232,19 @@ function _gpu_erk2_nonlinear_pass!(state, out)
     return out
 end
 
-_gpu_erk2_nl_arrays(template, has_mag::Bool, has_comp::Bool) = (;
-    vt_r = similar(template), vt_i = similar(template),
-    vp_r = similar(template), vp_i = similar(template),
-    mt_r = has_mag ? similar(template) : nothing,
-    mt_i = has_mag ? similar(template) : nothing,
-    mp_r = has_mag ? similar(template) : nothing,
-    mp_i = has_mag ? similar(template) : nothing,
-    t_r = similar(template), t_i = similar(template),
-    c_r = has_comp ? similar(template) : nothing,
-    c_i = has_comp ? similar(template) : nothing)
+_gpu_erk2_nl_arrays(template, has_mag::Bool, has_comp::Bool, ws, tag::Symbol) = (;
+    vt_r = gpu_scratch!(ws, Symbol(tag, :_vtr), template),
+    vt_i = gpu_scratch!(ws, Symbol(tag, :_vti), template),
+    vp_r = gpu_scratch!(ws, Symbol(tag, :_vpr), template),
+    vp_i = gpu_scratch!(ws, Symbol(tag, :_vpi), template),
+    mt_r = has_mag ? gpu_scratch!(ws, Symbol(tag, :_mtr), template) : nothing,
+    mt_i = has_mag ? gpu_scratch!(ws, Symbol(tag, :_mti), template) : nothing,
+    mp_r = has_mag ? gpu_scratch!(ws, Symbol(tag, :_mpr), template) : nothing,
+    mp_i = has_mag ? gpu_scratch!(ws, Symbol(tag, :_mpi), template) : nothing,
+    t_r = gpu_scratch!(ws, Symbol(tag, :_tr), template),
+    t_i = gpu_scratch!(ws, Symbol(tag, :_ti), template),
+    c_r = has_comp ? gpu_scratch!(ws, Symbol(tag, :_cr), template) : nothing,
+    c_i = has_comp ? gpu_scratch!(ws, Symbol(tag, :_ci), template) : nothing)
 
 """
     gpu_erk2_solver_step!(state, erk) -> nothing
@@ -252,16 +266,18 @@ function gpu_erk2_solver_step!(state, erk)
     Ek = state.nlops_vel.E
     has_mag = state.magnetic !== nothing && erk.magnetic_tor !== nothing
     has_comp = state.composition !== nothing && erk.composition !== nothing
-    ws = state.wsplit
+    wsplit = state.wsplit
+    work = get(state, :work, nothing)
 
     # --- entry nonlinear pass at u₀ (n₀ for every field) ---
-    n0 = _gpu_erk2_nl_arrays(v.tor.spec_r, has_mag, has_comp)
+    n0 = _gpu_erk2_nl_arrays(v.tor.spec_r, has_mag, has_comp, work, :e_n0)
     _gpu_erk2_nonlinear_pass!(state, n0)
 
     # --- V₀ = Ek·D_pol·P₀ (the stage machinery advances V, not P) ---
-    V_r = similar(v.pol.spec_r); V_i = similar(v.pol.spec_i)
-    gpu_batched_banded_matvec_perl!(V_r, v.pol.spec_r, ws.dpol, bw)
-    gpu_batched_banded_matvec_perl!(V_i, v.pol.spec_i, ws.dpol, bw)
+    V_r = gpu_scratch!(work, :e_Vr, v.pol.spec_r)
+    V_i = gpu_scratch!(work, :e_Vi, v.pol.spec_i)
+    gpu_batched_banded_matvec_perl!(V_r, v.pol.spec_r, wsplit.dpol, bw)
+    gpu_batched_banded_matvec_perl!(V_i, v.pol.spec_i, wsplit.dpol, bw)
     @. V_r = T(Ek) * V_r
     @. V_i = T(Ek) * V_i
     V_r[1, :, :] .= zero(T); V_i[1, :, :] .= zero(T)
@@ -279,10 +295,15 @@ function gpu_erk2_solver_step!(state, erk)
         (erk.composition, state.composition.spec_r, state.composition.spec_i, n0.c_r, n0.c_i))
 
     prepared = Any[]
-    for (fld, ur, ui, nr_, ni_) in fields
-        lin_r, k1_r, st_r = _gpu_erk2_prepare(ur, nr_, fld, dt, fld.bc, nr; imag = false)
-        lin_i, k1_i, st_i = _gpu_erk2_prepare(ui, ni_, fld, dt, fld.bc, nr; imag = true)
-        push!(prepared, (; fld, ur, ui, n0_r = copy(nr_), n0_i = copy(ni_),
+    for (fi, (fld, ur, ui, nr_, ni_)) in enumerate(fields)
+        ftag = Symbol(:e_f, fi)
+        lin_r, k1_r, st_r = _gpu_erk2_prepare(ur, nr_, fld, dt, fld.bc, nr, work,
+            Symbol(ftag, :r); imag = false)
+        lin_i, k1_i, st_i = _gpu_erk2_prepare(ui, ni_, fld, dt, fld.bc, nr, work,
+            Symbol(ftag, :i); imag = true)
+        n0_r = gpu_scratch!(work, Symbol(ftag, :_n0r), nr_); n0_r .= nr_
+        n0_i = gpu_scratch!(work, Symbol(ftag, :_n0i), ni_); n0_i .= ni_
+        push!(prepared, (; fld, ur, ui, n0_r, n0_i,
             lin_r, k1_r, st_r, lin_i, k1_i, st_i))
     end
 
@@ -291,22 +312,25 @@ function gpu_erk2_solver_step!(state, erk)
         p.ur .= p.st_r
         p.ui .= p.st_i
     end
-    _gpu_erk2_recover_P!(v.pol.spec_r, V_r, ws, erk.recovery, Ek, bw; half = true)
-    _gpu_erk2_recover_P!(v.pol.spec_i, V_i, ws, erk.recovery, Ek, bw; half = true)
+    _gpu_erk2_recover_P!(v.pol.spec_r, V_r, wsplit, erk.recovery, Ek, bw, work, :e_rcr; half = true)
+    _gpu_erk2_recover_P!(v.pol.spec_i, V_i, wsplit, erk.recovery, Ek, bw, work, :e_rci; half = true)
 
     # --- stage nonlinear pass at the provisional fields ---
-    nstage = _gpu_erk2_nl_arrays(v.tor.spec_r, has_mag, has_comp)
+    nstage = _gpu_erk2_nl_arrays(v.tor.spec_r, has_mag, has_comp, work, :e_ns)
     _gpu_erk2_nonlinear_pass!(state, nstage)
     stage_nls = Any[(nstage.t_r, nstage.t_i), (nstage.vt_r, nstage.vt_i), (nstage.vp_r, nstage.vp_i)]
     has_mag && push!(stage_nls, (nstage.mt_r, nstage.mt_i), (nstage.mp_r, nstage.mp_i))
     has_comp && push!(stage_nls, (nstage.c_r, nstage.c_i))
 
     # --- finalize every field; recover the final P from V⁺ ---
-    for (p, (ns_r, ns_i)) in zip(prepared, stage_nls)
-        _gpu_erk2_finalize!(p.ur, p.lin_r, p.k1_r, p.n0_r, ns_r, p.fld, dt, p.fld.bc, nr; imag = false)
-        _gpu_erk2_finalize!(p.ui, p.lin_i, p.k1_i, p.n0_i, ns_i, p.fld, dt, p.fld.bc, nr; imag = true)
+    for (fi, (p, (ns_r, ns_i))) in enumerate(zip(prepared, stage_nls))
+        ftag = Symbol(:e_f, fi)
+        _gpu_erk2_finalize!(p.ur, p.lin_r, p.k1_r, p.n0_r, ns_r, p.fld, dt, p.fld.bc, nr,
+            work, Symbol(ftag, :r); imag = false)
+        _gpu_erk2_finalize!(p.ui, p.lin_i, p.k1_i, p.n0_i, ns_i, p.fld, dt, p.fld.bc, nr,
+            work, Symbol(ftag, :i); imag = true)
     end
-    _gpu_erk2_recover_P!(v.pol.spec_r, V_r, ws, erk.recovery, Ek, bw; half = false)
-    _gpu_erk2_recover_P!(v.pol.spec_i, V_i, ws, erk.recovery, Ek, bw; half = false)
+    _gpu_erk2_recover_P!(v.pol.spec_r, V_r, wsplit, erk.recovery, Ek, bw, work, :e_rcr; half = false)
+    _gpu_erk2_recover_P!(v.pol.spec_i, V_i, wsplit, erk.recovery, Ek, bw, work, :e_rci; half = false)
     return nothing
 end
