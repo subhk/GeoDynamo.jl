@@ -64,7 +64,7 @@ function gpu_solver_step!(state)
         gpu_spectral_curl!(jtr, jti, jpr, jpi, m.tor.spec_r, m.tor.spec_i, m.pol.spec_r, m.pol.spec_i,
             state.nlops_mag.d1, state.nlops_mag.d2, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2,
             state.nlops_mag.r, bw)
-        jr = ph(); jθ = ph(); jφ = ph()
+        jr = ph(:st_Jr); jθ = ph(:st_Jt); jφ = ph(:st_Jp)
         gpu_vector_spectral_to_physical!(jr, jθ, jφ, spec(jtr, jti), spec(jpr, jpi), cfg,
             state.nlops_mag.lfac, state.nlops_mag.rscale, state.nlops_mag.d1, state.nlops_mag.rinv, bw)
         Bn_r = br.data; Bn_θ = bθ.data; Bn_φ = bφ.data; Jn_r = jr.data; Jn_θ = jθ.data; Jn_φ = jφ.data

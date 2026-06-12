@@ -38,29 +38,37 @@ interface compatibility.  All on the same backend; outputs distinct from inputs.
 """
 function gpu_magnetic_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, B_tor_r, B_tor_i, B_pol_r, B_pol_i,
         u_r, u_θ, u_φ, config, d1, d2, lfac, rinv, rinv2, rscale, lmax::Int, bw::Int;
-        r_vec = nothing)
+        r_vec = nothing, ws = nothing, tag::Symbol = :mnl)
     # lmax kept for interface symmetry with the other field orchestrators; spectral
     # bounds are encoded in lfac/rinv/config, so it isn't forwarded to the sub-calls here.
     arch = arch_of(B_tor_r)
     sz = size(B_tor_r); nr = sz[3]
     T = eltype(B_tor_r)
     spec(a, b) = GPUSpectralField{eltype(a), typeof(a)}(config, sz[1], sz[2], nr, a, b)
-    ph() = allocate_gpu_physical_field(eltype(B_tor_r), arch, config, nr)
-    curl_r = r_vec === nothing ? inv.(rinv) : r_vec
+    ph(k::Symbol) = gpu_scratch_phys!(ws, Symbol(tag, k), T, arch, config, nr)
     # 1. B (tor,pol) → physical (B_r,B_θ,B_φ)
-    Br = ph(); Bθ = ph(); Bφ = ph()
+    Br = ph(:_Br); Bθ = ph(:_Bt); Bφ = ph(:_Bp)
     gpu_vector_spectral_to_physical!(Br, Bθ, Bφ, spec(B_tor_r, B_tor_i), spec(B_pol_r, B_pol_i), config,
         lfac, rscale, d1, rinv, bw)
     # 2. uB = u×B (physical), coeff 1
-    ubr = ph(); ubθ = ph(); ubφ = ph()
+    ubr = ph(:_ubr); ubθ = ph(:_ubt); ubφ = ph(:_ubp)
     gpu_cross!(ubr.data, ubθ.data, ubφ.data, u_r, u_θ, u_φ, Br.data, Bθ.data, Bφ.data, one(eltype(B_tor_r)))
-    # 3. uB → spectral (work_tor = T, work_pol = S), tangential analyze
-    # TODO(Task 5): Stage-4A curl potentials (P=−r·T_E, T=−(Q_E−∂r(r·S_E))/r) replace
-    # this — raw mode keeps the legacy shape compiling, results are WRONG until then.
+    # 3. uB → spectral: tangential raw analysis gives (S_E,T_E), radial scalar
+    # analysis gives Q_E. Combine these into the curl potentials below.
     wtr = similar(B_tor_r); wti = similar(B_tor_i); wpr = similar(B_pol_r); wpi = similar(B_pol_i)
     gpu_vector_physical_to_spectral!(spec(wtr, wti), spec(wpr, wpi), ubθ, ubφ, config;
-        raw_spheroidal = true)
-    # 4. curl(work) → nl  (∇× of the induction)
-    gpu_spectral_curl!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, wtr, wti, wpr, wpi, d1, d2, lfac, rinv, rinv2, curl_r, bw)
+        raw_spheroidal = true, ws = ws, tag = Symbol(tag, :_ta))
+    nlat, nlon = size(ubr.data, 1), size(ubr.data, 2)
+    ur_k = gpu_scratch!(ws, Symbol(tag, :_ur), ubr.data, (nlat, nlon))
+    q_k = gpu_scratch_complex!(ws, Symbol(tag, :_qk), nl_tor_r, (size(nl_tor_r, 1), size(nl_tor_r, 2)))
+    for k in 1:nr
+        ur_k .= @view ubr.data[:, :, k]
+        _scalar_anal_into!(q_k, ws, config.sht_config, ur_k)
+        nl_tor_r[:, :, k] .= real.(q_k)
+        nl_tor_i[:, :, k] .= imag.(q_k)
+    end
+    # 4. curl potentials for ∇×(u×B)
+    gpu_induction_curl_potentials!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i,
+        wpr, wpi, wtr, wti, d1, rinv, bw; ws = ws, tag = Symbol(tag, :_icp))
     return nothing
 end

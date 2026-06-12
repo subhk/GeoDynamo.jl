@@ -337,7 +337,7 @@ function build_gpu_solver_state(st)
         config = cfg, lmax = cfg.lmax, bw = bw, linear_weight = linw,
         nlops_vel = (; d1, d2, lfac, rinv, rinv2, rscale, r = r_vec, r2, sinθ, cosθ, E = T(p.Ek)),
         nlops_mag = (; d1, d2, lfac, rinv, rinv2, rscale, r = r_vec, r2),
-        influence = influence,
+        influence = influence, wsplit = wsplit,
         d1 = d1, mvals = mvals, rinv = rinv, r_vec = r_vec,
         thermal_factor = T((p.Pm / p.Pr) * p.Ra),
         comp_factor = T((p.Pm / p.Sc) * p.RaC),

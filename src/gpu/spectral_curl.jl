@@ -54,7 +54,8 @@ formula.  All arrays on the same backend.  Real/imag handled independently
 (curl is real-linear).  The `dst_*` arrays must NOT alias any `src_*` array.
 """
 function gpu_spectral_curl!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
-        src_tor_r, src_tor_i, src_pol_r, src_pol_i, d1, d2, lfac, rinv, rinv2, r_vec, bw::Int)
+        src_tor_r, src_tor_i, src_pol_r, src_pol_i, d1, d2, lfac, rinv, rinv2, r_vec, bw::Int;
+        ws = nothing, tag::Symbol = :curl)
     # 2 mat-vec launches, each with its own synchronize (= 2 barriers/curl).
     # Phase-5c: accept caller-owned scratch (d2P*) + hoist a single barrier
     # after both launches (the outputs are independent, no inter-dependency).

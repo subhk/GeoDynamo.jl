@@ -197,7 +197,7 @@ function _gpu_erk2_nonlinear_pass!(state, out)
     u = ph(:e_ur); uθ = ph(:e_ut); uφ = ph(:e_up)
     gpu_vector_spectral_to_physical!(u, uθ, uφ, spec(v.tor.spec_r, v.tor.spec_i),
         spec(v.pol.spec_r, v.pol.spec_i), cfg,
-        state.nlops_vel.d1, state.nlops_vel.lfac, state.nlops_vel.rinv, state.nlops_vel.rinv2, bw;
+        state.nlops_vel.lfac, state.nlops_vel.rscale, state.nlops_vel.d1, state.nlops_vel.rinv, bw;
         ws, tag = :e_us)
 
     if state.magnetic !== nothing
@@ -206,17 +206,17 @@ function _gpu_erk2_nonlinear_pass!(state, out)
         br = ph(:e_Br); bθ = ph(:e_Bt); bφ = ph(:e_Bp)
         gpu_vector_spectral_to_physical!(br, bθ, bφ, spec(m.tor.spec_r, m.tor.spec_i),
             spec(m.pol.spec_r, m.pol.spec_i), cfg,
-            state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw;
+            state.nlops_mag.lfac, state.nlops_mag.rscale, state.nlops_mag.d1, state.nlops_mag.rinv, bw;
             ws, tag = :e_Bs)
         jtr = gpu_scratch!(ws, :e_jtr, m.tor.spec_r); jti = gpu_scratch!(ws, :e_jti, m.tor.spec_i)
         jpr = gpu_scratch!(ws, :e_jpr, m.pol.spec_r); jpi = gpu_scratch!(ws, :e_jpi, m.pol.spec_i)
         gpu_spectral_curl!(jtr, jti, jpr, jpi, m.tor.spec_r, m.tor.spec_i,
             m.pol.spec_r, m.pol.spec_i,
             state.nlops_mag.d1, state.nlops_mag.d2, state.nlops_mag.lfac,
-            state.nlops_mag.rinv, state.nlops_mag.rinv2, bw; ws, tag = :e_jc)
+            state.nlops_mag.rinv, state.nlops_mag.rinv2, state.nlops_mag.r, bw; ws, tag = :e_jc)
         jr = ph(:e_Jr); jθ = ph(:e_Jt); jφ = ph(:e_Jp)
         gpu_vector_spectral_to_physical!(jr, jθ, jφ, spec(jtr, jti), spec(jpr, jpi), cfg,
-            state.nlops_mag.d1, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2, bw;
+            state.nlops_mag.lfac, state.nlops_mag.rscale, state.nlops_mag.d1, state.nlops_mag.rinv, bw;
             ws, tag = :e_Js)
         state.B_r .= br.data; state.B_θ .= bθ.data; state.B_φ .= bφ.data
         state.J_r .= jr.data; state.J_θ .= jθ.data; state.J_φ .= jφ.data

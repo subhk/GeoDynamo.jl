@@ -106,7 +106,8 @@ must be on the same backend as the fields (use `on_architecture`).
 """
 function gpu_vector_spectral_to_physical!(vr::GPUPhysicalField, vθ::GPUPhysicalField,
         vφ::GPUPhysicalField, tor::GPUSpectralField, pol::GPUSpectralField, config,
-        lfac, rscale, d1, rinv, bw::Int; raw_spheroidal::Bool = false)
+        lfac, rscale, d1, rinv, bw::Int; raw_spheroidal::Bool = false,
+        ws = nothing, tag::Symbol = :v_s2p)
     sht = config.sht_config
     nr = pol.nr
     # Spheroidal scalar S: raw mode = the stored coefficients; solenoidal mode
@@ -156,7 +157,8 @@ solenoidal synthesis.  Mirrors CPU `vector_physical_to_spectral!` +
 """
 function gpu_vector_physical_to_spectral!(tor::GPUSpectralField, pol::GPUSpectralField,
         vθ::GPUPhysicalField, vφ::GPUPhysicalField, config;
-        vr = nothing, lfac = nothing, r2 = nothing, raw_spheroidal::Bool = false)
+        vr = nothing, lfac = nothing, r2 = nothing, raw_spheroidal::Bool = false,
+        ws = nothing, tag::Symbol = :v_p2s)
     sht = config.sht_config
     nr = pol.nr
     nlat, nlon = size(vθ.data, 1), size(vθ.data, 2)
@@ -205,9 +207,8 @@ coefficients are recovered from radial scalar analysis,
 """
 function gpu_vector_physical_to_spectral!(tor::GPUSpectralField, pol::GPUSpectralField,
         vr::GPUPhysicalField, vθ::GPUPhysicalField, vφ::GPUPhysicalField,
-        config, lfac, rinv2)
-    gpu_vector_physical_to_spectral!(tor, pol, vθ, vφ, config)
-    gpu_scalar_physical_to_spectral!(pol, vr, config)
-    gpu_poloidal_from_radial_q!(pol.data_real, pol.data_imag, lfac, rinv2)
+        config, lfac, rinv2; ws = nothing, tag::Symbol = :v_p2s)
+    gpu_vector_physical_to_spectral!(tor, pol, vθ, vφ, config;
+        vr = vr, lfac = lfac, r2 = inv.(rinv2), ws = ws, tag = tag)
     return nothing
 end
