@@ -93,28 +93,33 @@ function gpu_erk2_enforce_bcs!(X, bc, nr::Int; imag::Bool = false)
     return X
 end
 
-# prepare + stage for one split-complex component. Returns (linear, k1, stage).
-# linear/k1/stage persist until the finalize → pooled under per-field tags;
-# only sphi is transient.
+# Low-storage prepare + stage for one split-complex component. Returns
+# (acc, stage) where acc = E_f·u₀ + dt·M1·n₀ already carries the FULL n₀
+# contribution to the finalize (M1 = φ1_f − 2φ2, precomputed in the pack), so
+# neither n₀ nor separate linear/k1 buffers need to survive the stage pass.
+# `acc` persists until the finalize → pooled under the per-field tag; sphi is
+# transient.
 function _gpu_erk2_prepare(u, n, fld, dt, bc, nr, ws, tag::Symbol; imag::Bool)
-    linear = gpu_scratch!(ws, Symbol(tag, :_lin), u); gpu_batched_dense_matvec_perl!(linear, u, fld.Ef)
-    k1 = gpu_scratch!(ws, Symbol(tag, :_k1), u);      gpu_batched_dense_matvec_perl!(k1, n, fld.p1f)
-    stage = gpu_scratch!(ws, Symbol(tag, :_st), u);   gpu_batched_dense_matvec_perl!(stage, u, fld.Eh)
-    sphi = gpu_scratch!(ws, Symbol(tag, :_sp), u);    gpu_batched_dense_matvec_perl!(sphi, n, fld.p1h)
     T = eltype(u)
+    acc = gpu_scratch!(ws, Symbol(tag, :_acc), u)
+    gpu_batched_dense_matvec_perl!(acc, u, fld.Ef)
+    sphi = gpu_scratch!(ws, Symbol(tag, :_sp), u)
+    gpu_batched_dense_matvec_perl!(sphi, n, fld.M1)
+    @. acc = acc + T(dt) * sphi
+    stage = gpu_scratch!(ws, Symbol(tag, :_st), u)
+    gpu_batched_dense_matvec_perl!(stage, u, fld.Eh)
+    gpu_batched_dense_matvec_perl!(sphi, n, fld.p1h)
     @. stage = stage + T(dt / 2) * sphi
     gpu_erk2_enforce_bcs!(stage, bc, nr; imag)
-    return linear, k1, stage
+    return acc, stage
 end
 
-# finalize one component into `dst`.
-function _gpu_erk2_finalize!(dst, linear, k1, n0, nstage, fld, dt, bc, nr, ws, tag::Symbol; imag::Bool)
+# finalize one component into `dst`:  u⁺ = acc + 2dt·φ2·n_stage.
+function _gpu_erk2_finalize!(dst, acc, nstage, fld, dt, bc, nr, ws, tag::Symbol; imag::Bool)
     T = eltype(dst)
-    delta = gpu_scratch!(ws, Symbol(tag, :_dl), dst)
-    @. delta = nstage - n0
     corr = gpu_scratch!(ws, Symbol(tag, :_co), dst)
-    gpu_batched_dense_matvec_perl!(corr, delta, fld.p2f)
-    @. dst = linear + T(dt) * k1 + T(2 * dt) * corr
+    gpu_batched_dense_matvec_perl!(corr, nstage, fld.p2f)
+    @. dst = acc + T(2 * dt) * corr
     gpu_erk2_enforce_bcs!(dst, bc, nr; imag)
     return dst
 end
@@ -303,14 +308,11 @@ function gpu_erk2_solver_step!(state, erk)
     prepared = Any[]
     for (fi, (fld, ur, ui, nr_, ni_)) in enumerate(fields)
         ftag = Symbol(:e_f, fi)
-        lin_r, k1_r, st_r = _gpu_erk2_prepare(ur, nr_, fld, dt, fld.bc, nr, work,
+        acc_r, st_r = _gpu_erk2_prepare(ur, nr_, fld, dt, fld.bc, nr, work,
             Symbol(ftag, :r); imag = false)
-        lin_i, k1_i, st_i = _gpu_erk2_prepare(ui, ni_, fld, dt, fld.bc, nr, work,
+        acc_i, st_i = _gpu_erk2_prepare(ui, ni_, fld, dt, fld.bc, nr, work,
             Symbol(ftag, :i); imag = true)
-        n0_r = gpu_scratch!(work, Symbol(ftag, :_n0r), nr_); n0_r .= nr_
-        n0_i = gpu_scratch!(work, Symbol(ftag, :_n0i), ni_); n0_i .= ni_
-        push!(prepared, (; fld, ur, ui, n0_r, n0_i,
-            lin_r, k1_r, st_r, lin_i, k1_i, st_i))
+        push!(prepared, (; fld, ur, ui, acc_r, st_r, acc_i, st_i))
     end
 
     # --- stage: write provisional fields; recover the stage P from stage V ---
@@ -331,9 +333,9 @@ function gpu_erk2_solver_step!(state, erk)
     # --- finalize every field; recover the final P from V⁺ ---
     for (fi, (p, (ns_r, ns_i))) in enumerate(zip(prepared, stage_nls))
         ftag = Symbol(:e_f, fi)
-        _gpu_erk2_finalize!(p.ur, p.lin_r, p.k1_r, p.n0_r, ns_r, p.fld, dt, p.fld.bc, nr,
+        _gpu_erk2_finalize!(p.ur, p.acc_r, ns_r, p.fld, dt, p.fld.bc, nr,
             work, Symbol(ftag, :r); imag = false)
-        _gpu_erk2_finalize!(p.ui, p.lin_i, p.k1_i, p.n0_i, ns_i, p.fld, dt, p.fld.bc, nr,
+        _gpu_erk2_finalize!(p.ui, p.acc_i, ns_i, p.fld, dt, p.fld.bc, nr,
             work, Symbol(ftag, :i); imag = true)
     end
     _gpu_erk2_recover_P!(v.pol.spec_r, V_r, wsplit, erk.recovery, Ek, bw, work, :e_rcr; half = false)
