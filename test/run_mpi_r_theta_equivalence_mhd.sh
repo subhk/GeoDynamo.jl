@@ -25,7 +25,9 @@ set -euo pipefail
 : "${JULIA:=$HOME/.julia/juliaup/julia-1.11.1+0.aarch64.apple.darwin14/bin/julia}"
 : "${NRANKS:=4}"
 : "${MPIEXEC_TIMEOUT:=300}"
-export MPIEXEC_TIMEOUT
+# Pin BLAS to 1 thread per rank — multi-threaded BLAS oversubscribes under MPI.
+: "${OPENBLAS_NUM_THREADS:=1}"
+export MPIEXEC_TIMEOUT OPENBLAS_NUM_THREADS
 
 cd "$(dirname "$0")/.."
 PROJECT="$(pwd)"

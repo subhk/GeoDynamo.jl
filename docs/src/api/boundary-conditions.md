@@ -18,7 +18,7 @@ GeoDynamo.bcs
 
     grid = SphericalShellGrid(nr = 64, lmax = 31)
     model = GeodynamoModel(grid)
-    simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+    simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
     state = simulation.model.state
 
     GeoDynamo.bcs.load_boundary_conditions!(state.temperature, GeoDynamo.TEMPERATURE, Dict(

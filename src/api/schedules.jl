@@ -55,3 +55,28 @@ function should_fire(s::WallTimeInterval, ctx::_ScheduleContext)
     end
     return false
 end
+
+"""
+    SpecifiedTimes(times...)
+
+Schedule that fires once when simulation time reaches (or first passes) each of
+the given times. Times are sorted and de-duplicated.
+"""
+mutable struct SpecifiedTimes <: AbstractSchedule
+    times::Vector{Float64}
+    _next::Int            # index of the next unfired entry
+end
+SpecifiedTimes(times::Real...) = SpecifiedTimes(unique(sort(Float64[times...])), 1)
+SpecifiedTimes(times::AbstractVector{<:Real}) = SpecifiedTimes(unique(sort(Float64.(times))), 1)
+
+function should_fire(s::SpecifiedTimes, ctx::_ScheduleContext)
+    s._next > length(s.times) && return false
+    if ctx.time >= s.times[s._next] - 1e-12
+        # advance past every entry this step crossed; fire once
+        while s._next <= length(s.times) && ctx.time >= s.times[s._next] - 1e-12
+            s._next += 1
+        end
+        return true
+    end
+    return false
+end

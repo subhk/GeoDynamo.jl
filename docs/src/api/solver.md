@@ -41,9 +41,8 @@ GeoDynamo
     └── get_shtnskit_version_info
 ```
 
-`with_gpu_backend(...)` can override scalar/vector transform callbacks plus the
-transform-workspace scratch gather/store hooks used by GPU-marked solver
-runtimes during tests or experimental backend integrations.
+`with_gpu_backend(...)` can override transform and workspace hooks used by
+GPU-marked solver runtimes during tests or experimental backend integrations.
 
 ## Public Solver API
 

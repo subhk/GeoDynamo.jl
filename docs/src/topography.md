@@ -308,8 +308,11 @@ precompute_gaunt_tensors!(gaunt; verbose=true, use_wigner=true)
 ### Creating Topography
 
 ```julia
+using GeoDynamo
+const topo = GeoDynamo.bcs.topography
+
 # From spherical harmonic (e.g., Y_2^0 ellipsoidal shape)
-cmb_topo = create_spherical_harmonic_topography(
+cmb_topo = topo.create_spherical_harmonic_topography(
     2, 0,              # l=2, m=0
     0.05,              # amplitude
     1.0,               # radius
@@ -317,8 +320,9 @@ cmb_topo = create_spherical_harmonic_topography(
     lmax = 32
 )
 
-# Random topography with power spectrum
-cmb_random = create_random_topography(
+# Random topography with power spectrum. This helper is available from the
+# topography submodule rather than the package root.
+cmb_random = topo.create_random_topography(
     l -> 0.01 / max(l, 1)^2,  # Power ~ l^(-2)
     1.0,                       # radius
     OUTER_BOUNDARY;
@@ -327,7 +331,7 @@ cmb_random = create_random_topography(
 )
 
 # From NetCDF file
-cmb_file = load_topography_from_file("cmb_topo.nc", OUTER_BOUNDARY)
+cmb_file = topo.load_topography_from_file("cmb_topo.nc", OUTER_BOUNDARY)
 ```
 
 ### Applying Corrections

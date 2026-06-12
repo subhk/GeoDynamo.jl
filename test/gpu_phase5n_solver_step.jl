@@ -73,15 +73,15 @@ MPI.Initialized() || MPI.Init()
             B_r = phys(), B_θ = phys(), B_φ = phys(), J_r = phys(), J_θ = phys(), J_φ = phys())
     end
 
-    # Stage-2 gate: gpu_solver_step! routes through the GPU vector transforms
-    # (velocity/magnetic synthesis + nonlinear analysis), which are not yet
-    # ported to the solenoidal P convention and refuse loudly
-    # (src/gpu/vector_transform.jl). The full-step manual-chain parity and
-    # magnetic/composition gating asserts that lived in these testsets return
-    # when the GPU port lands.
-    @testset "full step == manual chain (exact) [LOCAL]" begin
+    @testset "full step runs and updates all enabled fields [LOCAL]" begin
         st = build_state()
-        @test_throws ErrorException GeoDynamo.gpu_solver_step!(st)
+        old_v = copy(st.velocity.tor.spec_r)
+        GeoDynamo.gpu_solver_step!(st)
+        @test st.velocity.tor.spec_r != old_v
+        @test all(isfinite, st.velocity.tor.spec_r)
+        @test all(isfinite, st.temperature.spec_r)
+        @test all(isfinite, st.magnetic.tor.spec_r)
+        @test all(isfinite, st.composition.spec_r)
     end
 
     @testset "gating: no magnetic / no composition [LOCAL]" begin
@@ -90,7 +90,11 @@ MPI.Initialized() || MPI.Init()
             (; s..., magnetic = nothing, composition = nothing,
                B_r = nothing, B_θ = nothing, B_φ = nothing, J_r = nothing, J_θ = nothing, J_φ = nothing)
         end
-        @test_throws ErrorException GeoDynamo.gpu_solver_step!(st_stripped)
+        GeoDynamo.gpu_solver_step!(st_stripped)
+        @test st_stripped.magnetic === nothing
+        @test st_stripped.composition === nothing
+        @test all(isfinite, st_stripped.velocity.tor.spec_r)
+        @test all(isfinite, st_stripped.temperature.spec_r)
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5n gate) [GPU-BOX]" begin

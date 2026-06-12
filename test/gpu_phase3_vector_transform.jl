@@ -2,6 +2,16 @@ using Test
 using GeoDynamo
 include(joinpath(@__DIR__, "gpu_test_preamble.jl"))
 import SHTnsKit
+using Random
+
+function _phase3_rand_band(::Type{T}, N, bw; seed) where {T}
+    rng = MersenneTwister(seed)
+    data = zeros(T, 2bw + 1, N)
+    for j in 1:N, i in max(1, j - bw):min(N, j + bw)
+        data[bw + 1 + i - j, j] = rand(rng, T) - T(0.5)
+    end
+    return GeoDynamo.BandedMatrix{T}(data, bw, N)
+end
 
 @testset "GPU Phase 3 — Vector Transform" begin
     cfg = GeoDynamo.create_shtnskit_config(lmax = 8, mmax = 8, nlat = 24, nlon = 48, nr = 3)
@@ -24,7 +34,7 @@ import SHTnsKit
         nr = 3
         pr = rand(Float64, nl, nm, nr); pi_ = rand(Float64, nl, nm, nr)
         lfac = Float64[l * (l + 1) for l in 0:cfg.lmax]      # length nl
-        rscale = [1.0 / (0.5 + 0.1k) for k in 1:nr]           # length nr (solver path 1/r)
+        rscale = [1.0 / (0.5 + 0.1k)^2 for k in 1:nr]         # length nr (Stage-2 1/r^2)
         vr = zeros(Float64, nl, nm, nr); vi = zeros(Float64, nl, nm, nr)
         GeoDynamo.gpu_vr_scale!(vr, vi, pr, pi_, lfac, rscale)
         refr = similar(vr); refi = similar(vi)
@@ -38,6 +48,8 @@ import SHTnsKit
 
     @testset "vector spectral_to_physical [LOCAL]" begin
         nr = 3
+        bw = 1
+        d1 = _phase3_rand_band(Float64, nr, bw; seed = 31)
         arch = CPU()
         tor = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr)
         pol = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr)
@@ -48,17 +60,37 @@ import SHTnsKit
             pol.data_real[3,1,k] = Float64(k); tor.data_real[4,2,k] = 0.5; tor.data_imag[4,2,k] = -0.25
         end
         lfac = Float64[l*(l+1) for l in 0:cfg.lmax]
-        rscale = [1.0/(0.5 + 0.1k) for k in 1:nr]
-        # Stage-2 gate: GPU vector transforms are not yet ported to the
-        # solenoidal P convention and must refuse loudly rather than silently
-        # produce old-convention fields. The old-convention parity asserts that
-        # lived here return when the port lands (see the double-curl spec).
-        @test_throws ErrorException GeoDynamo.gpu_vector_spectral_to_physical!(
-            vr, vθ, vφ, tor, pol, cfg, lfac, rscale)
+        rinv = [1.0/(0.5 + 0.1k) for k in 1:nr]
+        rinv2 = rinv .^ 2
+        GeoDynamo.gpu_vector_spectral_to_physical!(
+            vr, vθ, vφ, tor, pol, cfg, d1.data, lfac, rinv, rinv2, bw)
+
+        S_r = similar(pol.data_real); S_i = similar(pol.data_imag)
+        GeoDynamo.gpu_batched_banded_matvec!(S_r, pol.data_real, d1.data, bw)
+        GeoDynamo.gpu_batched_banded_matvec!(S_i, pol.data_imag, d1.data, bw)
+        ri = reshape(rinv, 1, 1, :)
+        @. S_r = S_r * ri
+        @. S_i = S_i * ri
+        vr_r = similar(pol.data_real); vr_i = similar(pol.data_imag)
+        GeoDynamo.gpu_vr_scale!(vr_r, vr_i, pol.data_real, pol.data_imag, lfac, rinv2)
+
+        for k in 1:nr
+            S_k = complex.(S_r[:, :, k], S_i[:, :, k])
+            T_k = complex.(tor.data_real[:, :, k], tor.data_imag[:, :, k])
+            rt, rp = SHTnsKit.synthesis_sphtor(cfg.sht_config, S_k, T_k; real_output = true)
+            @test isapprox(vθ.data[:, :, k], rt; atol = 1e-12, rtol = 1e-10)
+            @test isapprox(vφ.data[:, :, k], rp; atol = 1e-12, rtol = 1e-10)
+            vr_k = complex.(vr_r[:, :, k], vr_i[:, :, k])
+            @test isapprox(vr.data[:, :, k],
+                SHTnsKit.synthesis(cfg.sht_config, vr_k; real_output = true);
+                atol = 1e-12, rtol = 1e-10)
+        end
     end
 
     @testset "vector physical_to_spectral + roundtrip [LOCAL]" begin
         nr = 3
+        bw = 1
+        d1 = _phase3_rand_band(Float64, nr, bw; seed = 41)
         arch = CPU()
         tor = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr)
         pol = GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr)
@@ -68,13 +100,21 @@ import SHTnsKit
         for k in 1:nr
             pol.data_real[3,1,k] = Float64(k); tor.data_real[4,2,k] = 0.5; tor.data_imag[4,2,k] = -0.25
         end
-        lfac = Float64[l*(l+1) for l in 0:cfg.lmax]; rscale = [1.0/(0.5+0.1k) for k in 1:nr]
-        # Stage-2 gate (see the synthesis testset above): both directions refuse
-        # until the GPU port adopts the solenoidal P convention.
-        @test_throws ErrorException GeoDynamo.gpu_vector_spectral_to_physical!(
-            vr, vθ, vφ, tor, pol, cfg, lfac, rscale)
-        @test_throws ErrorException GeoDynamo.gpu_vector_physical_to_spectral!(
-            tor, pol, vθ, vφ, cfg)
+        tor0_r = copy(tor.data_real); tor0_i = copy(tor.data_imag)
+        pol0_r = copy(pol.data_real); pol0_i = copy(pol.data_imag)
+        lfac = Float64[l*(l+1) for l in 0:cfg.lmax]
+        rinv = [1.0/(0.5+0.1k) for k in 1:nr]
+        rinv2 = rinv .^ 2
+        GeoDynamo.gpu_vector_spectral_to_physical!(
+            vr, vθ, vφ, tor, pol, cfg, d1.data, lfac, rinv, rinv2, bw)
+        fill!(tor.data_real, 0.0); fill!(tor.data_imag, 0.0)
+        fill!(pol.data_real, 0.0); fill!(pol.data_imag, 0.0)
+        GeoDynamo.gpu_vector_physical_to_spectral!(
+            tor, pol, vr, vθ, vφ, cfg, lfac, rinv2)
+        @test isapprox(tor.data_real, tor0_r; atol = 1e-10, rtol = 1e-10)
+        @test isapprox(tor.data_imag, tor0_i; atol = 1e-10, rtol = 1e-10)
+        @test isapprox(pol.data_real, pol0_r; atol = 1e-10, rtol = 1e-10)
+        @test isapprox(pol.data_imag, pol0_i; atol = 1e-10, rtol = 1e-10)
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-3 gate) [GPU-BOX]" begin
@@ -82,7 +122,11 @@ import SHTnsKit
             @test_skip "requires a functional CUDA GPU"
         else
             nr = 3
-            lfac = Float64[l*(l+1) for l in 0:cfg.lmax]; rscale = [1.0/(0.5+0.1k) for k in 1:nr]
+            bw = 1
+            d1 = _phase3_rand_band(Float64, nr, bw; seed = 51)
+            lfac = Float64[l*(l+1) for l in 0:cfg.lmax]
+            rinv = [1.0/(0.5+0.1k) for k in 1:nr]
+            rinv2 = rinv .^ 2
             mk(arch) = (GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr),
                         GeoDynamo.allocate_gpu_spectral_field(ComplexF64, arch, cfg, nr),
                         GeoDynamo.allocate_gpu_physical_field(Float64, arch, cfg, nr),
@@ -92,13 +136,18 @@ import SHTnsKit
             for k in 1:nr
                 cpol.data_real[3,1,k] = Float64(k); ctor.data_real[4,2,k] = 0.5; ctor.data_imag[4,2,k] = -0.25
             end
-            GeoDynamo.gpu_vector_spectral_to_physical!(cvr, cvθ, cvφ, ctor, cpol, cfg, lfac, rscale)  # CPU ref
+            GeoDynamo.gpu_vector_spectral_to_physical!(
+                cvr, cvθ, cvφ, ctor, cpol, cfg, d1.data, lfac, rinv, rinv2, bw)  # CPU ref
 
             gtor, gpol, gvr, gvθ, gvφ = mk(GPU())
             d!(dst, src) = (copyto!(dst.data_real, src.data_real); copyto!(dst.data_imag, src.data_imag))
             d!(gtor, ctor); d!(gpol, cpol)
-            glfac = GeoDynamo.on_architecture(GPU(), lfac); grscale = GeoDynamo.on_architecture(GPU(), rscale)
-            GeoDynamo.gpu_vector_spectral_to_physical!(gvr, gvθ, gvφ, gtor, gpol, cfg, glfac, grscale)  # GPU
+            gd1 = GeoDynamo.on_architecture(GPU(), d1.data)
+            glfac = GeoDynamo.on_architecture(GPU(), lfac)
+            grinv = GeoDynamo.on_architecture(GPU(), rinv)
+            grinv2 = GeoDynamo.on_architecture(GPU(), rinv2)
+            GeoDynamo.gpu_vector_spectral_to_physical!(
+                gvr, gvθ, gvφ, gtor, gpol, cfg, gd1, glfac, grinv, grinv2, bw)  # GPU
             @test gvr.data isa CUDA.CuArray
             @test gvθ.data isa CUDA.CuArray
             @test gvφ.data isa CUDA.CuArray

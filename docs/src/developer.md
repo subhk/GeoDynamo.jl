@@ -24,8 +24,11 @@ GeoDynamo.jl/
 │   │   └── spectral_history.jl   # Shared spectral-history helpers
 │   ├── parallel/
 │   │   ├── mpi.jl                # MPI runtime helpers
+│   │   ├── process_grid.jl       # GEODYNAMO_PROC_GRID parsing and subcomms
 │   │   ├── pencils.jl            # Pencil topology, load-balance, validation
-│   │   └── transposes.jl         # Transpose planning and timing
+│   │   ├── transposes.jl         # Transpose planning and timing
+│   │   ├── disttranspose_adapter.jl      # r×θ DistTransposePlan adapter
+│   │   └── spectral_pencil_adapter.jl    # Legacy spectral adapter helpers
 │   ├── transforms/
 │   │   └── spectral.jl           # SHTnsKit config, FFT plans, transform kernels
 │   ├── fields/
@@ -38,10 +41,13 @@ GeoDynamo.jl/
 │   │   ├── state.jl              # Public timestep-state container
 │   │   ├── implicit.jl           # Shared implicit/CNAB2 helpers
 │   │   ├── imex.jl               # Solver-side IMEX/EAB2 helpers
-│   │   ├── erk2.jl               # Solver-side ERK2 helpers
-│   │   └── driver.jl             # Solver-side timestep driver
+│   │   ├── erk2.jl               # ERK2 include shell
+│   │   ├── driver.jl             # Solver-side timestep driver
+│   │   └── erk2/                 # ERK2 cache, influence, boundary, integration code
 │   ├── physics/
+│   │   ├── force_projection.jl   # Solenoidal force projection helpers
 │   │   ├── nonlinear.jl          # Shared nonlinear-term assembly
+│   │   ├── scalar_field_solver_common.jl # Shared scalar implicit-step code
 │   │   ├── topography.jl         # Topography physics coupling
 │   │   ├── velocity/
 │   │   │   ├── field.jl          # Velocity field containers/operators
@@ -56,6 +62,28 @@ GeoDynamo.jl/
 │   │   └── composition/
 │   │       ├── field.jl          # Composition field containers/operators
 │   │       └── solver.jl         # Solver-owned compositional helpers
+│   ├── gpu/                      # Single-GPU solver port (Array/CuArray backends)
+│   │   ├── device.jl             # Device selection and array movement
+│   │   ├── fields.jl             # GPU spectral/physical field containers
+│   │   ├── scalar_transform.jl   # GPU scalar synthesis/analysis
+│   │   ├── vector_transform.jl   # GPU vector synthesis/analysis
+│   │   ├── nonlinear.jl          # Shared GPU nonlinear kernels (cross, Coriolis, buoyancy)
+│   │   ├── scalar_gradient.jl    # GPU scalar gradient
+│   │   ├── spectral_curl.jl      # GPU spectral curl
+│   │   ├── scalar_nonlinear.jl   # GPU scalar advection assembly
+│   │   ├── velocity_nonlinear.jl # GPU velocity nonlinear (buoyancy + Lorentz)
+│   │   ├── magnetic_nonlinear.jl # GPU induction term ∇×(u×B)
+│   │   ├── banded_solve.jl       # Batched banded LU on device
+│   │   ├── cnab2_rhs.jl          # GPU CNAB2 right-hand side
+│   │   ├── implicit_solve.jl     # GPU implicit solve with BC rows
+│   │   ├── influence_correction.jl # Poloidal influence-matrix correction
+│   │   ├── inner_core.jl         # Conducting inner-core GPU path
+│   │   ├── scalar_step.jl        # GPU scalar field step
+│   │   ├── velocity_step.jl      # GPU velocity field step
+│   │   ├── magnetic_step.jl      # GPU magnetic field step
+│   │   ├── solver_step.jl        # Full gpu_solver_step! orchestration
+│   │   ├── device_state.jl       # Device-state builder from a SolverState
+│   │   └── run.jl                # gpu_run! loop + host-gather output hook
 │   ├── diagnostics/
 │   │   └── solver.jl             # Solver diagnostics
 │   ├── io/
@@ -67,16 +95,18 @@ GeoDynamo.jl/
 │   │   ├── history.jl            # Time-series history utilities
 │   │   ├── restart.jl            # Restart file read/write
 │   │   └── utilities.jl          # Shared I/O utilities
-│   ├── api/                      # High-level user-facing API
-│   │   ├── model.jl              # GeodynamoModel constructors
-│   │   ├── simulation.jl         # Simulation type and run loop
+│   ├── api/                      # High-level user-facing API (Oceananigans-style)
 │   │   ├── grids.jl              # SphericalShellGrid / SphericalBallGrid
 │   │   ├── boundary_conditions.jl
 │   │   ├── initial_conditions.jl
 │   │   ├── timesteppers.jl
 │   │   ├── output_writers.jl
 │   │   ├── callbacks.jl
-│   │   └── schedules.jl
+│   │   ├── schedules.jl
+│   │   ├── fields.jl
+│   │   ├── clock.jl
+│   │   ├── set.jl
+│   │   └── show.jl
 │   ├── bcs/
 │   │   ├── bcs.jl                # Main BC module
 │   │   ├── common.jl             # Shared BC utilities
@@ -87,7 +117,6 @@ GeoDynamo.jl/
 │   │   ├── magnetic_bc.jl        # Magnetic BCs (incl. conducting inner core)
 │   │   ├── interpolation.jl      # BC interpolation
 │   │   ├── integration.jl        # BC time integration
-│   │   ├── timestepping.jl       # BC timestepping
 │   │   ├── file_bc_loader.jl     # Load BCs from files
 │   │   ├── netcdf_io.jl          # BC NetCDF I/O
 │   │   ├── programmatic.jl       # Programmatic BC definitions
@@ -111,13 +140,19 @@ GeoDynamo.jl/
 │       ├── backend.jl           # Backend/runtime assembly
 │       ├── state.jl             # SolverState and cache containers
 │       ├── numerics.jl          # Shared solver numerics
-│       └── mainloop.jl          # Solver initialization and run loop
+│       ├── mainloop.jl          # Solver initialization and run loop
+│       └── README.md            # Solver-stack notes
 ├── ext/
 │   └── GeoDynamoCUDAExt.jl       # CUDA backend registration for the solver path
 │
-├── docs/                         # Documenter.jl configuration
-├── extras/                       # CLI utilities
-├── scripts/                      # Analysis scripts
+├── docs/
+│   ├── src/                      # Documenter source pages
+│   ├── build/                    # Generated local HTML output
+│   ├── plans/                    # Development plans
+│   └── make.jl                   # Documentation build script
+├── examples/                     # Runnable examples and sample NetCDF files
+├── extras/                       # Optional helper utilities
+├── scripts/                      # Analysis and maintenance scripts
 ├── test/                         # Test suite
 └── config/                       # Sample parameter files
 ```
@@ -173,6 +208,10 @@ mpiexec -n 4 julia --project
 | `julia --project -e 'using Pkg; Pkg.test()'` | Full test suite |
 | `julia --project test/shtnskit_roundtrip.jl` | Single test file |
 | `julia --project test/ball_finiteness.jl` | Specific test |
+| `GEODYNAMO_PROC_GRID=2x2 mpiexec -n 4 julia --project test/r_theta_equivalence.jl` | One r×θ MPI step-equivalence driver |
+| `test/run_mpi_r_theta_equivalence.sh` | Compare `1x1`, `4x1`, `1x4`, and `2x2` scalar/velocity layouts |
+| `test/run_mpi_r_theta_equivalence_mhd.sh` | Same comparison with magnetic and composition enabled |
+| `test/run_mpi_threaded_smoke.sh` | Multi-rank, multi-thread deadlock regression smoke |
 
 ### CI Matrix
 
@@ -180,9 +219,9 @@ The CI runs on multiple platforms via `.github/workflows/ci.yml`:
 
 | Platform | Julia Versions | MPI | Notes |
 |:---------|:---------------|:----|:------|
-| **Linux (Ubuntu)** | 1.10, 1.11 | MPICH | `libnetcdf-dev` |
-| **macOS** | 1.11 | Open MPI | Homebrew packages |
-| **Windows** | 1.11 | Microsoft MPI | Chocolatey |
+| **Linux (Ubuntu)** | 1.10, 1.11, 1.12 | MPICH | `libnetcdf-dev` |
+| **macOS** | 1.12 | Open MPI | Homebrew packages |
+| **Windows** | 1.12 | Microsoft MPI | Chocolatey |
 
 The workflow:
 1. Caches Julia artifacts
@@ -247,12 +286,16 @@ The CI workflow automatically publishes to `gh-pages` on each push to `main`.
 
 ## SHTnsKit Integration
 
-The spherical harmonic transform layer spans two files:
+The spherical harmonic transform layer spans SHTnsKit setup, field-level helpers,
+and r×θ MPI redistribution glue:
 
 | File | Purpose |
 |:-----|:--------|
 | `transforms/spectral.jl` | Configuration, pencil decomposition, FFT plans |
 | `fields/transforms.jl` | Transform operations, energy spectra, rotations |
+| `parallel/process_grid.jl` | Explicit `GEODYNAMO_PROC_GRID` parsing and θ/r subcommunicators |
+| `parallel/disttranspose_adapter.jl` | `DistTransposePlan` scratch, r↔mode transpose, and m-axis bridge |
+| `parallel/pencils.jl` | Shared pencil topology and validation helpers |
 
 ### Adding New Transform Functions
 
@@ -318,13 +361,17 @@ Boundary definitions live under `src/bcs/`.
 |:-------|:--------|
 | `bcs.jl` | Main module, config caching |
 | `common.jl` | Shared utilities and types |
-| `physics/temperature/field.jl` | Temperature advection-diffusion field module |
-| `physics/velocity/field.jl` | Velocity field module |
-| `physics/magnetic/field.jl` | Magnetic field module |
+| `scalar_bc.jl` | Shared scalar boundary-condition core |
+| `thermal_bc.jl` | Temperature boundary handling |
 | `compositional_bc.jl` | Composition boundary handling |
+| `velocity_bc.jl` | Velocity boundary handling |
+| `magnetic_bc.jl` | Magnetic boundary handling, including conducting inner-core support |
 | `interpolation.jl` | Spatial/temporal interpolation |
+| `integration.jl` | Boundary-condition time integration helpers |
+| `file_bc_loader.jl` | Boundary-condition loading from files |
 | `netcdf_io.jl` | NetCDF read/write |
 | `programmatic.jl` | Code-defined boundaries |
+| `topography/` | CMB/ICB topography, Gaunt tensors, and thermal/velocity/magnetic coupling |
 
 ---
 

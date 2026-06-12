@@ -4,16 +4,15 @@ GeoDynamo.jl follows a grid → model → simulation setup style. Build a `Spher
 
 ## GPU Backend
 
-The current `:gpu` backend is a hybrid solver path:
+The current `:gpu` backend is an explicit single-device solver path:
 
-- SHTnsKit scalar and vector transforms use the CUDA GPU path
-- radial operators, implicit solves, and most field storage remain CPU-backed
-- GPU SHTns configs record their transform device and intentionally skip eager CPU transform plans/output buffers
+- dense GPU field containers hold scalar, vector, nonlinear-history, and implicit-solve arrays on the selected architecture
+- scalar transforms, Stage-2 solenoidal vector transforms, spectral curls, nonlinear projections, CNAB2 right-hand sides, batched radial solves, and the `gpu_run!` stepping loop have GPU-path implementations
+- the CUDA extension routes SHTnsKit scalar and vector transforms to CUDA when the arrays and SHTnsKit configuration are device-backed
 - each solver runtime owns a `TransformWorkspace`; on GPU-marked runtimes its scratch allocations can be sourced from the backend-provided `scratch_zeros` hook
-- scalar transform scratch gather/scatter can be supplied by the backend through `with_gpu_backend(...)` / `register_gpu_backend!(...)`
-- vector transform scratch gather/store and vector component extract/store can also be supplied through the same backend hook surface
-- the CUDA extension currently registers explicit host-backed implementations for those scratch hooks, so backend ownership is in place before full device-resident scratch storage lands
-- `with_gpu_backend(...)` can temporarily install an alternate backend implementation for tests or experimental integrations, including `scratch_zeros`, and restores the previous backend automatically afterward
+- `with_gpu_backend(...)` can temporarily install alternate backend implementations for tests or experimental integrations and restores the previous backend automatically afterward
+- full parity with the production CPU `SolverState` path is still guarded by broken tests while the remaining solver-integration differences are closed
+- conducting inner-core magnetic coupling is not yet wired into `build_gpu_solver_state`; insulating magnetic cases are the supported solver-state path
 
 To use `:gpu`, load CUDA before creating the solver state:
 
@@ -23,7 +22,7 @@ using CUDA
 
 grid = SphericalShellGrid(GPU(); nr = 64, lmax = 31)
 model = GeodynamoModel(grid; include_magnetic = true)
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 If CUDA is not installed or no functional device is available, backend creation
@@ -45,7 +44,7 @@ GeoDynamo.Simulation
 
     - **Geometry**: `SphericalShellGrid`, `SphericalBallGrid`, `nr`, `nr_inner`, `lmax`, `mmax`, `nlat`, `nlon`
     - **Physics**: `Ek`, `Ra`, `Pr`, `Pm`
-    - **Time**: `Simulation(model; dt, stop_time, stop_iteration)`
+    - **Time**: `Simulation(model; Δt, stop_time, stop_iteration)`
     - **Boundaries**: `BoundaryConditions(inner=..., outer=...)`
 
 ---
@@ -120,7 +119,7 @@ See [Spherical Harmonics](shtnskit.md) for the complete transform API.
 Choose a timestepper object in the `Simulation` constructor:
 
 ```julia
-simulation = Simulation(model; dt = 1e-5, timestepper = CNAB2())
+simulation = Simulation(model; Δt = 1e-5, timestepper = CNAB2())
 ```
 
 | Object | Description |
@@ -174,7 +173,7 @@ using GeoDynamo
 
 grid = SphericalShellGrid(nr = 64, lmax = 31)
 model = GeodynamoModel(grid)
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 state = simulation.model.state
 
 GeoDynamo.bcs.load_boundary_conditions!(state.temperature, GeoDynamo.TEMPERATURE, Dict(
@@ -244,7 +243,7 @@ model = GeodynamoModel(
     include_topography_magnetic = true,
     ocb_topography_file = "config/cmb_topography.nc",
 )
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 **At runtime:**
@@ -261,33 +260,30 @@ The `InitialConditions` module provides high-level setup helpers:
 
 ### Available Functions
 
-| Function | Purpose |
-|:---------|:--------|
-| `set_velocity_initial_conditions!` | Deterministic poloidal/toroidal seeds (solid-body, dipole, etc.) |
-| `randomize_vector_field!` | Add random divergence-free perturbations |
-| `set_temperature_ic!` | Conductive, mixed, or user-defined radial profiles |
-| `set_composition_ic!` | Composition initialization |
-| `randomize_scalar_field!` | Thermal/compositional noise with configurable amplitude |
-| `load_initial_conditions!` | Load from saved snapshots (NetCDF/HDF5) |
-| `save_initial_conditions` | Save current state to file |
+| Public API | Purpose |
+|:-----------|:--------|
+| `set!(model; field = value)` | Apply initial conditions after constructing a model |
+| `initial_conditions = (...)` | Apply initial conditions during `GeodynamoModel` construction |
+| `RandomPerturbation(amplitude, lmax, seed)` | Spectral random perturbations for scalar and vector fields |
+| `AnalyticIC(pattern; ...)` | Named deterministic patterns such as `:conductive`, `:dipole`, and `:convective` |
+| `FileIC(path)` | Load a compatible initial-condition file |
+| `ZeroIC()` | Explicit zero initial condition |
 
 ### Typical Setup
 
 ```julia
 grid = SphericalShellGrid(nr = 64, lmax = 31)
-model = GeodynamoModel(grid; include_magnetic = true)
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
-state = simulation.model.state
+model = GeodynamoModel(grid;
+    include_magnetic = true,
+    initial_conditions = (
+        temperature = AnalyticIC(:conductive),
+        velocity = RandomPerturbation(amplitude = 1e-4, lmax = 8),
+        magnetic = AnalyticIC(:dipole; amplitude = 1.0),
+    ),
+)
 
-# Temperature: conductive profile + perturbations
-set_temperature_ic!(state.temperature; profile = :conductive)
-randomize_scalar_field!(state.temperature; amplitude = 1e-3)
-
-# Velocity: start at rest with small perturbations
-set_velocity_initial_conditions!(state.velocity; kind = :rest)
-
-# Magnetic: small random seed
-randomize_magnetic_field!(state.magnetic; amplitude = 1e-5)
+set!(model; temperature = (r, θ, φ) -> (1 - r) + 1e-3 * sin(θ))
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 ### Restarts
@@ -295,11 +291,17 @@ randomize_magnetic_field!(state.magnetic; amplitude = 1e-5)
 For reproducible continuation runs:
 
 ```julia
-# Save state
-write_restart!(state, tracker, metadata, config)
+# Recommended: schedule checkpoints on the simulation.
+checkpoint = CheckpointWriter("output"; schedule = TimeInterval(0.5))
+simulation = Simulation(model; Δt = 1e-5, stop_time = 1.0,
+                        output_writers = (checkpoint,))
+run!(simulation)
 
-# Resume later
-read_restart!("output/geodynamo_shell_rank_0000_restart_1.nc")
+# Resume later from the restart directory. This is collective and should be
+# called under MPI after MPI.Init().
+simulation = Simulation(model; Δt = 1e-5, stop_time = 2.0,
+                        restart_from = "output")
+run!(simulation)
 ```
 
 ---
@@ -337,7 +339,7 @@ model = GeodynamoModel(
     Ra = 1e6,
 )
 
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 ### Saving and Loading

@@ -844,25 +844,63 @@ function vector_spectral_to_physical!(
     return vector_field
 end
 
-# Function barrier for the v_r poloidal-coefficient fill.  `Vap`/`Sp` are
-# `parent(Vr_alm)`/`parent(Slm)` taken from the `::Any` IdDict scratch cache;
-# running this triple loop inline boxed every scalar write (~tens of thousands
-# of allocations per step — the dominant hot-path allocator).  Passing the
-# arrays as ordinary arguments specializes the loop on their concrete types, so
-# the writes don't box.  Same pattern as `_copy_spatial_to_physical!`.
-function _fill_vr_alm!(Vap, Sp, m_local, r_range_ph, domain, lmax::Int, mmax::Int,
+# Storage-layout solenoidal coupling: S = (∂_r P)/r per (l,m) mode on the
+# spectral STORAGE arrays (pencils.spec keeps r fully local on every rank,
+# unlike the Alm layout's r-slab) — this is what makes the solenoidal
+# synthesis work on r-distributed grids. Same banded D1, same per-mode op
+# order as the removed Alm-layout helper, so 1x1 results are bit-exact.
+function _storage_spheroidal_from_poloidal!(s_re, s_im, p_re, p_im, config, domain)
+    nr = domain.N
+    r_range = local_range(config.pencils.spec, 3)
+    length(r_range) == nr || error(
+        "spectral storage must keep the radial axis fully local " *
+        "(got $(length(r_range)) of $nr levels)")
+    (s_re === p_re || s_im === p_im) && error(
+        "storage spheroidal coupling writes dst before reading src — dst must not alias src")
+    D1   = create_derivative_matrix(Float64, 1, domain)
+    prof = Vector{Float64}(undef, nr)
+    dpr  = Vector{Float64}(undef, nr)
+    for (src, dst) in ((p_re, s_re), (p_im, s_im))
+        fill!(dst, 0.0)
+        @inbounds for lm in 1:config.nlm
+            slot = local_spectral_storage_slot(config, lm)
+            slot === nothing && continue
+            for r_idx in 1:nr
+                prof[r_idx] = local_spectral_value(src, slot, r_idx)
+            end
+            mul!(dpr, D1, prof)
+            for r_idx in 1:nr
+                r = domain.r[r_idx, 4]
+                set_local_spectral_value!(dst, slot, r_idx, dpr[r_idx] / r)
+            end
+        end
+    end
+    return nothing
+end
+
+# Storage-layout v_r coefficients: vr = vr_factor(l, r)·P per (l,m) mode.
+# Same eps-guard near r=0 as the removed Alm-layout helper.
+function _storage_vr_coeffs!(vr_re, vr_im, p_re, p_im, config, domain,
         vr_factor::F) where {F}
-    fill!(Vap, zero(eltype(Vap)))
-    rN = domain.r[domain.N, 4]
-    @inbounds for (lev, r_glob) in enumerate(r_range_ph)
-        lev > size(Vap, 3) && continue
-        (1 <= r_glob <= domain.N) || continue
-        r_val = domain.r[r_glob, 4]
-        r_val > eps(Float64) * rN || continue
-        for (mi, m) in enumerate(m_local)
-            (0 <= m <= mmax) || continue
-            for l in max(m, 0):lmax
-                Vap[l + 1, mi, lev] = Sp[l + 1, mi, lev] * vr_factor(l, r_val)
+    nr = domain.N
+    r_range = local_range(config.pencils.spec, 3)
+    length(r_range) == nr || error(
+        "spectral storage must keep the radial axis fully local " *
+        "(got $(length(r_range)) of $nr levels)")
+    (vr_re === p_re || vr_im === p_im) && error(
+        "storage vr coefficients write dst before reading src — dst must not alias src")
+    rN = domain.r[nr, 4]
+    for (src, dst) in ((p_re, vr_re), (p_im, vr_im))
+        fill!(dst, 0.0)
+        @inbounds for lm in 1:config.nlm
+            slot = local_spectral_storage_slot(config, lm)
+            slot === nothing && continue
+            l = config.l_values[lm]
+            for r_idx in 1:nr
+                r_val = domain.r[r_idx, 4]
+                r_val > eps(Float64) * rN || continue
+                set_local_spectral_value!(dst, slot, r_idx,
+                    local_spectral_value(src, slot, r_idx) * vr_factor(l, r_val))
             end
         end
     end
@@ -888,8 +926,6 @@ function vector_spectral_to_physical_disttranspose!(
         config, plan,
         toroidal, poloidal, vector_field, domain, vr_factor;
         raw_spheroidal::Bool = false)
-    lmax, mmax = config.lmax, config.mmax
-
     sc  = _vector_scratch(config, plan)
     Slm = sc.Slm   # spheroidal/poloidal
     Tlm = sc.Tlm   # toroidal
@@ -899,30 +935,28 @@ function vector_spectral_to_physical_disttranspose!(
     Vr_alm = sc.Vr_alm
     solve  = sc.solve
 
-    # 1. spec storage → Slm / Tlm via the m-axis bridge + r_comm l-transpose.
-    #    Slm holds the stored POLOIDAL potential P at this point.
-    spec_storage_to_solve!(config, solve, parent(poloidal.data_real),
-                           parent(poloidal.data_imag), plan)
+    solenoidal = !raw_spheroidal && domain !== nothing
+
+    # 1. Spheroidal input to the sphtor synthesis. Solenoidal convention:
+    #    S = (∂_r P)/r, computed in STORAGE layout where r is fully local
+    #    (works on r-distributed grids; the Alm layout only has an r-slab).
+    #    Raw mode feeds the stored coefficients verbatim (tangential-basis
+    #    primitive — see the doc comment above).
+    if solenoidal
+        _storage_spheroidal_from_poloidal!(sc.Ssto_re, sc.Ssto_im,
+            parent(poloidal.data_real), parent(poloidal.data_imag),
+            config, domain)
+        spec_storage_to_solve!(config, solve, sc.Ssto_re, sc.Ssto_im, plan)
+    else
+        spec_storage_to_solve!(config, solve, parent(poloidal.data_real),
+                               parent(poloidal.data_imag), plan)
+    end
     from_spec_solve!(config, Slm, solve, plan)
+
+    # 2. Toroidal, unchanged.
     spec_storage_to_solve!(config, solve, parent(toroidal.data_real),
                            parent(toroidal.data_imag), plan)
     from_spec_solve!(config, Tlm, solve, plan)
-
-    solenoidal = !raw_spheroidal && domain !== nothing
-    r_range_ph = PencilArrays.range_local(vector_field.θ_component.pencil)[3]
-
-    if solenoidal
-        length(r_range_ph) == domain.N || error(
-            "solenoidal vector synthesis requires the radial axis fully local " *
-            "(got $(length(r_range_ph)) of $(domain.N) levels); " *
-            "r-distributed support is a Stage-2 follow-up")
-        # 2a. v_r coefficients from the ORIGINAL P (before Slm is mutated to S).
-        _fill_vr_alm!(parent(Vr_alm), parent(Slm), plan.m_local, r_range_ph,
-            domain, lmax, mmax, vr_factor)
-        # 2b. In-place spheroidal coupling: Slm ← S = (∂_r P)/r.
-        _spheroidal_from_poloidal!(parent(Slm), plan.m_local, r_range_ph,
-            domain, lmax, mmax, create_derivative_matrix(Float64, 1, domain))
-    end
 
     # 3. Distributed sphtor synthesis: (Slm, Tlm) → (Vt, Vp), batched over nr_local.
     SHTnsKit.dist_synthesis_sphtor!(plan, Vt, Vp, Slm, Tlm)
@@ -938,55 +972,23 @@ function vector_spectral_to_physical_disttranspose!(
     v_r     = parent(vector_field.r_component.data)
     _copy_spatial2_to_physical2!(v_theta, v_phi, parent(Vt), parent(Vp))
 
-    # 5. Radial component v_r = l(l+1)·P/r² via scalar dist_synthesis! (filled
-    #    in 2a from the original P). In raw mode with a domain, fill from the
-    #    raw coefficients (legacy behavior); without a domain, zero-fill.
-    if solenoidal
+    # 5. v_r = vr_factor(l,r)·P (both the solenoidal and the legacy
+    #    raw-with-domain paths), computed in storage layout and bridged.
+    #    Without a domain there are no radii: zero-fill.
+    if domain !== nothing
+        _storage_vr_coeffs!(sc.Vrsto_re, sc.Vrsto_im,
+            parent(poloidal.data_real), parent(poloidal.data_imag),
+            config, domain, vr_factor)
+        spec_storage_to_solve!(config, solve, sc.Vrsto_re, sc.Vrsto_im, plan)
+        from_spec_solve!(config, Vr_alm, solve, plan)
         SHTnsKit.dist_synthesis!(plan, Vr, Vr_alm)
         # Function barrier: Vr is ::Any from sc (IdDict); parent(Vr) would be ::Any.
-        _copy_spatial_to_physical!(v_r, parent(Vr))
-    elseif domain !== nothing
-        _fill_vr_alm!(parent(Vr_alm), parent(Slm), plan.m_local, r_range_ph,
-            domain, lmax, mmax, vr_factor)
-        SHTnsKit.dist_synthesis!(plan, Vr, Vr_alm)
         _copy_spatial_to_physical!(v_r, parent(Vr))
     else
         fill!(v_r, zero(eltype(v_r)))
     end
 
     return vector_field
-end
-
-# In-place spheroidal coupling for the solenoidal synthesis: per (l,m) mode,
-# S = (∂_r P)/r over the (fully local) radial lev-axis of the Alm-layout
-# array `Sp` (l_index, m_local, lev). Complex profiles are differentiated as
-# separate real/imaginary passes through the banded D1. Concrete-typed function
-# barrier — `Sp` comes from the ::Any scratch (see _fill_vr_alm!).
-function _spheroidal_from_poloidal!(Sp, m_local, r_range_ph, domain,
-        lmax::Int, mmax::Int, D1)
-    nrl = length(r_range_ph)
-    P_re = Vector{Float64}(undef, nrl)
-    P_im = Vector{Float64}(undef, nrl)
-    d_re = Vector{Float64}(undef, nrl)
-    d_im = Vector{Float64}(undef, nrl)
-    @inbounds for (mi, m) in enumerate(m_local)
-        (0 <= m <= mmax) || continue
-        for l in max(m, 0):lmax
-            l + 1 <= size(Sp, 1) || continue
-            for lev in 1:nrl
-                c = Sp[l + 1, mi, lev]
-                P_re[lev] = real(c)
-                P_im[lev] = imag(c)
-            end
-            mul!(d_re, D1, P_re)
-            mul!(d_im, D1, P_im)
-            for (lev, r_glob) in enumerate(r_range_ph)
-                r = domain.r[r_glob, 4]
-                Sp[l + 1, mi, lev] = complex(d_re[lev] / r, d_im[lev] / r)
-            end
-        end
-    end
-    return nothing
 end
 
 function vector_physical_to_spectral!(
@@ -1584,21 +1586,58 @@ function spectral_curl_torpol!(
     return dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i
 end
 
+# j = ∇×B under the Stage-2 stored-potential convention:
+#   T_j = (P″ − l(l+1)P/r²)/r = D_pol(P)/r,   P_j = −r·T
+# This is the SAME curl rule as the vorticity (compute_vorticity_spectral!) and
+# the induction projections (_induction_curl_potentials!). Decisive check:
+# applying it twice reproduces −(Δ_l T, D_pol P) — the code's own magnetic
+# diffusion operators (test/current_curl_convention.jl). The legacy formula
+# (λP/r² − P″ − 2P′/r; −λT/r²) mixed conventions and fed the Lorentz force a
+# wrong J; spectral_curl_torpol! now serves only the deferred ball-legacy path.
 function solver_compute_current_density_spectral!(magnetic_fields, outer_domain)
     T = eltype(parent(magnetic_fields.work_tor.data_real))
-    spectral_curl_torpol!(
-        parent(magnetic_fields.work_tor.data_real), parent(magnetic_fields.work_tor.data_imag),
-        parent(magnetic_fields.work_pol.data_real), parent(magnetic_fields.work_pol.data_imag),
-        parent(magnetic_fields.toroidal.data_real), parent(magnetic_fields.toroidal.data_imag),
-        parent(magnetic_fields.poloidal.data_real), parent(magnetic_fields.poloidal.data_imag),
-        magnetic_fields.l_factors,
-        magnetic_fields.∂r,
-        magnetic_fields.∂²r,
-        outer_domain,
-        magnetic_fields.toroidal.config,
-        T;
-        _work = magnetic_fields.curl_work
+    cfg = magnetic_fields.toroidal.config
+    nr = outer_domain.N
+    r_range = local_range(magnetic_fields.work_tor.pencil, 3)
+    length(r_range) == nr || error(
+        "current-density curl requires the radial axis fully local " *
+        "(got $(length(r_range)) of $nr levels); r-distributed support is a follow-up")
+
+    P_prof = Vector{T}(undef, nr)
+    d2P = Vector{T}(undef, nr)
+
+    for (src_t, src_p, dst_t, dst_p) in (
+        (parent(magnetic_fields.toroidal.data_real),
+         parent(magnetic_fields.poloidal.data_real),
+         parent(magnetic_fields.work_tor.data_real),
+         parent(magnetic_fields.work_pol.data_real)),
+        (parent(magnetic_fields.toroidal.data_imag),
+         parent(magnetic_fields.poloidal.data_imag),
+         parent(magnetic_fields.work_tor.data_imag),
+         parent(magnetic_fields.work_pol.data_imag)),
     )
+        @inbounds for lm_idx in 1:cfg.nlm
+            slot = local_spectral_storage_slot(cfg, lm_idx)
+            slot === nothing && continue
+            lm_idx <= length(magnetic_fields.l_factors) || continue
+            λ = T(magnetic_fields.l_factors[lm_idx])
+
+            for r_idx in 1:nr
+                P_prof[r_idx] = local_spectral_value(src_p, slot, r_idx)
+            end
+            apply_radial_derivative!(d2P, magnetic_fields.∂²r, P_prof)
+
+            for r_idx in 1:nr
+                r⁻¹ = T(outer_domain.r[r_idx, 3])
+                r⁻² = T(outer_domain.r[r_idx, 2])
+                r_val = T(outer_domain.r[r_idx, 4])
+                set_local_spectral_value!(dst_t, slot, r_idx,
+                    (d2P[r_idx] - λ * r⁻² * P_prof[r_idx]) * r⁻¹)
+                set_local_spectral_value!(dst_p, slot, r_idx,
+                    -r_val * local_spectral_value(src_t, slot, r_idx))
+            end
+        end
+    end
     return magnetic_fields
 end
 
