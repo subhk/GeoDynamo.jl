@@ -52,7 +52,8 @@ function gpu_velocity_field_step!(tor, pol, config, nlops, influence,
         tor.spec_r, tor.spec_i, pol.spec_r, pol.spec_i, config,
         nlops.d1, nlops.d2, nlops.lfac, nlops.rinv, nlops.rinv2, nlops.rscale,
         nlops.sinθ, nlops.cosθ, nlops.E, lmax, bw;
-        T_phys = T_phys, thermal_factor = thermal_factor, r_vec = r_vec,
+        T_phys = T_phys, thermal_factor = thermal_factor,
+        r_vec = r_vec === nothing && hasproperty(nlops, :r) ? nlops.r : r_vec,
         C_phys = C_phys, comp_factor = comp_factor,
         J_r = J_r, J_θ = J_θ, J_φ = J_φ, B_r = B_r, B_θ = B_θ, B_φ = B_φ,
         lorentz_coeff = lorentz_coeff)

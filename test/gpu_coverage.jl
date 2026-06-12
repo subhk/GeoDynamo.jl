@@ -103,17 +103,19 @@ MPI.Initialized() || MPI.Init()
         end
         d1_32 = band(Float32, nr, bw, 2); d2_32 = band(Float32, nr, bw, 3)
         lfac32 = Float32[l * (l + 1) for l in 0:(nl - 1)]
-        rinv32 = Float32[1 / (0.5f0 + 0.1f0k) for k in 1:nr]; rinv2_32 = rinv32 .^ 2
+        r32 = Float32[0.5f0 + 0.1f0k for k in 1:nr]
+        rinv32 = 1f0 ./ r32; rinv2_32 = rinv32 .^ 2
         str = Float32.(rand(rng, nl, nm, nr)); sti = Float32.(rand(rng, nl, nm, nr))
         spr = Float32.(rand(rng, nl, nm, nr)); spi = Float32.(rand(rng, nl, nm, nr))
         dtr = similar(str); dti = similar(sti); dpr = similar(spr); dpi = similar(spi)
         GeoDynamo.gpu_spectral_curl!(dtr, dti, dpr, dpi, str, sti, spr, spi,
-            d1_32, d2_32, lfac32, rinv32, rinv2_32, bw)
+            d1_32, d2_32, lfac32, rinv32, rinv2_32, r32, bw)
         @test eltype(dtr) == Float32 && all(isfinite, dtr) && all(isfinite, dpr)
         dtr64 = zeros(nl, nm, nr); dti64 = zeros(nl, nm, nr); dpr64 = zeros(nl, nm, nr); dpi64 = zeros(nl, nm, nr)
         GeoDynamo.gpu_spectral_curl!(dtr64, dti64, dpr64, dpi64,
             Float64.(str), Float64.(sti), Float64.(spr), Float64.(spi),
-            Float64.(d1_32), Float64.(d2_32), Float64.(lfac32), Float64.(rinv32), Float64.(rinv2_32), bw)
+            Float64.(d1_32), Float64.(d2_32), Float64.(lfac32), Float64.(rinv32), Float64.(rinv2_32),
+            Float64.(r32), bw)
         @test isapprox(Float64.(dtr), dtr64; atol = 1e-4, rtol = 1e-3)
     end
 end

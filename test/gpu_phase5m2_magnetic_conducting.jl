@@ -22,7 +22,8 @@ MPI.Initialized() || MPI.Init()
     end
     d1 = band(nr, bw; seed = 1); d2 = band(nr, bw; seed = 2)
     lfac = Float64[l*(l+1) for l in 0:cfg.lmax]
-    rinv = [1.0/(0.5 + 0.1k) for k in 1:nr]; rinv2 = rinv .^ 2; rscale = copy(rinv)
+    r_vec = [0.5 + 0.1k for k in 1:nr]
+    rinv = 1.0 ./ r_vec; rinv2 = rinv .^ 2; rscale = copy(rinv)
 
     function batched(N, seed)
         a = zeros(2bw+1, N, nl); r = MersenneTwister(seed)
@@ -56,36 +57,19 @@ MPI.Initialized() || MPI.Init()
     pnt_r0 = mk(nr); pnt_i0 = mk(nr); pnp_r0 = mk(nr); pnp_i0 = mk(nr)
     itr0 = mk(Nic); iti0 = mk(Nic); ipr0 = mk(Nic); ipi0 = mk(Nic)   # inner-core tor/pol state
 
-    nlops = (; d1, d2, lfac, rinv, rinv2, rscale)
+    nlops = (; d1, d2, lfac, rinv, rinv2, rscale, r = r_vec)
 
     @testset "conducting step == manual chain (exact) [LOCAL]" begin
-        tor_adm = GeoDynamo.gpu_pack_inner_core(adm_tor, nl, CPU())
-        pol_adm = GeoDynamo.gpu_pack_inner_core(adm_pol, nl, CPU())
-        tor = (; spec_r = copy(bt_r0), spec_i = copy(bt_i0), prev_nl_r = copy(pnt_r0), prev_nl_i = copy(pnt_i0),
-                 lin = lin_tor, lu = lu_tor)
-        pol = (; spec_r = copy(bp_r0), spec_i = copy(bp_i0), prev_nl_r = copy(pnp_r0), prev_nl_i = copy(pnp_i0),
-                 lin = lin_pol, lu = lu_pol)
-        ic = (; tor_adm = tor_adm, pol_adm = pol_adm,
-                tor_ic_r = copy(itr0), tor_ic_i = copy(iti0), pol_ic_r = copy(ipr0), pol_ic_i = copy(ipi0))
-        # Stage-2 gate: gpu_magnetic_field_step! routes through
-        # gpu_magnetic_nonlinear! → the GPU vector transforms, which are not yet
-        # ported to the solenoidal P convention and refuse loudly
-        # (src/gpu/vector_transform.jl). The manual-chain parity asserts that
-        # lived here return when the GPU port lands.
-        @test_throws ErrorException GeoDynamo.gpu_magnetic_field_step!(
-            tor, pol, copy(u_r), copy(u_θ), copy(u_φ), cfg, nlops,
-            inv_dt, linear_weight, cfg.lmax, bw; ic = ic)
+        # The Stage-2 vector transforms are un-gated (Task 1), so the step runs
+        # again — but the induction nonlinear is still the legacy raw-sphtor +
+        # spectral-curl chain (results WRONG until the Stage-4A curl potentials,
+        # Task 5); the step-equivalence gates return with the device-state wiring.
+        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Task 5)"
     end
 
     @testset "insulating path unchanged when ic=nothing [LOCAL]" begin
-        # Stage-2 gate (see above): the insulating path refuses identically.
-        tor = (; spec_r = copy(bt_r0), spec_i = copy(bt_i0), prev_nl_r = copy(pnt_r0), prev_nl_i = copy(pnt_i0),
-                 lin = lin_tor, lu = lu_tor)
-        pol = (; spec_r = copy(bp_r0), spec_i = copy(bp_i0), prev_nl_r = copy(pnp_r0), prev_nl_i = copy(pnp_i0),
-                 lin = lin_pol, lu = lu_pol)
-        @test_throws ErrorException GeoDynamo.gpu_magnetic_field_step!(
-            tor, pol, copy(u_r), copy(u_θ), copy(u_φ), cfg, nlops,
-            inv_dt, linear_weight, cfg.lmax, bw)   # no ic, no continuity
+        # See above: the insulating path shares the legacy induction nonlinear.
+        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Task 5)"
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5m2 gate) [GPU-BOX]" begin

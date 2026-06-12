@@ -61,8 +61,8 @@ MPI.Initialized() || MPI.Init()
                          bc_in_r=zeros(nl,nm), bc_in_i=zeros(nl,nm), bc_out_r=zeros(nl,nm), bc_out_i=zeros(nl,nm))
         (;
             config = cfg, lmax = cfg.lmax, bw = bw, linear_weight = linw,
-            nlops_vel = (; d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E),
-            nlops_mag = (; d1, d2, lfac, rinv, rinv2, rscale),
+            nlops_vel = (; d1, d2, lfac, rinv, rinv2, rscale, r = r_vec, sinθ, cosθ, E),
+            nlops_mag = (; d1, d2, lfac, rinv, rinv2, rscale, r = r_vec),
             influence = (; Gre_b, invG_b),
             d1 = d1, mvals = mvals, rinv = rinv, rscale = rscale, lfac = lfac, d2 = d2, rinv2 = rinv2,
             r_vec = r_vec, thermal_factor = thermal_factor, comp_factor = comp_factor, lorentz_coeff = lorentz_coeff,
@@ -73,24 +73,17 @@ MPI.Initialized() || MPI.Init()
             B_r = phys(), B_θ = phys(), B_φ = phys(), J_r = phys(), J_θ = phys(), J_φ = phys())
     end
 
-    # Stage-2 gate: gpu_solver_step! routes through the GPU vector transforms
-    # (velocity/magnetic synthesis + nonlinear analysis), which are not yet
-    # ported to the solenoidal P convention and refuse loudly
-    # (src/gpu/vector_transform.jl). The full-step manual-chain parity and
-    # magnetic/composition gating asserts that lived in these testsets return
-    # when the GPU port lands.
+    # The Stage-2 vector transforms are un-gated (Task 1), so the full step runs
+    # again — but the velocity/magnetic nonlinear projections are still the
+    # legacy pre-Stage-4 ones and the poloidal half is the legacy influence
+    # correction (results WRONG until Tasks 4–6); the full-step equivalence
+    # gates return with the device-state wiring.
     @testset "full step == manual chain (exact) [LOCAL]" begin
-        st = build_state()
-        @test_throws ErrorException GeoDynamo.gpu_solver_step!(st)
+        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
     end
 
     @testset "gating: no magnetic / no composition [LOCAL]" begin
-        st_base = build_state()
-        st_stripped = let s = deepcopy(st_base)
-            (; s..., magnetic = nothing, composition = nothing,
-               B_r = nothing, B_θ = nothing, B_φ = nothing, J_r = nothing, J_θ = nothing, J_φ = nothing)
-        end
-        @test_throws ErrorException GeoDynamo.gpu_solver_step!(st_stripped)
+        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5n gate) [GPU-BOX]" begin

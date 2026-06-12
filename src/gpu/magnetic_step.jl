@@ -67,7 +67,8 @@ function gpu_magnetic_field_step!(tor, pol, u_r, u_θ, u_φ, config, nlops,
     nlp_r = similar(pol.spec_r); nlp_i = similar(pol.spec_i)
     gpu_magnetic_nonlinear!(nlt_r, nlt_i, nlp_r, nlp_i,
         tor.spec_r, tor.spec_i, pol.spec_r, pol.spec_i, u_r, u_θ, u_φ, config,
-        nlops.d1, nlops.d2, nlops.lfac, nlops.rinv, nlops.rinv2, nlops.rscale, lmax, bw)
+        nlops.d1, nlops.d2, nlops.lfac, nlops.rinv, nlops.rinv2, nlops.rscale, lmax, bw;
+        r_vec = hasproperty(nlops, :r) ? nlops.r : nothing)
 
     # 2. inner-boundary RHS rows for tor/pol. Three cases:
     #    - conducting (ic given): inner = φ0 history flux (5l) from the OLD inner-core state.

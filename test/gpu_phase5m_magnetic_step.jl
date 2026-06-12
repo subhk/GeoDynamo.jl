@@ -20,7 +20,8 @@ MPI.Initialized() || MPI.Init()
     end
     d1 = band(nr, bw; seed = 1); d2 = band(nr, bw; seed = 2)
     lfac = Float64[l*(l+1) for l in 0:cfg.lmax]
-    rinv = [1.0/(0.5 + 0.1k) for k in 1:nr]; rinv2 = rinv .^ 2; rscale = copy(rinv)
+    r_vec = [0.5 + 0.1k for k in 1:nr]
+    rinv = 1.0 ./ r_vec; rinv2 = rinv .^ 2; rscale = copy(rinv)
 
     function batched(seed)
         a = zeros(2bw+1, nr, nl); r = MersenneTwister(seed)
@@ -41,7 +42,7 @@ MPI.Initialized() || MPI.Init()
     bt_r0 = mk(); bt_i0 = mk(); bp_r0 = mk(); bp_i0 = mk()
     pnt_r0 = mk(); pnt_i0 = mk(); pnp_r0 = mk(); pnp_i0 = mk()
 
-    nlops = (; d1, d2, lfac, rinv, rinv2, rscale)
+    nlops = (; d1, d2, lfac, rinv, rinv2, rscale, r = r_vec)
 
     function run_gpu(arch_dev, continuity)
         d = arch_dev === :cpu ? identity : (x -> GeoDynamo.on_architecture(GPU(), x))
@@ -50,7 +51,8 @@ MPI.Initialized() || MPI.Init()
         pol = (; spec_r = d(copy(bp_r0)), spec_i = d(copy(bp_i0)),
                  prev_nl_r = d(copy(pnp_r0)), prev_nl_i = d(copy(pnp_i0)), lin = d(lin_pol), lu = d(lu_pol))
         nlo = arch_dev === :cpu ? nlops :
-            (; d1 = d(d1), d2 = d(d2), lfac = d(lfac), rinv = d(rinv), rinv2 = d(rinv2), rscale = d(rscale))
+            (; d1 = d(d1), d2 = d(d2), lfac = d(lfac), rinv = d(rinv), rinv2 = d(rinv2),
+               rscale = d(rscale), r = d(r_vec))
         GeoDynamo.gpu_magnetic_field_step!(tor, pol, d(copy(u_r)), d(copy(u_θ)), d(copy(u_φ)),
             cfg, nlo, inv_dt, linear_weight, cfg.lmax, bw; continuity_mag = continuity)
         return tor, pol
@@ -76,17 +78,16 @@ MPI.Initialized() || MPI.Init()
         return (rt_r, rt_i, rp_r, rp_i, nlt_r, nlt_i, nlp_r, nlp_i)
     end
 
-    # Stage-2 gate: gpu_magnetic_field_step! routes through
-    # gpu_magnetic_nonlinear! → the GPU vector transforms, which are not yet
-    # ported to the solenoidal P convention and refuse loudly
-    # (src/gpu/vector_transform.jl). The manual-chain parity + continuity
-    # asserts that lived in these testsets return when the GPU port lands.
+    # The Stage-2 vector transforms are un-gated (Task 1), so the step runs
+    # again — but the induction nonlinear is still the legacy raw-sphtor +
+    # spectral-curl chain (results WRONG until the Stage-4A curl potentials,
+    # Task 5); the step-equivalence gates return with the device-state wiring.
     @testset "step == manual chain, no continuity (exact) [LOCAL]" begin
-        @test_throws ErrorException run_gpu(:cpu, false)
+        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Task 5)"
     end
 
     @testset "step == manual chain, CONTINUITY_MAG (exact) [LOCAL]" begin
-        @test_throws ErrorException run_gpu(:cpu, true)
+        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Task 5)"
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5m gate) [GPU-BOX]" begin
