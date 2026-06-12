@@ -64,12 +64,10 @@ function solver_compute_composition_nonlinear!(
         𝔽::CompositionFieldType{T},
         vel_fields,
         outer_core_domain::RadialDomainType,
-        ws::SolverGradientWorkspace{T};
-        geometry::Symbol = solver_default_geometry()) where {T}
+        ws::SolverGradientWorkspace{T}) where {T}
     return _solver_compute_scalar_nonlinear!(
         𝔽, vel_fields, outer_core_domain, ws;
         add_internal_sources = false,
-        geometry = geometry,
     )
 end
 

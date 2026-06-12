@@ -398,6 +398,8 @@ end
 
 Create ERK2 boundary descriptors for the velocity poloidal component.
 """
+# NOTE: the ERK2 ball poloidal path bypasses this builder entirely (W-split
+# recovery in _erk2_poloidal_recover! owns the ball conditions); only tests call it.
 function build_solver_erk2_velocity_pol_bc(::Type{T}, domain::RadialDomainType, velocity_bc_code::Int) where {T}
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)

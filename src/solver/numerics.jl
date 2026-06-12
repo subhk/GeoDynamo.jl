@@ -1604,11 +1604,10 @@ end
 
 function apply_induction_nonlinear!(
         magnetic_fields,
-        velocity_fields;
-        geometry::Symbol
+        velocity_fields
 )
     solver_compute_velocity_cross_magnetic!(magnetic_fields, velocity_fields)
-    # geometry-blind since the ball grid has no r=0 node (off-center grid)
+    # geometry-blind: the ball grid has no r=0 node (off-center grid)
     # Stage-4 solenoidal convention. E = u×B is NOT solenoidal; the curl's
     # stored potentials follow from the verified projection identities:
     #   P_{∇×E} = −r·T_E              (T_E = raw toroidal sphtor scalar)
@@ -1748,24 +1747,6 @@ function solver_compute_velocity_cross_magnetic!(magnetic_fields, velocity_field
         uB_θ[idx] = u_φ[idx] * B_r[idx] - u_r[idx] * B_φ[idx]
         uB_φ[idx] = u_r[idx] * B_θ[idx] - u_θ[idx] * B_r[idx]
     end
-    return magnetic_fields
-end
-
-function solver_compute_curl_of_induction!(magnetic_fields)
-    T = eltype(parent(magnetic_fields.nl_toroidal.data_real))
-    spectral_curl_torpol!(
-        parent(magnetic_fields.nl_toroidal.data_real), parent(magnetic_fields.nl_toroidal.data_imag),
-        parent(magnetic_fields.nl_poloidal.data_real), parent(magnetic_fields.nl_poloidal.data_imag),
-        parent(magnetic_fields.work_tor.data_real), parent(magnetic_fields.work_tor.data_imag),
-        parent(magnetic_fields.work_pol.data_real), parent(magnetic_fields.work_pol.data_imag),
-        magnetic_fields.l_factors,
-        magnetic_fields.∂r,
-        magnetic_fields.∂²r,
-        magnetic_fields.outer_domain,
-        magnetic_fields.toroidal.config,
-        T;
-        _work = magnetic_fields.curl_work
-    )
     return magnetic_fields
 end
 

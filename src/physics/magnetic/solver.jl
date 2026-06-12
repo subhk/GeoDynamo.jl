@@ -82,14 +82,12 @@ end
 function apply_magnetic_nonlinear_terms!(
         magnetic_fields,
         velocity_fields;
-        geometry::Symbol,
         rotation_rate::Float64
 )
     if velocity_fields !== nothing
         apply_induction_nonlinear!(
             magnetic_fields,
-            velocity_fields;
-            geometry
+            velocity_fields
         )
     end
     if rotation_rate != 0.0

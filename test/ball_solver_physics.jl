@@ -17,12 +17,12 @@ MPI.Initialized() || MPI.Init()
 # ===========================================================================
 
 function _ball_test_params(; Ra, timestepper = GeoDynamo.CNAB2(),
-        include_magnetic = false)
+        include_magnetic = false, timestep = 1e-5)
     return GeoDynamo.SolverParameters(
         architecture = :cpu, geometry = :ball, radius_ratio = 0.0,
         nr = 16, lmax = 8, mmax = 8, nlat = 18, nlon = 36,
         Ra = Ra, Ek = 1e-2, Pr = 1.0, Pm = 1.0, Sc = 1.0,
-        timestep = 1e-5, start_time = 0.0, end_time = 1.0,
+        timestep = timestep, start_time = 0.0, end_time = 1.0,
         stop_iteration = 100000,
         include_magnetic = include_magnetic, include_composition = false,
         timestepper = timestepper,
@@ -91,4 +91,75 @@ end
     @info "ball ERK2 vs CNAB2 poloidal after 20 steps" relΔ
     @test relΔ < 0.05
     @test all(isfinite, b)
+end
+
+# Kinetic energy proxy: poloidal + toroidal spectral power (sufficient for
+# growth/decay trends; no quadrature weighting needed for a binary gate).
+_ball_ke(s) = sum(abs2, parent(s.fields.velocity.poloidal.data_real)) +
+              sum(abs2, parent(s.fields.velocity.toroidal.data_real))
+
+@testset "ball convective onset (supercritical growth)" begin
+    params = _ball_test_params(; Ra = 1e4)
+    state = GeoDynamo.initialize_simulation(Float64, params)
+    GeoDynamo.initialize_solver_fields!(state)
+    _seed_temperature_mode!(state, 2, 2, 1e-3)
+    GeoDynamo.solver_step!(state)
+    ke_early = _ball_ke(state)
+    @test ke_early > 0
+    for i in 1:40
+        GeoDynamo.solver_step!(state)
+    end
+    @test all(isfinite, parent(state.fields.velocity.poloidal.data_real))
+    @test _ball_ke(state) > ke_early          # growing above onset
+end
+
+@testset "ball subcritical decay (bounded transient, eventual decay)" begin
+    # TUNED: dt = 1e-3 (not the fixture's 1e-5). The ball l=2 viscous
+    # turnover sits at t ~ 1/j_{2,1}^2 ~ 0.03, so 80 steps at dt=1e-5
+    # (t = 8e-4) only see the forced spin-up ramp — KE was still growing
+    # at step 80, NOT a regularity-row bug (probe: KE peaks at t ~ 0.03
+    # then decays monotonically over 5+ orders of magnitude; T decays
+    # diffusively throughout). At dt=1e-3, 80 steps span ~2.6 viscous
+    # times: peak near step 30, kes[80] ~ 0.1 * peak.
+    params = _ball_test_params(; Ra = 1.0, timestep = 1e-3)
+    state = GeoDynamo.initialize_simulation(Float64, params)
+    GeoDynamo.initialize_solver_fields!(state)
+    _seed_temperature_mode!(state, 2, 2, 1e-3)
+    kes = Float64[]
+    for i in 1:80
+        GeoDynamo.solver_step!(state)
+        push!(kes, _ball_ke(state))
+    end
+    ke_peak = maximum(kes)
+    @test all(isfinite, kes)
+    @test kes[end] < 0.9 * ke_peak      # transient growth allowed; net decay
+end
+
+@testset "ball full-MHD stability" begin
+    # TUNED: dt = 1e-7 (not the fixture's 1e-5). The explicitly-treated
+    # Lorentz/induction nonlinearities carry 1/r factors; the ball's
+    # innermost off-center node r_1 = (1-cos(pi/16))/2 ~ 0.0096 makes them
+    # ~36x larger than the shell's (1/0.35), shrinking the explicit-coupling
+    # stability threshold by the same factor: the shell is stable at dt=1e-5
+    # under identical parameters/IC, the ball blows up for dt >= 1.25e-6 and
+    # is clean at dt=1e-7 (KE follows the expected forced Lorentz spin-up
+    # ramp; ME evolves smoothly). Stiffness of the near-center grid, not a
+    # regularity-row defect.
+    params = _ball_test_params(; Ra = 1e4, include_magnetic = true,
+        timestep = 1e-7)
+    state = GeoDynamo.initialize_simulation(Float64, params)
+    # initialize_solver_fields! seeds a nontrivial magnetic IC (l=1 dipole +
+    # random low-l noise), so the induction path is exercised without an
+    # extra magnetic seed here.
+    GeoDynamo.initialize_solver_fields!(state)
+    _seed_temperature_mode!(state, 2, 2, 1e-3)
+    for i in 1:30
+        GeoDynamo.solver_step!(state)
+    end
+    for fld in (state.fields.velocity.poloidal, state.fields.velocity.toroidal,
+                state.fields.magnetic.poloidal, state.fields.magnetic.toroidal,
+                state.fields.temperature.spectral)
+        @test all(isfinite, parent(fld.data_real))
+        @test all(isfinite, parent(fld.data_imag))
+    end
 end

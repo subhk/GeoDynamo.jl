@@ -34,8 +34,8 @@ function accumulate_velocity_nonlinear_terms!(
     )
 end
 
-function finish_velocity_nonlinear!(velocity_fields; geometry::Symbol)
-    # geometry-blind since the ball grid has no r=0 node (off-center grid)
+function finish_velocity_nonlinear!(velocity_fields)
+    # geometry-blind: the ball grid has no r=0 node (off-center grid)
     # Stage-4B momentum projections. Toroidal: r̂·∇× of momentum gives
     # Ek(∂t − Δ_l)T = T_F — the raw toroidal sphtor scalar of the force is
     # exactly the RHS (structure unchanged). Poloidal: r̂·∇×∇× gives
@@ -456,7 +456,6 @@ function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
             g[1] = zero(T); g[nr] = zero(T)
             solve_banded!(h2, split.p_factor[idx], g)
 
-            local m11, m12, r1
             if split.ball
                 m11 = m11b; m12 = m12b
                 r1 = rho1w

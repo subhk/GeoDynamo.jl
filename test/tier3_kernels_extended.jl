@@ -248,23 +248,20 @@ end
 
     # --- scalar_nonlinear_to_spectral! is geometry-blind -------------------
     # The legacy :ball branch (centre-plane zeroing) is gone: the ball grid is
-    # off-center with no r=0 node, so :ball and :shell run the IDENTICAL
-    # analysis and must produce bit-equal, finite spectra.
+    # off-center with no r=0 node, so ball and shell run the IDENTICAL
+    # analysis (the `geometry` parameter itself was removed once it became
+    # unused) and must produce finite spectra.
     @testset "scalar_nonlinear_to_spectral! geometry-blind" begin
         phys = G.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.r)
         fill!(parent(phys.data), 1.0)
-        spec_ball = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-        spec_shell = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
-        ret = G.scalar_nonlinear_to_spectral!(phys, spec_ball, :ball)
-        @test ret === spec_ball
-        G.scalar_nonlinear_to_spectral!(phys, spec_shell, :shell)
-        @test all(isfinite, parent(spec_ball.data_real))
-        @test all(isfinite, parent(spec_ball.data_imag))
-        @test parent(spec_ball.data_real) == parent(spec_shell.data_real)
-        @test parent(spec_ball.data_imag) == parent(spec_shell.data_imag)
+        spec = G.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+        ret = G.scalar_nonlinear_to_spectral!(phys, spec)
+        @test ret === spec
+        @test all(isfinite, parent(spec.data_real))
+        @test all(isfinite, parent(spec.data_imag))
         # the analysis itself is live: constant physical field => nonzero l=0 mode
         s00 = G.local_spectral_storage_slot(cfg, G.get_mode_index(cfg, 0, 0))
-        @test abs(G.local_spectral_value(parent(spec_ball.data_real), s00, 1)) > 0.0
+        @test abs(G.local_spectral_value(parent(spec.data_real), s00, 1)) > 0.0
     end
 
     # --- apply_geometric_factors_spectral! --------------------------------

@@ -395,12 +395,17 @@ function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
     end
 end
 
-function _default_velocity_parameters(config::C, domain::RadialDomain) where {C <:
-                                                                              SHTnsKitConfig}
+function _default_velocity_parameters(config::C, domain::RadialDomain;
+        geometry::Symbol = :shell) where {C <: SHTnsKitConfig}
+    # Geometry CANNOT be inferred from the grid: the ball uses an off-center
+    # radial grid whose innermost node r_1 > 0, so `iszero(r_inner)` would
+    # always classify it as :shell. Callers that know the geometry must pass
+    # it explicitly (GeoDynamoBall constructors pass :ball); the default
+    # stays :shell.
     r_inner = domain.r[1, 4]
     r_outer = domain.r[domain.N, 4]
-    radius_ratio = iszero(r_outer) ? 0.0 : Float64(r_inner / r_outer)
-    geometry = iszero(r_inner) ? :ball : :shell
+    radius_ratio = geometry === :ball ? 0.0 :
+                   (iszero(r_outer) ? 0.0 : Float64(r_inner / r_outer))
     return SolverParameters(
         geometry = geometry,
         nr = domain.N,
@@ -415,9 +420,15 @@ function _default_velocity_parameters(config::C, domain::RadialDomain) where {C 
 end
 
 """
-    create_shtns_velocity_fields(T, config, domain, pencils=nothing, pencil_spec=nothing; params)
+    create_shtns_velocity_fields(T, config, domain, pencils=nothing, pencil_spec=nothing;
+                                 geometry=:shell, params)
 
 Allocate and initialize the velocity field container used by solver runtimes.
+
+When `params` is not supplied, defaults are derived from `config`/`domain` —
+but the geometry cannot be inferred from the grid (the ball's off-center
+radial grid has r_1 > 0), so callers building ball fields without explicit
+`params` must pass `geometry = :ball`.
 
 The returned object includes physical-space velocity/vorticity fields, spectral
 toroidal-poloidal coefficients, nonlinear history buffers, and cached radial
@@ -426,7 +437,9 @@ operators.
 function create_shtns_velocity_fields(::Type{T}, config::C,
         outer_core_domain::RadialDomain,
         pencils = nothing, pencil_spec = nothing;
-        params::SolverParameters = _default_velocity_parameters(config, outer_core_domain)) where {
+        geometry::Symbol = :shell,   # used only when `params` is defaulted
+        params::SolverParameters = _default_velocity_parameters(
+            config, outer_core_domain; geometry)) where {
         T, C <: SHTnsKitConfig}
     # Use pencils from config by default (they already encode the correct nr)
     if pencils === nothing

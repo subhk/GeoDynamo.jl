@@ -112,7 +112,11 @@ end
 function create_ball_velocity_fields(::Type{T}, cfg::BallConfig; nr::Int) where {T}
     domain = create_ball_radial_domain(nr)
     pencils = create_ball_pencils(cfg; nr)
-    return GeoDynamo.create_shtns_velocity_fields(T, cfg, domain, pencils, pencils.spec)
+    # geometry = :ball cannot be inferred from the off-center grid (r_1 > 0),
+    # so pass it explicitly; the defaulted params then get geometry/:ball,
+    # radius_ratio 0.0, and nr_inner 0.
+    return GeoDynamo.create_shtns_velocity_fields(
+        T, cfg, domain, pencils, pencils.spec; geometry = :ball)
 end
 
 """
