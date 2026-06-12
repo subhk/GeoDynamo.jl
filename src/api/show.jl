@@ -35,9 +35,10 @@ Base.summary(ow::CheckpointWriter) =
 
 # ── Timesteppers ─────────────────────────────────────────────────────────────
 Base.summary(ts::CNAB2) = "CNAB2(theta=$(prettysummary(ts.implicit_theta)))"
-Base.summary(ts::ERK2) = "ERK2()"
-Base.summary(ts::EAB2) =
-    "EAB2(krylov_dimension=$(ts.krylov_dimension), tolerance=$(prettysummary(ts.tolerance)))"
+Base.summary(ts::ExponentialRungeKutta2) = "ExponentialRungeKutta2()"
+Base.summary(ts::RungeKutta3) = "RungeKutta3()"
+Base.summary(ts::ExponentialAdamsBashforth2) =
+    "ExponentialAdamsBashforth2(krylov_dimension=$(ts.krylov_dimension), tolerance=$(prettysummary(ts.tolerance)))"
 Base.summary(ts::ETD) =
     "ETD(krylov_dimension=$(ts.krylov_dimension), tolerance=$(prettysummary(ts.tolerance)))"
 Base.summary(ts::ThetaMethod) = "ThetaMethod(theta=$(prettysummary(ts.theta)))"

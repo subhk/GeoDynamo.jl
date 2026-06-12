@@ -366,7 +366,8 @@ function build_velocity_implicit_matrices(cfg, domain, E, dt, velocity_bc_code;
             inner_regularity = inner_regularity
         ),
         pol = SOLVER_VELOCITY_POLOIDAL_MATRIX_BUILDER(
-            cfg, domain, E, dt; velocity_bc_code = velocity_bc_code, mass_coeff = E
+            cfg, domain, E, dt; velocity_bc_code = velocity_bc_code, mass_coeff = E,
+            theta = theta
         )
     )
 end
@@ -438,7 +439,8 @@ end
 # implicit-matrix paths. `dt` is the authoritative timestep — callers pass it
 # explicitly so the rebuild path can override the (frozen) backend timestep.
 function _build_implicit_matrices_dict(
-        ::Type{T}, cfg, outer, ic_domain, p::SolverParameters, dt::Float64
+        ::Type{T}, cfg, outer, ic_domain, p::SolverParameters, dt::Float64;
+        theta::Float64 = _timestepper_implicit_theta(p.timestepper, p)
 ) where {T}
     inner_regularity = p.geometry === :ball
     matrices = Dict{Symbol, OldImplicitMatrices{T}}()
@@ -458,7 +460,8 @@ function _build_implicit_matrices_dict(
         ic_domain === nothing && error(
             "magnetic_inner_bc=:conducting_inner_core requires an inner-core domain " *
             "(geometry=:shell); got inner_core_domain === nothing")
-        magnetic = build_magnetic_implicit_matrices_conducting(T, cfg, outer, ic_domain, dt)
+        magnetic = build_magnetic_implicit_matrices_conducting(
+            T, cfg, outer, ic_domain, dt; theta = theta)
         magnetic_ic_admittance = magnetic.admittance
     else
         magnetic = build_magnetic_implicit_matrices(cfg, outer, dt;

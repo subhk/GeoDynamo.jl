@@ -41,9 +41,10 @@ end
 Public-API convenience: advance a configured CPU `SolverState` by `nsteps` CNAB2 steps
 ON THE GPU PATH.  Builds the device state via [`build_gpu_solver_state`](@ref) (optionally
 moved to `arch` with [`gpu_to_device`](@ref) — pass `arch = GPU()` on a CUDA box), runs the
-device loop, then ALWAYS syncs the evolved spectral fields back into `cpu_state` via
-[`sync_gpu_state_to_cpu!`](@ref) and advances `cpu_state.step`/`.time`, so the usual CPU-side
-diagnostics / output / restart see the GPU-evolved state.  (To run the device loop without
+device loop, then ALWAYS syncs the evolved state back into `cpu_state` via
+[`sync_gpu_state_to_cpu!`](@ref) (spectral fields, CNAB2 `prev_nl` histories, and the lagged
+physical buffers) and advances `cpu_state.step`/`.time`, so CPU-side stepping / diagnostics /
+output / restart can continue coherently from the GPU-evolved state.  (To run the device loop without
 syncing back — keeping a handle to the device state — call `build_gpu_solver_state` +
 `gpu_run!(gst, …)` directly instead.)
 

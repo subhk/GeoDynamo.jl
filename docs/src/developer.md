@@ -40,10 +40,10 @@ GeoDynamo.jl/
 │   ├── timestep/
 │   │   ├── state.jl              # Public timestep-state container
 │   │   ├── implicit.jl           # Shared implicit/CNAB2 helpers
-│   │   ├── imex.jl               # Solver-side IMEX/EAB2 helpers
-│   │   ├── erk2.jl               # ERK2 include shell
+│   │   ├── imex.jl               # Solver-side IMEX/ExponentialAdamsBashforth2 helpers
+│   │   ├── erk2.jl               # ExponentialRungeKutta2 include shell
 │   │   ├── driver.jl             # Solver-side timestep driver
-│   │   └── erk2/                 # ERK2 cache, influence, boundary, integration code
+│   │   └── erk2/                 # ExponentialRungeKutta2 cache, influence, boundary, integration code
 │   ├── physics/
 │   │   ├── force_projection.jl   # Solenoidal force projection helpers
 │   │   ├── nonlinear.jl          # Shared nonlinear-term assembly

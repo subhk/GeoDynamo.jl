@@ -46,7 +46,7 @@ function _combo_parity(vel_bcs, temp_bcs, timestepper; nsteps = 2)
     st = _combo_state(vel_bcs, temp_bcs, timestepper)
     GeoDynamo.solver_step!(st)                  # warm-up
     gst = GeoDynamo.build_gpu_solver_state(st)
-    erk = timestepper isa GeoDynamo.ERK2 ? GeoDynamo.build_gpu_erk2_state(st) : nothing
+    erk = timestepper isa GeoDynamo.ExponentialRungeKutta2 ? GeoDynamo.build_gpu_erk2_state(st) : nothing
     cfg = st.backend.shtns_config
     nr = st.runtime.outer_core_domain.N
     for _ in 1:nsteps
@@ -75,7 +75,7 @@ end
                 ("NS/SF", GeoDynamo.BoundaryConditions(inner = _NS, outer = _SF)),
                 ("SF/NS", GeoDynamo.BoundaryConditions(inner = _SF, outer = _NS)),
                 ("SF/SF", GeoDynamo.BoundaryConditions(inner = _SF, outer = _SF))]
-            for ts in (GeoDynamo.CNAB2(), GeoDynamo.ERK2())
+            for ts in (GeoDynamo.CNAB2(), GeoDynamo.ExponentialRungeKutta2())
                 worst, finite = _combo_parity(bcs, dd, ts)
                 @testset "$label $(nameof(typeof(ts)))" begin
                     @test worst < 1e-9
@@ -91,7 +91,7 @@ end
                 ("DN", GeoDynamo.BoundaryConditions(inner = _VAL(1.0), outer = _FLX(0.5))),
                 ("ND", GeoDynamo.BoundaryConditions(inner = _FLX(1.0), outer = _VAL(0.0))),
                 ("NN", GeoDynamo.BoundaryConditions(inner = _FLX(1.0), outer = _FLX(0.0)))]
-            for ts in (GeoDynamo.CNAB2(), GeoDynamo.ERK2())
+            for ts in (GeoDynamo.CNAB2(), GeoDynamo.ExponentialRungeKutta2())
                 worst, finite = _combo_parity(ns, bcs, ts)
                 @testset "$label $(nameof(typeof(ts)))" begin
                     @test worst < 1e-9

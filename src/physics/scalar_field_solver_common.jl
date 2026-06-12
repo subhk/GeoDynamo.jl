@@ -125,7 +125,7 @@ function _apply_scalar_implicit_update!(
             bc_outer_imag = bc.outer_imag,
             work = radial_work,
         )
-    elseif timestepper isa EAB2
+    elseif timestepper isa ExponentialAdamsBashforth2
         alu_map = (etd_entry::EAB2CacheEntry{T}).map
         radial_work = get_radial_work!(
             state.timestep_caches,

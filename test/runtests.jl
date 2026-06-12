@@ -131,6 +131,7 @@ additional_tests = (
     "derived_parameters.jl",
     "stability_regressions.jl",
     "timestep_state.jl",
+    "cb3_timestepper.jl",
     "examples_audit.jl",
     "examples_smoke.jl",
     # Validation

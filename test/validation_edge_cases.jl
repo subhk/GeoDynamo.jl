@@ -73,7 +73,7 @@ using Test
     end
 
     @testset "Valid erk2 scheme passes" begin
-        params = GeoDynamo.SolverParameters(timestepper = GeoDynamo.ERK2())
+        params = GeoDynamo.SolverParameters(timestepper = GeoDynamo.ExponentialRungeKutta2())
         is_valid, _, _ = GeoDynamo.validate_parameters(params; strict = false)
         @test is_valid
     end
