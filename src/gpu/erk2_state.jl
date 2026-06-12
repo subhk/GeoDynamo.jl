@@ -149,8 +149,8 @@ Boundary endpoint VALUES are baked at pack time (time-constant BCs only).
 function build_gpu_erk2_state(st)
     T = Float64
     params = st.parameters
-    params.timestepper isa ERK2 || error(
-        "build_gpu_erk2_state: state is configured with $(typeof(params.timestepper)), not ERK2")
+    params.timestepper isa ExponentialRungeKutta2 || error(
+        "build_gpu_erk2_state: state is configured with $(typeof(params.timestepper)), not ExponentialRungeKutta2")
     runtime = st.runtime
     cfg = runtime.shtns_config
     domain = runtime.outer_core_domain

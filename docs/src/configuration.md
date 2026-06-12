@@ -126,8 +126,8 @@ simulation = Simulation(model; Δt = 1e-5, timestepper = CNAB2())
 |:-------|:------------|
 | `CNAB2()` | Crank-Nicolson Adams-Bashforth 2; production default |
 | `CNAB2(theta = 0.6)` | CNAB2 with extra implicit damping |
-| `EAB2(krylov_dimension = 20, tolerance = 1e-8)` | Exponential Adams-Bashforth 2 for stiff diffusion |
-| `ERK2()` | Explicit second-order Runge-Kutta path |
+| `ExponentialAdamsBashforth2(krylov_dimension = 20, tolerance = 1e-8)` | Exponential Adams-Bashforth 2 for stiff diffusion |
+| `ExponentialRungeKutta2()` | Explicit second-order Runge-Kutta path |
 | `ETD(krylov_dimension = 20, tolerance = 1e-8)` | Exponential time differencing path |
 | `ThetaMethod(theta = 0.5)` | Direct theta-method configuration |
 
@@ -135,8 +135,8 @@ simulation = Simulation(model; Δt = 1e-5, timestepper = CNAB2())
     | Scheme | Best For |
     |:-------|:---------|
     | **CNAB2** | Production dynamo runs, moderate timesteps |
-    | **EAB2** | Strongly diffusive regimes (low E, Pm) |
-    | **ERK2** | Wave propagation, accuracy-critical applications |
+    | **ExponentialAdamsBashforth2** | Strongly diffusive regimes (low E, Pm) |
+    | **ExponentialRungeKutta2** | Wave propagation, accuracy-critical applications |
 
 See [Time Integration](timestepping.md) for detailed scheme documentation.
 

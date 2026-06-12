@@ -48,7 +48,7 @@ run!(simulation)
     SHTnsKit for fast spherical harmonics + pencil-decomposed finite differences for radial terms.
 
 !!! success "Multiple Time Integrators"
-    CNAB2 IMEX, exponential AB2 (EAB2), and exponential RK2 (ERK2) with Krylov-based operators.
+    CNAB2 IMEX, exponential AB2 (ExponentialAdamsBashforth2), and exponential RK2 (ExponentialRungeKutta2) with Krylov-based operators.
 
 !!! success "Scalable MPI I/O"
     Per-rank checkpoint/output with selectable precision (Float32/Float64) and NetCDF metadata.
@@ -81,7 +81,7 @@ run!(simulation)
 │                               │                                         │
 │                               ▼                                         │
 │   ┌─────────────────────────────────────────────────────────┐          │
-│   │              Time Integration (CNAB2/EAB2/ERK2)          │          │
+│   │              Time Integration (CNAB2/ExponentialAdamsBashforth2/ExponentialRungeKutta2)          │          │
 │   └─────────────────────────────────────────────────────────┘          │
 │                               │                                         │
 │                               ▼                                         │
@@ -218,7 +218,7 @@ N_T = -\boldsymbol{u}\cdot\nabla T + Q_T
 | **[Getting Started](getting-started.md)** | Installation and first simulation |
 | **[Configuration](configuration.md)** | All parameter options explained |
 | **[Boundary Conditions](boundary-conditions.md)** | Velocity, magnetic, thermal, and compositional BCs |
-| **[Time Integration](timestepping.md)** | CNAB2, EAB2, ERK2 schemes |
+| **[Time Integration](timestepping.md)** | CNAB2, ExponentialAdamsBashforth2, ExponentialRungeKutta2 schemes |
 | **[Spherical Harmonics](shtnskit.md)** | SHTnsKit transforms and operators |
 | **[Boundary Topography](topography.md)** | Non-spherical boundary coupling |
 | **[Data Output](io.md)** | NetCDF files, restarts, diagnostics |

@@ -8,7 +8,7 @@ GeoDynamo.jl provides three production-grade implicit-explicit (IMEX) time-stepp
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐              │
-│   │   CNAB2     │     │    EAB2     │     │    ERK2     │              │
+│   │   CNAB2     │     │    ExponentialAdamsBashforth2     │     │    ExponentialRungeKutta2     │              │
 │   │  ─────────  │     │  ─────────  │     │  ─────────  │              │
 │   │  Workhorse  │     │  Stiff OK   │     │  Accurate   │              │
 │   │  A-stable   │     │  L-stable   │     │  L-stable   │              │
@@ -26,8 +26,8 @@ GeoDynamo.jl provides three production-grade implicit-explicit (IMEX) time-stepp
     | Scenario | Scheme | Why |
     |:---------|:-------|:----|
     | **Production dynamo runs** | CNAB2 | Robust, well-tested, low cost |
-    | **Strong diffusion** (low E, Pm) | EAB2 | Exact linear integration, larger Δt |
-    | **Wave studies / benchmarks** | ERK2 | Best transient accuracy |
+    | **Strong diffusion** (low E, Pm) | ExponentialAdamsBashforth2 | Exact linear integration, larger Δt |
+    | **Wave studies / benchmarks** | ExponentialRungeKutta2 | Best transient accuracy |
     | **Development / debugging** | CNAB2 | Simplest to understand |
 
 ---
@@ -245,7 +245,7 @@ simulation = Simulation(
 
 ---
 
-## EAB2: Exponential Adams–Bashforth 2
+## ExponentialAdamsBashforth2: Exponential Adams–Bashforth 2
 
 *Uses matrix exponentials to exactly integrate the stiff linear part.*
 
@@ -266,7 +266,7 @@ where:
 
 ### Implementation Strategy
 
-GeoDynamo now routes EAB2 through the solver-managed Krylov path internally.
+GeoDynamo now routes ExponentialAdamsBashforth2 through the solver-managed Krylov path internally.
 The old dense ETD cache builder and manual LU-cache entry points are retained
 only as deprecated compatibility wrappers; they are no longer the documented
 workflow.
@@ -285,7 +285,7 @@ model = GeodynamoModel(grid; Ek=1e-5, Pr=1, Pm=2, Sc=1, Ra=1e7)
 simulation = Simulation(
     model;
     Δt=1e-5,
-    timestepper=EAB2(krylov_dimension=20, tolerance=1e-8),
+    timestepper=ExponentialAdamsBashforth2(krylov_dimension=20, tolerance=1e-8),
 )
 ```
 
@@ -300,7 +300,7 @@ simulation = Simulation(
 
 ---
 
-## ERK2: Exponential Runge–Kutta 2
+## ExponentialRungeKutta2: Exponential Runge–Kutta 2
 
 *Two-stage exponential integrator for maximum accuracy.*
 
@@ -376,9 +376,9 @@ println("Max residual: $(stats.max_residual)")
 
 | Property | Value |
 |:---------|:------|
-| Order | 2nd (but more accurate than EAB2) |
+| Order | 2nd (but more accurate than ExponentialAdamsBashforth2) |
 | Stability | L-stable |
-| Memory | 2× EAB2 (half-step and full-step caches) |
+| Memory | 2× ExponentialAdamsBashforth2 (half-step and full-step caches) |
 | Cost | 2× nonlinear evaluations per step |
 
 ---
@@ -474,18 +474,18 @@ end
 | Scenario | Scheme | Rationale |
 |:---------|:-------|:----------|
 | Production dynamo | **CNAB2** | Robust, well-tested, moderate cost |
-| Strong diffusion (low E, Pm) | **EAB2** | Allows larger Δt, exact linear integration |
-| Wave studies | **ERK2** | Best transient accuracy |
+| Strong diffusion (low E, Pm) | **ExponentialAdamsBashforth2** | Allows larger Δt, exact linear integration |
+| Wave studies | **ExponentialRungeKutta2** | Best transient accuracy |
 | Initial development/debugging | **CNAB2** | Simplest to understand |
-| Benchmark comparisons | **ERK2** | Reference-quality accuracy |
+| Benchmark comparisons | **ExponentialRungeKutta2** | Reference-quality accuracy |
 
 ### Timestepper Guidelines
 
-| Option | CNAB2 | EAB2 | ERK2 |
+| Option | CNAB2 | ExponentialAdamsBashforth2 | ExponentialRungeKutta2 |
 |:-------|:------|:-----|:-----|
 | Damping | `CNAB2(theta=0.5)` | N/A | N/A |
-| Krylov dimension | N/A | `EAB2(krylov_dimension=20)` | N/A |
-| Krylov tolerance | N/A | `EAB2(tolerance=1e-8)` | N/A |
+| Krylov dimension | N/A | `ExponentialAdamsBashforth2(krylov_dimension=20)` | N/A |
+| Krylov tolerance | N/A | `ExponentialAdamsBashforth2(tolerance=1e-8)` | N/A |
 | `courant` | 0.5-0.9 | 0.5-0.9 | 0.3-0.5 |
 
 ### Startup Protocol
@@ -527,24 +527,24 @@ end
 
 | Action | Details |
 |:-------|:--------|
-| Increase Krylov dimension | Use `EAB2(krylov_dimension = 30)` or higher |
-| Tighten tolerance | Use `EAB2(tolerance = 1e-10)` |
+| Increase Krylov dimension | Use `ExponentialAdamsBashforth2(krylov_dimension = 30)` or higher |
+| Tighten tolerance | Use `ExponentialAdamsBashforth2(tolerance = 1e-10)` |
 | Reduce timestep | For transient accuracy |
-| Use ERK2 | For critical accuracy requirements |
+| Use ExponentialRungeKutta2 | For critical accuracy requirements |
 
 ### Memory Issues
 
 | Action | Details |
 |:-------|:--------|
-| Use Krylov mode | Instead of dense matrices for EAB2/ERK2 |
-| Reduce Krylov dimension | Use `EAB2(krylov_dimension = 15)` if memory-limited |
+| Use Krylov mode | Instead of dense matrices for ExponentialAdamsBashforth2/ExponentialRungeKutta2 |
+| Reduce Krylov dimension | Use `ExponentialAdamsBashforth2(krylov_dimension = 15)` if memory-limited |
 | Check for leaks | In nonlinear term caching |
 
 ---
 
 ## Summary Comparison
 
-| Feature | CNAB2 | EAB2 | ERK2 |
+| Feature | CNAB2 | ExponentialAdamsBashforth2 | ExponentialRungeKutta2 |
 |:--------|:------|:-----|:-----|
 | **Order** | 2nd | 2nd (exact linear) | 2nd |
 | **Stability** | A-stable | L-stable | L-stable |

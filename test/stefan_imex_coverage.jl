@@ -59,7 +59,7 @@ end
     end
 
     @testset "IMEX EAB2 Krylov step runs + stays finite [LOCAL]" begin
-        st = _small_state(timestepper = GeoDynamo.EAB2(krylov_dimension = 8, tolerance = 1e-6),
+        st = _small_state(timestepper = GeoDynamo.ExponentialAdamsBashforth2(krylov_dimension = 8, tolerance = 1e-6),
             include_magnetic = true)
         # Stage-4B gate: velocity dynamics under the solenoidal convention are
         # CNAB2-only — the EAB2 poloidal path refuses loudly until ported to

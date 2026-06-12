@@ -20,7 +20,9 @@ end
 Return `true` for timestep schemes that need previous nonlinear terms.
 """
 function _solver_uses_two_step_history(timestepper)
-    timestepper isa CNAB2 || timestepper isa EAB2 || timestepper isa ERK2
+    timestepper isa CNAB2 ||
+        timestepper isa ExponentialAdamsBashforth2 ||
+        timestepper isa ExponentialRungeKutta2
 end
 
 """
@@ -64,11 +66,13 @@ function _sync_solver_nonlinear_histories!(
 end
 
 """
+    timestepper isa RungeKutta3 && return integrate_solver_cb3_step!(state)
+
     bootstrap_solver_history!(state, timestepper, magnetic_enabled)
 
 Seed previous nonlinear histories for two-step schemes on their first step.
 
-CNAB2, EAB2, and ERK2 all need a previous nonlinear term. At startup there is
+CNAB2, ExponentialAdamsBashforth2, and ExponentialRungeKutta2 all need a previous nonlinear term. At startup there is
 no true previous step, so the current nonlinear term is copied once to avoid a
 special-case branch in each update kernel.
 """
@@ -142,7 +146,7 @@ end
 
 Return whether field implicit updates can run on Julia threads.
 
-Field update kernels reach MPI collectives (EAB2 directly; others via influence
+Field update kernels reach MPI collectives (ExponentialAdamsBashforth2 directly; others via influence
 and transpose paths). With more than one rank, issuing those collectives from
 multiple Julia threads lets the per-rank ordering diverge and the collectives
 mismatch, which deadlocks. So restrict threaded field updates to single-rank
@@ -155,7 +159,7 @@ end
 """
     _prepare_solver_eab2_caches!(state)
 
-Ensure all active EAB2 exponential-action caches match the current parameters.
+Ensure all active ExponentialAdamsBashforth2 exponential-action caches match the current parameters.
 """
 function _prepare_solver_eab2_caches!(state::SolverState{
         T, <:AbstractArchitecture}) where {T}
@@ -263,8 +267,8 @@ end
 
 Run one configured implicit/IMEX timestep update for all active fields.
 
-The dispatcher handles first-step history bootstrap, prepares EAB2 caches when
-needed, delegates ERK2 to the staged integrator, and rolls nonlinear histories
+The dispatcher handles first-step history bootstrap, prepares ExponentialAdamsBashforth2 caches when
+needed, delegates ExponentialRungeKutta2 to the staged integrator, and rolls nonlinear histories
 after a successful update.
 """
 function apply_solver_implicit_step!(state::SolverState)
@@ -272,19 +276,23 @@ function apply_solver_implicit_step!(state::SolverState)
     magnetic_enabled = state.parameters.include_magnetic &&
                        state.fields.magnetic !== nothing
 
+    if timestepper isa RungeKutta3
+        return integrate_solver_cb3_step!(state)
+    end
+
     bootstrap_solver_history!(state, timestepper, magnetic_enabled)
 
-    if timestepper isa EAB2
+    if timestepper isa ExponentialAdamsBashforth2
         _prepare_solver_eab2_caches!(state)
     end
 
-    if timestepper isa ERK2
+    if timestepper isa ExponentialRungeKutta2
         integrate_solver_erk2_step!(state)
     else
         if _solver_can_thread_implicit_updates(timestepper)
             _apply_solver_implicit_updates_threaded!(state)
         else
-            # EAB2 issues MPI collectives during the update, so multi-rank runs
+            # ExponentialAdamsBashforth2 issues MPI collectives during the update, so multi-rank runs
             # must keep those field solves on one thread to avoid deadlocks.
             _apply_solver_implicit_updates_sequential!(state)
         end

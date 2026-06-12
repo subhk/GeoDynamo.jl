@@ -94,11 +94,11 @@ using Test
         @test opts.timestep_scheme === :cnab2
 
         opts_erk = GeoDynamo._resolve_timestepper(:erk2, nothing, nothing, nothing, nothing, params)
-        @test opts_erk.timestepper isa GeoDynamo.ERK2
+        @test opts_erk.timestepper isa GeoDynamo.ExponentialRungeKutta2
 
         # An explicit struct still works unchanged.
-        opts_struct = GeoDynamo._resolve_timestepper(GeoDynamo.ERK2(), nothing, nothing, nothing, nothing, params)
-        @test opts_struct.timestepper isa GeoDynamo.ERK2
+        opts_struct = GeoDynamo._resolve_timestepper(GeoDynamo.ExponentialRungeKutta2(), nothing, nothing, nothing, nothing, params)
+        @test opts_struct.timestepper isa GeoDynamo.ExponentialRungeKutta2
 
         # An unknown scheme symbol is still rejected with a clear error.
         @test_throws ArgumentError GeoDynamo._resolve_timestepper(:rk4, nothing, nothing, nothing, nothing, params)
