@@ -73,6 +73,7 @@ MPI.Initialized() || MPI.Init()
 const LMAX = parse(Int, get(ENV, "MARTI_LMAX", "32"))
 const NR = parse(Int, get(ENV, "MARTI_NR", "48"))
 const NSTEPS = parse(Int, get(ENV, "MARTI_NSTEPS", "20000"))
+# NOTE: reliable f_d needs the post-transient window; default NSTEPS=20000 gives t=2.0 which may still graze the transient (paper Fig 3) — use 50000+ for publication-grade drift values.
 const DT = parse(Float64, get(ENV, "MARTI_DT", "1.0e-4"))
 const RA_SCALE = parse(Float64, get(ENV, "MARTI_RA_SCALE", "1.0"))
 const RA = 95.0 * RA_SCALE
@@ -193,6 +194,7 @@ const SLOT33 = GeoDynamo.local_spectral_storage_slot(cfg, LM33)
 const RMID = argmin(abs.(dom.r[1:dom.N, 4] .- 0.5))
 
 function drift_sample(state)
+    SLOT33 === nothing && return complex(NaN, NaN)   # mode not local (multi-rank run)
     sr = parent(state.fields.temperature.spectral.data_real)
     si = parent(state.fields.temperature.spectral.data_imag)
     return complex(GeoDynamo.local_spectral_value(sr, SLOT33, RMID),
@@ -202,7 +204,7 @@ end
 # unwrapped-phase linear fit over the LAST QUARTER of the samples → f_d
 function drift_frequency(ts::Vector{Float64}, cs::Vector{ComplexF64})
     n = length(ts)
-    (n < 8 || abs(cs[end]) < 1e-14) && return NaN
+    (n < 8 || abs(cs[end]) < 1e-14) && return NaN  # mode not yet excited
     ph = Vector{Float64}(undef, n)
     ph[1] = angle(cs[1])
     for k in 2:n
