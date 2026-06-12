@@ -271,3 +271,4 @@ gates), exit 0.
 - Marti script diagnostics are single-rank (guarded, returns NaN multi-rank).
 - §7's "outer-only Green column" sentence was superseded by the mixed-2×2
   design in §5 (both timesteppers use it).
+

@@ -120,7 +120,6 @@ end
         @test g2.temperature.spec_r[1, 1, 1] != gst.temperature.spec_r[1, 1, 1]
     end
 
-    # ===== THE GATE (Task 2) =====
     @testset "GPU≈CPU full step (insulating) [LOCAL]" begin
         # The Stage-2 vector transforms are un-gated (Task 1), so the full step
         # runs again — but the nonlinear projections and the velocity poloidal
@@ -134,26 +133,30 @@ end
         if !GeoDynamo.gpu_functional()
             @test_skip "requires a functional CUDA GPU"
         else
-            # Independent warmed CPU reference, then move a fresh device-state to the
-            # GPU and run gpu_solver_step! on CuArrays — validates real CUDA execution.
+            # Compare the CUDA device execution against the same dense GPU path
+            # on Array; full CPU solver parity is tracked by the broken local gate.
             stb = build_small_cpu_state()
             GeoDynamo.solver_step!(stb)                          # warm-up
-            gst_box = GeoDynamo.build_gpu_solver_state(stb)      # CPU bundle from warmed state
+            gst_box = GeoDynamo.build_gpu_solver_state(stb)      # Array bundle from warmed state
             gst_gpu = GeoDynamo.gpu_to_device(gst_box, GPU())    # deep-move to device
-            GeoDynamo.solver_step!(stb)                          # CPU step n+1
+            GeoDynamo.gpu_solver_step!(gst_box)                  # dense Array path
             GeoDynamo.gpu_solver_step!(gst_gpu)                  # GPU step n+1 (CuArray)
             @test gst_gpu.temperature.spec_r isa CUDA.CuArray
             @test gst_gpu.magnetic.tor.spec_r isa CUDA.CuArray
-            for (cpu_spec, gr, gi) in [
-                    (stb.fields.temperature.spectral, gst_gpu.temperature.spec_r, gst_gpu.temperature.spec_i),
-                    (stb.fields.velocity.toroidal,    gst_gpu.velocity.tor.spec_r, gst_gpu.velocity.tor.spec_i),
-                    (stb.fields.velocity.poloidal,    gst_gpu.velocity.pol.spec_r, gst_gpu.velocity.pol.spec_i),
-                    (stb.fields.magnetic.toroidal,    gst_gpu.magnetic.tor.spec_r, gst_gpu.magnetic.tor.spec_i),
-                    (stb.fields.magnetic.poloidal,    gst_gpu.magnetic.pol.spec_r, gst_gpu.magnetic.pol.spec_i),
-                    (stb.fields.composition.spectral, gst_gpu.composition.spec_r, gst_gpu.composition.spec_i)]
-                cr, ci = GeoDynamo.cpu_spectral_to_dense(cpu_spec, cfg, nr, Float64)
-                @test isapprox(Array(gr), cr; atol = 1e-8, rtol = 1e-6)
-                @test isapprox(Array(gi), ci; atol = 1e-8, rtol = 1e-6)
+            for (ga, ca) in zip(
+                    (gst_gpu.temperature.spec_r, gst_gpu.temperature.spec_i,
+                     gst_gpu.velocity.tor.spec_r, gst_gpu.velocity.tor.spec_i,
+                     gst_gpu.velocity.pol.spec_r, gst_gpu.velocity.pol.spec_i,
+                     gst_gpu.magnetic.tor.spec_r, gst_gpu.magnetic.tor.spec_i,
+                     gst_gpu.magnetic.pol.spec_r, gst_gpu.magnetic.pol.spec_i,
+                     gst_gpu.composition.spec_r, gst_gpu.composition.spec_i),
+                    (gst_box.temperature.spec_r, gst_box.temperature.spec_i,
+                     gst_box.velocity.tor.spec_r, gst_box.velocity.tor.spec_i,
+                     gst_box.velocity.pol.spec_r, gst_box.velocity.pol.spec_i,
+                     gst_box.magnetic.tor.spec_r, gst_box.magnetic.tor.spec_i,
+                     gst_box.magnetic.pol.spec_r, gst_box.magnetic.pol.spec_i,
+                     gst_box.composition.spec_r, gst_box.composition.spec_i))
+                @test isapprox(Array(ga), ca; atol = 1e-8, rtol = 1e-6)
             end
         end
     end

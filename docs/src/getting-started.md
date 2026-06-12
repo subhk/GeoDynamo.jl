@@ -23,20 +23,23 @@ Download from [julialang.org/downloads](https://julialang.org/downloads/) and en
 
 ### Step 2: Install MPI & NetCDF
 
-=== "Ubuntu/Debian"
-    ```bash
-    sudo apt install mpich libnetcdf-dev
-    ```
+#### Ubuntu/Debian
 
-=== "macOS"
-    ```bash
-    brew install mpich netcdf
-    ```
+```bash
+sudo apt install mpich libnetcdf-dev
+```
 
-=== "Fedora/RHEL"
-    ```bash
-    sudo dnf install mpich netcdf-devel
-    ```
+#### macOS
+
+```bash
+brew install mpich netcdf
+```
+
+#### Fedora/RHEL
+
+```bash
+sudo dnf install mpich netcdf-devel
+```
 
 Verify MPI is working:
 
@@ -82,15 +85,16 @@ Verify MPI is working:
     ```
 
 !!! tip "Optional CUDA GPU Backend"
-    The rewritten solver supports a hybrid GPU backend for SHTnsKit transforms.
-    To use it, add CUDA to your environment and load it before building the solver:
+    The rewritten solver includes a single-device GPU path with CUDA-backed
+    SHTnsKit transforms when CUDA is available. To use it, add CUDA to your
+    environment and load it before building the solver:
     ```julia
     using GeoDynamo
     using CUDA
 
     grid = SphericalShellGrid(GPU(); nr = 64, lmax = 31)
     model = GeodynamoModel(grid; include_magnetic = true)
-    simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+    simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
     ```
 
 ---
@@ -151,7 +155,7 @@ model = GeodynamoModel(grid; Ek=1e-4, Ra=1e6, include_magnetic=true)
 set!(model; temperature = RandomPerturbation(amplitude=0.1, lmax=10),
             magnetic    = AnalyticIC(:dipole; amplitude=1.0))
 
-sim = Simulation(model; dt=1e-5, stop_time=0.1, stop_iteration=10_000)
+sim = Simulation(model; Δt=1e-5, stop_time=0.1, stop_iteration=10_000)
 add_callback!(sim, sim -> @info("step", n=sim.model.clock.iteration);
               schedule=IterationInterval(100))
 run!(sim)
@@ -168,7 +172,7 @@ run!(sim)
 │       using GeoDynamo                                                       │
 │       grid = SphericalShellGrid(nr = 64, lmax = 31)                         │
 │       model = GeodynamoModel(grid; Ek = 1e-4, Ra = 1e6)                     │
-│       simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)           │
+│       simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)           │
 │       run!(simulation)                                                      │
 │   '                                                                         │
 │                                                                             │
@@ -184,24 +188,35 @@ run!(sim)
 
 GeoDynamo.jl solves the Boussinesq MHD equations in a rotating spherical shell:
 
+```math
+E \frac{\partial \boldsymbol{u}}{\partial t}
+= E\nabla^2\boldsymbol{u}
++ \boldsymbol{N}_u(\boldsymbol{u}, \boldsymbol{B}, T, C)
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                                                                     │
-│   ∂u/∂t  =  viscous diffusion  +  buoyancy  +  Lorentz force       │
-│                     ↓                 ↓              ↓              │
-│                   E∇²u            Ra·T·r̂        (∇×B)×B            │
-│                                                                     │
-│   ∂T/∂t  =  thermal diffusion  -  advection                        │
-│                     ↓                  ↓                            │
-│                (Pm/Pr)∇²T            u·∇T                           │
-│                                                                     │
-│   ∂B/∂t  =  magnetic diffusion  +  induction                       │
-│                     ↓                  ↓                            │
-│                   ∇²B              ∇×(u×B)                          │
-│                                                                     │
-│   Constraints:      ∇·u = 0           ∇·B = 0                      │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+
+```math
+\frac{\partial T}{\partial t}
+= \frac{Pm}{Pr}\nabla^2T
++ N_T(\boldsymbol{u}, T),
+\qquad
+N_T = -\boldsymbol{u}\cdot\nabla T + Q_T
+```
+
+```math
+\frac{\partial \boldsymbol{B}}{\partial t}
+= \nabla^2\boldsymbol{B}
++ \nabla\times(\boldsymbol{u}\times\boldsymbol{B})
+```
+
+The velocity forcing `N_u` contains the explicit advection, Coriolis, buoyancy,
+and optional Lorentz terms. Temperature uses diffusivity `Pm/Pr`; composition,
+when enabled, uses `Pm/Sc`. Magnetic diffusion has coefficient 1 in the
+magnetic-diffusion time scaling used by the solver.
+
+```math
+\nabla\cdot\boldsymbol{u}=0,
+\qquad
+\nabla\cdot\boldsymbol{B}=0
 ```
 
 !!! info "Toroidal-Poloidal Decomposition"
@@ -237,14 +252,12 @@ model = GeodynamoModel(
         inner = FixedTemperature(1.0),
         outer = FixedTemperature(0.0),
     ),
+    velocity_bcs = BoundaryConditions(
+        inner = NoSlip(),
+        outer = StressFree(),
+    ),
 )
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
-state = simulation.model.state
-
-GeoDynamo.bcs.load_boundary_conditions!(state.temperature, GeoDynamo.TEMPERATURE, Dict(
-    :inner => (:uniform, 1.0),
-    :outer => (:dirichlet, 0.0),
-))
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 ---
@@ -266,33 +279,32 @@ set!(model;
      temperature = RandomPerturbation(amplitude=0.1, lmax=10),
      magnetic    = AnalyticIC(:dipole; amplitude=1.0))
 
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
-For lower-level access the field-specific helpers remain available:
+Equivalent descriptor calls are also accepted at model construction:
 
 ```julia
-state = simulation.model.state
-
-# Temperature
-set_temperature_ic!(state.temperature; profile = :conductive)
-randomize_scalar_field!(state.temperature; amplitude = 1e-3)
-
-# Velocity
-randomize_vector_field!(state.velocity.velocity; amplitude = 1e-4)
-
-# Magnetic Field
-randomize_magnetic_field!(state.magnetic; amplitude = 1e-5)
+model = GeodynamoModel(grid;
+    include_magnetic = true,
+    initial_conditions = (
+        temperature = AnalyticIC(:conductive),
+        velocity = RandomPerturbation(amplitude = 1e-4, lmax = 8),
+        magnetic = AnalyticIC(:dipole; amplitude = 1.0),
+    ),
+)
 ```
 
 ### Loading from Files
 
 ```julia
-# From restart file
-read_restart!("output/geodynamo_shell_rank_0000_restart_1.nc")
+# Continue from a restart directory. The restart reader is collective, so call
+# this under MPI after MPI.Init().
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.1,
+                        restart_from = "output")
 
-# From snapshot
-load_initial_conditions!("path/to/snapshot.nc")
+# Fresh initial condition from a compatible IC file
+set!(model; temperature = FileIC("path/to/temperature_ic.nc"))
 ```
 
 ---
@@ -307,15 +319,14 @@ load_initial_conditions!("path/to/snapshot.nc")
                                 ▼
     ┌─────────────────────────────────────────────────────────┐
     │  2. BOUNDARIES (optional)                               │
-    │     bcs.load_boundary_conditions!(state.temperature,    │
-    │         TEMPERATURE, Dict(...))                         │
+    │     BoundaryConditions(inner = ..., outer = ...)         │
     └───────────────────────────┬─────────────────────────────┘
                                 ▼
     ┌─────────────────────────────────────────────────────────┐
     │  3. MODEL + SIMULATION                                  │
     │     GeodynamoModel(grid; ...)                           │
-    │     Simulation(model; dt, stop_time)                    │
-    │     set_temperature_ic!(...) / randomize_*(...)         │
+    │     Simulation(model; Δt, stop_time)                    │
+    │     set!(model; temperature = ..., magnetic = ...)       │
     └───────────────────────────┬─────────────────────────────┘
                                 ▼
     ┌─────────────────────────────────────────────────────────┐
@@ -330,7 +341,7 @@ load_initial_conditions!("path/to/snapshot.nc")
                                 ▼
     ┌─────────────────────────────────────────────────────────┐
     │  6. RESTART (optional)                                  │
-    │     read_restart!(...) → run!(simulation)               │
+    │     Simulation(model; restart_from = "output")          │
     └─────────────────────────────────────────────────────────┘
 ```
 

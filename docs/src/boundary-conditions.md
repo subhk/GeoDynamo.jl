@@ -15,6 +15,67 @@ Each field type (velocity, magnetic, temperature, composition) has specific BC o
 
 ---
 
+## Specifying Boundary Conditions
+
+Boundary conditions are passed to [`GeodynamoModel`](@ref) per field, wrapped
+in `FieldBoundaryConditions(inner = ..., outer = ...)`:
+
+```julia
+t_bcs = FieldBoundaryConditions(
+    inner = ValueBoundaryCondition(1.0),   # Dirichlet: fixed value
+    outer = FluxBoundaryCondition(0.0),    # Neumann: fixed flux
+)
+```
+
+### BC type names
+
+The canonical names follow Oceananigans.jl; the original GeoDynamo names
+remain as aliases and keep working:
+
+| Canonical (Oceananigans-style) | Alias | Meaning |
+|:-------------------------------|:------|:--------|
+| `ValueBoundaryCondition(v)` | `FixedTemperature(v)` | Dirichlet — fixed value `v` |
+| `FluxBoundaryCondition(q)` | `FixedFlux(q)` | Neumann — fixed flux `q` |
+| `FieldBoundaryConditions(inner=…, outer=…)` | `BoundaryConditions(…)` | per-field inner/outer pair |
+| `NoSlip()` / `StressFree()` | — | velocity walls (no Oceananigans equivalent) |
+| `InsulatingMagnetic()` / `ConductingMagnetic()` | — | magnetic boundaries |
+
+### Two equivalent ways to pass them
+
+Per-field keywords:
+
+```julia
+model = GeodynamoModel(grid;
+    velocity_bcs    = FieldBoundaryConditions(inner = NoSlip(), outer = NoSlip()),
+    temperature_bcs = FieldBoundaryConditions(inner = ValueBoundaryCondition(1.0),
+                                              outer = ValueBoundaryCondition(0.0)),
+)
+```
+
+or one `boundary_conditions` NamedTuple (Oceananigans style):
+
+```julia
+model = GeodynamoModel(grid;
+    boundary_conditions = (
+        velocity    = FieldBoundaryConditions(inner = NoSlip(), outer = NoSlip()),
+        temperature = FieldBoundaryConditions(inner = ValueBoundaryCondition(1.0),
+                                              outer = ValueBoundaryCondition(0.0)),
+    ))
+```
+
+Specifying the same field through both paths throws an `ArgumentError`.
+
+### Defaults
+
+| Field | Default |
+|:------|:--------|
+| velocity | `inner = NoSlip()`, `outer = NoSlip()` |
+| temperature | `inner = FluxBoundaryCondition(1.0)`, `outer = ValueBoundaryCondition(0.0)` |
+| composition | `inner = FluxBoundaryCondition(0.0)`, `outer = ValueBoundaryCondition(0.0)` |
+| magnetic | insulating (`magnetic_inner_bc = :insulating`) |
+
+---
+
 ## Velocity Boundary Conditions
 
 Velocity fields use toroidal-poloidal decomposition: **u** = ∇×(T**r**) + ∇×∇×(P**r**)
@@ -56,7 +117,7 @@ model = GeodynamoModel(
     grid;
     velocity_bcs = BoundaryConditions(inner = NoSlip(), outer = NoSlip()),
 )
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 ---
@@ -119,7 +180,7 @@ For simulations with a solid, electrically conducting inner core:
 
     **Scope (current implementation):** equal conductivity `σ_ic = σ_oc`; inner core
     co-rotating with the frame (no differential rotation / advection); `CNAB2`
-    timestepper only (conducting + `EAB2` raises an error). Variable
+    timestepper only (conducting + `ExponentialAdamsBashforth2` raises an error). Variable
     `inner_core_conductivity_ratio` and inner-core rotation are not yet wired into
     the magnetic solve. Design + scope rationale:
     `docs/superpowers/specs/2026-05-26-conducting-inner-core-design.md`.
@@ -189,16 +250,18 @@ l>0 modes (variations): Neumann at both boundaries
 
 ```julia
 # Fixed temperature boundaries
-enforce_temperature_boundary_constraints!(temp_field, Dict(
-    :inner => :dirichlet, :inner_value => 1.0,
-    :outer => :dirichlet, :outer_value => 0.0
-))
+temperature_bcs = BoundaryConditions(
+    inner = FixedTemperature(1.0),
+    outer = FixedTemperature(0.0),
+)
 
-# Heat flux boundaries (l=0 Dirichlet applied automatically)
-enforce_temperature_boundary_constraints!(temp_field, Dict(
-    :inner => :flux, :inner_flux => 0.1,
-    :outer => :flux, :outer_flux => 0.0
-))
+# Heat flux boundaries
+temperature_bcs = BoundaryConditions(
+    inner = FixedFlux(0.1),
+    outer = FixedFlux(0.0),
+)
+
+model = GeodynamoModel(grid; temperature_bcs)
 ```
 
 ---
@@ -228,10 +291,12 @@ Same as temperature: when both boundaries have flux conditions, the l=0 mode use
 
 ```julia
 # Fixed composition at ICB, zero flux at CMB
-enforce_composition_boundary_constraints!(comp_field, Dict(
-    :inner => :dirichlet, :inner_value => 1.0,
-    :outer => :flux, :outer_flux => 0.0
-))
+composition_bcs = BoundaryConditions(
+    inner = FixedTemperature(1.0),
+    outer = FixedFlux(0.0),
+)
+
+model = GeodynamoModel(grid; include_composition = true, composition_bcs)
 ```
 
 ---
@@ -263,31 +328,32 @@ model = GeodynamoModel(
     temperature_bcs = BoundaryConditions(inner = FixedTemperature(1.0), outer = FixedFlux(0.0)),
     composition_bcs = BoundaryConditions(inner = FixedTemperature(0.0), outer = FixedFlux(0.0)),
 )
-simulation = Simulation(model; dt = 1e-5, stop_time = 0.02)
+simulation = Simulation(model; Δt = 1e-5, stop_time = 0.02)
 ```
 
 ### Programmatic API
 
 ```julia
-# Velocity
-enforce_velocity_boundary_constraints!(𝒰, :no_slip)
-enforce_velocity_boundary_constraints!(𝒰, :stress_free)
+# Per-field keyword form
+model = GeodynamoModel(grid;
+    velocity_bcs = BoundaryConditions(inner = NoSlip(), outer = StressFree()),
+    temperature_bcs = BoundaryConditions(inner = FixedTemperature(1.0),
+                                         outer = FixedFlux(0.0)),
+    composition_bcs = BoundaryConditions(inner = FixedFlux(0.01),
+                                         outer = FixedTemperature(0.0)),
+    magnetic_inner_bc = :insulating,
+)
 
-# Magnetic
-enforce_magnetic_boundary_constraints!(ℬ, :insulating)
-enforce_magnetic_boundary_constraints!(ℬ, :conducting_inner_core)
-
-# Temperature
-enforce_temperature_boundary_constraints!(𝒯, Dict(
-    :inner => :dirichlet, :inner_value => 1.0,
-    :outer => :neumann, :outer_flux => 0.0
-))
-
-# Composition
-enforce_composition_boundary_constraints!(𝔽, Dict(
-    :inner => :flux, :inner_flux => 0.01,
-    :outer => :dirichlet, :outer_value => 0.0
-))
+# Oceananigans-style NamedTuple form
+model = GeodynamoModel(grid;
+    boundary_conditions = (
+        velocity = FieldBoundaryConditions(inner = NoSlip(), outer = NoSlip()),
+        temperature = FieldBoundaryConditions(inner = ValueBoundaryCondition(1.0),
+                                              outer = FluxBoundaryCondition(0.0)),
+    ),
+    magnetic_inner_bc = :conducting_inner_core,
+    include_magnetic = true,
+)
 ```
 
 ---

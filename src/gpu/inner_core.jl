@@ -8,7 +8,7 @@
 # flux]. The per-degree InnerCoreAdmittance operators are packed into batched
 # arrays; non-stored degrees (incl l=0) get a ZERO L and an IDENTITY LU so the
 # batched pass over empty modes is a safe no-op (no divide-by-zero in the solve).
-# Runs on Array + CuArray. (Per-call scratch — Phase-6 may cache.)
+# Runs on Array + CuArray. (Scratch is pooled via GPUWorkspace when `ws` is supplied.)
 # =============================================================================
 
 """
@@ -74,8 +74,8 @@ end
 
 # CNAB2 history assembly b = inv_dt·S_old + weight·(L·S_old), written into `b_*`.
 # Mirrors _ic_build_bic (inner_core.jl:149-157): same op order, same scalars.
-function _gpu_ic_build_bic!(b_r, b_i, S_old_r, S_old_i, ic)
-    Lx_r = similar(S_old_r); Lx_i = similar(S_old_i)     # Phase-6: workspace
+function _gpu_ic_build_bic!(b_r, b_i, S_old_r, S_old_i, ic; ws = nothing)
+    Lx_r = gpu_scratch!(ws, :ic_Lxr, S_old_r); Lx_i = gpu_scratch!(ws, :ic_Lxi, S_old_i)     # Phase-6: workspace
     gpu_batched_banded_matvec_perl!(Lx_r, S_old_r, ic.lin_ic, ic.bw)
     gpu_batched_banded_matvec_perl!(Lx_i, S_old_i, ic.lin_ic, ic.bw)
     b_r .= ic.inv_dt .* S_old_r .+ ic.weight .* Lx_r
@@ -93,11 +93,11 @@ rows (`b[1]=b[Nic]=0`).  `S_old_*` are dense `(nl,nm,Nic)` inner-core spectra;
 Mirrors `inner_core_history_flux` (inner_core.jl:168-175).  All arrays on the
 same backend.
 """
-function gpu_inner_core_history_flux!(φ0_r, φ0_i, S_old_r, S_old_i, ic)
+function gpu_inner_core_history_flux!(φ0_r, φ0_i, S_old_r, S_old_i, ic; ws = nothing)
     nl, nm, _ = size(S_old_r)
-    y_r = similar(S_old_r); y_i = similar(S_old_i)       # Phase-6: workspace
-    _gpu_ic_build_bic!(y_r, y_i, S_old_r, S_old_i, ic)
-    z = similar(φ0_r, nl, nm); fill!(z, zero(eltype(φ0_r)))   # zero BC rows (inner=outer=0)
+    y_r = gpu_scratch!(ws, :ic_yr, S_old_r); y_i = gpu_scratch!(ws, :ic_yi, S_old_i)       # Phase-6: workspace
+    _gpu_ic_build_bic!(y_r, y_i, S_old_r, S_old_i, ic; ws)
+    z = gpu_scratch!(ws, :ic_z, φ0_r, (nl, nm)); fill!(z, zero(eltype(φ0_r)))   # zero BC rows (inner=outer=0)
     gpu_implicit_solve_field!(y_r, y_i, ic.lu_ic, z, z, z, z, ic.bw)
     backend = KernelAbstractions.get_backend(φ0_r)
     if backend isa KernelAbstractions.CPU
@@ -123,10 +123,10 @@ Per-mode conducting-inner-core reconstruction: solve `M_ic S = b` with
 `reconstruct_inner_core` (inner_core.jl:185-192).  `S_new_*` may not alias
 `S_old_*`.  All arrays on the same backend.
 """
-function gpu_reconstruct_inner_core!(S_new_r, S_new_i, S_old_r, S_old_i, g_r, g_i, ic)
+function gpu_reconstruct_inner_core!(S_new_r, S_new_i, S_old_r, S_old_i, g_r, g_i, ic; ws = nothing)
     nl, nm, _ = size(S_old_r)
-    _gpu_ic_build_bic!(S_new_r, S_new_i, S_old_r, S_old_i, ic)   # b into S_new
-    z = similar(g_r); fill!(z, zero(eltype(g_r)))                # inner BC = 0
+    _gpu_ic_build_bic!(S_new_r, S_new_i, S_old_r, S_old_i, ic; ws)   # b into S_new
+    z = gpu_scratch!(ws, :ic_rz, g_r); fill!(z, zero(eltype(g_r)))      # inner BC = 0
     gpu_implicit_solve_field!(S_new_r, S_new_i, ic.lu_ic, z, z, g_r, g_i, ic.bw)  # outer BC = g
     return nothing
 end

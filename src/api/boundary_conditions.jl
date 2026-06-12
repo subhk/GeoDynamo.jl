@@ -8,19 +8,20 @@ struct StressFree <: AbstractVelocityBC end
 Base.show(io::IO, ::NoSlip) = print(io, "NoSlip()")
 Base.show(io::IO, ::StressFree) = print(io, "StressFree()")
 
-# Thermal / composition BCs
-struct FixedTemperature{T} <: AbstractThermalBC
-    ;
+# Thermal / composition BCs — Oceananigans-canonical names; the original
+# GeoDynamo names remain as const aliases so existing code keeps working.
+struct ValueBoundaryCondition{T} <: AbstractThermalBC   # Dirichlet
     value::T
 end
-struct FixedFlux{T} <: AbstractThermalBC
-    ;
+struct FluxBoundaryCondition{T} <: AbstractThermalBC    # Neumann/flux
     value::T
 end
-FixedTemperature() = FixedTemperature(0.0)
-FixedFlux() = FixedFlux(0.0)
-Base.show(io::IO, bc::FixedTemperature) = print(io, "FixedTemperature($(bc.value))")
-Base.show(io::IO, bc::FixedFlux) = print(io, "FixedFlux($(bc.value))")
+ValueBoundaryCondition() = ValueBoundaryCondition(0.0)
+FluxBoundaryCondition() = FluxBoundaryCondition(0.0)
+const FixedTemperature = ValueBoundaryCondition
+const FixedFlux = FluxBoundaryCondition
+Base.show(io::IO, bc::ValueBoundaryCondition) = print(io, "ValueBoundaryCondition($(bc.value))")
+Base.show(io::IO, bc::FluxBoundaryCondition) = print(io, "FluxBoundaryCondition($(bc.value))")
 
 # Magnetic BCs
 struct InsulatingMagnetic <: AbstractMagneticBC end
@@ -28,14 +29,16 @@ struct ConductingMagnetic <: AbstractMagneticBC end
 Base.show(io::IO, ::InsulatingMagnetic) = print(io, "InsulatingMagnetic()")
 Base.show(io::IO, ::ConductingMagnetic) = print(io, "ConductingMagnetic()")
 
-# Per-field wrapper holding an inner and outer BC
-struct BoundaryConditions{I, O}
+# Per-field wrapper holding an inner and outer BC (Oceananigans-canonical name;
+# spherical inner/outer stands in for Oceananigans' bottom/top).
+struct FieldBoundaryConditions{I, O}
     inner::I
     outer::O
 end
-BoundaryConditions(; inner, outer) = BoundaryConditions(inner, outer)
-function Base.show(io::IO, bc::BoundaryConditions)
-    print(io, "BoundaryConditions(inner = $(bc.inner), outer = $(bc.outer))")
+FieldBoundaryConditions(; inner, outer) = FieldBoundaryConditions(inner, outer)
+const BoundaryConditions = FieldBoundaryConditions
+function Base.show(io::IO, bc::FieldBoundaryConditions)
+    print(io, "FieldBoundaryConditions(inner = $(bc.inner), outer = $(bc.outer))")
 end
 
 Base.:(==)(::NoSlip, ::NoSlip) = true

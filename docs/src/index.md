@@ -33,7 +33,7 @@ grid = SphericalShellGrid(
     nlon=128,
 )
 model = GeodynamoModel(grid; Ek=1e-4, Ra=1e6, include_magnetic=true)
-simulation = Simulation(model; dt=1e-5, stop_time=0.1)
+simulation = Simulation(model; Δt=1e-5, stop_time=0.1)
 run!(simulation)
 ```
 
@@ -48,7 +48,7 @@ run!(simulation)
     SHTnsKit for fast spherical harmonics + pencil-decomposed finite differences for radial terms.
 
 !!! success "Multiple Time Integrators"
-    CNAB2 IMEX, exponential AB2 (EAB2), and exponential RK2 (ERK2) with Krylov-based operators.
+    CNAB2 IMEX, exponential AB2 (ExponentialAdamsBashforth2), and exponential RK2 (ExponentialRungeKutta2) with Krylov-based operators.
 
 !!! success "Scalable MPI I/O"
     Per-rank checkpoint/output with selectable precision (Float32/Float64) and NetCDF metadata.
@@ -81,7 +81,7 @@ run!(simulation)
 │                               │                                         │
 │                               ▼                                         │
 │   ┌─────────────────────────────────────────────────────────┐          │
-│   │              Time Integration (CNAB2/EAB2/ERK2)          │          │
+│   │              Time Integration (CNAB2/ExponentialAdamsBashforth2/ExponentialRungeKutta2)          │          │
 │   └─────────────────────────────────────────────────────────┘          │
 │                               │                                         │
 │                               ▼                                         │
@@ -102,14 +102,15 @@ run!(simulation)
 |:-------|:------------|
 | `fields/containers.jl` | PencilArray-backed spectral and physical fields |
 | `core/parameters.jl` | Parameter loading, validation, and runtime state |
-| `parallel/mpi.jl`, `parallel/pencils.jl`, `parallel/transposes.jl` | MPI and PencilArrays domain decomposition |
+| `parallel/mpi.jl`, `parallel/process_grid.jl`, `parallel/pencils.jl` | MPI setup, explicit r×θ process grids, and PencilArrays topology |
+| `parallel/disttranspose_adapter.jl`, `parallel/transposes.jl` | r↔mode redistribution and pencil transpose helpers |
 | `numerics/banded_operators.jl` | Banded matrix operations for radial derivatives |
 
 ### SHTnsKit Integration
 
 | Module | Description |
 |:-------|:------------|
-| `transforms/spectral.jl` | Grid setup, FFT plans, transpose operators |
+| `transforms/spectral.jl` | SHTnsKit config, FFT plans, transform pencils, and θ/r subcommunicators |
 | `fields/transforms.jl` | Transforms, energy spectra, rotations |
 
 ### Physics
@@ -161,48 +162,42 @@ GeoDynamo.jl builds on a robust stack of Julia packages:
 
 ## Governing Equations
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                                                                     │
-│   ∂u/∂t  =  viscous diffusion  +  buoyancy  +  Lorentz force       │
-│                     ↓                 ↓              ↓              │
-│                   E∇²u            Ra·T·r̂        (∇×B)×B            │
-│                                                                     │
-│   ∂T/∂t  =  thermal diffusion  -  advection                        │
-│                     ↓                  ↓                            │
-│                (Pm/Pr)∇²T            u·∇T                           │
-│                                                                     │
-│   ∂B/∂t  =  magnetic diffusion  +  induction                       │
-│                     ↓                  ↓                            │
-│                   ∇²B              ∇×(u×B)                          │
-│                                                                     │
-│   Constraints:      ∇·u = 0           ∇·B = 0                      │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-The solver advances the nondimensional Boussinesq MHD system from *Sreenivasan & Kar, Phys. Rev. Fluids* **3**, 093801 (2018).
+The solver advances the nondimensional Boussinesq MHD system from
+*Sreenivasan & Kar, Phys. Rev. Fluids* **3**, 093801 (2018), using
+magnetic-diffusion time units. In the implementation, the velocity equation
+keeps `E == Ek` as the mass coefficient on the time derivative.
 
 ### Momentum
 
 ```math
-\frac{E}{\mathrm{Pm}}\frac{\partial \boldsymbol{u}}{\partial t}
-  + (\nabla \times \boldsymbol{u}) \times \boldsymbol{u}
-  + \hat{\boldsymbol{z}} \times \boldsymbol{u}
-  = -\nabla p^\star
-     + \frac{\mathrm{Pm}}{\mathrm{Pr}}\,\mathrm{Ra}\,T\,\boldsymbol{r}
-     + (\nabla \times \boldsymbol{B}) \times \boldsymbol{B}
-     + E \nabla^2 \boldsymbol{u}
+E\frac{\partial \boldsymbol{u}}{\partial t}
+  = E\nabla^2 \boldsymbol{u}
+    + \boldsymbol{N}_u(\boldsymbol{u}, \boldsymbol{B}, T, C)
+```
+
+```math
+\boldsymbol{N}_u =
+E(\boldsymbol{u}\times\boldsymbol{\omega})
+-\hat{\boldsymbol{z}}\times\boldsymbol{u}
++\frac{\mathrm{Pm}}{\mathrm{Pr}}\mathrm{Ra}\,rT\,\hat{\boldsymbol{r}}
++\frac{\mathrm{Pm}}{\mathrm{Sc}}\mathrm{Ra}_C\,rC\,\hat{\boldsymbol{r}}
++\frac{1}{\mathrm{Pm}}(\nabla\times\boldsymbol{B})\times\boldsymbol{B}
 ```
 
 ### Temperature & Magnetic Field
 
 ```math
-\frac{\partial T}{\partial t} + \boldsymbol{u} \cdot \nabla T = \frac{\mathrm{Pm}}{\mathrm{Pr}} \nabla^2 T
+\frac{\partial T}{\partial t}
+= \frac{\mathrm{Pm}}{\mathrm{Pr}} \nabla^2 T
++ N_T(\boldsymbol{u}, T),
+\qquad
+N_T = -\boldsymbol{u}\cdot\nabla T + Q_T
 ```
 
 ```math
-\frac{\partial \boldsymbol{B}}{\partial t} = \nabla \times (\boldsymbol{u} \times \boldsymbol{B}) + \nabla^2 \boldsymbol{B}
+\frac{\partial \boldsymbol{B}}{\partial t}
+= \nabla^2 \boldsymbol{B}
++ \nabla \times (\boldsymbol{u} \times \boldsymbol{B})
 ```
 
 ### Constraints
@@ -223,7 +218,7 @@ The solver advances the nondimensional Boussinesq MHD system from *Sreenivasan &
 | **[Getting Started](getting-started.md)** | Installation and first simulation |
 | **[Configuration](configuration.md)** | All parameter options explained |
 | **[Boundary Conditions](boundary-conditions.md)** | Velocity, magnetic, thermal, and compositional BCs |
-| **[Time Integration](timestepping.md)** | CNAB2, EAB2, ERK2 schemes |
+| **[Time Integration](timestepping.md)** | CNAB2, ExponentialAdamsBashforth2, ExponentialRungeKutta2 schemes |
 | **[Spherical Harmonics](shtnskit.md)** | SHTnsKit transforms and operators |
 | **[Boundary Topography](topography.md)** | Non-spherical boundary coupling |
 | **[Data Output](io.md)** | NetCDF files, restarts, diagnostics |

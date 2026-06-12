@@ -23,6 +23,55 @@ _vector_synth_sphtor(cfg_sht, S::AbstractMatrix, T::AbstractMatrix) =
 _vector_anal_sphtor(cfg_sht, vt::AbstractMatrix, vp::AbstractMatrix) =
     SHTnsKit.analysis_sphtor(cfg_sht, vt, vp)
 
+# ── In-place per-level transforms (Array backend) ───────────────────────────
+# The host (Array) path routes through a pooled SHTPlan → allocation-free and
+# numerically equivalent to the functional calls (sub-ulp: different FP
+# association inside SHTnsKit, ~1e-15 over a few steps). Device arrays fall back to
+# the functional SHTnsKit gpu path (no in-place GPU API; the CUDA pool manages
+# those allocations). With no workspace the functional path is used as well —
+# building an SHTPlan per call would cost more than it saves.
+
+_get_sht_plan!(ws::GPUWorkspace, sht) =
+    get!(() -> SHTnsKit.SHTPlan(sht), ws.pool, :sht_plan)
+
+function _scalar_synth_into!(out, ws, sht, alm)
+    if ws isa GPUWorkspace && out isa Matrix
+        SHTnsKit.synthesis!(_get_sht_plan!(ws, sht), out, alm)
+    else
+        out .= _scalar_synth(sht, alm)
+    end
+    return out
+end
+
+function _scalar_anal_into!(alm_out, ws, sht, f)
+    if ws isa GPUWorkspace && f isa Matrix
+        SHTnsKit.analysis!(_get_sht_plan!(ws, sht), alm_out, f)
+    else
+        alm_out .= _scalar_anal(sht, f)
+    end
+    return alm_out
+end
+
+function _vector_synth_sphtor_into!(vt, vp, ws, sht, S, T)
+    if ws isa GPUWorkspace && vt isa Matrix
+        SHTnsKit.synthesis_sphtor!(_get_sht_plan!(ws, sht), vt, vp, S, T)
+    else
+        vt2, vp2 = _vector_synth_sphtor(sht, S, T)
+        vt .= vt2; vp .= vp2
+    end
+    return vt, vp
+end
+
+function _vector_anal_sphtor_into!(S, T, ws, sht, vt, vp)
+    if ws isa GPUWorkspace && vt isa Matrix
+        SHTnsKit.analysis_sphtor!(_get_sht_plan!(ws, sht), S, T, vt, vp)
+    else
+        S2, T2 = _vector_anal_sphtor(sht, vt, vp)
+        S .= S2; T .= T2
+    end
+    return S, T
+end
+
 """
     gpu_vr_scale!(vr_alm_r, vr_alm_i, pol_r, pol_i, lfac, rscale) -> nothing
 
@@ -110,12 +159,18 @@ function gpu_vector_physical_to_spectral!(tor::GPUSpectralField, pol::GPUSpectra
         vr = nothing, lfac = nothing, r2 = nothing, raw_spheroidal::Bool = false)
     sht = config.sht_config
     nr = pol.nr
+    nlat, nlon = size(vθ.data, 1), size(vθ.data, 2)
+    # Pooled per-level staging copies (concrete dense arrays — a @view SubArray
+    # would miss the ::CuArray sphtor method and silently run on CPU, see Phase 1).
+    vt_k = gpu_scratch!(ws, Symbol(tag, :_vt), vθ.data, (nlat, nlon))
+    vp_k = gpu_scratch!(ws, Symbol(tag, :_vp), vφ.data, (nlat, nlon))
+    nl_, nm_ = size(pol.data_real, 1), size(pol.data_real, 2)
+    S_k = gpu_scratch_complex!(ws, Symbol(tag, :_So), pol.data_real, (nl_, nm_))
+    T_k = gpu_scratch_complex!(ws, Symbol(tag, :_To), pol.data_real, (nl_, nm_))
     for k in 1:nr
-        # Plain indexing (NOT @view): a @view SubArray would miss the ::CuArray
-        # sphtor method and silently run on CPU against device data (see Phase 1).
-        vt_k = vθ.data[:, :, k]
-        vp_k = vφ.data[:, :, k]
-        S_k, T_k = _vector_anal_sphtor(sht, vt_k, vp_k)
+        vt_k .= @view vθ.data[:, :, k]
+        vp_k .= @view vφ.data[:, :, k]
+        _vector_anal_sphtor_into!(S_k, T_k, ws, sht, vt_k, vp_k)
         pol.data_real[:, :, k] .= real.(S_k)
         pol.data_imag[:, :, k] .= imag.(S_k)
         tor.data_real[:, :, k] .= real.(T_k)
@@ -137,5 +192,22 @@ function gpu_vector_physical_to_spectral!(tor::GPUSpectralField, pol::GPUSpectra
     rr2 = reshape(r2, 1, 1, :)
     @. pol.data_real *= lf * rr2
     @. pol.data_imag *= lf * rr2
+    return nothing
+end
+
+"""
+    gpu_vector_physical_to_spectral!(tor, pol, vr, vθ, vφ, config, lfac, rinv2) -> nothing
+
+Analyze a solenoidal physical vector field under the Stage-2 convention.
+Toroidal coefficients come from raw tangential sphtor analysis; poloidal
+coefficients are recovered from radial scalar analysis,
+`P = Q / (l(l+1)/r²)`.
+"""
+function gpu_vector_physical_to_spectral!(tor::GPUSpectralField, pol::GPUSpectralField,
+        vr::GPUPhysicalField, vθ::GPUPhysicalField, vφ::GPUPhysicalField,
+        config, lfac, rinv2)
+    gpu_vector_physical_to_spectral!(tor, pol, vθ, vφ, config)
+    gpu_scalar_physical_to_spectral!(pol, vr, config)
+    gpu_poloidal_from_radial_q!(pol.data_real, pol.data_imag, lfac, rinv2)
     return nothing
 end

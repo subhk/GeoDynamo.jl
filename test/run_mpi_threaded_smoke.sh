@@ -21,7 +21,10 @@ set -euo pipefail
 : "${NTHREADS:=2}"
 : "${MPIEXEC_TIMEOUT:=180}"
 : "${GEODYNAMO_PROC_GRID:=${NRANKS}x1}"
-export MPIEXEC_TIMEOUT NRANKS NTHREADS GEODYNAMO_PROC_GRID
+# Pin BLAS to 1 thread per rank: NRANKS ranks × NTHREADS Julia threads already
+# fill the node; default multi-threaded BLAS oversubscribes cores.
+: "${OPENBLAS_NUM_THREADS:=1}"
+export MPIEXEC_TIMEOUT NRANKS NTHREADS GEODYNAMO_PROC_GRID OPENBLAS_NUM_THREADS
 
 cd "$(dirname "$0")/.."
 

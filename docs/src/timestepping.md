@@ -8,7 +8,7 @@ GeoDynamo.jl provides three production-grade implicit-explicit (IMEX) time-stepp
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
 │   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐              │
-│   │   CNAB2     │     │    EAB2     │     │    ERK2     │              │
+│   │   CNAB2     │     │    ExponentialAdamsBashforth2     │     │    ExponentialRungeKutta2     │              │
 │   │  ─────────  │     │  ─────────  │     │  ─────────  │              │
 │   │  Workhorse  │     │  Stiff OK   │     │  Accurate   │              │
 │   │  A-stable   │     │  L-stable   │     │  L-stable   │              │
@@ -26,30 +26,59 @@ GeoDynamo.jl provides three production-grade implicit-explicit (IMEX) time-stepp
     | Scenario | Scheme | Why |
     |:---------|:-------|:----|
     | **Production dynamo runs** | CNAB2 | Robust, well-tested, low cost |
-    | **Strong diffusion** (low E, Pm) | EAB2 | Exact linear integration, larger Δt |
-    | **Wave studies / benchmarks** | ERK2 | Best transient accuracy |
+    | **Strong diffusion** (low E, Pm) | ExponentialAdamsBashforth2 | Exact linear integration, larger Δt |
+    | **Wave studies / benchmarks** | ExponentialRungeKutta2 | Best transient accuracy |
     | **Development / debugging** | CNAB2 | Simplest to understand |
 
 ---
 
 ## Governing Equations
 
-The geodynamo equations contain both linear (diffusion) and nonlinear (advection, Lorentz force) terms:
+The geodynamo equations contain both linear diffusion terms, advanced
+implicitly, and explicit forcing terms such as advection, Coriolis, buoyancy,
+and Lorentz force. GeoDynamo.jl uses magnetic-diffusion time units, and the
+velocity update keeps the Ekman number `E == Ek` as the mass coefficient on
+the time derivative.
 
 **Velocity:**
 ```math
-\frac{\partial \mathbf{u}}{\partial t} = \underbrace{E \nabla^2 \mathbf{u}}_{\text{viscous diffusion}} + \underbrace{\mathbf{N}_u(\mathbf{u}, \mathbf{B}, T)}_{\text{nonlinear terms}}
+E \frac{\partial \mathbf{u}}{\partial t}
+= \underbrace{E \nabla^2 \mathbf{u}}_{\text{viscous diffusion}}
++ \underbrace{\mathbf{N}_u(\mathbf{u}, \mathbf{B}, T, C)}_{\text{explicit forcing}}
+```
+
+The explicit momentum forcing assembled by the code is
+```math
+\mathbf{N}_u =
+E(\mathbf{u}\times\boldsymbol{\omega})
+-\hat{\mathbf{z}}\times\mathbf{u}
++\frac{Pm}{Pr}Ra\,rT\,\hat{\mathbf{r}}
++\frac{Pm}{Sc}Ra_C\,rC\,\hat{\mathbf{r}}
++\frac{1}{Pm}(\nabla\times\mathbf{B})\times\mathbf{B},
+\qquad \boldsymbol{\omega}=\nabla\times\mathbf{u}.
 ```
 
 **Magnetic field:**
 ```math
-\frac{\partial \mathbf{B}}{\partial t} = \underbrace{\nabla^2 \mathbf{B}}_{\text{magnetic diffusion}} + \underbrace{\nabla \times (\mathbf{u} \times \mathbf{B})}_{\text{induction}}
+\frac{\partial \mathbf{B}}{\partial t}
+= \underbrace{\nabla^2 \mathbf{B}}_{\text{magnetic diffusion}}
++ \underbrace{\nabla \times (\mathbf{u} \times \mathbf{B})}_{\text{induction}}
 ```
 
 **Temperature:**
 ```math
-\frac{\partial T}{\partial t} = \underbrace{\frac{Pm}{Pr} \nabla^2 T}_{\text{thermal diffusion}} + \underbrace{N_T(\mathbf{u}, T)}_{\text{advection}}
+\frac{\partial T}{\partial t}
+= \underbrace{\frac{Pm}{Pr} \nabla^2 T}_{\text{thermal diffusion}}
++ \underbrace{N_T(\mathbf{u}, T)}_{\text{explicit scalar forcing}},
+\qquad
+N_T = -\mathbf{u}\cdot\nabla T + Q_T.
 ```
+
+`Q_T` is the optional internal-heating/source profile. The compositional field,
+when enabled, follows the same scalar form with diffusivity `Pm/Sc` and
+`N_C = -\mathbf{u}\cdot\nabla C`.
+The magnetic and compositional terms are omitted from the velocity forcing when
+those fields are disabled.
 
 !!! info "Stiffness"
     The **stiffness** comes from diffusion terms with eigenvalues scaling as `ℓ(ℓ+1)/r²` in spherical harmonics—potentially very large for high-degree modes.
@@ -80,17 +109,21 @@ Taking the toroidal and poloidal components of the momentum equation yields sepa
 
 **Toroidal velocity (𝒯):**
 ```math
-\frac{\partial \mathcal{T}}{\partial t} = E \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{T} + N_{\mathcal{T}}
+E\frac{\partial \mathcal{T}}{\partial t}
+= E \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{T}
++ N_{\mathcal{T}}
 ```
 
 **Poloidal velocity (𝒫):**
 ```math
-\frac{\partial \mathcal{P}}{\partial t} = E \left( \nabla^2 - \frac{\ell(\ell+1)}{r^2} \right) \mathcal{P} + N_{\mathcal{P}}
+E(\partial_t - D_{\ell})W = N_W,
+\qquad W = D_{\ell}\mathcal{P}
 ```
 
 where:
-- `E` is the Ekman number (viscous diffusion coefficient in magnetic time units)
+- `E` is the Ekman number and velocity mass coefficient in magnetic time units
 - `N_𝒯` and `N_𝒫` contain the nonlinear terms (Coriolis, advection, Lorentz force, buoyancy)
+- `W = D_ℓ𝒫` is the solver's poloidal split variable
 - The radial Laplacian operator in spectral space is:
 ```math
 \nabla^2_\ell = \frac{\partial^2}{\partial r^2} + \frac{2}{r}\frac{\partial}{\partial r} - \frac{\ell(\ell+1)}{r^2}
@@ -196,7 +229,7 @@ model = GeodynamoModel(grid; Ek=1e-5, Pr=1, Pm=2, Sc=1, Ra=1e7)
 
 simulation = Simulation(
     model;
-    dt=1e-5,
+    Δt=1e-5,
     timestepper=CNAB2(theta=0.5),
 )
 ```
@@ -212,7 +245,7 @@ simulation = Simulation(
 
 ---
 
-## EAB2: Exponential Adams–Bashforth 2
+## ExponentialAdamsBashforth2: Exponential Adams–Bashforth 2
 
 *Uses matrix exponentials to exactly integrate the stiff linear part.*
 
@@ -233,7 +266,7 @@ where:
 
 ### Implementation Strategy
 
-GeoDynamo now routes EAB2 through the solver-managed Krylov path internally.
+GeoDynamo now routes ExponentialAdamsBashforth2 through the solver-managed Krylov path internally.
 The old dense ETD cache builder and manual LU-cache entry points are retained
 only as deprecated compatibility wrappers; they are no longer the documented
 workflow.
@@ -251,8 +284,8 @@ model = GeodynamoModel(grid; Ek=1e-5, Pr=1, Pm=2, Sc=1, Ra=1e7)
 
 simulation = Simulation(
     model;
-    dt=1e-5,
-    timestepper=EAB2(krylov_dimension=20, tolerance=1e-8),
+    Δt=1e-5,
+    timestepper=ExponentialAdamsBashforth2(krylov_dimension=20, tolerance=1e-8),
 )
 ```
 
@@ -267,7 +300,7 @@ simulation = Simulation(
 
 ---
 
-## ERK2: Exponential Runge–Kutta 2
+## ExponentialRungeKutta2: Exponential Runge–Kutta 2
 
 *Two-stage exponential integrator for maximum accuracy.*
 
@@ -343,9 +376,9 @@ println("Max residual: $(stats.max_residual)")
 
 | Property | Value |
 |:---------|:------|
-| Order | 2nd (but more accurate than EAB2) |
+| Order | 2nd (but more accurate than ExponentialAdamsBashforth2) |
 | Stability | L-stable |
-| Memory | 2× EAB2 (half-step and full-step caches) |
+| Memory | 2× ExponentialAdamsBashforth2 (half-step and full-step caches) |
 | Cost | 2× nonlinear evaluations per step |
 
 ---
@@ -441,18 +474,18 @@ end
 | Scenario | Scheme | Rationale |
 |:---------|:-------|:----------|
 | Production dynamo | **CNAB2** | Robust, well-tested, moderate cost |
-| Strong diffusion (low E, Pm) | **EAB2** | Allows larger Δt, exact linear integration |
-| Wave studies | **ERK2** | Best transient accuracy |
+| Strong diffusion (low E, Pm) | **ExponentialAdamsBashforth2** | Allows larger Δt, exact linear integration |
+| Wave studies | **ExponentialRungeKutta2** | Best transient accuracy |
 | Initial development/debugging | **CNAB2** | Simplest to understand |
-| Benchmark comparisons | **ERK2** | Reference-quality accuracy |
+| Benchmark comparisons | **ExponentialRungeKutta2** | Reference-quality accuracy |
 
 ### Timestepper Guidelines
 
-| Option | CNAB2 | EAB2 | ERK2 |
+| Option | CNAB2 | ExponentialAdamsBashforth2 | ExponentialRungeKutta2 |
 |:-------|:------|:-----|:-----|
 | Damping | `CNAB2(theta=0.5)` | N/A | N/A |
-| Krylov dimension | N/A | `EAB2(krylov_dimension=20)` | N/A |
-| Krylov tolerance | N/A | `EAB2(tolerance=1e-8)` | N/A |
+| Krylov dimension | N/A | `ExponentialAdamsBashforth2(krylov_dimension=20)` | N/A |
+| Krylov tolerance | N/A | `ExponentialAdamsBashforth2(tolerance=1e-8)` | N/A |
 | `courant` | 0.5-0.9 | 0.5-0.9 | 0.3-0.5 |
 
 ### Startup Protocol
@@ -477,7 +510,7 @@ end
 
 | Action | Details |
 |:-------|:--------|
-| Reduce timestep | Recreate `Simulation(model; dt = old_dt / 2)` |
+| Reduce timestep | Recreate `Simulation(model; Δt = old_Δt / 2)` |
 | Check CFL | Enable `compute_cfl_timestep!` monitoring |
 | Increase damping | For CNAB2, try `CNAB2(theta = 0.6)` |
 | Check BCs | Ensure consistent boundary condition application |
@@ -494,24 +527,24 @@ end
 
 | Action | Details |
 |:-------|:--------|
-| Increase Krylov dimension | Use `EAB2(krylov_dimension = 30)` or higher |
-| Tighten tolerance | Use `EAB2(tolerance = 1e-10)` |
+| Increase Krylov dimension | Use `ExponentialAdamsBashforth2(krylov_dimension = 30)` or higher |
+| Tighten tolerance | Use `ExponentialAdamsBashforth2(tolerance = 1e-10)` |
 | Reduce timestep | For transient accuracy |
-| Use ERK2 | For critical accuracy requirements |
+| Use ExponentialRungeKutta2 | For critical accuracy requirements |
 
 ### Memory Issues
 
 | Action | Details |
 |:-------|:--------|
-| Use Krylov mode | Instead of dense matrices for EAB2/ERK2 |
-| Reduce Krylov dimension | Use `EAB2(krylov_dimension = 15)` if memory-limited |
+| Use Krylov mode | Instead of dense matrices for ExponentialAdamsBashforth2/ExponentialRungeKutta2 |
+| Reduce Krylov dimension | Use `ExponentialAdamsBashforth2(krylov_dimension = 15)` if memory-limited |
 | Check for leaks | In nonlinear term caching |
 
 ---
 
 ## Summary Comparison
 
-| Feature | CNAB2 | EAB2 | ERK2 |
+| Feature | CNAB2 | ExponentialAdamsBashforth2 | ExponentialRungeKutta2 |
 |:--------|:------|:-----|:-----|
 | **Order** | 2nd | 2nd (exact linear) | 2nd |
 | **Stability** | A-stable | L-stable | L-stable |

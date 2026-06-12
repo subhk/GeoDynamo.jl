@@ -46,9 +46,10 @@ per-l banded mat-vec of the linear operator (`lin_batched` `(2bw+1,nr,nl)`).
 same backend; outputs distinct from inputs.  (`pi_` is the previous-step imaginary
 nonlinear term — the trailing underscore avoids shadowing Julia's `pi` constant.)
 """
-function gpu_build_rhs_cnab2!(rr, ri, ur, ui, nr_, ni_, pr, pi_, lin_batched, inv_dt, linear_weight, bw::Int)
-    # Phase-5c-step: accept caller-owned scratch for Lur/Lui to avoid these per-call allocs.
-    Lur = similar(ur); Lui = similar(ui)
+function gpu_build_rhs_cnab2!(rr, ri, ur, ui, nr_, ni_, pr, pi_, lin_batched, inv_dt, linear_weight, bw::Int;
+        ws = nothing, tag::Symbol = :rhs)
+    Lur = gpu_scratch!(ws, Symbol(tag, :_Lr), ur)
+    Lui = gpu_scratch!(ws, Symbol(tag, :_Li), ui)
     gpu_batched_banded_matvec_perl!(Lur, ur, lin_batched, bw)
     gpu_batched_banded_matvec_perl!(Lui, ui, lin_batched, bw)
     T = eltype(rr)

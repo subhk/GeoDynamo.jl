@@ -3,12 +3,26 @@
 # Coriolis −ẑ×u), composing verified kernels: vector transform (3) → vorticity
 # curl (5a) → vector transform (3) → cross + Coriolis (2) → vector analyze (3).
 # Mirrors prepare_velocity_fields! + compute_velocity_body_forces! +
-# finish_velocity_nonlinear! (velocity/solver.jl:10-50, numerics.jl:1160-1247),
-# velocity-only part. Buoyancy (needs T) + Lorentz (needs J,B) accumulate before
-# the analyze — added in Phase 5i via optional keyword inputs. The force→(tor,pol)
-# projection is the plain vector analysis (tangential only, no scaling, adv_r
-# discarded — confirmed from finish_velocity_nonlinear!). Runs on Array + CuArray.
+# finish_velocity_nonlinear! (velocity/solver.jl), including the Stage-4B
+# momentum projection: raw tangential sphtor gives (S_F,T_F), scalar analysis of
+# the radial force gives Q_F, and nl_pol = ∂r(r*S_F) - Q_F.
 # =============================================================================
+
+function gpu_poloidal_force_projection!(nl_pol_r, nl_pol_i, q_r, q_i, d1, rinv, bw::Int;
+        ws = nothing, tag::Symbol = :pfp)
+    ri = reshape(rinv, 1, 1, :)
+    rS_r = gpu_scratch!(ws, Symbol(tag, :_rsr), nl_pol_r)
+    rS_i = gpu_scratch!(ws, Symbol(tag, :_rsi), nl_pol_i)
+    @. rS_r = nl_pol_r / ri
+    @. rS_i = nl_pol_i / ri
+    drS_r = gpu_scratch!(ws, Symbol(tag, :_dsr), nl_pol_r)
+    drS_i = gpu_scratch!(ws, Symbol(tag, :_dsi), nl_pol_i)
+    gpu_batched_banded_matvec!(drS_r, rS_r, d1, bw)
+    gpu_batched_banded_matvec!(drS_i, rS_i, d1, bw)
+    @. nl_pol_r = drS_r - q_r
+    @. nl_pol_i = drS_i - q_i
+    return nothing
+end
 
 """
     gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, tor_i, pol_r, pol_i,
@@ -22,8 +36,10 @@ Velocity nonlinear term: `nl = analyze( E·(u×ω) − ẑ×u [+ buoyancy + Lore
 
 `tor`/`pol` are the velocity toroidal/poloidal spectral coefficients; `nl_tor`/`nl_pol`
 receive the toroidal/poloidal nonlinear spectral output.  `d1`/`d2` are radial derivative
-operators, `lfac=l(l+1)`, `rinv=1/r`, `rinv2=1/r²`, `rscale` the v_r scaling,
-`sinθ`/`cosθ` the Coriolis grid factors, `E` the Ekman number.
+operators, `lfac=l(l+1)`, `rinv=1/r`, `rinv2=1/r²`, and `rscale` is a legacy
+operator-bundle field kept for interface compatibility. Stage-2 vector synthesis
+uses `rinv`/`rinv2` directly. `sinθ`/`cosθ` are the Coriolis grid factors, and
+`E` is the Ekman number.
 
 **Optional coupled forcing** (Phase 5i) accumulated between the Coriolis and the analyze,
 matching the CPU accumulation order `thermal → compositional → Lorentz`:
@@ -40,18 +56,20 @@ matching the CPU accumulation order `thermal → compositional → Lorentz`:
 With no keywords (the defaults), the function is exactly the Phase-5g velocity-only path.
 All arrays (including `r_vec`, `sinθ`, `cosθ`) must live on the same backend (Array or
 CuArray); mixing host and device arrays errors at broadcast time.
-(Per-call scratch — Phase-6 may cache.)
+(Scratch is pooled via GPUWorkspace when `ws` is supplied.)
 """
 function gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, tor_i, pol_r, pol_i,
         config, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, lmax::Int, bw::Int;
         T_phys = nothing, thermal_factor = zero(eltype(tor_r)), r_vec = nothing,
         C_phys = nothing, comp_factor = zero(eltype(tor_r)),
         J_r = nothing, J_θ = nothing, J_φ = nothing,
-        B_r = nothing, B_θ = nothing, B_φ = nothing, lorentz_coeff = zero(eltype(tor_r)))
+        B_r = nothing, B_θ = nothing, B_φ = nothing, lorentz_coeff = zero(eltype(tor_r)),
+        ws = nothing, tag::Symbol = :vnl)
     # lmax kept for interface symmetry with the other field orchestrators; the spectral
     # bounds are encoded in lfac/rinv/config, so it isn't forwarded to the sub-calls here.
     arch = arch_of(tor_r)
     sz = size(tor_r); nr = sz[3]
+    T = eltype(tor_r)
     spec(a, b) = GPUSpectralField{eltype(a), typeof(a)}(config, sz[1], sz[2], nr, a, b)
     ph() = allocate_gpu_physical_field(eltype(tor_r), arch, config, nr)
     curl_r = r_vec === nothing ? inv.(rinv) : r_vec
@@ -67,7 +85,7 @@ function gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, 
     gpu_vector_spectral_to_physical!(wr, wθ, wφ, spec(wtr, wti), spec(wpr, wpi), config,
         lfac, rscale, d1, rinv, bw)
     # 4. adv = E·(u×ω) − ẑ×u  (physical)
-    ar = ph(); aθ = ph(); aφ = ph()
+    ar = ph(:_ar); aθ = ph(:_at); aφ = ph(:_ap)
     gpu_cross!(ar.data, aθ.data, aφ.data, ur.data, uθ.data, uφ.data, wr.data, wθ.data, wφ.data, E)
     gpu_coriolis_sub!(ar.data, aθ.data, aφ.data, ur.data, uθ.data, uφ.data, sinθ, cosθ)
     # 4b. coupled forcing accumulated into adv (CPU order: thermal → compositional → Lorentz)

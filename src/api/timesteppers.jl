@@ -22,24 +22,57 @@ function CNAB2(;
 end
 
 """
-    EAB2(; krylov_dimension=20, tolerance=1e-8)
+    ExponentialAdamsBashforth2(; krylov_dimension=20, tolerance=1e-8)
 
 Exponential Adams-Bashforth second-order timestepper.
 """
-struct EAB2 <: AbstractTimestepper
+struct ExponentialAdamsBashforth2 <: AbstractTimestepper
     krylov_dimension::Int
     tolerance::Float64
 end
-function EAB2(; krylov_dimension::Int = 20, tolerance::Real = 1e-8)
-    EAB2(krylov_dimension, Float64(tolerance))
+function ExponentialAdamsBashforth2(;
+        krylov_dimension::Int = 20,
+        tolerance::Real = 1e-8
+)
+    ExponentialAdamsBashforth2(krylov_dimension, Float64(tolerance))
 end
+
+"""
+    EAB2(; krylov_dimension=20, tolerance=1e-8)
+
+Compatibility alias for [`ExponentialAdamsBashforth2`](@ref).
+"""
+const EAB2 = ExponentialAdamsBashforth2
+
+"""
+    ExponentialRungeKutta2()
+
+Explicit second-order Runge-Kutta timestepper.
+"""
+struct ExponentialRungeKutta2 <: AbstractTimestepper end
 
 """
     ERK2()
 
-Explicit second-order Runge-Kutta timestepper.
+Compatibility alias for [`ExponentialRungeKutta2`](@ref).
 """
-struct ERK2 <: AbstractTimestepper end
+const ERK2 = ExponentialRungeKutta2
+
+"""
+    RungeKutta3()
+
+Cavaglieri-Bewley/Williamson 2N-storage third-order IMEX Runge-Kutta
+timestepper. Nonlinear terms are advanced with the three-stage low-storage RK3
+recurrence, while diffusion is solved implicitly at each substage.
+"""
+struct RungeKutta3 <: AbstractTimestepper end
+
+"""
+    CB3()
+
+Compatibility alias for [`RungeKutta3`](@ref).
+"""
+const CB3 = RungeKutta3
 
 """
     ETD(; krylov_dimension=20, tolerance=1e-8)
@@ -65,26 +98,30 @@ end
 ThetaMethod(; theta::Real = 0.5) = ThetaMethod(Float64(theta))
 
 _timestepper_scheme(::CNAB2) = :cnab2
-_timestepper_scheme(::EAB2) = :eab2
-_timestepper_scheme(::ERK2) = :erk2
+_timestepper_scheme(::ExponentialAdamsBashforth2) = :eab2
+_timestepper_scheme(::ExponentialRungeKutta2) = :erk2
+_timestepper_scheme(::RungeKutta3) = :cb3
 _timestepper_scheme(::ETD) = :etd
 _timestepper_scheme(::ThetaMethod) = :theta
 _timestepper_scheme(scheme::Symbol) = scheme
 
 # Timestepper-derived settings come from the timestepper struct itself; the
-# generic fallbacks use the standard defaults (these match the EAB2/ETD struct
-# defaults and the CNAB2 theta default) for schemes that do not carry the
-# corresponding field. SolverParameters no longer stores these scalars.
+# generic fallbacks use the standard defaults (these match the
+# ExponentialAdamsBashforth2/ETD struct defaults and the CNAB2 theta default)
+# for schemes that do not carry the corresponding field. SolverParameters no
+# longer stores these scalars.
 _timestepper_implicit_theta(timestepper, params) = 0.5
 _timestepper_implicit_theta(timestepper::CNAB2, params) = timestepper.implicit_theta
 _timestepper_implicit_theta(timestepper::ThetaMethod, params) = timestepper.theta
 
 _timestepper_krylov_dimension(timestepper, params) = 20
-_timestepper_krylov_dimension(timestepper::EAB2, params) = timestepper.krylov_dimension
+_timestepper_krylov_dimension(
+    timestepper::ExponentialAdamsBashforth2, params) = timestepper.krylov_dimension
 _timestepper_krylov_dimension(timestepper::ETD, params) = timestepper.krylov_dimension
 
 _timestepper_krylov_tolerance(timestepper, params) = 1e-8
-_timestepper_krylov_tolerance(timestepper::EAB2, params) = timestepper.tolerance
+_timestepper_krylov_tolerance(
+    timestepper::ExponentialAdamsBashforth2, params) = timestepper.tolerance
 _timestepper_krylov_tolerance(timestepper::ETD, params) = timestepper.tolerance
 
 # Construct a timestepper struct from a scheme symbol and optional overrides.
@@ -98,10 +135,13 @@ function _timestepper_from_scheme(
     if scheme === :cnab2
         return CNAB2(theta = something(implicit_theta, 0.5))
     elseif scheme === :eab2
-        return EAB2(krylov_dimension = something(etd_krylov_dimension, 20),
+        return ExponentialAdamsBashforth2(
+            krylov_dimension = something(etd_krylov_dimension, 20),
             tolerance = something(krylov_tolerance, 1e-8))
     elseif scheme === :erk2
-        return ERK2()
+        return ExponentialRungeKutta2()
+    elseif scheme === :cb3
+        return RungeKutta3()
     elseif scheme === :etd
         return ETD(krylov_dimension = something(etd_krylov_dimension, 20),
             tolerance = something(krylov_tolerance, 1e-8))

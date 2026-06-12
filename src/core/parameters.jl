@@ -356,17 +356,24 @@ end
 const _SAFE_OPS = Set{Symbol}([:+, :-, :*, :/, :÷, :^, :div, :mod, :min, :max, :sqrt, :abs])
 const _SAFE_PARAMETER_CONSTRUCTORS = Dict{Symbol, Any}(
     :CNAB2 => CNAB2,
-    :EAB2 => EAB2,
-    :ERK2 => ERK2,
+    :ExponentialAdamsBashforth2 => ExponentialAdamsBashforth2,
+    :EAB2 => ExponentialAdamsBashforth2,
+    :ExponentialRungeKutta2 => ExponentialRungeKutta2,
+    :ERK2 => ExponentialRungeKutta2,
+    :RungeKutta3 => RungeKutta3,
+    :CB3 => RungeKutta3,
     :ETD => ETD,
     :ThetaMethod => ThetaMethod,
     :NoSlip => NoSlip,
     :StressFree => StressFree,
     :FixedTemperature => FixedTemperature,
     :FixedFlux => FixedFlux,
+    :ValueBoundaryCondition => ValueBoundaryCondition,
+    :FluxBoundaryCondition => FluxBoundaryCondition,
     :InsulatingMagnetic => InsulatingMagnetic,
     :ConductingMagnetic => ConductingMagnetic,
-    :BoundaryConditions => BoundaryConditions
+    :BoundaryConditions => BoundaryConditions,
+    :FieldBoundaryConditions => FieldBoundaryConditions
 )
 
 function safe_eval_expr(expr, param_dict::Dict{Symbol, Any})

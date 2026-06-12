@@ -125,6 +125,105 @@ function _build_influence_pack(st, nl::Int, nr::Int, ::Type{T}) where {T}
     return (; Gre_b, invG_b)
 end
 
+# Stage-4B poloidal W-split operators packed per degree (slot l+1), mirroring
+# PoloidalSplitMatrices (state.jl) for the batched GPU step:
+#   dpol/wlin: per-l banded operators (2bw+1, nr, nl)
+#   wlu/plu:   per-l banded LU factors (same layout, BandedLU.lu payload)
+#   h1/h2:     no-slip influence Green responses, (nl, nr) so a zero-copy
+#              reshape to (nl, 1, nr) broadcasts against (nl, nm) corrections
+#   M:         2×2 endpoint-influence matrices, (2, 2, nl)
+#   d1_inner/d1_outer: endpoint first-derivative residual rows (length nr)
+function _build_wsplit_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {T}
+    velocity_bc = _velocity_bc_code(st.parameters.velocity_bcs)
+    split = _get_or_build_poloidal_split!(st, velocity_bc)
+    split_bw = split.dpol_op[1].bandwidth
+    split_bw == bw || error(
+        "W-split bandwidth $split_bw ≠ velocity operator bandwidth $bw")
+    dpol = zeros(T, 2bw + 1, nr, nl); wlin = zeros(T, 2bw + 1, nr, nl)
+    wlu = zeros(T, 2bw + 1, nr, nl); plu = zeros(T, 2bw + 1, nr, nl)
+    h1 = zeros(T, nl, nr); h2 = zeros(T, nl, nr)
+    M = zeros(T, 2, 2, nl)
+    for (i, l) in enumerate(split.l_values)
+        s = l + 1
+        s <= nl || continue
+        dpol[:, :, s] .= split.dpol_op[i].data
+        wlin[:, :, s] .= split.w_linear[i].data
+        wlu[:, :, s] .= split.w_factor[i].lu
+        plu[:, :, s] .= split.p_factor[i].lu
+        h1[s, :] .= split.h1[i]
+        h2[s, :] .= split.h2[i]
+        M[:, :, s] .= split.influence[i]
+    end
+    return (; dpol, wlin, wlu, plu, h1, h2, M,
+        d1_inner = Vector{T}(split.d1_row_inner),
+        d1_outer = Vector{T}(split.d1_row_outer))
+end
+
+function _pack_wsplit(split, nl::Int, nr::Int, bw::Int, ::Type{T}) where {T}
+    split_bw = split.dpol_op[1].bandwidth
+    split_bw == bw || error(
+        "W-split bandwidth $split_bw ≠ velocity operator bandwidth $bw")
+    dpol = zeros(T, 2bw + 1, nr, nl); wlin = zeros(T, 2bw + 1, nr, nl)
+    wlu = zeros(T, 2bw + 1, nr, nl); plu = zeros(T, 2bw + 1, nr, nl)
+    h1 = zeros(T, nl, nr); h2 = zeros(T, nl, nr)
+    M = zeros(T, 2, 2, nl)
+    for (i, l) in enumerate(split.l_values)
+        s = l + 1
+        s <= nl || continue
+        dpol[:, :, s] .= split.dpol_op[i].data
+        wlin[:, :, s] .= split.w_linear[i].data
+        wlu[:, :, s] .= split.w_factor[i].lu
+        plu[:, :, s] .= split.p_factor[i].lu
+        h1[s, :] .= split.h1[i]
+        h2[s, :] .= split.h2[i]
+        M[:, :, s] .= split.influence[i]
+    end
+    return (; dpol, wlin, wlu, plu, h1, h2, M,
+        d1_inner = Vector{T}(split.d1_row_inner),
+        d1_outer = Vector{T}(split.d1_row_outer))
+end
+
+function _build_cb3_stage_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {T}
+    packs = Any[]
+    for gamma in CB3_GAMMA
+        matrices, magnetic_ic_admittance = _build_implicit_matrices_dict(
+            T,
+            st.backend.shtns_config,
+            st.backend.outer_core_domain,
+            st.backend.inner_core_domain,
+            st.parameters,
+            gamma * st.parameters.timestep;
+            theta = 1.0,
+        )
+        magnetic_ic_admittance === nothing || throw(ArgumentError(
+            "RungeKutta3 GPU path does not yet support magnetic_inner_bc=:conducting_inner_core"))
+        store = create_solver_implicit_matrix_store(matrices)
+        vtor_lin, vtor_lu, _ = _pack_implicit(store[:velocity_tor], nl, T)
+        mt_lin, mt_lu, _ = _pack_implicit(store[:magnetic_tor], nl, T)
+        mp_lin, mp_lu, _ = _pack_implicit(store[:magnetic_pol], nl, T)
+        tt_lin, tt_lu, _ = _pack_implicit(store[:temperature], nl, T)
+        cc = haskey(store, :composition) ? _pack_implicit(store[:composition], nl, T) : nothing
+        split = create_velocity_poloidal_split_matrices(
+            st.runtime.shtns_config,
+            st.runtime.outer_core_domain,
+            st.parameters.Ek,
+            gamma * st.parameters.timestep;
+            velocity_bc_code = _velocity_bc_code(st.parameters.velocity_bcs),
+            theta = 1.0,
+            T = T,
+        )
+        push!(packs, (;
+            velocity_tor_lu = vtor_lu,
+            magnetic_tor_lu = mt_lu,
+            magnetic_pol_lu = mp_lu,
+            temperature_lu = tt_lu,
+            composition_lu = cc === nothing ? nothing : cc[2],
+            wsplit = _pack_wsplit(split, nl, nr, bw, T),
+        ))
+    end
+    return Tuple(packs)
+end
+
 """
     build_gpu_solver_state(cpu_state) -> NamedTuple
 
@@ -221,6 +320,8 @@ function build_gpu_solver_state(st)
                   sbundle(cmp_, cmp_.spectral, cmp_.prev_nonlinear, :composition)
 
     influence = _build_influence_pack(st, nl, nr, T)
+    wsplit = _build_wsplit_pack(st, nl, nr, bw, T)
+    cb3 = st.parameters.timestepper isa RungeKutta3 ? _build_cb3_stage_pack(st, nl, nr, bw, T) : nothing
 
     # NOTE: d1/d2/lfac/rinv/rinv2/rscale/r/r2 are SHARED (same backing array)
     # across nlops_vel, nlops_mag, and the top-level d1/rinv/r_vec fields — safe
@@ -245,8 +346,10 @@ function build_gpu_solver_state(st)
         inv_dt_mag = T(1.0 / p.timestep),
         inv_dt_temp = T((p.Pm / p.Pr) / p.timestep),
         inv_dt_comp = T((p.Pm / p.Sc) / p.timestep),
+        cb3 = cb3,
         velocity = velocity, magnetic = magnetic,
         temperature = temperature, composition = composition,
+        work = GPUWorkspace(),
         T_phys = T_phys, C_phys = C_phys,
         B_r = Bp[1], B_θ = Bp[2], B_φ = Bp[3],
         J_r = Jp[1], J_θ = Jp[2], J_φ = Jp[3])
@@ -256,7 +359,11 @@ end
 # NamedTuples element-wise (preserving keys), everything else (scalars, config,
 # nothing, Symbols) passes through unchanged.
 function _to_device(x, arch)
-    if x isa AbstractArray
+    if x isa GPUWorkspace
+        # scratch pools are backend-specific; reset so buffers are recreated
+        # lazily on the destination backend
+        return GPUWorkspace()
+    elseif x isa AbstractArray
         return on_architecture(arch, x)
     elseif x isa NamedTuple
         return map(v -> _to_device(v, arch), x)
@@ -304,14 +411,27 @@ function dense_to_cpu_spectral!(field_spec, dense_r, dense_i, config, nr::Int)
     return field_spec
 end
 
+# Copy a (possibly device) dense physical array into a CPU physical field's storage.
+function _sync_phys!(field, src)
+    src === nothing && return field
+    parent(field.data) .= (src isa Array ? src : Array(src))
+    return field
+end
+
 """
     sync_gpu_state_to_cpu!(cpu_state, gpu_state) -> cpu_state
 
-Write the GPU device-state spectral fields back into the CPU `SolverState`'s
-slot-packed spectral storage (velocity tor/pol, temperature, and — when present —
-magnetic tor/pol, composition), so CPU-side diagnostics / output / restart see the
-GPU-evolved fields.  Spectral only (the field of record for IO); the `gpu_state`
-arrays may be host or device.
+Write the GPU device-state back into the CPU `SolverState` so CPU stepping /
+diagnostics / output / restart can continue from the GPU-evolved state.  Three
+categories are synced (the inverse of what [`build_gpu_solver_state`](@ref) reads):
+
+1. spectral fields (velocity tor/pol, temperature, and — when present — magnetic
+   tor/pol, composition), into the slot-packed CPU storage;
+2. the CNAB2 `prev_nl` histories of the same fields;
+3. the lagged physical buffers (`T_phys`/`C_phys`, `B_*`/`J_*`) into the CPU
+   physical fields they were built from.
+
+The `gpu_state` arrays may be host or device.
 """
 function sync_gpu_state_to_cpu!(st, gst)
     cfg = st.backend.shtns_config
@@ -319,13 +439,30 @@ function sync_gpu_state_to_cpu!(st, gst)
     vel = st.fields.velocity
     dense_to_cpu_spectral!(vel.toroidal, gst.velocity.tor.spec_r, gst.velocity.tor.spec_i, cfg, nr)
     dense_to_cpu_spectral!(vel.poloidal, gst.velocity.pol.spec_r, gst.velocity.pol.spec_i, cfg, nr)
-    dense_to_cpu_spectral!(st.fields.temperature.spectral, gst.temperature.spec_r, gst.temperature.spec_i, cfg, nr)
-    if st.fields.magnetic !== nothing && gst.magnetic !== nothing
-        dense_to_cpu_spectral!(st.fields.magnetic.toroidal, gst.magnetic.tor.spec_r, gst.magnetic.tor.spec_i, cfg, nr)
-        dense_to_cpu_spectral!(st.fields.magnetic.poloidal, gst.magnetic.pol.spec_r, gst.magnetic.pol.spec_i, cfg, nr)
+    dense_to_cpu_spectral!(vel.prev_nl_toroidal, gst.velocity.tor.prev_nl_r, gst.velocity.tor.prev_nl_i, cfg, nr)
+    dense_to_cpu_spectral!(vel.prev_nl_poloidal, gst.velocity.pol.prev_nl_r, gst.velocity.pol.prev_nl_i, cfg, nr)
+    tmp = st.fields.temperature
+    dense_to_cpu_spectral!(tmp.spectral, gst.temperature.spec_r, gst.temperature.spec_i, cfg, nr)
+    dense_to_cpu_spectral!(tmp.prev_nonlinear, gst.temperature.prev_nl_r, gst.temperature.prev_nl_i, cfg, nr)
+    _sync_phys!(tmp.temperature, gst.T_phys)
+    mag = st.fields.magnetic
+    if mag !== nothing && gst.magnetic !== nothing
+        dense_to_cpu_spectral!(mag.toroidal, gst.magnetic.tor.spec_r, gst.magnetic.tor.spec_i, cfg, nr)
+        dense_to_cpu_spectral!(mag.poloidal, gst.magnetic.pol.spec_r, gst.magnetic.pol.spec_i, cfg, nr)
+        dense_to_cpu_spectral!(mag.prev_nl_toroidal, gst.magnetic.tor.prev_nl_r, gst.magnetic.tor.prev_nl_i, cfg, nr)
+        dense_to_cpu_spectral!(mag.prev_nl_poloidal, gst.magnetic.pol.prev_nl_r, gst.magnetic.pol.prev_nl_i, cfg, nr)
+        _sync_phys!(mag.magnetic.r_component, gst.B_r)
+        _sync_phys!(mag.magnetic.θ_component, gst.B_θ)
+        _sync_phys!(mag.magnetic.φ_component, gst.B_φ)
+        _sync_phys!(mag.current.r_component, gst.J_r)
+        _sync_phys!(mag.current.θ_component, gst.J_θ)
+        _sync_phys!(mag.current.φ_component, gst.J_φ)
     end
-    if st.fields.composition !== nothing && gst.composition !== nothing
-        dense_to_cpu_spectral!(st.fields.composition.spectral, gst.composition.spec_r, gst.composition.spec_i, cfg, nr)
+    cmp_ = st.fields.composition
+    if cmp_ !== nothing && gst.composition !== nothing
+        dense_to_cpu_spectral!(cmp_.spectral, gst.composition.spec_r, gst.composition.spec_i, cfg, nr)
+        dense_to_cpu_spectral!(cmp_.prev_nonlinear, gst.composition.prev_nl_r, gst.composition.prev_nl_i, cfg, nr)
+        _sync_phys!(cmp_.composition, gst.C_phys)
     end
     return st
 end
