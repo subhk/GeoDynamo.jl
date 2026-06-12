@@ -228,7 +228,6 @@ Items 1–6 are CI tests; item 7 is a benchmark script + report.
 - **Concurrent sessions.** Repo receives commits/branch switches mid-work:
   scoped `git add` only, commit promptly, merge on diverge, never rebase.
 
-
 ## 11. Status (2026-06-12) — IMPLEMENTED + BENCHMARK-VALIDATED
 
 All plan tasks complete on `feat/ball-geometry-mhd` (base `0f103d0`, 14 commits
