@@ -281,6 +281,7 @@ function build_gpu_solver_state(st)
         inv_dt_comp = T((p.Pm / p.Sc) / p.timestep),
         velocity = velocity, magnetic = magnetic,
         temperature = temperature, composition = composition,
+        work = GPUWorkspace(),
         T_phys = T_phys, C_phys = C_phys,
         B_r = Bp[1], B_θ = Bp[2], B_φ = Bp[3],
         J_r = Jp[1], J_θ = Jp[2], J_φ = Jp[3])
@@ -290,7 +291,11 @@ end
 # NamedTuples element-wise (preserving keys), everything else (scalars, config,
 # nothing, Symbols) passes through unchanged.
 function _to_device(x, arch)
-    if x isa AbstractArray
+    if x isa GPUWorkspace
+        # scratch pools are backend-specific; reset so buffers are recreated
+        # lazily on the destination backend
+        return GPUWorkspace()
+    elseif x isa AbstractArray
         return on_architecture(arch, x)
     elseif x isa NamedTuple
         return map(v -> _to_device(v, arch), x)

@@ -23,6 +23,8 @@ mutable struct Simulation{M, C, O}
     _gpu_state::Any         # cached device-state bundle (built lazily)
     _gpu_erk2::Any          # cached ERK2 operator pack (ERK2 timestepper only)
     _gpu_dt::Float64        # dt baked into _gpu_state (rebuild on change)
+    _gpu_sync::Symbol       # :every (host state synced per step) or :output (lazy)
+    _gpu_dirty::Bool        # device state ahead of the host mirror
 end
 
 _to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol, Any}()
@@ -136,6 +138,7 @@ function Simulation(model::GeodynamoModel;
         callbacks = (),
         output_writers = (),
         gpu = :auto,
+        gpu_sync::Symbol = :every,
         restart_from::String = "")
     # Resolve the timestep: `Δt` is canonical (Oceananigans convention); `dt` is the ASCII alias.
     if dt !== nothing && Δt !== nothing
@@ -216,6 +219,8 @@ function Simulation(model::GeodynamoModel;
     output_writer_items = _to_ordered(output_writers, :writer)
 
     gpu_resolved = _resolve_gpu_stepping(gpu, model, timestep_options.timestepper)
+    gpu_sync in (:every, :output) || throw(ArgumentError(
+        "Simulation: gpu_sync must be :every or :output (got $gpu_sync)"))
 
     sync_clock!(model.clock, model.state)
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
@@ -227,7 +232,9 @@ function Simulation(model::GeodynamoModel;
         0.0,
         nothing,
         nothing,
-        0.0
+        0.0,
+        gpu_sync,
+        false
     )
 end
 
@@ -327,16 +334,52 @@ function _gpu_time_step!(sim::Simulation)
         sim._gpu_dt = sim.dt
         return sim
     end
-    if sim._gpu_erk2 === nothing
-        gpu_solver_step!(sim._gpu_state)
-    else
-        gpu_erk2_solver_step!(sim._gpu_state, sim._gpu_erk2)
-    end
-    sync_gpu_state_to_cpu!(state, sim._gpu_state)
+    _dispatch_gpu_step!(sim._gpu_state, sim._gpu_erk2)
     state.step += 1
     state.time += sim.dt
-    sync_clock!(model.clock, state)
+    sync_clock!(model.clock, state)        # counters are host-side — no device read
     model.clock.last_dt = sim.dt
+    if sim._gpu_sync === :every || _gpu_host_read_pending(sim)
+        sync_gpu_state_to_cpu!(state, sim._gpu_state)
+        sim._gpu_dirty = false
+    else
+        sim._gpu_dirty = true
+    end
+    return sim
+end
+
+# Under gpu_sync = :output the host mirror is refreshed only when something
+# will actually read it this iteration: any output writer, any callback other
+# than the three clock-only stop defaults, or the nan_checker's interval.
+# (Schedule state mutates on should_fire, so firing cannot be pre-queried —
+# this is a conservative over-approximation.)
+function _gpu_host_read_pending(sim::Simulation)
+    isempty(sim.output_writers) || return true
+    sim.model.clock.iteration % 100 == 0 && return true     # default nan_checker
+    for cb in values(sim.callbacks)
+        if !(cb isa Callback && (cb.func === stop_time_exceeded ||
+             cb.func === stop_iteration_exceeded ||
+             cb.func === wall_time_limit_exceeded ||
+             cb.func === nan_checker))
+            return true
+        end
+    end
+    return false
+end
+
+# Function barrier: sim._gpu_state/_gpu_erk2 are ::Any slots; dispatching
+# through typed arguments here lets the step orchestrators specialize on the
+# concrete bundle NamedTuple instead of running under dynamic dispatch.
+_dispatch_gpu_step!(state, ::Nothing) = gpu_solver_step!(state)
+_dispatch_gpu_step!(state, erk2) = gpu_erk2_solver_step!(state, erk2)
+
+# Bring the host SolverState up to date with the device bundle (no-op when
+# already synced or when not on the GPU path).
+function _gpu_sync_host!(sim::Simulation)
+    if sim.gpu && sim._gpu_dirty && sim._gpu_state !== nothing
+        sync_gpu_state_to_cpu!(sim.model.state, sim._gpu_state)
+        sim._gpu_dirty = false
+    end
     return sim
 end
 
@@ -366,6 +409,7 @@ function run!(sim::Simulation)
     while sim.running
         time_step!(sim)
     end
+    _gpu_sync_host!(sim)        # lazy gpu_sync = :output: final state to host
     return sim
 end
 
