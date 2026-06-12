@@ -19,7 +19,6 @@ using LinearAlgebra
 #   * solver_compute_phi2_function   — tiny-norm series branch + well-conditioned LU path
 #   * reset_solver_phi2_monitor!     — conditioning-monitor reset
 #   * report_solver_phi2_conditioning — periodic report (rank-0, resets the monitor)
-#   * solver_enforce_ball_vector_regularity! — zero l≥1 modes at the ball centre (r=1)
 #   * scalar_field_data_and_config   — scalar-field container dispatch (all 3 branches + error)
 #
 # QUALITY: every @test pins a KNOWN-CORRECT value — an analytic derivative, a dense
@@ -297,69 +296,6 @@ const _NE = GeoDynamo
         _NE.report_solver_phi2_conditioning(1000; interval = 100)
         @test m.series_expansion_count == 0      # reset happened
         @test m.last_report_step == 1000
-    end
-
-    # ---------------------------------------------------------------------
-    # solver_enforce_ball_vector_regularity!: at the ball centre (radial index 1)
-    # every spherical-harmonic mode with degree l ≥ 1 must be zeroed (regularity),
-    # while the l = 0 mode and all radial levels r ≥ 2 are left untouched.
-    # ---------------------------------------------------------------------
-    @testset "solver_enforce_ball_vector_regularity! zeros l≥1 at the centre" begin
-        lmax = 3
-        nr = 4
-        cfg = _NE.create_shtnskit_config(
-            lmax = lmax, mmax = lmax, nlat = 8, nlon = 8, nr = nr, optimize_decomp = false)
-        dom = _NE.create_radial_domain(nr)
-        pencil = cfg.pencils.spec
-        tor = _NE.create_shtns_spectral_field(Float64, cfg, dom, pencil)
-        pol = _NE.create_shtns_spectral_field(Float64, cfg, dom, pencil)
-
-        # Known distinct nonzero value at every (mode, radius).
-        val_r(lm, r) = 1.0 + lm + r
-        val_i(lm, r) = 2.0 + lm + r
-        for sf in (tor, pol)
-            sr = parent(sf.data_real)
-            si = parent(sf.data_imag)
-            for lm in _NE.local_spectral_mode_indices(cfg)
-                slot = _NE.local_spectral_storage_slot(cfg, lm)
-                slot === nothing && continue
-                for r in 1:nr
-                    _NE.set_local_spectral_value!(sr, slot, r, val_r(lm, r))
-                    _NE.set_local_spectral_value!(si, slot, r, val_i(lm, r))
-                end
-            end
-        end
-
-        t_out, p_out = _NE.solver_enforce_ball_vector_regularity!(tor, pol)
-        @test t_out === tor
-        @test p_out === pol
-
-        centre_l_ge1_max = 0.0
-        l0_centre_ok = true
-        deep_ok = true
-        for sf in (tor, pol)
-            sr = parent(sf.data_real)
-            si = parent(sf.data_imag)
-            for lm in _NE.local_spectral_mode_indices(cfg)
-                slot = _NE.local_spectral_storage_slot(cfg, lm)
-                slot === nothing && continue
-                l = cfg.l_values[lm]
-                c_r = _NE.local_spectral_value(sr, slot, 1)
-                c_i = _NE.local_spectral_value(si, slot, 1)
-                if l >= 1
-                    centre_l_ge1_max = max(centre_l_ge1_max, abs(c_r), abs(c_i))
-                else
-                    l0_centre_ok &= (c_r == val_r(lm, 1)) && (c_i == val_i(lm, 1))
-                end
-                for r in 2:nr
-                    deep_ok &= (_NE.local_spectral_value(sr, slot, r) == val_r(lm, r)) &&
-                               (_NE.local_spectral_value(si, slot, r) == val_i(lm, r))
-                end
-            end
-        end
-        @test centre_l_ge1_max == 0.0     # all l ≥ 1 centre modes zeroed
-        @test l0_centre_ok                 # l = 0 centre mode preserved
-        @test deep_ok                      # interior radial levels preserved
     end
 
     # ---------------------------------------------------------------------

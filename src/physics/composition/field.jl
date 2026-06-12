@@ -314,11 +314,8 @@ function compute_composition_nonlinear!(𝔽::SHTnsCompositionField{T},
     if ENABLE_TIMING[]
         t_transform = MPI.Wtime()
     end
-    if geometry === :ball
-        ball_physical_to_spectral!(𝔽.advection_physical, 𝔽.nonlinear)
-    else
-        shtnskit_physical_to_spectral!(𝔽.advection_physical, 𝔽.nonlinear)
-    end
+    # geometry-blind since the ball grid has no r=0 node (off-center grid)
+    shtnskit_physical_to_spectral!(𝔽.advection_physical, 𝔽.nonlinear)
     if ENABLE_TIMING[]
         𝔽.transform_time[] += MPI.Wtime() - t_transform
         𝔽.computation_time[] += MPI.Wtime() - t_start

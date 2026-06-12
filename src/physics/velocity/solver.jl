@@ -34,14 +34,8 @@ function accumulate_velocity_nonlinear_terms!(
     )
 end
 
-function finish_velocity_nonlinear!(velocity_fields; geometry::Symbol)
-    if geometry === :ball
-        return solver_ball_vector_analysis!(
-            velocity_fields.advection_physical,
-            velocity_fields.nl_toroidal,
-            velocity_fields.nl_poloidal
-        )
-    end
+function finish_velocity_nonlinear!(velocity_fields)
+    # geometry-blind: the ball grid has no r=0 node (off-center grid)
     # Stage-4B momentum projections. Toroidal: r̂·∇× of momentum gives
     # Ek(∂t − Δ_l)T = T_F — the raw toroidal sphtor scalar of the force is
     # exactly the RHS (structure unchanged). Poloidal: r̂·∇×∇× gives
@@ -148,7 +142,8 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{
             runtime.outer_core_domain,
             velocity_bc;
             config = runtime.shtns_config,
-            rot_omega = 0.0
+            rot_omega = 0.0,
+            inner_regularity = state.parameters.geometry === :ball
         )
         solver_eab2_update_krylov_cached!(
             velocity.toroidal,
@@ -256,6 +251,7 @@ function _get_or_build_poloidal_split!(state::SolverState{T, <:AbstractArchitect
         state.parameters.timestep;
         velocity_bc_code = velocity_bc,
         theta = _timestepper_implicit_theta(state.parameters.timestepper, state.parameters),
+        ball = state.parameters.geometry === :ball,
         T = T)
     caches.poloidal_split = split
     return split
@@ -310,13 +306,23 @@ function _apply_poloidal_wsplit_cnab2!(velocity, split::PoloidalSplitMatrices{T}
             end
             solve_banded!(Wp, split.w_factor[idx], rhs)
 
-            # Dirichlet P-recovery (P = 0 rows ⇒ zero those RHS entries)
+            # Inner residual: ball evaluates the W-regularity Robin row on the
+            # W solution (pre-zeroing); shell evaluates the inner wall row on P.
+            # rho1w is a short-lived temporary consumed by the rho1 selection
+            # below; ball must read Wp before the wall-zeroing that follows,
+            # while shell reads Pp post-recovery (hence the two-variable idiom).
+            rho1w = split.ball ?
+                    dot(split.d1_row_inner, Wp) -
+                    T((l + 1) * split.reg_r_inv) * Wp[1] : zero(T)
+
+            # Dirichlet P-recovery (P = 0 rows ⇒ zero those RHS entries;
+            # ball: row 1 is the regularity Robin with homogeneous RHS)
             Wp[1] = zero(T); Wp[nr] = zero(T)
             solve_banded!(Pp, split.p_factor[idx], Wp)
 
-            # No-slip influence correction: zero endpoint P′ via the cached
-            # Green responses.
-            rho1 = dot(split.d1_row_inner, Pp)
+            # Influence correction: zero the remaining endpoint residuals via
+            # the cached Green responses.
+            rho1 = split.ball ? rho1w : dot(split.d1_row_inner, Pp)
             rho2 = dot(split.d1_row_outer, Pp)
             M = split.influence[idx]
             det = M[1, 1] * M[2, 2] - M[1, 2] * M[2, 1]
@@ -386,6 +392,11 @@ end
 # P ← recover(V) with Dirichlet walls + φ1-column influence corrections.
 # `half` selects the stage (dt/2, phi1_half) vs finalize (dt, phi1_full)
 # Green responses. cache_lookup maps l → the cache's per-l index.
+# Ball: the output is P = Pt + Σaᵢhᵢ with hᵢ = p_factor⁻¹R(gᵢ), so the
+# implied recovery RHS is Wv + Σaᵢgᵢ. Row 1 enforces the W-regularity
+# Robin functional on that composed object: ρ₁ on Wv, M[1,i] on the RAW
+# gᵢ — no Ek factor (verified: residual on the corrected field is 0 to
+# machine precision; an invEk here leaves (1−Ek)·ρ₁ uncorrected).
 function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
         cache, cache_lookup, dt::Float64, Ek::Float64, half::Bool) where {T}
     cfg = velocity.poloidal.config
@@ -416,25 +427,45 @@ function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
             for r_idx in 1:nr
                 Wv[r_idx] = invEk * local_spectral_value(v_arr, slot, r_idx)
             end
+            # Ball: inner W-regularity residual, read off Wv BEFORE the
+            # wall-zeroing below consumes it.
+            rho1w = split.ball ?
+                    dot(split.d1_row_inner, Wv) -
+                    T((l + 1) * split.reg_r_inv) * Wv[1] : zero(T)
             Wv[1] = zero(T); Wv[nr] = zero(T)
             solve_banded!(Pt, split.p_factor[idx], Wv)
 
             # Green responses through the SAME recovery (R zeroes the walls).
+            # Ball: row 1 applies ρ to the RAW g columns (no Ek factor) —
+            # the same aᵢ multiplies both gᵢ (row 1) and hᵢ (output).
             phi = phis[cidx]
             for r_idx in 1:nr
                 g[r_idx] = c * phi[r_idx, 1]
             end
+            m11b = split.ball ?
+                   dot(split.d1_row_inner, g) -
+                   T((l + 1) * split.reg_r_inv) * g[1] : zero(T)
             g[1] = zero(T); g[nr] = zero(T)
             solve_banded!(h1, split.p_factor[idx], g)
             for r_idx in 1:nr
                 g[r_idx] = c * phi[r_idx, nr]
             end
+            m12b = split.ball ?
+                   dot(split.d1_row_inner, g) -
+                   T((l + 1) * split.reg_r_inv) * g[1] : zero(T)
             g[1] = zero(T); g[nr] = zero(T)
             solve_banded!(h2, split.p_factor[idx], g)
 
-            m11 = dot(split.d1_row_inner, h1); m12 = dot(split.d1_row_inner, h2)
+            if split.ball
+                m11 = m11b; m12 = m12b
+                r1 = rho1w
+            else
+                m11 = dot(split.d1_row_inner, h1)
+                m12 = dot(split.d1_row_inner, h2)
+                r1 = dot(split.d1_row_inner, Pt)
+            end
             m21 = dot(split.d1_row_outer, h1); m22 = dot(split.d1_row_outer, h2)
-            r1 = dot(split.d1_row_inner, Pt); r2 = dot(split.d1_row_outer, Pt)
+            r2 = dot(split.d1_row_outer, Pt)
             det = m11 * m22 - m12 * m21
             a1 = (-r1 * m22 + r2 * m12) / det
             a2 = (-r2 * m11 + r1 * m21) / det

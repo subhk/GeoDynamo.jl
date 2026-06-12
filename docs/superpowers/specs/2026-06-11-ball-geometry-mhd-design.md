@@ -227,3 +227,49 @@ Items 1–6 are CI tests; item 7 is a benchmark script + report.
   broken on every refactor here; repoint as part of each task.
 - **Concurrent sessions.** Repo receives commits/branch switches mid-work:
   scoped `git add` only, commit promptly, merge on diverge, never rebase.
+
+
+## 11. Status (2026-06-12) — IMPLEMENTED + BENCHMARK-VALIDATED
+
+All plan tasks complete on `feat/ball-geometry-mhd` (base `0f103d0`, 14 commits
+`8cc9d88..0fc3a79`). Full suite: 5575 pass / 0 fail / 28 broken (expected
+gates), exit 0.
+
+**Validation results:**
+- Spherical-Bessel decay anchors: scalar l=0/l=1 and toroidal (velocity +
+  magnetic) rates within ~1e-6 of π² / α₁² (rtol gate 5e-3).
+- **Insulating-row audit CONFIRMED the suspected one-off** (§5): old outer row
+  gave dipole free-decay σ = 10.4816 (6.2% off); corrected (∂r + l/r) gives
+  9.8696076 (3e-7 from π²). Fixed at FOUR sites: banded builder, ERK2 endpoint
+  descriptors, ERK2 dense cache, and `bcs/topography/magnetic_coupling.jl`
+  (a fourth site found in review). Shell magnetic insulating BCs carried this
+  one-off until now; docs updated.
+- W-split eigen probe: time-stepped ball CNAB2 decay vs independent dense
+  constrained eigenvalue, 0.64% (and σ_th matches the continuum transcendental
+  α·j₁(α) = 5·j₂(α) to 6e-7).
+- ERK2-vs-CNAB2 ball consistency: relΔ = 2.2e-4 over 20 coupled steps. An
+  invEk scale defect in the ERK2 mixed influence (prescribed by the plan,
+  caught in review) was fixed — the W-regularity residual on the corrected
+  field is now machine-zero, pinned by a contract testset.
+- Buoyancy-alive: before unification the ball poloidal response to thermal
+  forcing was EXACTLY 0.0 (dropped-Q defect); now nonzero and finite
+  (test/ball_solver_physics.jl).
+- **Marti et al. (2014) Benchmark 1 (hydro): PASS.** lmax=mmax=32, nr=48,
+  dt=1e-4, 25k steps (t=2.5): Ekin = 29.144623 vs published 29.1206 ± 1e-4
+  (0.082%, FD radial truncation at this resolution); drift f_d = 12.386545 vs
+  12.3862 ± 8e-4 — **inside the published uncertainty band**. Pure steady
+  m=3 drifting wave. Parameter mapping is the identity (verified term-for-term
+  against the paper's eq. 6/8) — no Christensen-style factor ambiguity.
+
+**Known limitations / follow-ups:**
+- Ball full-MHD with explicit Lorentz coupling is center-stiff: r₁ =
+  (1−cos(π/N))/2 makes 1/r₁ ≈ 36× the shell's at nr=16 ⇒ dt ~ 1e-7 for
+  stability there (shell: 1e-5; diagnosis cross-checked against shell control).
+  Production ball MHD wants semi-implicit Lorentz treatment or a
+  center-coarsened grid. The dynamo benchmark (Marti Benchmark 2) is deferred
+  accordingly.
+- EAB2/theta stays loud-gated (unchanged from shell).
+- Marti script diagnostics are single-rank (guarded, returns NaN multi-rank).
+- §7's "outer-only Green column" sentence was superseded by the mixed-2×2
+  design in §5 (both timesteppers use it).
+

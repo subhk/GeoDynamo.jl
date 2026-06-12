@@ -13,9 +13,9 @@
 #   Inner: BT = 0   (identity row in matrix)
 #   Outer: BT = 0   (identity row in matrix)
 #
-# Poloidal BCs (matching external potential field decay):
-#   Inner: (∂/∂r - l/r) BP = 0     (field matches r^l interior solution)
-#   Outer: (∂/∂r + (l+1)/r) BP = 0 (field matches r^{-(l+1)} exterior decay)
+# Poloidal BCs (matching vacuum potential fields under B_r = λP/r²):
+#   Inner: (∂/∂r - (l+1)/r) BP = 0 (interior vacuum: P ∝ r^{l+1})
+#   Outer: (∂/∂r + l/r) BP = 0     (exterior vacuum: P ∝ r^{-l})
 #
 # Note: The poloidal BCs are l-dependent, so the boundary rows differ per degree.
 #
@@ -32,8 +32,8 @@
 #
 #   3. Fill boundary rows with BC equations:
 #      - Toroidal: identity row → BT[boundary] = 0
-#      - Poloidal inner: (∂/∂r - l/r) row → decaying interior
-#      - Poloidal outer: (∂/∂r + (l+1)/r) row → decaying exterior
+#      - Poloidal inner: (∂/∂r - (l+1)/r) row → regular interior vacuum
+#      - Poloidal outer: (∂/∂r + l/r) row → decaying exterior vacuum
 #
 #   4. LU factorize the modified matrix
 #
@@ -46,12 +46,15 @@
 
 """
     create_magnetic_toroidal_matrices(config, domain, diffusivity, dt;
-                                      theta, T)
+                                      theta, T, inner_alpha, inner_regularity)
 
 Create implicit time-stepping matrices for the toroidal magnetic component with
 insulating boundary conditions embedded in the matrix rows (matching Fortran mag_bc_Tor).
 
 Both boundary rows use identity (BT = 0) for insulating exterior/interior.
+When `inner_regularity = true` (ball / full-sphere geometry) the inner row
+instead imposes the center regularity condition t′(r₁) = l·t(r₁)/r₁ (β = l);
+the outer row is unchanged.
 """
 function create_magnetic_toroidal_matrices(config::SHTnsKitConfig,
         domain::RadialDomain,
@@ -59,7 +62,8 @@ function create_magnetic_toroidal_matrices(config::SHTnsKitConfig,
         dt::Float64;
         theta::Float64 = 0.5,
         T::Type{<:Number} = Float64,
-        inner_alpha::Union{Dict{Int, <:Real}, Nothing} = nothing)
+        inner_alpha::Union{Dict{Int, <:Real}, Nothing} = nothing,
+        inner_regularity::Bool = false)
     unique_l = unique(config.l_values)
     laplacian = create_radial_laplacian(domain)
     r_inv_sq = @views domain.r[1:domain.N, 2]
@@ -71,7 +75,8 @@ function create_magnetic_toroidal_matrices(config::SHTnsKitConfig,
     l_values = Vector{Int}(undef, length(unique_l))
     lookup = Dict{Int, Int}()
 
-    # First derivative matrix (needed for the conducting-inner-core Robin row)
+    # First derivative matrix (used by the inner-regularity and
+    # conducting-inner-core Robin rows)
     d1_matrix = create_derivative_matrix(T, 1, domain)
     bw = radial_bandwidth(domain)
     N = domain.N
@@ -109,7 +114,14 @@ function create_magnetic_toroidal_matrices(config::SHTnsKitConfig,
         end
 
         # Inner boundary row
-        if inner_alpha === nothing || !haskey(inner_alpha, l)
+        if inner_regularity
+            # Ball center regularity for the raw sphtor toroidal scalar:
+            # t ~ r^l ⇒ t′(r₁) = l·t(r₁)/r₁ (β = l).
+            @inbounds for j in 1:(1 + bw)
+                system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
+            end
+            system_data[bw + 1, 1] -= T(l * domain.r[1, 3])
+        elseif inner_alpha === nothing || !haskey(inner_alpha, l)
             # Insulating BC: BT = 0 (identity row)
             # (also the fallback for l not in inner_alpha, e.g. l=0)
             system_data[bw + 1, 1] = one(T)
@@ -135,14 +147,19 @@ end
 
 """
     create_magnetic_poloidal_matrices(config, domain, diffusivity, dt;
-                                      theta, T)
+                                      theta, T, inner_alpha, inner_regularity)
 
 Create implicit time-stepping matrices for the poloidal magnetic component with
 insulating boundary conditions embedded in the matrix rows (matching Fortran mag_bc_Pol).
 
-Boundary conditions (l-dependent):
-- Inner: (∂/∂r - l/r) BP = 0  (field matches r^l interior solution)
-- Outer: (∂/∂r + (l+1)/r) BP = 0  (field matches r^{-(l+1)} exterior decay)
+Boundary conditions (l-dependent, vacuum matching under B_r = λP/r²):
+- Inner: (∂/∂r - (l+1)/r) BP = 0  (interior vacuum solution P ∝ r^{l+1})
+- Outer: (∂/∂r + l/r) BP = 0  (exterior vacuum decay P ∝ r^{-l}; verified by
+  the full-sphere dipole free-decay rate σ = π², test/ball_bessel_decay.jl)
+
+When `inner_regularity = true` (ball / full-sphere geometry) the inner row
+instead imposes the center regularity condition P′(r₁) = (l+1)·P(r₁)/r₁
+(β = l+1, P ~ r^{l+1}); the outer row is unchanged.
 """
 function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
         domain::RadialDomain,
@@ -150,7 +167,8 @@ function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
         dt::Float64;
         theta::Float64 = 0.5,
         T::Type{<:Number} = Float64,
-        inner_alpha::Union{Dict{Int, <:Real}, Nothing} = nothing)
+        inner_alpha::Union{Dict{Int, <:Real}, Nothing} = nothing,
+        inner_regularity::Bool = false)
     unique_l = unique(config.l_values)
     # Stage-4 solenoidal convention: POLOIDAL potentials diffuse with
     #   D_pol = d²/dr² − l(l+1)/r²   (NO 2/r first-derivative term),
@@ -205,14 +223,30 @@ function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
         end
 
         # Inner boundary row
-        if inner_alpha === nothing || !haskey(inner_alpha, l)
-            # Insulating poloidal BC: (∂/∂r - l/r) BP = 0
-            # (also the fallback for l not in inner_alpha, e.g. l=0)
-            # Copy first derivative row and subtract l/r[1] on diagonal
+        # NOTE: the ERK2 paths stamp these same rows independently — keep
+        # src/timestep/erk2/boundary.jl + cache.jl in sync (pinned by
+        # test/magnetic_boundary_static_checks.jl).
+        if inner_regularity
+            # Ball center regularity: P ~ r^{l+1} ⇒ P′(r₁) = (l+1)·P(r₁)/r₁.
+            # (Identical to the insulating-inner row below — physically
+            # meaningful coincidence: interior vacuum matching and center
+            # regularity both demand P ∝ r^{l+1}, hence the same Robin row.)
             @inbounds for j in 1:(1 + bw)
                 system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
             end
-            system_data[bw + 1, 1] -= T(l * domain.r[1, 3])  # subtract l/r[1]
+            system_data[bw + 1, 1] -= T((l + 1) * domain.r[1, 3])
+        elseif inner_alpha === nothing || !haskey(inner_alpha, l)
+            # Insulating inner: under B_r = λP/r² the interior vacuum solution
+            # is P ∝ r^{l+1} (B = −∇Φ, Φ ∝ r^l regular at the origin ⇒
+            # B_r ∝ r^{l−1} = λP/r²). Matching P′/P at r_i gives
+            # (∂r − (l+1)/r)P = 0 — consistent with the corrected outer row
+            # (no single-row analytic discriminator exists for the shell inner
+            # row alone; see test/ball_bessel_decay.jl for the outer anchor).
+            # (also the fallback for l not in inner_alpha, e.g. l=0)
+            @inbounds for j in 1:(1 + bw)
+                system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
+            end
+            system_data[bw + 1, 1] -= T((l + 1) * domain.r[1, 3])  # subtract (l+1)/r[1]
         else
             # Conducting inner core: Robin row (∂/∂r − α_l) BP = φ0
             @inbounds for j in 1:(1 + bw)
@@ -221,13 +255,14 @@ function create_magnetic_poloidal_matrices(config::SHTnsKitConfig,
             system_data[bw + 1, 1] -= T(inner_alpha[l])
         end
 
-        # Insulating poloidal BC at outer boundary:
-        # (∂/∂r + (l+1)/r) BP = 0
-        # Copy first derivative row and add (l+1)/r[N] on diagonal
+        # Insulating outer: under B_r = λP/r² the exterior vacuum solution is
+        # P ∝ r^{−l} (B = −∇Φ, Φ ∝ r^{−(l+1)} ⇒ B_r ∝ r^{−(l+2)} = λP/r²).
+        # Matching P′/P at r_o gives (∂r + l/r)P = 0. Verified by the classic
+        # full-sphere dipole free-decay rate σ = π² (test/ball_bessel_decay.jl).
         @inbounds for j in (N - bw):N
             system_data[bw + 1 + N - j, j] = d1_matrix.data[bw + 1 + N - j, j]
         end
-        system_data[bw + 1, N] += T((l + 1) * domain.r[N, 3])  # add (l+1)/r[N]
+        system_data[bw + 1, N] += T(l * domain.r[N, 3])  # add l/r[N]
 
         system_matrix = BandedMatrix{T}(system_data, bw, N)
         system_matrices[idx] = system_matrix

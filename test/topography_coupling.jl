@@ -141,7 +141,9 @@ const topocpl = GeoDynamo.bcs.topography
         op_v = topocpl.assemble_velocity_boundary_operator(2, cmb, gaunt, config, :impermeability)
         @test op_v[(2, 0, :P)] ≈ ComplexF64(2 * 3 / 1.0^2)
 
-        # magnetic CMB (outer): flat diagonal is ∂P + (l+1)/r_o P = 0, T = 0.
+        # magnetic CMB (outer): flat diagonal is ∂P + l/r_o P = 0, T = 0
+        # (insulating row under B_r = λP/r², exterior P ∝ r^{-l} — same
+        # convention as src/bcs/magnetic_bc.jl).
         # (The full config also folds topography coupling into these same keys, so
         # the clean diagonal is checked with shift/slope terms switched off.)
         flat = topocpl.TopographyCouplingConfig(
@@ -150,7 +152,7 @@ const topocpl = GeoDynamo.bcs.topography
         op_m_flat = topocpl.assemble_magnetic_boundary_operator(
             2, cmb, gaunt, flat, GeoDynamo.OUTER_BOUNDARY)
         @test op_m_flat[(2, 0, :dP)] == one(ComplexF64)
-        @test op_m_flat[(2, 0, :P)] ≈ ComplexF64((2 + 1) / 1.0)
+        @test op_m_flat[(2, 0, :P)] ≈ ComplexF64(2 / 1.0)
         @test op_m_flat[(2, 0, :T)] == one(ComplexF64)
 
         # with coupling enabled the operator gains off-diagonal entries

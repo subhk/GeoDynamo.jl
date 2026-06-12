@@ -1,7 +1,12 @@
 using Test
+using Random
 const Ball = GeoDynamo.GeoDynamoBall
 
-@testset "Ball geometry regularity and roundtrip" begin
+# Ball transforms are the SAME geometry-blind transforms the shell uses: the
+# off-center radial grid has no r=0 node, so no centre-plane zeroing wrapper
+# exists anymore (regularity lives in the implicit-matrix Robin rows).
+
+@testset "Ball geometry transforms (geometry-blind)" begin
 
     # Small config for quick test
     lmax = 6;
@@ -14,35 +19,30 @@ const Ball = GeoDynamo.GeoDynamoBall
         lmax = lmax, mmax = mmax, nlat = nlat, nlon = nlon, nr = nr)
     dom = Ball.create_ball_radial_domain(nr)
 
-    # Scalar: random physical -> analysis with regularity -> check inner r plane zero for l>0
+    # Scalar: random physical -> analysis -> finite spectra, live content
     spec = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     phys = GeoDynamo.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.r)
 
     randn!(parent(phys.data))
 
-    Ball.ball_physical_to_spectral!(phys, spec)
+    GeoDynamo.shtnskit_physical_to_spectral!(phys, spec)
 
     sreal = parent(spec.data_real);
     simag = parent(spec.data_imag)
     lm_range = GeoDynamo.local_spectral_mode_indices(cfg)
-    r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
 
     @test !isempty(lm_range)
-    # Only check inner boundary regularity if this rank owns global r=1
-    if 1 in r_range
-        r_local_idx = 1 - first(r_range) + 1
-        for lm_idx in lm_range
-            l = cfg.l_values[lm_idx]
-            if l > 0
-                slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
-                slot === nothing && continue
-                @test sreal[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
-                @test simag[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
-            end
-        end
-    end
+    @test all(isfinite, sreal)
+    @test all(isfinite, simag)
+    @test maximum(abs, sreal) > 0.0
 
-    # Vector: random physical -> analysis with regularity -> check inner plane zero for l≥1
+    # Scalar roundtrip: spectral -> physical stays finite and nonzero
+    phys_back = GeoDynamo.create_shtns_physical_field(Float64, cfg, dom, cfg.pencils.r)
+    GeoDynamo.shtnskit_spectral_to_physical!(spec, phys_back)
+    @test all(isfinite, parent(phys_back.data))
+    @test maximum(abs, parent(phys_back.data)) > 0.0
+
+    # Vector: random physical -> analysis -> finite toroidal/poloidal spectra
     tor = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     pol = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
     vec = GeoDynamo.create_shtns_vector_field(Float64, cfg, dom, (
@@ -52,24 +52,11 @@ const Ball = GeoDynamo.GeoDynamoBall
     randn!(parent(vec.θ_component.data))
     randn!(parent(vec.φ_component.data))
 
-    Ball.ball_vector_analysis!(vec, tor, pol)
-    treal = parent(tor.data_real);
-    timag = parent(tor.data_imag)
-    preal = parent(pol.data_real);
-    pimag = parent(pol.data_imag)
-
-    if 1 in r_range
-        r_local_idx = 1 - first(r_range) + 1
-        for lm_idx in lm_range
-            l = cfg.l_values[lm_idx]
-            if l >= 1
-                slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
-                slot === nothing && continue
-                @test treal[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
-                @test timag[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
-                @test preal[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
-                @test pimag[slot[1], slot[2], r_local_idx] ≈ 0.0 atol=1e-12
-            end
-        end
+    GeoDynamo.shtnskit_vector_analysis!(vec, tor, pol)
+    for sf in (tor, pol)
+        @test all(isfinite, parent(sf.data_real))
+        @test all(isfinite, parent(sf.data_imag))
     end
+    @test max(maximum(abs, parent(tor.data_real)),
+        maximum(abs, parent(pol.data_real))) > 0.0
 end

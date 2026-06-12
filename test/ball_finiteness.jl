@@ -61,7 +61,10 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     lm_range = GeoDynamo.local_spectral_mode_indices(cfg)
     if 1 in r_range && !isempty(lm_range)
         local_r = 1 - first(r_range) + 1
-        # Expect inner plane to be finite and effectively zero by guard
+        # Off-center grid: inner node is at r₁ > 0, so 1/r operators are finite
+        # and the vorticity values at the inner node are generally non-zero.
+        # We only verify finiteness here; exact-zero assertions were artifacts of
+        # the old r=0 hack (zeroed 1/r columns) and no longer apply.
         for lm_idx in lm_range
             slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
             slot === nothing && continue
@@ -69,10 +72,6 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
                   isfinite(ω_tor_i[slot[1], slot[2], local_r])
             @test isfinite(ω_pol_r[slot[1], slot[2], local_r]) &&
                   isfinite(ω_pol_i[slot[1], slot[2], local_r])
-            @test ω_tor_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
-            @test ω_tor_i[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
-            @test ω_pol_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
-            @test ω_pol_i[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
         end
     end
 
@@ -94,6 +93,9 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
     lm_range = GeoDynamo.local_spectral_mode_indices(cfg)
     if 1 in r_range && !isempty(lm_range)
         local_r = 1 - first(r_range) + 1
+        # Off-center grid: inner node is at r₁ > 0, so current density values
+        # are generally non-zero there. Verify finiteness only; exact-zero
+        # assertions were artifacts of the old r=0 hack and no longer apply.
         for lm_idx in lm_range
             slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
             slot === nothing && continue
@@ -101,10 +103,6 @@ const FINALIZE_MPI = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "true"
                   isfinite(j_tor_i[slot[1], slot[2], local_r])
             @test isfinite(j_pol_r[slot[1], slot[2], local_r]) &&
                   isfinite(j_pol_i[slot[1], slot[2], local_r])
-            @test j_tor_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
-            @test j_tor_i[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
-            @test j_pol_r[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
-            @test j_pol_i[slot[1], slot[2], local_r] ≈ 0.0 atol=1e-12
         end
     end
 

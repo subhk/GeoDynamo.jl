@@ -223,7 +223,12 @@ end
 """
     solver_create_insulating_inner_bc(T, d1_row, r_inv)
 
-Create the inner insulating magnetic poloidal endpoint descriptor.
+Create the inner insulating magnetic poloidal endpoint descriptor,
+(∂r − (l+1)/r)P = 0: under B_r = λP/r² the interior vacuum solution is
+P ∝ r^{l+1} (B = −∇Φ, Φ ∝ r^l regular at the origin ⇒ B_r ∝ r^{l−1} = λP/r²).
+Encoded as l_sign = −1, fixed_correction = −r_inv (self_coeff =
+d1 − l·r_inv − r_inv). Matches the banded row in
+`create_magnetic_poloidal_matrices`.
 """
 function solver_create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
     return SolverERK2BoundarySide{T}(
@@ -233,7 +238,7 @@ function solver_create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::
         r_inv,
         -one(T),
         true,
-        zero(T),
+        -r_inv,
         false
     )
 end
@@ -250,7 +255,12 @@ end
 """
     solver_create_insulating_outer_bc(T, d1_row, r_inv)
 
-Create the outer insulating magnetic poloidal endpoint descriptor.
+Create the outer insulating magnetic poloidal endpoint descriptor,
+(∂r + l/r)P = 0: under B_r = λP/r² the exterior vacuum solution is P ∝ r^{−l}
+(B = −∇Φ, Φ ∝ r^{−(l+1)} ⇒ B_r ∝ r^{−(l+2)} = λP/r²). Encoded as l_sign = +1,
+fixed_correction = 0 (self_coeff = d1 + l·r_inv). Verified by the classic
+full-sphere dipole free-decay rate σ = π² (test/ball_bessel_decay.jl); matches
+the banded row in `create_magnetic_poloidal_matrices`.
 """
 function solver_create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
     return SolverERK2BoundarySide{T}(
@@ -260,7 +270,7 @@ function solver_create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::
         r_inv,
         one(T),
         true,
-        r_inv,
+        zero(T),
         false
     )
 end
@@ -275,22 +285,51 @@ function GeoDynamo.create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_in
 end
 
 """
-    build_solver_erk2_scalar_bc(T, domain, boundary_condition)
+    solver_create_regularity_bc(T, d1_row, r_inv; l_offset=1)
+
+Ball-center regularity endpoint: f′(r₁) = (l + l_offset)·f(r₁)/r₁.
+`l_offset = 1` for poloidal potentials (f ~ r^{l+1}); `l_offset = 0` for
+raw-sphtor toroidal scalars and scalar fields (f ~ r^l; l=0 reduces to
+f′(r₁)=0).
+"""
+function solver_create_regularity_bc(
+        ::Type{T}, d1_row::Vector{T}, r_inv::T; l_offset::Int = 1) where {T}
+    return SolverERK2BoundarySide{T}(
+        :regularity,
+        zero(T),
+        copy(d1_row),
+        r_inv,
+        -one(T),                 # l_sign: self_coeff −= l/r₁
+        true,                    # use_l_correction
+        -T(l_offset) * r_inv,    # fixed_correction: −l_offset/r₁
+        false
+    )
+end
+
+"""
+    build_solver_erk2_scalar_bc(T, domain, boundary_condition; inner_regularity=false)
 
 Translate scalar boundary-condition codes into an ERK2 boundary specification.
 
 Boundary codes follow the existing scalar convention: DD, DN, ND, and NN for
-codes 1 through 4.
+codes 1 through 4. With `inner_regularity = true` (ball / full-sphere geometry)
+the inner side is the center-regularity row Θ′(r₁) = l·Θ(r₁)/r₁ regardless of
+the code; the outer side is unchanged.
 """
-function build_solver_erk2_scalar_bc(::Type{T}, domain::RadialDomainType, boundary_condition::Int) where {T}
+function build_solver_erk2_scalar_bc(::Type{T}, domain::RadialDomainType, boundary_condition::Int;
+        inner_regularity::Bool = false) where {T}
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
     d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
     d1_outer = extract_dense_row(d1.data, d1.bandwidth, nr, nr)
 
-    inner = boundary_condition == 1 || boundary_condition == 2 ?
-            solver_create_dirichlet_bc(T, nr) :
-            solver_create_neumann_bc(T, d1_inner; l0_dirichlet = (boundary_condition == 4))
+    inner = if inner_regularity
+        solver_create_regularity_bc(T, d1_inner, T(domain.r[1, 3]); l_offset = 0)
+    elseif boundary_condition == 1 || boundary_condition == 2
+        solver_create_dirichlet_bc(T, nr)
+    else
+        solver_create_neumann_bc(T, d1_inner; l0_dirichlet = (boundary_condition == 4))
+    end
 
     outer = boundary_condition == 1 || boundary_condition == 3 ?
             solver_create_dirichlet_bc(T, nr) :
@@ -300,19 +339,23 @@ function build_solver_erk2_scalar_bc(::Type{T}, domain::RadialDomainType, bounda
 end
 
 """
-    build_solver_erk2_velocity_tor_bc(T, domain, velocity_bc_code; config=nothing, rot_omega=0.0)
+    build_solver_erk2_velocity_tor_bc(T, domain, velocity_bc_code; config=nothing, rot_omega=0.0, inner_regularity=false)
 
 Create ERK2 boundary descriptors for the velocity toroidal component.
 
 When a rotating inner core is requested, the `(l=1, m=0)` mode gets a
-mode-dependent inner boundary value.
+mode-dependent inner boundary value. With `inner_regularity = true` (ball /
+full-sphere geometry) the inner side is the center-regularity row
+t′(r₁) = l·t(r₁)/r₁ regardless of the code, and the rotating-inner-core
+mode values are skipped (there is no inner core in a ball).
 """
 function build_solver_erk2_velocity_tor_bc(
         ::Type{T},
         domain::RadialDomainType,
         velocity_bc_code::Int;
         config::Union{SHTnsConfigType, Nothing} = nothing,
-        rot_omega::Float64 = 0.0
+        rot_omega::Float64 = 0.0,
+        inner_regularity::Bool = false
 ) where {T}
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
@@ -321,16 +364,21 @@ function build_solver_erk2_velocity_tor_bc(
     r_inv_inner = T(domain.r[1, 3])
     r_inv_outer = T(domain.r[nr, 3])
 
-    inner = velocity_bc_code == 1 || velocity_bc_code == 2 ?
-            solver_create_dirichlet_bc(T, nr) :
-            solver_create_stress_free_tor_bc(T, d1_inner, r_inv_inner)
+    inner = if inner_regularity
+        solver_create_regularity_bc(T, d1_inner, r_inv_inner; l_offset = 0)
+    elseif velocity_bc_code == 1 || velocity_bc_code == 2
+        solver_create_dirichlet_bc(T, nr)
+    else
+        solver_create_stress_free_tor_bc(T, d1_inner, r_inv_inner)
+    end
 
     outer = velocity_bc_code == 1 || velocity_bc_code == 3 ?
             solver_create_dirichlet_bc(T, nr) :
             solver_create_stress_free_tor_bc(T, d1_outer, r_inv_outer)
 
     inner_mode_values = nothing
-    if rot_omega != 0.0 && (velocity_bc_code == 1 || velocity_bc_code == 2) &&
+    if !inner_regularity && rot_omega != 0.0 &&
+       (velocity_bc_code == 1 || velocity_bc_code == 2) &&
        config !== nothing
         r_inner = T(domain.r[1, 4])
         inner_mode_values = zeros(T, length(config.l_values))
@@ -350,6 +398,8 @@ end
 
 Create ERK2 boundary descriptors for the velocity poloidal component.
 """
+# NOTE: the ERK2 ball poloidal path bypasses this builder entirely (W-split
+# recovery in _erk2_poloidal_recover! owns the ball conditions); only tests call it.
 function build_solver_erk2_velocity_pol_bc(::Type{T}, domain::RadialDomainType, velocity_bc_code::Int) where {T}
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
@@ -371,23 +421,39 @@ function build_solver_erk2_velocity_pol_bc(::Type{T}, domain::RadialDomainType, 
 end
 
 """
-    build_solver_erk2_magnetic_tor_bc(T, nr)
+    build_solver_erk2_magnetic_tor_bc(T, domain; inner_regularity=false)
 
-Create homogeneous Dirichlet boundary descriptors for magnetic toroidal fields.
+Create boundary descriptors for magnetic toroidal fields: homogeneous
+Dirichlet on both sides (insulating shell walls). With
+`inner_regularity = true` (ball / full-sphere geometry) the inner side is the
+center-regularity row t′(r₁) = l·t(r₁)/r₁; the outer Dirichlet is unchanged.
 """
-function build_solver_erk2_magnetic_tor_bc(::Type{T}, nr::Int) where {T}
+function build_solver_erk2_magnetic_tor_bc(::Type{T}, domain::RadialDomainType;
+        inner_regularity::Bool = false) where {T}
+    nr = domain.N
+    inner = if inner_regularity
+        d1 = build_radial_derivative_matrix(T, 1, domain)
+        d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
+        solver_create_regularity_bc(T, d1_inner, T(domain.r[1, 3]); l_offset = 0)
+    else
+        solver_create_dirichlet_bc(T, nr)
+    end
     return SolverERK2BoundarySpec{T}(
-        solver_create_dirichlet_bc(T, nr),
+        inner,
         solver_create_dirichlet_bc(T, nr)
     )
 end
 
 """
-    build_solver_erk2_magnetic_pol_bc(T, domain)
+    build_solver_erk2_magnetic_pol_bc(T, domain; inner_regularity=false)
 
-Create insulating boundary descriptors for magnetic poloidal fields.
+Create insulating boundary descriptors for magnetic poloidal fields. With
+`inner_regularity = true` (ball / full-sphere geometry) the inner side is the
+center-regularity row P′(r₁) = (l+1)·P(r₁)/r₁ (P ~ r^{l+1}); the insulating
+outer side is unchanged.
 """
-function build_solver_erk2_magnetic_pol_bc(::Type{T}, domain::RadialDomainType) where {T}
+function build_solver_erk2_magnetic_pol_bc(::Type{T}, domain::RadialDomainType;
+        inner_regularity::Bool = false) where {T}
     nr = domain.N
     d1 = build_radial_derivative_matrix(T, 1, domain)
     d1_inner = extract_dense_row(d1.data, d1.bandwidth, nr, 1)
@@ -395,7 +461,9 @@ function build_solver_erk2_magnetic_pol_bc(::Type{T}, domain::RadialDomainType) 
     r_inv_inner = T(domain.r[1, 3])
     r_inv_outer = T(domain.r[nr, 3])
 
-    inner = solver_create_insulating_inner_bc(T, d1_inner, r_inv_inner)
+    inner = inner_regularity ?
+            solver_create_regularity_bc(T, d1_inner, r_inv_inner; l_offset = 1) :
+            solver_create_insulating_inner_bc(T, d1_inner, r_inv_inner)
     outer = solver_create_insulating_outer_bc(T, d1_outer, r_inv_outer)
     return SolverERK2BoundarySpec{T}(inner, outer)
 end

@@ -1643,39 +1643,28 @@ end
 
 function apply_induction_nonlinear!(
         magnetic_fields,
-        velocity_fields;
-        geometry::Symbol
+        velocity_fields
 )
     solver_compute_velocity_cross_magnetic!(magnetic_fields, velocity_fields)
-    if geometry === :ball
-        # Ball geometry: still on the legacy potential-style curl (deferred per
-        # the double-curl spec; regularity conditions differ at r→0).
-        solver_ball_vector_analysis!(
-            magnetic_fields.induction_physical,
-            magnetic_fields.work_tor,
-            magnetic_fields.work_pol
-        )
-        solver_compute_curl_of_induction!(magnetic_fields)
-    else
-        # Stage-4 solenoidal convention. E = u×B is NOT solenoidal; the curl's
-        # stored potentials follow from the verified projection identities:
-        #   P_{∇×E} = −r·T_E              (T_E = raw toroidal sphtor scalar)
-        #   T_{∇×E} = −(1/r)·(Q_E − ∂_r(r·S_E))
-        # with Q_E from the radial component. The old path treated (T_E, S_E)
-        # as potentials and never consumed Q_E — the same dropped-radial flaw
-        # the momentum equation had.
-        vector_physical_to_spectral!(
-            magnetic_fields.induction_physical,
-            magnetic_fields.work_tor,
-            magnetic_fields.work_pol;
-            raw_spheroidal = true
-        )
-        scalar_physical_to_spectral!(
-            magnetic_fields.induction_physical.r_component,
-            magnetic_fields.nl_toroidal     # Q_E scratch; combined in place below
-        )
-        _induction_curl_potentials!(magnetic_fields)
-    end
+    # geometry-blind: the ball grid has no r=0 node (off-center grid)
+    # Stage-4 solenoidal convention. E = u×B is NOT solenoidal; the curl's
+    # stored potentials follow from the verified projection identities:
+    #   P_{∇×E} = −r·T_E              (T_E = raw toroidal sphtor scalar)
+    #   T_{∇×E} = −(1/r)·(Q_E − ∂_r(r·S_E))
+    # with Q_E from the radial component. The old path treated (T_E, S_E)
+    # as potentials and never consumed Q_E — the same dropped-radial flaw
+    # the momentum equation had.
+    vector_physical_to_spectral!(
+        magnetic_fields.induction_physical,
+        magnetic_fields.work_tor,
+        magnetic_fields.work_pol;
+        raw_spheroidal = true
+    )
+    scalar_physical_to_spectral!(
+        magnetic_fields.induction_physical.r_component,
+        magnetic_fields.nl_toroidal     # Q_E scratch; combined in place below
+    )
+    _induction_curl_potentials!(magnetic_fields)
     return magnetic_fields
 end
 
@@ -1798,69 +1787,6 @@ function solver_compute_velocity_cross_magnetic!(magnetic_fields, velocity_field
         uB_φ[idx] = u_r[idx] * B_θ[idx] - u_θ[idx] * B_r[idx]
     end
     return magnetic_fields
-end
-
-function solver_compute_curl_of_induction!(magnetic_fields)
-    T = eltype(parent(magnetic_fields.nl_toroidal.data_real))
-    spectral_curl_torpol!(
-        parent(magnetic_fields.nl_toroidal.data_real), parent(magnetic_fields.nl_toroidal.data_imag),
-        parent(magnetic_fields.nl_poloidal.data_real), parent(magnetic_fields.nl_poloidal.data_imag),
-        parent(magnetic_fields.work_tor.data_real), parent(magnetic_fields.work_tor.data_imag),
-        parent(magnetic_fields.work_pol.data_real), parent(magnetic_fields.work_pol.data_imag),
-        magnetic_fields.l_factors,
-        magnetic_fields.∂r,
-        magnetic_fields.∂²r,
-        magnetic_fields.outer_domain,
-        magnetic_fields.toroidal.config,
-        T;
-        _work = magnetic_fields.curl_work
-    )
-    return magnetic_fields
-end
-
-function solver_enforce_ball_vector_regularity!(
-        tor_spec::SpectralFieldType,
-        pol_spec::SpectralFieldType
-)
-    cfg = tor_spec.config
-    lm_range = local_spectral_mode_indices(cfg)
-    r_range = local_range(cfg.pencils.spec, 3)
-
-    if !(1 in r_range)
-        return tor_spec, pol_spec
-    end
-
-    r_local_idx = 1 - first(r_range) + 1
-
-    for spec in (tor_spec, pol_spec)
-        spec_real = parent(spec.data_real)
-        spec_imag = parent(spec.data_imag)
-        T = eltype(spec_real)
-
-        @inbounds for lm_idx in lm_range
-            if lm_idx <= cfg.nlm
-                slot = local_spectral_storage_slot(cfg, lm_idx)
-                slot === nothing && continue
-                l = cfg.l_values[lm_idx]
-                if l >= 1
-                    set_local_spectral_value!(spec_real, slot, r_local_idx, zero(T))
-                    set_local_spectral_value!(spec_imag, slot, r_local_idx, zero(T))
-                end
-            end
-        end
-    end
-
-    return tor_spec, pol_spec
-end
-
-function ball_vector_physical_to_spectral!(vector_field, toroidal, poloidal)
-    vector_physical_to_spectral!(vector_field, toroidal, poloidal)
-    solver_enforce_ball_vector_regularity!(toroidal, poloidal)
-    return toroidal, poloidal
-end
-
-function solver_ball_vector_analysis!(vector_field, toroidal, poloidal)
-    return ball_vector_physical_to_spectral!(vector_field, toroidal, poloidal)
 end
 
 @inline solver_band_row(i::Int, j::Int, bw::Int) = bw + 1 + i - j

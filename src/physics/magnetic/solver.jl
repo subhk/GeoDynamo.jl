@@ -82,14 +82,12 @@ end
 function apply_magnetic_nonlinear_terms!(
         magnetic_fields,
         velocity_fields;
-        geometry::Symbol,
         rotation_rate::Float64
 )
     if velocity_fields !== nothing
         apply_induction_nonlinear!(
             magnetic_fields,
-            velocity_fields;
-            geometry
+            velocity_fields
         )
     end
     if rotation_rate != 0.0
@@ -332,7 +330,8 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{
             :magnetic_toroidal,
             runtime.outer_core_domain.N
         )
-        bc_spec = build_solver_erk2_magnetic_tor_bc(T, runtime.outer_core_domain.N)
+        bc_spec = build_solver_erk2_magnetic_tor_bc(T, runtime.outer_core_domain;
+            inner_regularity = state.parameters.geometry === :ball)
         solver_eab2_update_krylov_cached!(
             magnetic.toroidal,
             magnetic.nl_toroidal,
@@ -445,7 +444,8 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{
             :magnetic_poloidal,
             runtime.outer_core_domain.N
         )
-        bc_spec = build_solver_erk2_magnetic_pol_bc(T, runtime.outer_core_domain)
+        bc_spec = build_solver_erk2_magnetic_pol_bc(T, runtime.outer_core_domain;
+            inner_regularity = state.parameters.geometry === :ball)
         solver_eab2_update_krylov_cached!(
             magnetic.poloidal,
             magnetic.nl_poloidal,

@@ -245,11 +245,8 @@ function compute_temperature_nonlinear!(temp_𝔽::SHTnsTemperatureField{T},
     if ENABLE_TIMING[]
         t_transform = MPI.Wtime()
     end
-    if geometry === :ball
-        ball_physical_to_spectral!(temp_𝔽.advection_physical, temp_𝔽.nonlinear)
-    else
-        shtnskit_physical_to_spectral!(temp_𝔽.advection_physical, temp_𝔽.nonlinear)
-    end
+    # geometry-blind since the ball grid has no r=0 node (off-center grid)
+    shtnskit_physical_to_spectral!(temp_𝔽.advection_physical, temp_𝔽.nonlinear)
     if ENABLE_TIMING[]
         temp_𝔽.transform_time[] += MPI.Wtime() - t_transform
         temp_𝔽.computation_time[] += MPI.Wtime() - t_start

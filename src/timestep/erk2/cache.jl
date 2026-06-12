@@ -330,21 +330,27 @@ function create_solver_erk2_magnetic_poloidal_cache(
         operator_dense[1, :] .= zero(T)
         operator_dense[nr, :] .= zero(T)
 
+        # Insulating inner: (∂r − (l+1)/r)P = 0 — interior vacuum P ∝ r^{l+1}
+        # under B_r = λP/r² (2026-06-11 audit; matches the CNAB2 banded row in
+        # create_magnetic_poloidal_matrices and the endpoint descriptors).
         for j in max(1, 1 - bandwidth):min(nr, 1 + bandwidth)
             band_idx = bandwidth + 1 + 1 - j
             if 1 <= band_idx <= 2 * bandwidth + 1
                 operator_dense[1, j] = T(first_derivative.data[band_idx, j])
             end
         end
-        operator_dense[1, 1] -= T(l) * r_inv[1]
+        operator_dense[1, 1] -= T(l + 1) * r_inv[1]
 
+        # Insulating outer: (∂r + l/r)P = 0 — exterior vacuum P ∝ r^{−l};
+        # verified by the full-sphere dipole free-decay rate σ = π²
+        # (test/ball_bessel_decay.jl).
         for j in max(1, nr - bandwidth):min(nr, nr + bandwidth)
             band_idx = bandwidth + 1 + nr - j
             if 1 <= band_idx <= 2 * bandwidth + 1
                 operator_dense[nr, j] = T(first_derivative.data[band_idx, j])
             end
         end
-        operator_dense[nr, nr] += T(l + 1) * r_inv[nr]
+        operator_dense[nr, nr] += T(l) * r_inv[nr]
 
         if use_krylov
             push!(E_half, operator_dense)

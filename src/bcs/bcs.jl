@@ -155,8 +155,8 @@ Enumeration for boundary condition types.
     ROBIN = 4          # Robin boundary condition (linear combination)
     NEUMANN_DERIV1 = 5 # First derivative = 0 (∂f/∂r = 0, for no-slip poloidal)
     NEUMANN_DERIV2 = 6 # Second derivative = 0 (∂²f/∂r² = 0, for stress-free poloidal)
-    NEUMANN_MAG_INNER = 7  # Insulating inner BC: (∂/∂r - l/r) P = 0 (magnetic poloidal)
-    NEUMANN_MAG_OUTER = 8  # Insulating outer BC: (∂/∂r + (l+1)/r) P = 0 (magnetic poloidal)
+    NEUMANN_MAG_INNER = 7  # Insulating inner BC: (∂/∂r - (l+1)/r) P = 0 (magnetic poloidal, B_r = λP/r²)
+    NEUMANN_MAG_OUTER = 8  # Insulating outer BC: (∂/∂r + l/r) P = 0 (magnetic poloidal, B_r = λP/r²)
     CONTINUITY_MAG = 9     # Conducting inner core: ∂B/∂r continuous at ICB
 end
 
