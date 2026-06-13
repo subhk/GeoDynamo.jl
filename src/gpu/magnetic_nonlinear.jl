@@ -33,8 +33,9 @@ end
 Magnetic induction nonlinear `nl = ∇×(u×B)`.  `B_tor`/`B_pol` the magnetic
 toroidal/poloidal spectral; `u_*` the physical velocity (supplied); `nl_tor`/`nl_pol`
 the toroidal/poloidal induction nonlinear.  `d1`/`d2`/`lfac`/`rinv`/`rinv2`
-are the curl/transform operators; `rscale` is retained in the operator bundle for
-interface compatibility.  All on the same backend; outputs distinct from inputs.
+are the curl/transform operators; `rscale=1/r²` is the radial-synthesis scale
+forwarded to `gpu_vector_spectral_to_physical!` (Stage-2 `B_r = l(l+1)·P·rscale`)
+— LOAD-BEARING, not optional.  All on the same backend; outputs distinct from inputs.
 """
 function gpu_magnetic_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, B_tor_r, B_tor_i, B_pol_r, B_pol_i,
         u_r, u_θ, u_φ, config, d1, d2, lfac, rinv, rinv2, rscale, lmax::Int, bw::Int;
@@ -49,13 +50,16 @@ function gpu_magnetic_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, B_tor_r
     # 1. B (tor,pol) → physical (B_r,B_θ,B_φ)
     Br = ph(:_Br); Bθ = ph(:_Bt); Bφ = ph(:_Bp)
     gpu_vector_spectral_to_physical!(Br, Bθ, Bφ, spec(B_tor_r, B_tor_i), spec(B_pol_r, B_pol_i), config,
-        lfac, rscale, d1, rinv, bw)
+        lfac, rscale, d1, rinv, bw; ws = ws, tag = Symbol(tag, :_bs2p))
     # 2. uB = u×B (physical), coeff 1
     ubr = ph(:_ubr); ubθ = ph(:_ubt); ubφ = ph(:_ubp)
     gpu_cross!(ubr.data, ubθ.data, ubφ.data, u_r, u_θ, u_φ, Br.data, Bθ.data, Bφ.data, one(eltype(B_tor_r)))
     # 3. uB → spectral: tangential raw analysis gives (S_E,T_E), radial scalar
     # analysis gives Q_E. Combine these into the curl potentials below.
-    wtr = similar(B_tor_r); wti = similar(B_tor_i); wpr = similar(B_pol_r); wpi = similar(B_pol_i)
+    wtr = gpu_scratch!(ws, Symbol(tag, :_wtr), B_tor_r)
+    wti = gpu_scratch!(ws, Symbol(tag, :_wti), B_tor_i)
+    wpr = gpu_scratch!(ws, Symbol(tag, :_wpr), B_pol_r)
+    wpi = gpu_scratch!(ws, Symbol(tag, :_wpi), B_pol_i)
     gpu_vector_physical_to_spectral!(spec(wtr, wti), spec(wpr, wpi), ubθ, ubφ, config;
         raw_spheroidal = true, ws = ws, tag = Symbol(tag, :_ta))
     nlat, nlon = size(ubr.data, 1), size(ubr.data, 2)

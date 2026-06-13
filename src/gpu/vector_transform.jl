@@ -113,7 +113,8 @@ function gpu_vector_spectral_to_physical!(vr::GPUPhysicalField, vθ::GPUPhysical
     # Spheroidal scalar S: raw mode = the stored coefficients; solenoidal mode
     # = (∂_r P)/r — batched banded d1 + 1/r broadcast (NOT in place: P is
     # still needed for v_r).
-    S_r = similar(pol.data_real); S_i = similar(pol.data_imag)
+    S_r = gpu_scratch!(ws, Symbol(tag, :_Sr), pol.data_real)
+    S_i = gpu_scratch!(ws, Symbol(tag, :_Si), pol.data_imag)
     if raw_spheroidal
         S_r .= pol.data_real; S_i .= pol.data_imag
     else
@@ -125,19 +126,29 @@ function gpu_vector_spectral_to_physical!(vr::GPUPhysicalField, vθ::GPUPhysical
     end
     # v_r source coefficients from the ORIGINAL P (whole field), then per-level
     # scalar synthesis.
-    vr_alm_r = similar(pol.data_real); vr_alm_i = similar(pol.data_imag)
+    vr_alm_r = gpu_scratch!(ws, Symbol(tag, :_vrar), pol.data_real)
+    vr_alm_i = gpu_scratch!(ws, Symbol(tag, :_vrai), pol.data_imag)
     gpu_vr_scale!(vr_alm_r, vr_alm_i, pol.data_real, pol.data_imag, lfac, rscale)
+    # Pooled per-level staging. The `complex.(view, view)` writes into a CONCRETE
+    # dense buffer (CuArray on-device) so the ::CuArray sphtor/scalar method fires,
+    # not the AbstractMatrix CPU fallback (a bare @view would miss it).
+    nl_, nm_ = size(pol.data_real, 1), size(pol.data_real, 2)
+    S_k = gpu_scratch_complex!(ws, Symbol(tag, :_Sk), pol.data_real, (nl_, nm_))
+    T_k = gpu_scratch_complex!(ws, Symbol(tag, :_Tk), pol.data_real, (nl_, nm_))
+    vra_k = gpu_scratch_complex!(ws, Symbol(tag, :_vrak), pol.data_real, (nl_, nm_))
+    nlat, nlon = size(vθ.data, 1), size(vθ.data, 2)
+    vt_k = gpu_scratch!(ws, Symbol(tag, :_vt), vθ.data, (nlat, nlon))
+    vp_k = gpu_scratch!(ws, Symbol(tag, :_vp), vφ.data, (nlat, nlon))
+    vr_k = gpu_scratch!(ws, Symbol(tag, :_vrk), vr.data, (nlat, nlon))
     for k in 1:nr
-        # `complex.(view, view)` materializes a fresh (nl,nm) array on the field's
-        # backend (a CuArray when on-device) → the ::CuArray sphtor/scalar method
-        # fires, NOT the AbstractMatrix CPU fallback. (A bare @view would NOT.)
-        S_k = complex.(view(S_r, :, :, k), view(S_i, :, :, k))
-        T_k = complex.(view(tor.data_real, :, :, k), view(tor.data_imag, :, :, k))
-        vt, vp = _vector_synth_sphtor(sht, S_k, T_k)
-        vθ.data[:, :, k] .= vt
-        vφ.data[:, :, k] .= vp
-        vra_k = complex.(view(vr_alm_r, :, :, k), view(vr_alm_i, :, :, k))
-        vr.data[:, :, k] .= _scalar_synth(sht, vra_k)
+        S_k .= complex.(view(S_r, :, :, k), view(S_i, :, :, k))
+        T_k .= complex.(view(tor.data_real, :, :, k), view(tor.data_imag, :, :, k))
+        _vector_synth_sphtor_into!(vt_k, vp_k, ws, sht, S_k, T_k)
+        vθ.data[:, :, k] .= vt_k
+        vφ.data[:, :, k] .= vp_k
+        vra_k .= complex.(view(vr_alm_r, :, :, k), view(vr_alm_i, :, :, k))
+        _scalar_synth_into!(vr_k, ws, sht, vra_k)
+        vr.data[:, :, k] .= vr_k
     end
     return nothing
 end

@@ -29,8 +29,12 @@ nothing` falls back to a plain `similar(ref)` (un-pooled paths keep working).
 """
 @inline gpu_scratch!(::Nothing, ::Symbol, ref::AbstractArray) = similar(ref)
 @inline function gpu_scratch!(ws::GPUWorkspace, key::Symbol, ref::AbstractArray)
-    arr = get!(() -> similar(ref), ws.pool, key)
-    return arr::typeof(ref)
+    arr = get!(() -> similar(ref), ws.pool, key)::typeof(ref)
+    # `typeof` pins eltype+ndims but NOT shape; guard against a same-tag/
+    # different-shape collision returning a wrong-shaped buffer (silent on device).
+    size(arr) == size(ref) || error(
+        "gpu_scratch! tag collision on :$key — cached $(size(arr)) ≠ requested $(size(ref))")
+    return arr
 end
 
 """
@@ -59,7 +63,10 @@ Pooled complex buffer for the per-level transform staging (the
     dims::Dims) where {T} = similar(ref_real, Complex{T}, dims)
 @inline function gpu_scratch_complex!(ws::GPUWorkspace, key::Symbol,
         ref_real::AbstractArray{T}, dims::Dims) where {T}
-    return get!(() -> similar(ref_real, Complex{T}, dims), ws.pool, key)
+    arr = get!(() -> similar(ref_real, Complex{T}, dims), ws.pool, key)
+    size(arr) == dims || error(
+        "gpu_scratch_complex! tag collision on :$key — cached $(size(arr)) ≠ requested $dims")
+    return arr
 end
 
 """
@@ -70,5 +77,8 @@ nlon) level buffer derived from a 3-D field).
 """
 @inline gpu_scratch!(::Nothing, ::Symbol, ref::AbstractArray, dims::Dims) = similar(ref, dims)
 @inline function gpu_scratch!(ws::GPUWorkspace, key::Symbol, ref::AbstractArray, dims::Dims)
-    return get!(() -> similar(ref, dims), ws.pool, key)
+    arr = get!(() -> similar(ref, dims), ws.pool, key)
+    size(arr) == dims || error(
+        "gpu_scratch! tag collision on :$key — cached $(size(arr)) ≠ requested $dims")
+    return arr
 end

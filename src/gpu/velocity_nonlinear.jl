@@ -8,22 +8,6 @@
 # the radial force gives Q_F, and nl_pol = ∂r(r*S_F) - Q_F.
 # =============================================================================
 
-function gpu_poloidal_force_projection!(nl_pol_r, nl_pol_i, q_r, q_i, d1, rinv, bw::Int;
-        ws = nothing, tag::Symbol = :pfp)
-    ri = reshape(rinv, 1, 1, :)
-    rS_r = gpu_scratch!(ws, Symbol(tag, :_rsr), nl_pol_r)
-    rS_i = gpu_scratch!(ws, Symbol(tag, :_rsi), nl_pol_i)
-    @. rS_r = nl_pol_r / ri
-    @. rS_i = nl_pol_i / ri
-    drS_r = gpu_scratch!(ws, Symbol(tag, :_dsr), nl_pol_r)
-    drS_i = gpu_scratch!(ws, Symbol(tag, :_dsi), nl_pol_i)
-    gpu_batched_banded_matvec!(drS_r, rS_r, d1, bw)
-    gpu_batched_banded_matvec!(drS_i, rS_i, d1, bw)
-    @. nl_pol_r = drS_r - q_r
-    @. nl_pol_i = drS_i - q_i
-    return nothing
-end
-
 """
     gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, tor_i, pol_r, pol_i,
                             config, d1, d2, lfac, rinv, rinv2, rscale, sinθ, cosθ, E, lmax, bw;
@@ -36,10 +20,10 @@ Velocity nonlinear term: `nl = analyze( E·(u×ω) − ẑ×u [+ buoyancy + Lore
 
 `tor`/`pol` are the velocity toroidal/poloidal spectral coefficients; `nl_tor`/`nl_pol`
 receive the toroidal/poloidal nonlinear spectral output.  `d1`/`d2` are radial derivative
-operators, `lfac=l(l+1)`, `rinv=1/r`, `rinv2=1/r²`, and `rscale` is a legacy
-operator-bundle field kept for interface compatibility. Stage-2 vector synthesis
-uses `rinv`/`rinv2` directly. `sinθ`/`cosθ` are the Coriolis grid factors, and
-`E` is the Ekman number.
+operators, `lfac=l(l+1)`, `rinv=1/r`, `rinv2=1/r²`, and `rscale=1/r²` is the
+radial-synthesis scale forwarded to `gpu_vector_spectral_to_physical!` (Stage-2
+`u_r = l(l+1)·P·rscale`) — it is LOAD-BEARING, not optional. `sinθ`/`cosθ` are
+the Coriolis grid factors, and `E` is the Ekman number.
 
 **Optional coupled forcing** (Phase 5i) accumulated between the Coriolis and the analyze,
 matching the CPU accumulation order `thermal → compositional → Lorentz`:
@@ -76,14 +60,18 @@ function gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, 
     # 1. velocity (tor,pol) → physical (u_r,u_θ,u_φ)
     ur = ph(:_ur); uθ = ph(:_ut); uφ = ph(:_up)
     gpu_vector_spectral_to_physical!(ur, uθ, uφ, spec(tor_r, tor_i), spec(pol_r, pol_i), config,
-        lfac, rscale, d1, rinv, bw)
+        lfac, rscale, d1, rinv, bw; ws = ws, tag = Symbol(tag, :_us2p))
     # 2. vorticity ω = ∇×u (spectral)
-    wtr = similar(tor_r); wti = similar(tor_i); wpr = similar(pol_r); wpi = similar(pol_i)
-    gpu_spectral_curl!(wtr, wti, wpr, wpi, tor_r, tor_i, pol_r, pol_i, d1, d2, lfac, rinv, rinv2, curl_r, bw)
+    wtr = gpu_scratch!(ws, Symbol(tag, :_wtr), tor_r)
+    wti = gpu_scratch!(ws, Symbol(tag, :_wti), tor_i)
+    wpr = gpu_scratch!(ws, Symbol(tag, :_wpr), pol_r)
+    wpi = gpu_scratch!(ws, Symbol(tag, :_wpi), pol_i)
+    gpu_spectral_curl!(wtr, wti, wpr, wpi, tor_r, tor_i, pol_r, pol_i, d1, d2, lfac, rinv, rinv2, curl_r, bw;
+        ws = ws, tag = Symbol(tag, :_curl))
     # 3. vorticity → physical (ω_r,ω_θ,ω_φ)
     wr = ph(:_or); wθ = ph(:_ot); wφ = ph(:_op)
     gpu_vector_spectral_to_physical!(wr, wθ, wφ, spec(wtr, wti), spec(wpr, wpi), config,
-        lfac, rscale, d1, rinv, bw)
+        lfac, rscale, d1, rinv, bw; ws = ws, tag = Symbol(tag, :_ws2p))
     # 4. adv = E·(u×ω) − ẑ×u  (physical)
     ar = ph(:_ar); aθ = ph(:_at); aφ = ph(:_ap)
     gpu_cross!(ar.data, aθ.data, aφ.data, ur.data, uθ.data, uφ.data, wr.data, wθ.data, wφ.data, E)
@@ -106,7 +94,7 @@ function gpu_velocity_nonlinear!(nl_tor_r, nl_tor_i, nl_pol_r, nl_pol_i, tor_r, 
     # where S_F comes from tangential sphtor analysis and Q_F from the radial
     # scalar analysis. Toroidal keeps the raw T_F component.
     gpu_vector_physical_to_spectral!(spec(nl_tor_r, nl_tor_i), spec(nl_pol_r, nl_pol_i), aθ, aφ, config;
-        raw_spheroidal = true)
+        raw_spheroidal = true, ws = ws, tag = Symbol(tag, :_fp2s))
     q_r = gpu_scratch!(ws, Symbol(tag, :_qr), nl_pol_r)
     q_i = gpu_scratch!(ws, Symbol(tag, :_qi), nl_pol_i)
     nlat, nlon = size(ar.data, 1), size(ar.data, 2)

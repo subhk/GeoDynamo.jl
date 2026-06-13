@@ -160,11 +160,19 @@ set_initial_condition!(model, :composition, ZeroIC())
 set_initial_condition!(model, :temperature, (r, θ, φ) -> 1 - r)
 ```
 """
-function set_initial_condition! end
+function set_initial_condition!(model::GeodynamoModel, field::Symbol, ic)
+    _apply_initial_condition!(model, field, ic)
+    # The user has supplied an IC, so mark the state initialized. Otherwise the
+    # first solver_step!/run_solver! would run initialize_solver_fields!
+    # (`state.is_initialized || ...`, solver/mainloop.jl) and overwrite this IC
+    # with the default field initialization.
+    model.state.is_initialized = true
+    return model
+end
 
 # --- RandomPerturbation --------------------------------------------------------
 
-function set_initial_condition!(
+function _apply_initial_condition!(
         model::GeodynamoModel,
         field::Symbol,
         ic::RandomPerturbation
@@ -201,7 +209,7 @@ end
 
 # --- AnalyticIC ----------------------------------------------------------------
 
-function set_initial_condition!(
+function _apply_initial_condition!(
         model::GeodynamoModel,
         field::Symbol,
         ic::AnalyticIC
@@ -222,7 +230,7 @@ end
 # module; `load_initial_conditions!` will warn and fall back to an analytical
 # profile.
 
-function set_initial_condition!(
+function _apply_initial_condition!(
         model::GeodynamoModel,
         field::Symbol,
         ic::FileIC
@@ -236,7 +244,7 @@ end
 #
 # Fields are zero-initialised by `initialize_solver_state`, so this is a no-op.
 
-function set_initial_condition!(
+function _apply_initial_condition!(
         model::GeodynamoModel,
         field::Symbol,
         ::ZeroIC
@@ -286,17 +294,17 @@ function _set_scalar_from_function!(model::GeodynamoModel, field::Symbol, fn)
     return model
 end
 
-function set_initial_condition!(model::GeodynamoModel, field::Symbol, value::Real)
+function _apply_initial_condition!(model::GeodynamoModel, field::Symbol, value::Real)
     _check_scalar_ic_field(field)
     return _set_scalar_from_function!(model, field, (r, θ, φ) -> Float64(value))
 end
 
-function set_initial_condition!(model::GeodynamoModel, field::Symbol, fn::Function)
+function _apply_initial_condition!(model::GeodynamoModel, field::Symbol, fn::Function)
     _check_scalar_ic_field(field)
     return _set_scalar_from_function!(model, field, fn)
 end
 
-function set_initial_condition!(model::GeodynamoModel, field::Symbol,
+function _apply_initial_condition!(model::GeodynamoModel, field::Symbol,
         arr::AbstractArray{<:Real, 3})
     _check_scalar_ic_field(field)
     f = _get_field(model, field)
@@ -312,7 +320,7 @@ end
 
 # --- Catch-all for unknown IC types --------------------------------------------
 
-function set_initial_condition!(
+function _apply_initial_condition!(
         model::GeodynamoModel,
         field::Symbol,
         ic

@@ -188,6 +188,8 @@ additional_tests = (
     "temperature_field.jl",
     "transform_collective_shortcuts.jl",
     "initial_conditions.jl",
+    "randomize_field_modes.jl",
+    "initial_condition_application.jl",
     "composition_magnetic_fields.jl",
     "allocation_runtime_checks.jl",
     "magnetic_boundary_numerical.jl",

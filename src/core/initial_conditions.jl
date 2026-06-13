@@ -42,31 +42,30 @@ Populate a scalar spectral field (temperature/composition) with random perturbat
 """
 function randomize_scalar_field!(field; amplitude::Real, lmax::Int, domain = nothing)
     spectral = getproperty(field, :spectral)
-    real = parent(spectral.data_real)
-    imag = parent(spectral.data_imag)
-    lm_range = get_local_range(spectral.pencil, 1)
+    real3 = parent(spectral.data_real)
+    imag3 = parent(spectral.data_imag)
+    cfg = spectral.config
     r_range = get_local_range(spectral.pencil, 3)
-    l_values = spectral.config.l_values
-    fill!(real, zero(eltype(real)))
-    fill!(imag, zero(eltype(imag)))
+    T = eltype(real3)
+    fill!(real3, zero(T))
+    fill!(imag3, zero(T))
     amp = Float64(amplitude)
-    for (local_idx, global_idx) in enumerate(lm_range)
-        if global_idx <= length(l_values)
-            l = l_values[global_idx]
-            if l <= lmax
-                for r in r_range
-                    lr = r - first(r_range) + 1
-                    if lr <= size(real, 3)
-                        real[local_idx, 1, lr] = convert(eltype(real), amp * (rand() - 0.5))
-                        imag[local_idx, 1, lr] = zero(eltype(imag))
-                    end
-                end
-            end
+    # Index storage by (l_slot, m_slot) via the mode → slot map so EVERY owned
+    # (l, m) mode is perturbed — not just the m = 0 column (the legacy
+    # `[idx, 1, r]` idiom pinned dim-2 to slot 1, silently zeroing all m > 0).
+    for lm in 1:cfg.nlm
+        cfg.l_values[lm] <= lmax || continue
+        slot = local_spectral_storage_slot(cfg, lm)
+        slot === nothing && continue          # mode not owned by this rank
+        for (local_r, _global_r) in enumerate(r_range)
+            local_r <= size(real3, 3) || continue
+            set_local_spectral_value!(real3, slot, local_r,
+                                      convert(T, amp * (rand() - 0.5)))
+            set_local_spectral_value!(imag3, slot, local_r, zero(T))
         end
     end
     # Verify initial conditions are finite after all transformations
-    spectral = getproperty(field, :spectral)
-    if any(isnan, parent(spectral.data_real)) || any(isinf, parent(spectral.data_real))
+    if any(isnan, real3) || any(isinf, real3)
         error("Non-finite values in scalar field initial conditions (real part)")
     end
     return field
@@ -80,26 +79,25 @@ Populate velocity-like toroidal/poloidal fields with random perturbations up to 
 function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain = nothing)
     amp = Float64(amplitude)
     for spectral in (field.toroidal, field.poloidal)
-        real = parent(spectral.data_real)
-        imag = parent(spectral.data_imag)
-        fill!(real, zero(eltype(real)))
-        fill!(imag, zero(eltype(imag)))
-        lm_range = get_local_range(spectral.pencil, 1)
+        real3 = parent(spectral.data_real)
+        imag3 = parent(spectral.data_imag)
+        cfg = spectral.config
+        T = eltype(real3)
+        fill!(real3, zero(T))
+        fill!(imag3, zero(T))
         r_range = get_local_range(spectral.pencil, 3)
-        l_values = spectral.config.l_values
-        for (local_idx, global_idx) in enumerate(lm_range)
-            if global_idx <= length(l_values)
-                l = l_values[global_idx]
-                if 1 <= l <= lmax
-                    for r in r_range
-                        lr = r - first(r_range) + 1
-                        if lr <= size(real, 3)
-                            real[local_idx, 1, lr] = convert(eltype(real), amp *
-                                                                           (rand() - 0.5))
-                            imag[local_idx, 1, lr] = zero(eltype(imag))
-                        end
-                    end
-                end
+        # Perturb every owned (l, m) mode with 1 ≤ l ≤ lmax (l = 0 carries no
+        # toroidal/poloidal vector content). Slot-indexed so m > 0 is populated.
+        for lm in 1:cfg.nlm
+            l = cfg.l_values[lm]
+            (1 <= l <= lmax) || continue
+            slot = local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
+            for (local_r, _global_r) in enumerate(r_range)
+                local_r <= size(real3, 3) || continue
+                set_local_spectral_value!(real3, slot, local_r,
+                                          convert(T, amp * (rand() - 0.5)))
+                set_local_spectral_value!(imag3, slot, local_r, zero(T))
             end
         end
     end
@@ -119,26 +117,24 @@ Populate magnetic toroidal/poloidal fields with random perturbations.
 function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain = nothing)
     amp = Float64(amplitude)
     for spectral in (field.toroidal, field.poloidal)
-        real = parent(spectral.data_real)
-        imag = parent(spectral.data_imag)
-        fill!(real, zero(eltype(real)))
-        fill!(imag, zero(eltype(imag)))
-        lm_range = get_local_range(spectral.pencil, 1)
+        real3 = parent(spectral.data_real)
+        imag3 = parent(spectral.data_imag)
+        cfg = spectral.config
+        T = eltype(real3)
+        fill!(real3, zero(T))
+        fill!(imag3, zero(T))
         r_range = get_local_range(spectral.pencil, 3)
-        l_values = spectral.config.l_values
-        for (local_idx, global_idx) in enumerate(lm_range)
-            if global_idx <= length(l_values)
-                l = l_values[global_idx]
-                if 1 <= l <= lmax
-                    for r in r_range
-                        lr = r - first(r_range) + 1
-                        if lr <= size(real, 3)
-                            real[local_idx, 1, lr] = convert(eltype(real), amp *
-                                                                           (rand() - 0.5))
-                            imag[local_idx, 1, lr] = zero(eltype(imag))
-                        end
-                    end
-                end
+        # Slot-indexed perturbation over every owned (l, m) mode, 1 ≤ l ≤ lmax.
+        for lm in 1:cfg.nlm
+            l = cfg.l_values[lm]
+            (1 <= l <= lmax) || continue
+            slot = local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
+            for (local_r, _global_r) in enumerate(r_range)
+                local_r <= size(real3, 3) || continue
+                set_local_spectral_value!(real3, slot, local_r,
+                                          convert(T, amp * (rand() - 0.5)))
+                set_local_spectral_value!(imag3, slot, local_r, zero(T))
             end
         end
     end
@@ -407,43 +403,42 @@ function generate_random_temperature!(temp_field, amplitude, modes_range)
     imag_data = parent(spectral.data_imag)
 
     T = eltype(real_data)
-    nlm = size(real_data, 1)
     nr = size(real_data, 3)
 
     # Get local ranges for distributed computation
-    lm_range = get_local_range(spectral.pencil, 1)
+    cfg = spectral.config
     r_range = get_local_range(spectral.pencil, 3)
-    l_values = spectral.config.l_values
 
     # Clear field first
     fill!(real_data, zero(T))
     fill!(imag_data, zero(T))
 
-    for global_lm in lm_range
-        if global_lm <= length(l_values)
-            l = l_values[global_lm]
-            slot = local_spectral_storage_slot(spectral.config, global_lm)
-            slot === nothing && continue
+    # Iterate ALL modes via the slot map (m-major lm index) so m>0 modes are
+    # populated. The old get_local_range(pencil,1) idiom walked the l_slot axis
+    # (1:lmax+1) and fed it as a mode index → only the m=0 column was filled.
+    for lm in 1:cfg.nlm
+        l = cfg.l_values[lm]
+        slot = local_spectral_storage_slot(cfg, lm)
+        slot === nothing && continue
 
-            for (local_r, global_r) in enumerate(r_range)
-                if local_r <= size(real_data, 3)
-                    r_frac = (global_r - 1) / max(nr - 1, 1)
+        for (local_r, global_r) in enumerate(r_range)
+            if local_r <= size(real_data, 3)
+                r_frac = (global_r - 1) / max(nr - 1, 1)
 
-                    if l == 0  # l=0, m=0 mode - base conductive profile
-                        # Orthonormal SH (Y_0^0 = 1/√(4π)): store physical mean ×√(4π).
-                        base_temp = T(1.0 - 0.8 * r_frac)
-                        set_local_spectral_value!(real_data, slot, local_r,
-                            sqrt(4 * T(π)) *
-                            (base_temp + T(amplitude * 0.1 * (rand() - 0.5))))
-                    elseif l in modes_range
-                        # Random perturbations with radial dependence
-                        radial_factor = sin(π * r_frac)
-                        set_local_spectral_value!(real_data, slot, local_r,
-                            T(amplitude * radial_factor * (rand() - 0.5)))
-                    end
-                    # Imaginary part is zero for real-valued fields
-                    set_local_spectral_value!(imag_data, slot, local_r, zero(T))
+                if l == 0  # l=0, m=0 mode - base conductive profile
+                    # Orthonormal SH (Y_0^0 = 1/√(4π)): store physical mean ×√(4π).
+                    base_temp = T(1.0 - 0.8 * r_frac)
+                    set_local_spectral_value!(real_data, slot, local_r,
+                        sqrt(4 * T(π)) *
+                        (base_temp + T(amplitude * 0.1 * (rand() - 0.5))))
+                elseif l in modes_range
+                    # Random perturbations with radial dependence
+                    radial_factor = sin(π * r_frac)
+                    set_local_spectral_value!(real_data, slot, local_r,
+                        T(amplitude * radial_factor * (rand() - 0.5)))
                 end
+                # Imaginary part is zero for real-valued fields
+                set_local_spectral_value!(imag_data, slot, local_r, zero(T))
             end
         end
     end
@@ -467,36 +462,34 @@ function generate_random_magnetic!(mag_field, amplitude, modes_range)
         nr = size(real_data, 3)
 
         # Get local ranges
-        lm_range = get_local_range(spectral.pencil, 1)
+        cfg = spectral.config
         r_range = get_local_range(spectral.pencil, 3)
-        l_values = spectral.config.l_values
 
         # Clear fields
         fill!(real_data, zero(T))
         fill!(imag_data, zero(T))
 
-        for global_lm in lm_range
-            if global_lm <= length(l_values)
-                l = l_values[global_lm]
-                slot = local_spectral_storage_slot(spectral.config, global_lm)
-                slot === nothing && continue
+        # Iterate ALL modes via the slot map so m>0 modes are populated.
+        for lm in 1:cfg.nlm
+            l = cfg.l_values[lm]
+            slot = local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
 
-                for (local_r, global_r) in enumerate(r_range)
-                    if local_r <= size(real_data, 3)
-                        r_frac = (global_r - 1) / max(nr - 1, 1)
-                        radial_factor = sin(π * r_frac)
+            for (local_r, global_r) in enumerate(r_range)
+                if local_r <= size(real_data, 3)
+                    r_frac = (global_r - 1) / max(nr - 1, 1)
+                    radial_factor = sin(π * r_frac)
 
-                        if l in modes_range && l >= 1  # l=0 not valid for vector fields
-                            if is_poloidal && l == 1  # Dipole mode - stronger
-                                set_local_spectral_value!(real_data, slot, local_r,
-                                    T(5.0 * amplitude * radial_factor))
-                            else
-                                set_local_spectral_value!(real_data, slot, local_r,
-                                    T(amplitude * radial_factor * (rand() - 0.5)))
-                            end
+                    if l in modes_range && l >= 1  # l=0 not valid for vector fields
+                        if is_poloidal && l == 1  # Dipole mode - stronger
+                            set_local_spectral_value!(real_data, slot, local_r,
+                                T(5.0 * amplitude * radial_factor))
+                        else
+                            set_local_spectral_value!(real_data, slot, local_r,
+                                T(amplitude * radial_factor * (rand() - 0.5)))
                         end
-                        set_local_spectral_value!(imag_data, slot, local_r, zero(T))
                     end
+                    set_local_spectral_value!(imag_data, slot, local_r, zero(T))
                 end
             end
         end
@@ -521,31 +514,29 @@ function generate_random_velocity!(vel_field, amplitude, modes_range)
         nr = size(real_data, 3)
 
         # Get local ranges
-        lm_range = get_local_range(spectral.pencil, 1)
+        cfg = spectral.config
         r_range = get_local_range(spectral.pencil, 3)
-        l_values = spectral.config.l_values
 
         # Clear fields
         fill!(real_data, zero(T))
         fill!(imag_data, zero(T))
 
-        for global_lm in lm_range
-            if global_lm <= length(l_values)
-                l = l_values[global_lm]
-                slot = local_spectral_storage_slot(spectral.config, global_lm)
-                slot === nothing && continue
+        # Iterate ALL modes via the slot map so m>0 modes are populated.
+        for lm in 1:cfg.nlm
+            l = cfg.l_values[lm]
+            slot = local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
 
-                for (local_r, global_r) in enumerate(r_range)
-                    if local_r <= size(real_data, 3)
-                        r_frac = (global_r - 1) / max(nr - 1, 1)
-                        radial_factor = sin(π * r_frac)  # Avoid boundaries
+            for (local_r, global_r) in enumerate(r_range)
+                if local_r <= size(real_data, 3)
+                    r_frac = (global_r - 1) / max(nr - 1, 1)
+                    radial_factor = sin(π * r_frac)  # Avoid boundaries
 
-                        if l in modes_range && l >= 1  # l=0 not valid for vector fields
-                            set_local_spectral_value!(real_data, slot, local_r,
-                                T(amplitude * radial_factor * (rand() - 0.5)))
-                        end
-                        set_local_spectral_value!(imag_data, slot, local_r, zero(T))
+                    if l in modes_range && l >= 1  # l=0 not valid for vector fields
+                        set_local_spectral_value!(real_data, slot, local_r,
+                            T(amplitude * radial_factor * (rand() - 0.5)))
                     end
+                    set_local_spectral_value!(imag_data, slot, local_r, zero(T))
                 end
             end
         end
@@ -570,35 +561,33 @@ function generate_random_composition!(comp_field, amplitude, modes_range)
     nr = size(real_data, 3)
 
     # Get local ranges
-    lm_range = get_local_range(spectral.pencil, 1)
+    cfg = spectral.config
     r_range = get_local_range(spectral.pencil, 3)
-    l_values = spectral.config.l_values
 
     # Clear field first
     fill!(real_data, zero(T))
     fill!(imag_data, zero(T))
 
-    for global_lm in lm_range
-        if global_lm <= length(l_values)
-            l = l_values[global_lm]
-            slot = local_spectral_storage_slot(spectral.config, global_lm)
-            slot === nothing && continue
+    # Iterate ALL modes via the slot map so m>0 modes are populated.
+    for lm in 1:cfg.nlm
+        l = cfg.l_values[lm]
+        slot = local_spectral_storage_slot(cfg, lm)
+        slot === nothing && continue
 
-            for (local_r, global_r) in enumerate(r_range)
-                if local_r <= size(real_data, 3)
-                    r_frac = (global_r - 1) / max(nr - 1, 1)
+        for (local_r, global_r) in enumerate(r_range)
+            if local_r <= size(real_data, 3)
+                r_frac = (global_r - 1) / max(nr - 1, 1)
 
-                    if l == 0  # l=0, m=0 mode - base stratified profile
-                        base_comp = T(0.1 + 0.2 * r_frac)  # 0.1 to 0.3
-                        set_local_spectral_value!(real_data, slot, local_r,
-                            base_comp + T(amplitude * 0.05 * (rand() - 0.5)))
-                    elseif l in modes_range
-                        radial_factor = sin(π * r_frac)
-                        set_local_spectral_value!(real_data, slot, local_r,
-                            T(amplitude * 0.1 * radial_factor * (rand() - 0.5)))
-                    end
-                    set_local_spectral_value!(imag_data, slot, local_r, zero(T))
+                if l == 0  # l=0, m=0 mode - base stratified profile
+                    base_comp = T(0.1 + 0.2 * r_frac)  # 0.1 to 0.3
+                    set_local_spectral_value!(real_data, slot, local_r,
+                        base_comp + T(amplitude * 0.05 * (rand() - 0.5)))
+                elseif l in modes_range
+                    radial_factor = sin(π * r_frac)
+                    set_local_spectral_value!(real_data, slot, local_r,
+                        T(amplitude * 0.1 * radial_factor * (rand() - 0.5)))
                 end
+                set_local_spectral_value!(imag_data, slot, local_r, zero(T))
             end
         end
     end

@@ -59,7 +59,8 @@ function gpu_spectral_curl!(dst_tor_r, dst_tor_i, dst_pol_r, dst_pol_i,
     # 2 mat-vec launches, each with its own synchronize (= 2 barriers/curl).
     # Phase-5c: accept caller-owned scratch (d2P*) + hoist a single barrier
     # after both launches (the outputs are independent, no inter-dependency).
-    d2Pr = similar(src_pol_r); d2Pi = similar(src_pol_i)
+    d2Pr = gpu_scratch!(ws, Symbol(tag, :_d2pr), src_pol_r)
+    d2Pi = gpu_scratch!(ws, Symbol(tag, :_d2pi), src_pol_i)
     gpu_batched_banded_matvec!(d2Pr, src_pol_r, d2, bw)
     gpu_batched_banded_matvec!(d2Pi, src_pol_i, d2, bw)
     lf  = reshape(lfac, :, 1, 1)
