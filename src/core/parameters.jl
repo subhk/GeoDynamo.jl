@@ -82,6 +82,9 @@ Base.@kwdef struct SolverParameters
     restart_file::String = ""
     restart_dir::String = ""
     restart_time::Float64 = 0.0
+
+    internal_heating::Union{Nothing, Float64, Function} = nothing
+    compositional_source::Union{Nothing, Float64, Function} = nothing
 end
 
 function _parameter_rank0()

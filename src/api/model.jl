@@ -59,7 +59,9 @@ function _build_geodynamo_model(
         include_topography_shift_terms, stefan_enabled, stefan_number,
         inner_core_conductivity_ratio, latent_heat,
         icb_topography_file, ocb_topography_file,
-        magnetic_inner_bc::Symbol
+        magnetic_inner_bc::Symbol;
+        internal_heating = nothing,
+        compositional_source = nothing
 )
     params = SolverParameters(
         architecture = arch_sym,
@@ -95,7 +97,9 @@ function _build_geodynamo_model(
         latent_heat = latent_heat,
         icb_topography_file = icb_topography_file,
         ocb_topography_file = ocb_topography_file,
-        magnetic_inner_bc = magnetic_inner_bc
+        magnetic_inner_bc = magnetic_inner_bc,
+        internal_heating = internal_heating,
+        compositional_source = compositional_source
     )
     # Pass the grid's concrete architecture object so a real backend (e.g.
     # `GPU(CUDABackend())`) is preserved end-to-end instead of being flattened
@@ -177,7 +181,9 @@ function GeodynamoModel(grid::SphericalShellGrid;
         latent_heat::Real = 1.0,
         icb_topography_file::AbstractString = "",
         ocb_topography_file::AbstractString = "",
-        magnetic_inner_bc::Symbol = :insulating
+        magnetic_inner_bc::Symbol = :insulating,
+        internal_heating = nothing,
+        compositional_source = nothing
 )
     velocity_bcs, temperature_bcs, composition_bcs = _resolve_bcs(
         boundary_conditions, velocity_bcs, temperature_bcs, composition_bcs,
@@ -196,7 +202,9 @@ function GeodynamoModel(grid::SphericalShellGrid;
         include_topography_shift_terms, stefan_enabled, Float64(stefan_number),
         Float64(inner_core_conductivity_ratio), Float64(latent_heat),
         String(icb_topography_file), String(ocb_topography_file),
-        magnetic_inner_bc)
+        magnetic_inner_bc;
+        internal_heating = internal_heating,
+        compositional_source = compositional_source)
 end
 
 # ────────────────────────────────────────────────────────────────────────────────
@@ -241,7 +249,9 @@ function GeodynamoModel(grid::SphericalBallGrid;
         latent_heat::Real = 1.0,
         icb_topography_file::AbstractString = "",
         ocb_topography_file::AbstractString = "",
-        magnetic_inner_bc::Symbol = :insulating
+        magnetic_inner_bc::Symbol = :insulating,
+        internal_heating = nothing,
+        compositional_source = nothing
 )
     velocity_bcs, temperature_bcs, composition_bcs = _resolve_bcs(
         boundary_conditions, velocity_bcs, temperature_bcs, composition_bcs,
@@ -260,5 +270,7 @@ function GeodynamoModel(grid::SphericalBallGrid;
         include_topography_shift_terms, stefan_enabled, Float64(stefan_number),
         Float64(inner_core_conductivity_ratio), Float64(latent_heat),
         String(icb_topography_file), String(ocb_topography_file),
-        magnetic_inner_bc)
+        magnetic_inner_bc;
+        internal_heating = internal_heating,
+        compositional_source = compositional_source)
 end
