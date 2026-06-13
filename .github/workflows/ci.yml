@@ -71,7 +71,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.julia-version == '1.11' && runner.os == 'Linux'
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: lcov.info
           token: ${{ secrets.CODECOV_TOKEN }}
