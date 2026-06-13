@@ -198,3 +198,38 @@ function _resolve_source(source, domain, default::Real)
         return fill(Float64(source), nr)
     end
 end
+
+"""
+    conductive_profile_solve(; domain, bc_code, inner_value, outer_value,
+                             source, inner_regularity) -> Vector{Float64}
+
+Steady l=0 (0,0)-coefficient profile c(r) solving ∇²₀ c = −source with the same
+boundary rows the implicit scalar matrices use (⇒ the IC is a discrete
+equilibrium). `inner_value`/`outer_value` are the boundary coefficients (Dirichlet
+value, or Neumann flux). `source` is a length-N vector (RHS of ∇²c = −S). The
+function is linear and unit-agnostic; callers pre-scale by √(4π) as needed.
+`inner_regularity=true` selects the ball-centre row (Θ′(r₁)=0 for l=0).
+"""
+function conductive_profile_solve(; domain, bc_code::Int,
+        inner_value::Real, outer_value::Real,
+        source::AbstractVector, inner_regularity::Bool = false)
+    T = Float64
+    N = domain.N
+    bw = radial_bandwidth(domain)
+    lap = create_radial_laplacian(domain)
+    d1 = create_derivative_matrix(T, 1, domain)
+    sys = T.(copy(lap.data))
+    _zero_scalar_boundary_rows!(sys, bw, N)
+    _apply_scalar_boundary_rows!(sys, T.(d1.data), bc_code, 0, bw, N,
+        inner_regularity, Float64(domain.r[1, 3]))
+    A = BandedMatrix{T}(sys, bw, N)
+    lu = factorize_banded(A)
+    rhs = Vector{T}(undef, N)
+    @inbounds for i in 1:N
+        rhs[i] = -T(source[i])
+    end
+    rhs[1] = T(inner_value)
+    rhs[N] = T(outer_value)
+    solve_banded!(rhs, lu, rhs)   # in-place banded solve (x === b aliasing safe); rhs ← c(r)
+    return rhs
+end
