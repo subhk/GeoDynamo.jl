@@ -111,7 +111,8 @@ function Base.show(io::IO, ::MIME"text/plain", params::SolverParameters)
 
     print_section(io, "Physics")
     for key in (:Ek, :Ra, :RaC, :Pr, :Pm, :Sc, :include_magnetic,
-        :include_composition, :impose_magnetic_field)
+        :include_composition, :impose_magnetic_field,
+        :internal_heating, :compositional_source)
         print_entry(io, key, getfield(params, key))
     end
 
