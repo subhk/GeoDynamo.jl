@@ -176,3 +176,25 @@ function _apply_scalar_implicit_update!(
 
     return state
 end
+
+# Map per-boundary DIRICHLET/NEUMANN ints to the scalar_bc_code used by
+# _apply_scalar_boundary_rows! (1=DD, 2=DN, 3=ND, 4=NN).
+@inline function _scalar_bc_code_from_types(inner_type::Int, outer_type::Int)
+    di = Int(DIRICHLET)
+    inner_d = inner_type == di
+    outer_d = outer_type == di
+    return inner_d ? (outer_d ? 1 : 2) : (outer_d ? 3 : 4)
+end
+
+# Resolve a source spec to a per-radial-node vector S(r). `default` is the
+# geometry-aware fallback used when `source === nothing`.
+function _resolve_source(source, domain, default::Real)
+    nr = domain.N
+    if source === nothing
+        return fill(Float64(default), nr)
+    elseif source isa Function
+        return Float64[source(domain.r[k, 4]) for k in 1:nr]
+    else
+        return fill(Float64(source), nr)
+    end
+end
