@@ -215,10 +215,21 @@ function _apply_initial_condition!(
         ic::AnalyticIC
 )
     f = _get_field(model, field)
+    p = model.state.parameters
+    dom = model.state.backend.outer_core_domain
+    # Source defaults to the model's configured field source; an explicit
+    # `:source` in the IC parameters overrides it. We consume `:source` here and
+    # drop it from the splat below so the explicit `source = src` kwarg does not
+    # clash with a `source` key in `ic.parameters...`.
+    src = get(ic.parameters, :source,
+        field === :composition ? p.compositional_source : p.internal_heating)
+    diff = field === :composition ? p.Pm / p.Sc : p.Pm / p.Pr
+    # `ic.parameters` is a kwargs container; drop `:source` (consumed above as the
+    # explicit `source = src` kwarg) so it does not clash when splatted.
+    rest = Base.structdiff(NamedTuple(ic.parameters), NamedTuple{(:source,)})
     InitialConditions.set_analytical_initial_conditions!(f, field, ic.pattern;
-        amplitude = ic.amplitude,
-        ic.parameters...
-    )
+        amplitude = ic.amplitude, geometry = p.geometry, source = src,
+        diffusivity = diff, domain = dom, rest...)
     return model
 end
 

@@ -10,17 +10,21 @@ function initialize_composition_field!(state::SolverState{
 
     lm_range = local_spectral_mode_indices(composition.config)
     r_range = local_range(composition.config.pencils.spec, 3)
-
-    # Background (0,0) profile consistent with the prescribed composition BCs:
-    # interpolate between the inner/outer boundary coefficients (already √(4π)
-    # scaled by apply_scalar_boundary_parameters!) so the IC matches the
-    # boundaries instead of jumping. For the default 0/0 BC this is simply 0.
     domain = state.backend.outer_core_domain
-    ri = domain.r[1, 4]
-    ro = domain.r[domain.N, 4]
-    m00 = get_mode_index(composition.config, 0, 0)
-    inner_bv = m00 > 0 ? composition.boundary_values[1, m00] : zero(T)
-    outer_bv = m00 > 0 ? composition.boundary_values[2, m00] : zero(T)
+
+    # BC + source-aware conductive (0,0) profile. The previous default branch
+    # linearly interpolated the inner/outer boundary coefficients, ignoring the
+    # actual compositional source. The shared helper solves the discrete l=0 BVP
+    # with the solver's own Laplacian + boundary rows so the IC is a true discrete
+    # equilibrium of the implicit step (and sustaining the source via
+    # internal_sources keeps it one). Composition has no nonzero geometry default
+    # source: default_H = 0 for both shell and ball, so for the default 0/0 BC
+    # this yields C ≡ 0 — identical to the old linear-interp-of-(0,0) default,
+    # preserving backward compatibility. κC = Pm/Sc is the implicit diffusivity.
+    geom = state.parameters.geometry
+    apply_scalar_conductive_l0!(composition, domain, geom,
+        state.parameters.compositional_source,
+        state.parameters.Pm / state.parameters.Sc, 0.0)
 
     @inbounds for lm_idx in lm_range
         lm_idx <= composition.config.nlm || continue
@@ -30,13 +34,8 @@ function initialize_composition_field!(state::SolverState{
 
         for r_idx in r_range
             if l == 0 && m == 0
-                # BC-consistent background: linear interpolation (in radius)
-                # between the √(4π)-scaled inner/outer boundary coefficients, so
-                # the conductive seed satisfies the composition boundary values.
-                r = domain.r[r_idx, 4]
-                frac = ro > ri ? (r - ri) / (ro - ri) : zero(T)
-                set_local_spectral_value!(spec_real, slot, r_idx,
-                    inner_bv + (outer_bv - inner_bv) * T(frac))
+                # The BC + source-aware (0,0) coefficient was already written by
+                # apply_scalar_conductive_l0! above; nothing to do here.
             elseif 1 <= l <= 3
                 amplitude = T(1e-4)
                 set_local_spectral_value!(
@@ -67,7 +66,7 @@ function solver_compute_composition_nonlinear!(
         ws::SolverGradientWorkspace{T}) where {T}
     return _solver_compute_scalar_nonlinear!(
         𝔽, vel_fields, outer_core_domain, ws;
-        add_internal_sources = false,
+        add_internal_sources = true,
     )
 end
 

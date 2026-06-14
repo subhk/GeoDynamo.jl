@@ -621,20 +621,25 @@ set_analytical_initial_conditions!(mag_field, :magnetic, :dipole, amplitude=1.0)
 ```
 """
 function set_analytical_initial_conditions!(field, field_type::Symbol, pattern::Symbol;
-        amplitude::Real = 1.0, parameters...)
+        amplitude::Real = 1.0, geometry::Symbol = :shell, source = nothing,
+        diffusivity::Real = 1.0, domain = nothing, parameters...)
     println("Setting analytical initial conditions:")
     println("  Field: $field_type")
     println("  Pattern: $pattern")
     println("  Amplitude: $amplitude")
 
     if field_type == :temperature
-        set_analytical_temperature!(field, pattern, amplitude; parameters...)
+        set_analytical_temperature!(field, pattern, amplitude;
+            geometry = geometry, source = source, diffusivity = diffusivity,
+            domain = domain, parameters...)
     elseif field_type == :magnetic
         set_analytical_magnetic!(field, pattern, amplitude; parameters...)
     elseif field_type == :velocity
         set_analytical_velocity!(field, pattern, amplitude; parameters...)
     elseif field_type == :composition
-        set_analytical_composition!(field, pattern, amplitude; parameters...)
+        set_analytical_composition!(field, pattern, amplitude;
+            geometry = geometry, source = source, diffusivity = diffusivity,
+            domain = domain, parameters...)
     else
         throw(ArgumentError("Unknown field type: $field_type"))
     end
@@ -651,7 +656,9 @@ Set analytical temperature patterns.
 
 Uses PencilArray structure with data_real/data_imag arrays.
 """
-function set_analytical_temperature!(temp_field, pattern::Symbol, amplitude; parameters...)
+function set_analytical_temperature!(temp_field, pattern::Symbol, amplitude;
+        geometry::Symbol = :shell, source = nothing, diffusivity::Real = 1.0,
+        domain = nothing, parameters...)
     spectral = temp_field.spectral
     real_data = parent(spectral.data_real)
     imag_data = parent(spectral.data_imag)
@@ -669,20 +676,49 @@ function set_analytical_temperature!(temp_field, pattern::Symbol, amplitude; par
     fill!(imag_data, zero(T))
 
     if pattern == :conductive
-        # Linear conductive profile (only l=0 mode)
-        for global_lm in lm_range
-            if global_lm <= length(l_values) && l_values[global_lm] == 0
-                slot = local_spectral_storage_slot(spectral.config, global_lm)
-                slot === nothing && continue
-                for (local_r, global_r) in enumerate(r_range)
-                    if local_r <= size(real_data, 3)
-                        r_frac = (global_r - 1) / max(nr - 1, 1)
-                        # Orthonormal SH (Y_0^0 = 1/√(4π)): store physical mean ×√(4π).
-                        set_local_spectral_value!(real_data, slot, local_r,
-                            sqrt(4 * T(π)) * T(amplitude * (1.0 - r_frac)))
+        if domain === nothing
+            # Legacy path (no model context, e.g. a bare field built directly):
+            # linear conductive profile amplitude·(1 − r_frac) on the l=0 mode.
+            # The model/AnalyticIC path always threads `domain`, which selects the
+            # BC + source-aware discrete-equilibrium profile below instead.
+            for global_lm in lm_range
+                if global_lm <= length(l_values) && l_values[global_lm] == 0
+                    slot = local_spectral_storage_slot(spectral.config, global_lm)
+                    slot === nothing && continue
+                    for (local_r, global_r) in enumerate(r_range)
+                        if local_r <= size(real_data, 3)
+                            r_frac = (global_r - 1) / max(nr - 1, 1)
+                            # Orthonormal SH (Y_0^0 = 1/√(4π)): store mean ×√(4π).
+                            set_local_spectral_value!(real_data, slot, local_r,
+                                sqrt(4 * T(π)) * T(amplitude * (1.0 - r_frac)))
+                        end
                     end
                 end
             end
+        elseif geometry === :ball && source === nothing
+            # Backward-compat: ball with no explicit heating uses the closed-form
+            # 1 − r² conductive profile (mirroring initialize_temperature_field!'s
+            # _ball_conductive_temperature), stored as the (0,0) coeff ×√(4π).
+            # `amplitude` is IGNORED — the profile is fixed by geometry/BCs.
+            s4pi = sqrt(4 * T(π))
+            for global_lm in lm_range
+                if global_lm <= length(l_values) && l_values[global_lm] == 0
+                    slot = local_spectral_storage_slot(spectral.config, global_lm)
+                    slot === nothing && continue
+                    for (local_r, global_r) in enumerate(r_range)
+                        local_r <= size(real_data, 3) || continue
+                        r = domain.r[global_r, 4]
+                        set_local_spectral_value!(real_data, slot, local_r,
+                            s4pi * T(1 - r^2))
+                    end
+                end
+            end
+        else
+            # BC + source-aware conductive (0,0) profile, shared with the
+            # default-IC path. `amplitude` is IGNORED: the profile is fully
+            # determined by the boundary values + source (discrete l=0 BVP).
+            GEODYNAMO_PARENT.apply_scalar_conductive_l0!(temp_field, domain,
+                geometry, source, diffusivity, 0.0)
         end
 
     elseif pattern == :hot_blob
@@ -838,7 +874,9 @@ Set analytical composition patterns.
 
 Uses PencilArray structure with data_real/data_imag arrays.
 """
-function set_analytical_composition!(comp_field, pattern::Symbol, amplitude; parameters...)
+function set_analytical_composition!(comp_field, pattern::Symbol, amplitude;
+        geometry::Symbol = :shell, source = nothing, diffusivity::Real = 1.0,
+        domain = nothing, parameters...)
     spectral = comp_field.spectral
     real_data = parent(spectral.data_real)
     imag_data = parent(spectral.data_imag)
@@ -855,7 +893,17 @@ function set_analytical_composition!(comp_field, pattern::Symbol, amplitude; par
     fill!(real_data, zero(T))
     fill!(imag_data, zero(T))
 
-    if pattern == :stratified
+    if pattern == :conductive
+        # BC + source-aware conductive (0,0) profile, shared with the default-IC
+        # path. `amplitude` is IGNORED: the profile is fully determined by the
+        # boundary values + source. No geometry default source (default_H = 0).
+        domain === nothing && throw(ArgumentError(
+            "set_analytical_composition!(:conductive): a radial `domain` is " *
+            "required (thread it through from the model's outer_core_domain)."))
+        GEODYNAMO_PARENT.apply_scalar_conductive_l0!(comp_field, domain,
+            geometry, source, diffusivity, 0.0)
+
+    elseif pattern == :stratified
         # Vertically stratified composition (only l=0 mode)
         bottom_comp = get(parameters, :bottom_composition, 0.3)
         top_comp = get(parameters, :top_composition, 0.1)

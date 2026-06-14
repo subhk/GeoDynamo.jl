@@ -82,6 +82,9 @@ Base.@kwdef struct SolverParameters
     restart_file::String = ""
     restart_dir::String = ""
     restart_time::Float64 = 0.0
+
+    internal_heating::Union{Nothing, Float64, Function} = nothing
+    compositional_source::Union{Nothing, Float64, Function} = nothing
 end
 
 function _parameter_rank0()
@@ -108,7 +111,8 @@ function Base.show(io::IO, ::MIME"text/plain", params::SolverParameters)
 
     print_section(io, "Physics")
     for key in (:Ek, :Ra, :RaC, :Pr, :Pm, :Sc, :include_magnetic,
-        :include_composition, :impose_magnetic_field)
+        :include_composition, :impose_magnetic_field,
+        :internal_heating, :compositional_source)
         print_entry(io, key, getfield(params, key))
     end
 
@@ -333,6 +337,7 @@ function safe_parse_value(value_str::AbstractString, param_dict::Dict{Symbol, An
 
     s == "true" && return true
     s == "false" && return false
+    s == "nothing" && return nothing
     (s == "π" || s == "pi") && return π
 
     if startswith(s, ':')

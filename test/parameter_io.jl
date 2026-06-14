@@ -1,4 +1,5 @@
 using Test
+using Logging
 
 @testset "Parameter I/O" begin
     @testset "save_parameters roundtrip" begin
@@ -31,6 +32,26 @@ using Test
             @test loaded.velocity_bcs isa typeof(params.velocity_bcs)
             @test loaded.geometry == params.geometry
             @test loaded.radius_ratio == params.radius_ratio
+        finally
+            rm(tmpfile, force = true)
+        end
+    end
+
+    @testset "source params round-trip without parse warnings" begin
+        # internal_heating / compositional_source default to `nothing`;
+        # save_parameters writes them as the literal `nothing`, which the
+        # parser must resolve (not warn-and-default). A Float64 value must
+        # also round-trip through save → load.
+        @test GeoDynamo.safe_parse_value("nothing", Dict{Symbol, Any}()) === nothing
+
+        params = GeoDynamo.SolverParameters(nr = 16, lmax = 4,
+            internal_heating = 3.0)            # compositional_source stays nothing
+        tmpfile = tempname() * ".jl"
+        try
+            GeoDynamo.save_parameters(params, tmpfile)
+            loaded = @test_logs min_level = Logging.Warn GeoDynamo.load_parameters_from_file(tmpfile)
+            @test loaded.internal_heating == 3.0
+            @test loaded.compositional_source === nothing
         finally
             rm(tmpfile, force = true)
         end
