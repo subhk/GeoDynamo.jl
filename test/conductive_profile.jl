@@ -126,6 +126,32 @@ end
     @test rel < 1e-6
 end
 
+@testset "composition conductive IC == discrete equilibrium (shell)" begin
+    # Mirror of the temperature equilibrium test: the conductive (0,0) mode is
+    # built to satisfy the SAME discrete Laplacian + boundary rows the implicit
+    # step uses, with the source sustained via internal_sources, so one step
+    # leaves it invariant. Composition implicit diffusivity is κ_C = Pm/Sc.
+    params = G.SolverParameters(architecture = :cpu, geometry = :shell,
+        nr = 16, nr_inner = 4, lmax = 4, mmax = 4, nlat = 12, nlon = 24,
+        Ra = 1.0, Ek = 1e-2, Pr = 1.0, Pm = 1.0, Sc = 1.0, timestep = 1e-3,
+        include_magnetic = false, include_composition = true,
+        compositional_source = 2.0)
+    st = G.initialize_simulation(Float64, params)
+    G.initialize_solver_fields!(st)
+    comp = st.fields.composition
+    m00 = G.get_mode_index(comp.config, 0, 0)
+    slot = G.local_spectral_storage_slot(comp.config, m00)
+    rr = parent(comp.spectral.data_real)
+    # Snapshot ONLY the l=0 conductive coefficient (the random l>=1 seed modes
+    # legitimately evolve under diffusion, so a whole-array compare would fail).
+    before = [G.local_spectral_value(rr, slot, k) for k in 1:size(rr, 3)]
+    G.solver_step!(st)
+    rr2 = parent(comp.spectral.data_real)
+    after = [G.local_spectral_value(rr2, slot, k) for k in 1:size(rr2, 3)]
+    rel = maximum(abs, after .- before) / max(maximum(abs, before), eps())
+    @test rel < 1e-6
+end
+
 @testset "temperature default conductive backward-compat" begin
     s4pi = sqrt(4π)
     for (geom, rr) in ((:shell, 0.35), (:ball, 0.0))

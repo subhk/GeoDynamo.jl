@@ -21,10 +21,11 @@
                                       add_internal_sources)
 
 Field-agnostic scalar nonlinear assembly: zero work arrays, compute gradients,
-transform field+gradients to physical space, form advection (and, for
-temperature, internal sources), then transform the nonlinear term back to
-spectral. `add_internal_sources` is the ONLY behavioral difference between
-temperature (`true`) and composition (`false`).
+transform field+gradients to physical space, form advection (and, when
+`add_internal_sources`, the radial internal-source profile), then transform the
+nonlinear term back to spectral. Both temperature and composition pass
+`add_internal_sources = true` so their respective source fields
+(`internal_heating` / `compositional_source`) enter the evolution.
 """
 function _solver_compute_scalar_nonlinear!(
         𝔽::AbstractScalarField{T},
