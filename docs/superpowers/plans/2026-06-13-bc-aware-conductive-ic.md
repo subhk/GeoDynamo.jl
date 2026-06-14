@@ -1,5 +1,7 @@
 # BC-aware Conductive IC with Radial Source/Sink — Implementation Plan
 
+> **STATUS: COMPLETE (2026-06-14).** Tasks 1–7 implemented + committed (`b04b252`→`0d6c025`); test registered (`runtests.jl:236`). Full suite green: **8748 pass / 45 broken / 8793 total, EXIT=0** (broken baseline unchanged). Follow-up `f1ad967` fixes a byproduct: `nothing`-valued `internal_heating`/`compositional_source` now round-trip through param files (6 spurious parse warnings removed). Local `main` only (NOT pushed).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the two inconsistent conductive-profile implementations with one BC-aware, source-aware discrete solve, used by both the solver default and `AnalyticIC(:conductive)`, for temperature and composition.
