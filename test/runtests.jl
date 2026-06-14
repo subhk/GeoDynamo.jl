@@ -233,6 +233,7 @@ additional_tests = (
     "analytical_blob_radial.jl",
     "composition_analytical_ic.jl",
     "composition_ic_bc_consistency.jl",
+    "conductive_profile.jl",
     "temperature_boundary_normalization.jl",
     "temperature_ic_normalization.jl",
     "nusselt_and_analytical_ic.jl",

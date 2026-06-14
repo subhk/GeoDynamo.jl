@@ -170,3 +170,45 @@ end
         end
     end
 end
+
+@testset "AnalyticIC(:conductive) is BC+source aware (temperature)" begin
+    s4pi = sqrt(4π)
+    grid = G.SphericalShellGrid(G.CPU(); lmax = 2, mmax = 2, nlat = 8, nlon = 16,
+        nr = 24, nr_inner = 4)
+    # Explicit Dirichlet 1/0 BCs so the analytic below is exactly defined. (The
+    # grid constructor's default temperature BC is FixedFlux(1.0)/FixedTemp(0.0) —
+    # a Neumann inner — for which `T(ri)=1` would not hold; the IC still honours
+    # whatever BCs are configured, which is the property under test.)
+    model = G.GeodynamoModel(grid; Ek = 1e-2, Ra = 1.0, Pr = 1.0, Pm = 1.0,
+        include_magnetic = false, include_composition = false, internal_heating = 4.0,
+        temperature_bcs = G.BoundaryConditions(inner = G.FixedTemperature(1.0),
+            outer = G.FixedTemperature(0.0)))
+    G.set!(model; temperature = G.AnalyticIC(:conductive))
+    tmp = model.state.fields.temperature; dom = model.state.backend.outer_core_domain
+    m00 = G.get_mode_index(tmp.config, 0, 0); slot = G.local_spectral_storage_slot(tmp.config, m00)
+    r = [dom.r[k, 4] for k in 1:dom.N]; ri = r[1]; ro = r[end]
+    κ = 1.0; S = 4.0 / κ; part(rr) = -S*rr^2/6      # internal_heating=4, κ=1 ⇒ S=4
+    # Dirichlet 1/0 (set above) ⇒ T = a + b/r + part(r), with T(ri)=1, T(ro)=0
+    bb = ((1.0 - part(ri)) - (0.0 - part(ro))) / (1/ri - 1/ro); aa = (0.0 - part(ro)) - bb/ro
+    for k in 1:dom.N
+        got = G.local_spectral_value(parent(tmp.spectral.data_real), slot, k)/s4pi
+        @test isapprox(got, aa + bb/r[k] + part(r[k]); atol = 1e-4, rtol = 1e-4)
+    end
+    # internal_sources sustained
+    @test all(tmp.internal_sources .≈ 4.0)
+end
+
+@testset "AnalyticIC(:conductive) composition smoke" begin
+    grid = G.SphericalShellGrid(G.CPU(); lmax = 2, mmax = 2, nlat = 8, nlon = 16,
+        nr = 24, nr_inner = 4)
+    model = G.GeodynamoModel(grid; Ek = 1e-2, Ra = 1.0, Pr = 1.0, Pm = 1.0, Sc = 1.0,
+        include_magnetic = false, include_composition = true, compositional_source = 2.0)
+    G.set!(model; composition = G.AnalyticIC(:conductive))
+    comp = model.state.fields.composition
+    @test all(comp.internal_sources .≈ 2.0)
+    m00 = G.get_mode_index(comp.config, 0, 0); slot = G.local_spectral_storage_slot(comp.config, m00)
+    # nonzero source-driven interior profile, zero at the default 0/0 boundaries
+    rr = parent(comp.spectral.data_real)
+    c0 = [G.local_spectral_value(rr, slot, k) for k in 1:size(rr, 3)]
+    @test maximum(abs, c0) > 0
+end

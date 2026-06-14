@@ -14,28 +14,17 @@ function initialize_composition_field!(state::SolverState{
 
     # BC + source-aware conductive (0,0) profile. The previous default branch
     # linearly interpolated the inner/outer boundary coefficients, ignoring the
-    # actual compositional source. Solving the discrete l=0 BVP with the solver's
-    # own Laplacian + boundary rows makes the IC a true discrete equilibrium of
-    # the implicit step (and sustaining the source via internal_sources keeps it
-    # one). Composition has no nonzero geometry default source: default_H = 0 for
-    # both shell and ball, so for the default 0/0 BC this yields C ≡ 0 — identical
-    # to the old linear-interp-of-(0,0) default, preserving backward compatibility.
-    κC = Float64(state.parameters.Pm / state.parameters.Sc)
+    # actual compositional source. The shared helper solves the discrete l=0 BVP
+    # with the solver's own Laplacian + boundary rows so the IC is a true discrete
+    # equilibrium of the implicit step (and sustaining the source via
+    # internal_sources keeps it one). Composition has no nonzero geometry default
+    # source: default_H = 0 for both shell and ball, so for the default 0/0 BC
+    # this yields C ≡ 0 — identical to the old linear-interp-of-(0,0) default,
+    # preserving backward compatibility. κC = Pm/Sc is the implicit diffusivity.
     geom = state.parameters.geometry
-    s4pi = sqrt(4 * Float64(π))
-    m00 = get_mode_index(composition.config, 0, 0)
-    in_t = m00 > 0 ? composition.bc_type_inner[m00] : Int(DIRICHLET)
-    out_t = m00 > 0 ? composition.bc_type_outer[m00] : Int(DIRICHLET)
-    in_v = m00 > 0 ? composition.boundary_values[1, m00] : zero(T)
-    out_v = m00 > 0 ? composition.boundary_values[2, m00] : zero(T)
-    H_vec = _resolve_source(state.parameters.compositional_source, domain, 0.0)
-    # Sustain the source so the IC stays an equilibrium of the stepper.
-    copyto!(composition.internal_sources, T.(H_vec))
-    S_coeff = (H_vec ./ κC) .* s4pi
-    cond_c = conductive_profile_solve(; domain = domain,
-        bc_code = _scalar_bc_code_from_types(in_t, out_t),
-        inner_value = in_v, outer_value = out_v,
-        source = S_coeff, inner_regularity = geom === :ball)
+    apply_scalar_conductive_l0!(composition, domain, geom,
+        state.parameters.compositional_source,
+        state.parameters.Pm / state.parameters.Sc, 0.0)
 
     @inbounds for lm_idx in lm_range
         lm_idx <= composition.config.nlm || continue
@@ -45,11 +34,8 @@ function initialize_composition_field!(state::SolverState{
 
         for r_idx in r_range
             if l == 0 && m == 0
-                # BC + source-aware discrete-equilibrium profile. `cond_c` is
-                # already the (0,0) coefficient (√(4π)-scaled) indexed by the
-                # GLOBAL radial index; on current main r is local == global.
-                set_local_spectral_value!(spec_real, slot, r_idx,
-                    T(cond_c[r_idx]))
+                # The BC + source-aware (0,0) coefficient was already written by
+                # apply_scalar_conductive_l0! above; nothing to do here.
             elseif 1 <= l <= 3
                 amplitude = T(1e-4)
                 set_local_spectral_value!(

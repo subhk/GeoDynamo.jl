@@ -200,6 +200,43 @@ function _resolve_source(source, domain, default::Real)
     end
 end
 
+# Set a scalar field's l=0 conductive (0,0)-coefficient profile + sustain its
+# internal source, BC- and source-aware. `diffusivity` is the field's implicit
+# diffusivity (Pm/Pr for temperature, Pm/Sc for composition). `source` is the
+# user spec (nothing/Real/Function); `default_H` the geometry-aware fallback.
+# Writes field.internal_sources AND the (0,0) spectral coefficient. Assumes the
+# field's boundary_values/bc_type_* are already populated. This is the single
+# shared driver for both the default-IC path (initialize_{temperature,
+# composition}_field!) and the public AnalyticIC(:conductive) path.
+function apply_scalar_conductive_l0!(field, domain, geometry::Symbol, source,
+        diffusivity::Real, default_H::Real)
+    T = eltype(parent(field.spectral.data_real))
+    cfg = field.spectral.config
+    m00 = get_mode_index(cfg, 0, 0)
+    in_t = m00 > 0 ? field.bc_type_inner[m00] : Int(DIRICHLET)
+    out_t = m00 > 0 ? field.bc_type_outer[m00] : Int(DIRICHLET)
+    in_v = m00 > 0 ? field.boundary_values[1, m00] : zero(T)
+    out_v = m00 > 0 ? field.boundary_values[2, m00] : zero(T)
+    H_vec = _resolve_source(source, domain, default_H)
+    copyto!(field.internal_sources, T.(H_vec))
+    s4pi = sqrt(4 * Float64(π))
+    S_coeff = (H_vec ./ Float64(diffusivity)) .* s4pi
+    cond_c = conductive_profile_solve(; domain = domain,
+        bc_code = _scalar_bc_code_from_types(in_t, out_t),
+        inner_value = in_v, outer_value = out_v,
+        source = S_coeff, inner_regularity = geometry === :ball)
+    slot = local_spectral_storage_slot(cfg, m00)
+    if slot !== nothing
+        r_range = get_local_range(field.spectral.pencil, 3)
+        real_data = parent(field.spectral.data_real)
+        for (lr, gr) in enumerate(r_range)
+            lr <= size(real_data, 3) || continue
+            set_local_spectral_value!(real_data, slot, lr, T(cond_c[gr]))
+        end
+    end
+    return cond_c
+end
+
 """
     conductive_profile_solve(; domain, bc_code, inner_value, outer_value,
                              source, inner_regularity) -> Vector{Float64}

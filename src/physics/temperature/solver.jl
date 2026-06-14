@@ -27,32 +27,23 @@ function initialize_temperature_field!(state::SolverState{
 
     # BC + source-aware conductive (0,0) profile. The default closed-form
     # branches (a+b/r shell, 1−r² ball) ignore internal heating and the actual
-    # boundary VALUES; solving the discrete l=0 BVP with the solver's own
-    # Laplacian + boundary rows makes the IC a true discrete equilibrium of the
-    # implicit step (and sustains the source so it stays one).
-    κT = Float64(state.parameters.Pm / state.parameters.Pr)
+    # boundary VALUES; the shared helper solves the discrete l=0 BVP with the
+    # solver's own Laplacian + boundary rows so the IC is a true discrete
+    # equilibrium of the implicit step (and sustains the source so it stays one).
     geom = state.parameters.geometry
-    s4pi = sqrt(4 * Float64(π))
     if geom === :ball && state.parameters.internal_heating === nothing
         # Backward-compat: ball with no explicit heating keeps the closed-form
         # 1 − r² conductive IC and zero internal source (a decaying transient,
-        # exactly as before). Leave internal_sources at zero.
+        # exactly as before). Leave internal_sources at zero — do NOT call the
+        # helper; this branch uses _ball_conductive_temperature below.
         cond_c = nothing   # fall through to the existing closed-form branch
     else
-        m00 = get_mode_index(temperature.config, 0, 0)
-        in_t = m00 > 0 ? temperature.bc_type_inner[m00] : Int(DIRICHLET)
-        out_t = m00 > 0 ? temperature.bc_type_outer[m00] : Int(DIRICHLET)
-        in_v = m00 > 0 ? temperature.boundary_values[1, m00] : zero(T)
-        out_v = m00 > 0 ? temperature.boundary_values[2, m00] : zero(T)
-        default_H = geom === :ball ? 6.0 * κT : 0.0   # ball: H s.t. S=6 ⇒ IC = ro²−r²
-        H_vec = _resolve_source(state.parameters.internal_heating, domain, default_H)
-        # Sustain the source so the IC stays an equilibrium of the stepper.
-        copyto!(temperature.internal_sources, T.(H_vec))
-        S_coeff = (H_vec ./ κT) .* s4pi
-        cond_c = conductive_profile_solve(; domain = domain,
-            bc_code = _scalar_bc_code_from_types(in_t, out_t),
-            inner_value = in_v, outer_value = out_v,
-            source = S_coeff, inner_regularity = geom === :ball)
+        # default_H = 0: the old `6κT` ball value was dead code (the ball default
+        # takes the closed-form branch above and never reached here), so 0 is
+        # equivalent and cleaner. κT = Pm/Pr is the temperature implicit diffusivity.
+        cond_c = apply_scalar_conductive_l0!(temperature, domain, geom,
+            state.parameters.internal_heating,
+            state.parameters.Pm / state.parameters.Pr, 0.0)
     end
 
     @inbounds for lm_idx in lm_range
@@ -63,17 +54,10 @@ function initialize_temperature_field!(state::SolverState{
 
         for r_idx in r_range
             if l == 0 && m == 0
-                if cond_c !== nothing
-                    # BC + source-aware discrete-equilibrium profile. `cond_c` is
-                    # already the (0,0) coefficient (√(4π)-scaled) indexed by the
-                    # GLOBAL radial index; on current main r is local==global.
-                    set_local_spectral_value!(
-                        spec_real,
-                        slot,
-                        r_idx,
-                        T(cond_c[r_idx])
-                    )
-                else
+                # cond_c !== nothing ⇒ the (0,0) coefficient was already written
+                # by apply_scalar_conductive_l0! above; only the closed-form
+                # backward-compat fallback (ball, no heating) needs writing here.
+                if cond_c === nothing
                     r = domain.r[r_idx, 4]
                     # Orthonormal SH (Y_0^0 = 1/√(4π)): the physical conductive
                     # profile is stored as the (0,0) coefficient value·√(4π), the
