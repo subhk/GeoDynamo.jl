@@ -25,6 +25,36 @@ function initialize_temperature_field!(state::SolverState{
     conductive_profile = state.parameters.geometry === :ball ?
                          _ball_conductive_temperature : _shell_conductive_temperature
 
+    # BC + source-aware conductive (0,0) profile. The default closed-form
+    # branches (a+b/r shell, 1−r² ball) ignore internal heating and the actual
+    # boundary VALUES; solving the discrete l=0 BVP with the solver's own
+    # Laplacian + boundary rows makes the IC a true discrete equilibrium of the
+    # implicit step (and sustains the source so it stays one).
+    κT = Float64(state.parameters.Pm / state.parameters.Pr)
+    geom = state.parameters.geometry
+    s4pi = sqrt(4 * Float64(π))
+    if geom === :ball && state.parameters.internal_heating === nothing
+        # Backward-compat: ball with no explicit heating keeps the closed-form
+        # 1 − r² conductive IC and zero internal source (a decaying transient,
+        # exactly as before). Leave internal_sources at zero.
+        cond_c = nothing   # fall through to the existing closed-form branch
+    else
+        m00 = get_mode_index(temperature.config, 0, 0)
+        in_t = m00 > 0 ? temperature.bc_type_inner[m00] : Int(DIRICHLET)
+        out_t = m00 > 0 ? temperature.bc_type_outer[m00] : Int(DIRICHLET)
+        in_v = m00 > 0 ? temperature.boundary_values[1, m00] : zero(T)
+        out_v = m00 > 0 ? temperature.boundary_values[2, m00] : zero(T)
+        default_H = geom === :ball ? 6.0 * κT : 0.0   # ball: H s.t. S=6 ⇒ IC = ro²−r²
+        H_vec = _resolve_source(state.parameters.internal_heating, domain, default_H)
+        # Sustain the source so the IC stays an equilibrium of the stepper.
+        copyto!(temperature.internal_sources, T.(H_vec))
+        S_coeff = (H_vec ./ κT) .* s4pi
+        cond_c = conductive_profile_solve(; domain = domain,
+            bc_code = _scalar_bc_code_from_types(in_t, out_t),
+            inner_value = in_v, outer_value = out_v,
+            source = S_coeff, inner_regularity = geom === :ball)
+    end
+
     @inbounds for lm_idx in lm_range
         lm_idx <= temperature.config.nlm || continue
         l = temperature.config.l_values[lm_idx]
@@ -33,18 +63,30 @@ function initialize_temperature_field!(state::SolverState{
 
         for r_idx in r_range
             if l == 0 && m == 0
-                r = domain.r[r_idx, 4]
-                # Orthonormal SH (Y_0^0 = 1/√(4π)): the physical conductive
-                # profile is stored as the (0,0) coefficient value·√(4π), the
-                # same convention used for boundary values in
-                # apply_scalar_boundary_parameters!, so the field starts on the
-                # FixedTemperature boundary condition rather than √(4π) away.
-                set_local_spectral_value!(
-                    spec_real,
-                    slot,
-                    r_idx,
-                    sqrt(4 * T(π)) * T(conductive_profile(state.parameters, r))
-                )
+                if cond_c !== nothing
+                    # BC + source-aware discrete-equilibrium profile. `cond_c` is
+                    # already the (0,0) coefficient (√(4π)-scaled) indexed by the
+                    # GLOBAL radial index; on current main r is local==global.
+                    set_local_spectral_value!(
+                        spec_real,
+                        slot,
+                        r_idx,
+                        T(cond_c[r_idx])
+                    )
+                else
+                    r = domain.r[r_idx, 4]
+                    # Orthonormal SH (Y_0^0 = 1/√(4π)): the physical conductive
+                    # profile is stored as the (0,0) coefficient value·√(4π), the
+                    # same convention used for boundary values in
+                    # apply_scalar_boundary_parameters!, so the field starts on the
+                    # FixedTemperature boundary condition rather than √(4π) away.
+                    set_local_spectral_value!(
+                        spec_real,
+                        slot,
+                        r_idx,
+                        sqrt(4 * T(π)) * T(conductive_profile(state.parameters, r))
+                    )
+                end
             elseif 1 <= l <= 4
                 amplitude = T(1e-3)
                 set_local_spectral_value!(

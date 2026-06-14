@@ -97,3 +97,50 @@ end
     bcoef = -2 * ri^3; acoef = ro^2 - bcoef / ro
     @test cb ≈ (acoef .+ bcoef ./ r .- r .^ 2) atol = 1e-3 rtol = 1e-3
 end
+
+@testset "temperature conductive IC == discrete equilibrium (shell)" begin
+    # Ra must be positive (validator); velocity starts and stays at rest (buoyancy
+    # does not enter momentum from rest), so the conductive equilibrium is
+    # undisturbed regardless of Ra.
+    params = G.SolverParameters(architecture = :cpu, geometry = :shell,
+        nr = 16, nr_inner = 4, lmax = 4, mmax = 4, nlat = 12, nlon = 24,
+        Ra = 1.0, Ek = 1e-2, Pr = 1.0, Pm = 1.0, timestep = 1e-3,
+        include_magnetic = false, include_composition = false,
+        internal_heating = 3.0)
+    st = G.initialize_simulation(Float64, params)
+    G.initialize_solver_fields!(st)
+    tmp = st.fields.temperature
+    dom = st.backend.outer_core_domain
+    m00 = G.get_mode_index(tmp.config, 0, 0)
+    slot = G.local_spectral_storage_slot(tmp.config, m00)
+    # The equilibrium claim holds for the conductive (0,0) mode: it is built to
+    # satisfy the SAME discrete Laplacian + boundary rows the implicit step uses,
+    # with the source sustained via internal_sources, so one CNAB2 step leaves it
+    # invariant to machine precision. (The IC's small random l>=1 seed modes are
+    # NOT equilibria and do evolve under diffusion — by design — so compare the
+    # l=0 conductive mode only.)
+    before = [G.local_spectral_value(parent(tmp.spectral.data_real), slot, rk) for rk in 1:dom.N]
+    G.solver_step!(st)
+    after = [G.local_spectral_value(parent(tmp.spectral.data_real), slot, rk) for rk in 1:dom.N]
+    rel = maximum(abs, after .- before) / max(maximum(abs, before), eps())
+    @test rel < 1e-6
+end
+
+@testset "temperature default conductive backward-compat" begin
+    s4pi = sqrt(4π)
+    for (geom, rr) in ((:shell, 0.35), (:ball, 0.0))
+        params = G.SolverParameters(architecture = :cpu, geometry = geom,
+            nr = 24, nr_inner = 4, lmax = 2, mmax = 2, nlat = 8, nlon = 16,
+            radius_ratio = rr, Ra = 1.0, Ek = 1e-2, Pr = 1.0, Pm = 1.0, timestep = 1e-3,
+            include_magnetic = false, include_composition = false)
+        st = G.initialize_simulation(Float64, params); G.initialize_solver_fields!(st)
+        tmp = st.fields.temperature; dom = st.backend.outer_core_domain
+        m00 = G.get_mode_index(tmp.config, 0, 0)
+        slot = G.local_spectral_storage_slot(tmp.config, m00)
+        ref = geom === :ball ? G._ball_conductive_temperature : G._shell_conductive_temperature
+        for rk in 1:dom.N
+            got = G.local_spectral_value(parent(tmp.spectral.data_real), slot, rk) / s4pi
+            @test isapprox(got, ref(params, dom.r[rk, 4]); atol = 1e-3, rtol = 1e-3)
+        end
+    end
+end
