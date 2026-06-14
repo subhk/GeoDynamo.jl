@@ -337,6 +337,7 @@ function safe_parse_value(value_str::AbstractString, param_dict::Dict{Symbol, An
 
     s == "true" && return true
     s == "false" && return false
+    s == "nothing" && return nothing
     (s == "π" || s == "pi") && return π
 
     if startswith(s, ':')
