@@ -1,0 +1,993 @@
+/* ============================================================================
+   GeoDynamo.jl Documentation - Custom Styles
+   ============================================================================ */
+
+/* ----------------------------------------------------------------------------
+   Root Variables - Color Palette
+   ---------------------------------------------------------------------------- */
+:root {
+    --geodynamo-primary: #2563eb;
+    --geodynamo-primary-light: #3b82f6;
+    --geodynamo-primary-dark: #1d4ed8;
+    --geodynamo-accent: #8b5cf6;
+    --geodynamo-success: #10b981;
+    --geodynamo-warning: #f59e0b;
+    --geodynamo-danger: #ef4444;
+    --geodynamo-info: #06b6d4;
+    --geodynamo-gradient: linear-gradient(135deg, #2563eb 0%, #8b5cf6 100%);
+    --geodynamo-text: #1f2937;
+    --geodynamo-muted: #64748b;
+    --geodynamo-border: #e5e7eb;
+    --geodynamo-surface: #ffffff;
+    --geodynamo-surface-soft: #f8fafc;
+
+    /* Spacing */
+    --spacing-xs: 0.25rem;
+    --spacing-sm: 0.5rem;
+    --spacing-md: 1rem;
+    --spacing-lg: 1.5rem;
+    --spacing-xl: 2rem;
+    --spacing-2xl: 3rem;
+
+    /* Border radius */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+    --shadow-glow: 0 0 20px rgba(37, 99, 235, 0.15);
+}
+
+/* ----------------------------------------------------------------------------
+   Page Layout - readable, scan-friendly documentation
+   ---------------------------------------------------------------------------- */
+
+.docs-main {
+    background:
+        linear-gradient(180deg, rgba(248, 250, 252, 0.85) 0%, rgba(255, 255, 255, 0) 18rem),
+        #ffffff;
+}
+
+article.content {
+    max-width: 1020px;
+    margin: 0 auto;
+    padding: var(--spacing-xl) clamp(1rem, 3vw, 2.75rem) var(--spacing-2xl);
+    color: var(--geodynamo-text);
+}
+
+article.content > :first-child {
+    margin-top: 0;
+}
+
+.docs-navbar {
+    border-bottom: 1px solid var(--geodynamo-border);
+    box-shadow: var(--shadow-sm);
+}
+
+.docs-navbar .breadcrumb a,
+.docs-navbar .docs-navbar-link {
+    color: #475569;
+}
+
+.docs-navbar .docs-navbar-link:hover {
+    color: var(--geodynamo-primary);
+}
+
+/* ----------------------------------------------------------------------------
+   Hero Section Styling
+   ---------------------------------------------------------------------------- */
+
+/* Style the first h1 as a hero */
+article > h1:first-of-type {
+    font-size: clamp(2.1rem, 4vw, 3rem);
+    font-weight: 800;
+    background: var(--geodynamo-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: 0;
+    padding-bottom: var(--spacing-lg);
+    border-bottom: none;
+    margin-bottom: var(--spacing-sm);
+}
+
+/* Subtitle styling for the tagline */
+article > h1:first-of-type + p {
+    font-size: 1.15rem;
+    color: var(--geodynamo-muted);
+    font-weight: 500;
+    margin-bottom: var(--spacing-xl);
+    max-width: 760px;
+}
+
+/* ----------------------------------------------------------------------------
+   Typography Enhancements
+   ---------------------------------------------------------------------------- */
+
+/* Main headings */
+article h1 {
+    font-weight: 700;
+    letter-spacing: 0;
+    padding-bottom: var(--spacing-md);
+    border-bottom: 3px solid var(--geodynamo-primary);
+    margin-bottom: var(--spacing-xl);
+}
+
+article h2 {
+    font-weight: 600;
+    letter-spacing: 0;
+    margin-top: var(--spacing-2xl);
+    padding-bottom: var(--spacing-sm);
+    border-bottom: 2px solid var(--geodynamo-border);
+    position: relative;
+}
+
+article h2::before {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 60px;
+    height: 2px;
+    background: var(--geodynamo-gradient);
+}
+
+article h3 {
+    font-weight: 600;
+    color: #374151;
+    margin-top: var(--spacing-xl);
+}
+
+/* Better paragraph spacing */
+article p {
+    line-height: 1.72;
+    margin-bottom: var(--spacing-md);
+}
+
+article strong {
+    color: #111827;
+}
+
+/* ----------------------------------------------------------------------------
+   Feature Cards (for index page)
+   ---------------------------------------------------------------------------- */
+
+/* Style success admonitions as feature cards */
+article .admonition.is-success,
+article .admonition.success,
+article .admonition.is-category-success {
+    border-left: none;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+    box-shadow: var(--shadow-sm);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+article .admonition.is-success:hover,
+article .admonition.success:hover,
+article .admonition.is-category-success:hover {
+    border-color: rgba(16, 185, 129, 0.38);
+    box-shadow: var(--shadow-md);
+}
+
+article .admonition.is-success .admonition-title,
+article .admonition.success .admonition-title,
+article .admonition.is-success .admonition-header,
+article .admonition.success .admonition-header,
+article .admonition.is-category-success .admonition-title,
+article .admonition.is-category-success .admonition-header {
+    background: transparent;
+    color: #065f46;
+    font-size: 1rem;
+    border-bottom: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+/* ----------------------------------------------------------------------------
+   Code Blocks - Enhanced Terminal Style
+   ---------------------------------------------------------------------------- */
+
+/* Inline code */
+article code:not(pre code) {
+    background: #f1f5f9;
+    padding: 0.15em 0.4em;
+    border-radius: var(--radius-sm);
+    font-size: 0.9em;
+    font-weight: 500;
+    border: 1px solid #d1d5db;
+}
+
+/* Code blocks */
+article pre {
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+    border: 1px solid #1e293b;
+    margin: var(--spacing-lg) 0;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Terminal header decoration */
+article pre::before {
+    content: '';
+    display: block;
+    height: 32px;
+    background: linear-gradient(180deg, #2d3748 0%, #1a202c 100%);
+    border-bottom: 1px solid #4a5568;
+    margin: -1rem -1rem 1rem -1rem;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    position: relative;
+}
+
+/* Terminal dots */
+article pre::after {
+    content: '● ● ●';
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    font-size: 10px;
+    letter-spacing: 4px;
+    color: #718096;
+}
+
+article pre code {
+    font-size: 0.875rem;
+    line-height: 1.65;
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
+    display: block;
+    overflow-x: auto;
+    padding-bottom: 0.1rem;
+}
+
+/* ASCII art code blocks - special styling */
+article pre:has(code:not([class*="language-"])) {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: #ffffff;
+}
+
+article pre:has(code:not([class*="language-"])) code {
+    color: #ffffff;
+}
+
+/* Julia examples: readable docs snippets, not terminal panels */
+article pre:has(code.language-julia),
+article pre.language-julia {
+    background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+    border-color: #d1d5db;
+}
+
+article pre:has(code.language-julia)::before,
+article pre.language-julia::before {
+    background: linear-gradient(180deg, #f9fafb 0%, #eef2f7 100%);
+    border-bottom-color: #d1d5db;
+}
+
+article pre:has(code.language-julia)::after,
+article pre.language-julia::after {
+    color: #9ca3af;
+}
+
+article pre:has(code.language-julia) code,
+article pre.language-julia code {
+    color: #111827;
+}
+
+/* Bash code blocks */
+article pre:has(code.language-bash),
+article pre.language-bash {
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+}
+
+/* Math code blocks */
+article pre:has(code.language-math) {
+    background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%);
+    border-color: #fde047;
+}
+
+article pre:has(code.language-math)::before {
+    background: linear-gradient(180deg, #fef08a 0%, #fde047 100%);
+    border-bottom-color: #facc15;
+}
+
+/* ----------------------------------------------------------------------------
+   Tables - Modern Card Style
+   ---------------------------------------------------------------------------- */
+
+article table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    margin: var(--spacing-lg) 0;
+    border: 1px solid var(--geodynamo-border);
+}
+
+article table thead {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+article table th {
+    font-weight: 600;
+    text-align: left;
+    padding: 0.85rem var(--spacing-lg);
+    border-bottom: 2px solid var(--geodynamo-border);
+    color: #374151;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+article table td {
+    padding: 0.85rem var(--spacing-lg);
+    border-bottom: 1px solid #f3f4f6;
+    vertical-align: top;
+    line-height: 1.58;
+}
+
+article table tbody tr {
+    transition: background-color 0.15s ease;
+}
+
+article table tbody tr:hover {
+    background-color: #f8fafc;
+}
+
+article table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* First column emphasis */
+article table td:first-child {
+    font-weight: 500;
+    color: #1f2937;
+}
+
+/* ----------------------------------------------------------------------------
+   Admonitions (Tip, Note, Warning, etc.)
+   ---------------------------------------------------------------------------- */
+
+article .admonition {
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    margin: var(--spacing-xl) 0;
+    border: none;
+    border-left: 4px solid;
+    overflow: hidden;
+}
+
+article .admonition-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    padding: var(--spacing-md) var(--spacing-lg);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+article .admonition-header {
+    font-weight: 650;
+    letter-spacing: 0;
+    padding: var(--spacing-md) var(--spacing-lg);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+article .admonition-title::before {
+    font-size: 1.1rem;
+}
+
+article .admonition > p,
+article .admonition > ul,
+article .admonition > ol,
+article .admonition > pre,
+article .admonition > table {
+    padding: 0 var(--spacing-lg);
+    margin-bottom: var(--spacing-md);
+}
+
+article .admonition > :last-child {
+    padding-bottom: var(--spacing-md);
+}
+
+/* Tip */
+article .admonition.is-tip,
+article .admonition.tip {
+    border-left-color: var(--geodynamo-success);
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+}
+
+article .admonition.is-tip .admonition-title,
+article .admonition.tip .admonition-title,
+article .admonition.is-tip .admonition-header,
+article .admonition.tip .admonition-header {
+    background: rgba(16, 185, 129, 0.15);
+    color: #065f46;
+}
+
+/* Note / Info */
+article .admonition.is-info,
+article .admonition.info,
+article .admonition.is-note,
+article .admonition.note {
+    border-left-color: var(--geodynamo-info);
+    background: linear-gradient(135deg, #ecfeff 0%, #cffafe 100%);
+}
+
+article .admonition.is-info .admonition-title,
+article .admonition.info .admonition-title,
+article .admonition.is-note .admonition-title,
+article .admonition.note .admonition-title,
+article .admonition.is-info .admonition-header,
+article .admonition.info .admonition-header,
+article .admonition.is-note .admonition-header,
+article .admonition.note .admonition-header {
+    background: rgba(6, 182, 212, 0.15);
+    color: #155e75;
+}
+
+/* Warning */
+article .admonition.is-warning,
+article .admonition.warning {
+    border-left-color: var(--geodynamo-warning);
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+}
+
+article .admonition.is-warning .admonition-title,
+article .admonition.warning .admonition-title,
+article .admonition.is-warning .admonition-header,
+article .admonition.warning .admonition-header {
+    background: rgba(245, 158, 11, 0.15);
+    color: #92400e;
+}
+
+/* Danger */
+article .admonition.is-danger,
+article .admonition.danger {
+    border-left-color: var(--geodynamo-danger);
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+}
+
+article .admonition.is-danger .admonition-title,
+article .admonition.danger .admonition-title,
+article .admonition.is-danger .admonition-header,
+article .admonition.danger .admonition-header {
+    background: rgba(239, 68, 68, 0.15);
+    color: #991b1b;
+}
+
+/* Example */
+article .admonition.is-example,
+article .admonition.example {
+    border-left-color: var(--geodynamo-accent);
+    background: linear-gradient(135deg, #faf5ff 0%, #ede9fe 100%);
+}
+
+article .admonition.is-example .admonition-title,
+article .admonition.example .admonition-title,
+article .admonition.is-example .admonition-header,
+article .admonition.example .admonition-header {
+    background: rgba(139, 92, 246, 0.15);
+    color: #5b21b6;
+}
+
+/* ----------------------------------------------------------------------------
+   Links
+   ---------------------------------------------------------------------------- */
+
+article a {
+    color: var(--geodynamo-primary);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.2s ease, text-decoration 0.2s ease;
+    position: relative;
+}
+
+article a:hover {
+    color: var(--geodynamo-primary-dark);
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+}
+
+article a:hover::after {
+    display: none;
+}
+
+/* ----------------------------------------------------------------------------
+   Horizontal Rules - Gradient Style
+   ---------------------------------------------------------------------------- */
+
+article hr {
+    border: none;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 0%, #e5e7eb 20%, #e5e7eb 80%, transparent 100%);
+    margin: var(--spacing-2xl) 0;
+}
+
+/* ----------------------------------------------------------------------------
+   Lists
+   ---------------------------------------------------------------------------- */
+
+article ul,
+article ol {
+    margin: var(--spacing-md) 0;
+    padding-left: 1.35rem;
+}
+
+article li {
+    margin-bottom: 0.42rem;
+    line-height: 1.6;
+}
+
+article li::marker {
+    color: var(--geodynamo-primary);
+}
+
+/* Nested lists */
+article li ul,
+article li ol {
+    margin-top: var(--spacing-sm);
+    margin-bottom: 0;
+}
+
+/* ----------------------------------------------------------------------------
+   Blockquotes - Styled Quote Box
+   ---------------------------------------------------------------------------- */
+
+article blockquote {
+    border-left: 4px solid var(--geodynamo-primary);
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    padding: var(--spacing-lg);
+    margin: var(--spacing-lg) 0;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    font-style: italic;
+    color: #374151;
+    box-shadow: var(--shadow-sm);
+}
+
+/* ----------------------------------------------------------------------------
+   Math Blocks
+   ---------------------------------------------------------------------------- */
+
+article .MathJax,
+article mjx-container {
+    margin: var(--spacing-md) 0;
+    padding: var(--spacing-md);
+    overflow-x: auto;
+}
+
+/* Centered math display */
+article mjx-container[display="true"] {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--geodynamo-border);
+    box-shadow: var(--shadow-sm);
+}
+
+/* ----------------------------------------------------------------------------
+   Sidebar Navigation
+   ---------------------------------------------------------------------------- */
+
+.docs-sidebar .docs-menu {
+    padding: var(--spacing-md);
+}
+
+.docs-sidebar .docs-menu a {
+    border-radius: var(--radius-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+    margin: 2px 0;
+    border-left: 3px solid transparent;
+}
+
+.docs-sidebar .docs-menu a:hover {
+    background-color: #f3f4f6;
+    border-left-color: #bfdbfe;
+}
+
+.docs-sidebar .docs-menu a.is-active,
+.docs-sidebar .docs-menu li.is-active > a {
+    background: var(--geodynamo-gradient);
+    color: white;
+    font-weight: 600;
+    box-shadow: var(--shadow-md);
+}
+
+/* Section headers in sidebar */
+.docs-sidebar .docs-menu p.menu-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #9ca3af;
+    margin-top: var(--spacing-lg);
+    padding-left: var(--spacing-md);
+}
+
+/* ----------------------------------------------------------------------------
+   Search
+   ---------------------------------------------------------------------------- */
+
+button.docs-search-query,
+.docs-search input {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--geodynamo-border);
+    padding: var(--spacing-sm) var(--spacing-md);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    background: var(--geodynamo-surface);
+    color: #475569;
+}
+
+.docs-search input:focus,
+button.docs-search-query:focus {
+    border-color: var(--geodynamo-primary);
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+    outline: none;
+}
+
+.docs-search input:focus {
+    border-color: var(--geodynamo-primary);
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+    outline: none;
+}
+
+/* ----------------------------------------------------------------------------
+   Docstrings
+   ---------------------------------------------------------------------------- */
+
+article .docstring {
+    border: 1px solid var(--geodynamo-border);
+    border-radius: var(--radius-md);
+    margin: var(--spacing-xl) 0;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+}
+
+article .docstring header {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-bottom: 1px solid #e5e7eb;
+}
+
+article .docstring section {
+    padding: var(--spacing-lg);
+}
+
+/* ----------------------------------------------------------------------------
+   Badges (for index page)
+   ---------------------------------------------------------------------------- */
+
+article img[alt="Julia"],
+article img[alt="License"] {
+    display: inline-block;
+    margin-right: var(--spacing-sm);
+    vertical-align: middle;
+}
+
+/* ----------------------------------------------------------------------------
+   Navigation Cards at Bottom of Pages
+   ---------------------------------------------------------------------------- */
+
+/* Style the "Next Steps" tables as navigation cards */
+article h2:has(+ table) + table {
+    border: none;
+    box-shadow: none;
+    background: transparent;
+}
+
+article h2:has(+ table) + table td {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border-radius: var(--radius-md);
+    margin: var(--spacing-xs);
+    border: 1px solid #e5e7eb;
+    transition: all 0.2s ease;
+}
+
+article h2:has(+ table) + table td:hover {
+    background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+    border-color: var(--geodynamo-primary-light);
+}
+
+/* ----------------------------------------------------------------------------
+   Responsive Adjustments
+   ---------------------------------------------------------------------------- */
+
+@media (max-width: 768px) {
+    article > h1:first-of-type {
+        font-size: 2rem;
+    }
+
+    article h1 {
+        font-size: 1.75rem;
+    }
+
+    article h2 {
+        font-size: 1.5rem;
+    }
+
+    article table {
+        font-size: 0.875rem;
+    }
+
+    article table th,
+    article table td {
+        padding: var(--spacing-sm) var(--spacing-md);
+    }
+
+    article pre {
+        font-size: 0.8rem;
+        border-radius: var(--radius-md);
+    }
+
+    article pre::before {
+        height: 24px;
+    }
+
+    article pre::after {
+        top: 5px;
+        font-size: 8px;
+    }
+
+    article .admonition {
+        margin: var(--spacing-md) 0;
+    }
+}
+
+/* ----------------------------------------------------------------------------
+   Print Styles
+   ---------------------------------------------------------------------------- */
+
+@media print {
+    article .admonition {
+        border: 1px solid #ccc;
+        box-shadow: none;
+    }
+
+    article pre {
+        box-shadow: none;
+        border: 1px solid #ccc;
+    }
+
+    article pre::before,
+    article pre::after {
+        display: none;
+    }
+
+    article a {
+        color: inherit;
+        text-decoration: underline;
+    }
+
+    article a::after {
+        display: none !important;
+    }
+}
+
+/* ----------------------------------------------------------------------------
+   Dark Mode Adjustments
+   ---------------------------------------------------------------------------- */
+
+html[data-theme="dark"] {
+    --geodynamo-primary: #60a5fa;
+    --geodynamo-primary-light: #93c5fd;
+    --geodynamo-primary-dark: #3b82f6;
+    --geodynamo-gradient: linear-gradient(135deg, #3b82f6 0%, #a78bfa 100%);
+    --geodynamo-text: #e5e7eb;
+    --geodynamo-muted: #94a3b8;
+    --geodynamo-border: #374151;
+    --geodynamo-surface: #111827;
+    --geodynamo-surface-soft: #1f2937;
+}
+
+html[data-theme="dark"] .docs-main {
+    background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.9) 0%, rgba(17, 24, 39, 0) 18rem),
+        #111827;
+}
+
+html[data-theme="dark"] article.content {
+    color: var(--geodynamo-text);
+}
+
+html[data-theme="dark"] article strong {
+    color: #f8fafc;
+}
+
+html[data-theme="dark"] .docs-navbar {
+    border-bottom-color: #374151;
+    box-shadow: none;
+}
+
+html[data-theme="dark"] .docs-navbar .breadcrumb a,
+html[data-theme="dark"] .docs-navbar .docs-navbar-link {
+    color: #cbd5e1;
+}
+
+html[data-theme="dark"] article > h1:first-of-type {
+    background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+}
+
+html[data-theme="dark"] article > h1:first-of-type + p {
+    color: #94a3b8;
+}
+
+html[data-theme="dark"] article code:not(pre code) {
+    background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+    border-color: #4b5563;
+    color: #f3f4f6;
+}
+
+html[data-theme="dark"] article table {
+    border-color: #374151;
+    box-shadow: none;
+}
+
+html[data-theme="dark"] article table thead {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+}
+
+html[data-theme="dark"] article table th {
+    color: #f3f4f6;
+    border-bottom-color: #374151;
+}
+
+html[data-theme="dark"] article table td {
+    border-bottom-color: #1f2937;
+}
+
+html[data-theme="dark"] article table td:first-child {
+    color: #f3f4f6;
+}
+
+html[data-theme="dark"] article table tbody tr:hover {
+    background-color: #1f2937;
+}
+
+html[data-theme="dark"] article h2 {
+    border-bottom-color: #374151;
+}
+
+html[data-theme="dark"] article h2::before {
+    background: var(--geodynamo-gradient);
+}
+
+html[data-theme="dark"] article h3 {
+    color: #e5e7eb;
+}
+
+html[data-theme="dark"] article hr {
+    background: linear-gradient(90deg, transparent 0%, #374151 20%, #374151 80%, transparent 100%);
+}
+
+/* Dark mode admonitions */
+html[data-theme="dark"] article .admonition.is-tip,
+html[data-theme="dark"] article .admonition.tip {
+    background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+}
+
+html[data-theme="dark"] article .admonition.is-info,
+html[data-theme="dark"] article .admonition.info,
+html[data-theme="dark"] article .admonition.is-note,
+html[data-theme="dark"] article .admonition.note {
+    background: linear-gradient(135deg, #164e63 0%, #155e75 100%);
+}
+
+html[data-theme="dark"] article .admonition.is-warning,
+html[data-theme="dark"] article .admonition.warning {
+    background: linear-gradient(135deg, #78350f 0%, #92400e 100%);
+}
+
+html[data-theme="dark"] article .admonition.is-danger,
+html[data-theme="dark"] article .admonition.danger {
+    background: linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%);
+}
+
+html[data-theme="dark"] article .admonition.is-success,
+html[data-theme="dark"] article .admonition.success,
+html[data-theme="dark"] article .admonition.is-category-success {
+    background: linear-gradient(135deg, #064e3b 0%, #065f46 100%);
+}
+
+html[data-theme="dark"] article .admonition.is-example,
+html[data-theme="dark"] article .admonition.example {
+    background: linear-gradient(135deg, #4c1d95 0%, #5b21b6 100%);
+}
+
+html[data-theme="dark"] article .admonition-title {
+    background: rgba(0, 0, 0, 0.2) !important;
+    color: #f3f4f6 !important;
+}
+
+html[data-theme="dark"] article .admonition-header {
+    background: rgba(0, 0, 0, 0.2) !important;
+    color: #f3f4f6 !important;
+}
+
+html[data-theme="dark"] article .docstring {
+    border-color: #374151;
+    box-shadow: none;
+}
+
+html[data-theme="dark"] article .docstring header {
+    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+    border-bottom-color: #374151;
+}
+
+/* Dark mode math blocks */
+html[data-theme="dark"] article mjx-container[display="true"] {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border-color: #374151;
+    color: #ffffff;
+}
+
+html[data-theme="dark"] article mjx-container {
+    color: #ffffff;
+}
+
+html[data-theme="dark"] article .MathJax {
+    color: #ffffff;
+}
+
+html[data-theme="dark"] article blockquote {
+    background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 100%);
+    border-left-color: #60a5fa;
+    color: #e5e7eb;
+}
+
+html[data-theme="dark"] .docs-sidebar .docs-menu a:hover {
+    background-color: #1f2937;
+    border-left-color: #60a5fa;
+}
+
+html[data-theme="dark"] button.docs-search-query,
+html[data-theme="dark"] .docs-search input {
+    background: #111827;
+    border-color: #374151;
+    color: #e5e7eb;
+}
+
+html[data-theme="dark"] article pre {
+    border-color: #374151;
+}
+
+html[data-theme="dark"] article pre::before {
+    background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+    border-bottom-color: #374151;
+}
+
+/* ----------------------------------------------------------------------------
+   Animation for Interactive Elements
+   ---------------------------------------------------------------------------- */
+
+@keyframes subtle-glow {
+    0%, 100% { box-shadow: var(--shadow-md); }
+    50% { box-shadow: var(--shadow-lg), var(--shadow-glow); }
+}
+
+article .admonition.is-tip:hover,
+article .admonition.tip:hover {
+    animation: subtle-glow 2s ease-in-out infinite;
+}
+
+/* Smooth scrolling */
+html {
+    scroll-behavior: smooth;
+}
+
+/* Focus states for accessibility */
+article a:focus,
+.docs-sidebar .docs-menu a:focus,
+.docs-search input:focus {
+    outline: 2px solid var(--geodynamo-primary);
+    outline-offset: 2px;
+}
