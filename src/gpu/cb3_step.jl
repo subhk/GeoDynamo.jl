@@ -24,12 +24,18 @@ function _gpu_cb3_solve_field!(bundle, lu, nr_, ni_, inv_stage_dt,
         inv_stage_dt, zeta_over_gamma,
     )
     if apply_bc
+        # `get(::NamedTuple, k, default)` evaluates `default` EAGERLY even when
+        # the key exists — the old form allocated four discarded slice+`zero`
+        # temporaries every call. `haskey` + one shared zero buffer is non-eager
+        # (zbuf is materialized once and only when no key is missing it goes
+        # unused; behavior is identical: missing keys still see zeros).
+        zbuf = zero(@view bundle.spec_r[:, :, 1])
         gpu_implicit_solve_field!(
             rr, ri, lu,
-            get(bundle, :bc_in_r, zero(bundle.spec_r[:, :, 1])),
-            get(bundle, :bc_in_i, zero(bundle.spec_i[:, :, 1])),
-            get(bundle, :bc_out_r, zero(bundle.spec_r[:, :, 1])),
-            get(bundle, :bc_out_i, zero(bundle.spec_i[:, :, 1])),
+            haskey(bundle, :bc_in_r) ? bundle.bc_in_r : zbuf,
+            haskey(bundle, :bc_in_i) ? bundle.bc_in_i : zbuf,
+            haskey(bundle, :bc_out_r) ? bundle.bc_out_r : zbuf,
+            haskey(bundle, :bc_out_i) ? bundle.bc_out_i : zbuf,
             bw,
         )
     else
@@ -54,8 +60,8 @@ function _gpu_cb3_recover_poloidal!(P, W, ws, bw::Int)
     gpu_batched_banded_solve!(Pt, Wp, ws.plu, bw)
     rho1 = dropdims(sum(Pt .* reshape(ws.d1_inner, 1, 1, :); dims = 3); dims = 3)
     rho2 = dropdims(sum(Pt .* reshape(ws.d1_outer, 1, 1, :); dims = 3); dims = 3)
-    M11 = reshape(ws.M[1, 1, :], :, 1); M12 = reshape(ws.M[1, 2, :], :, 1)
-    M21 = reshape(ws.M[2, 1, :], :, 1); M22 = reshape(ws.M[2, 2, :], :, 1)
+    M11 = reshape(@view(ws.M[1, 1, :]), :, 1); M12 = reshape(@view(ws.M[1, 2, :]), :, 1)
+    M21 = reshape(@view(ws.M[2, 1, :]), :, 1); M22 = reshape(@view(ws.M[2, 2, :]), :, 1)
     det = @. M11 * M22 - M12 * M21
     det = @. det + T(det == 0)
     a1 = @. (-rho1 * M22 + rho2 * M12) / det

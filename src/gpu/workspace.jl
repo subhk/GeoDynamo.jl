@@ -50,7 +50,15 @@ hand the field straight to kernel wrappers, which are dispatch barriers.
 @inline function gpu_scratch_phys!(ws::GPUWorkspace, key::Symbol, ::Type{T},
         arch, config, nr) where {T}
     f = get!(() -> allocate_gpu_physical_field(T, arch, config, nr), ws.pool, key)
-    return f::GPUPhysicalField{T}   # element type pinned; backing array via call-site barriers
+    # Guard a same-tag/different-shape collision (silent on device) — mirror the
+    # sibling getters. `GPUPhysicalField` backs an (nlat, nlon, nr) array in `.data`.
+    size(f.data) == (config.nlat, config.nlon, nr) || error(
+        "gpu_scratch_phys! tag collision on :$key — cached $(size(f.data)) ≠ requested $((config.nlat, config.nlon, nr))")
+    # `T` pins the eltype, but the backing-array param `A` of `GPUPhysicalField{T,A}`
+    # is erased by this UnionAll assertion, so `f.data`'s type is NOT statically
+    # pinned. Call sites needing a concrete `.data` should route it through a
+    # `ref`-typed getter (the 3-arg `gpu_scratch!`), which is the concrete barrier.
+    return f::GPUPhysicalField{T}
 end
 
 """
@@ -66,6 +74,11 @@ Pooled complex buffer for the per-level transform staging (the
     arr = get!(() -> similar(ref_real, Complex{T}, dims), ws.pool, key)
     size(arr) == dims || error(
         "gpu_scratch_complex! tag collision on :$key — cached $(size(arr)) ≠ requested $dims")
+    # No `::typeof(ref_real)` barrier: the result is `Complex{T}`-eltype with
+    # `length(dims)` ndims, so its type differs from the real `ref_real` — naming
+    # the concrete backend-swapped type here would need an invasive `similar_type`
+    # refactor. Downstream kernel wrappers are dispatch barriers, so `arr::Any`
+    # here is recovered at the first wrapper call.
     return arr
 end
 
@@ -80,5 +93,10 @@ nlon) level buffer derived from a 3-D field).
     arr = get!(() -> similar(ref, dims), ws.pool, key)
     size(arr) == dims || error(
         "gpu_scratch! tag collision on :$key — cached $(size(arr)) ≠ requested $dims")
+    # No `::typeof(ref)` barrier: the result has `length(dims)` ndims, which is
+    # routinely fewer than `ref`'s (e.g. a 2-D (nlat, nlon) level buffer from a 3-D
+    # field), so `typeof(ref)` would be the wrong type. Naming the concrete type
+    # here would need an invasive `similar_type` refactor; downstream kernel
+    # wrappers are dispatch barriers that recover concreteness at first use.
     return arr
 end

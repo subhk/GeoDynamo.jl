@@ -60,7 +60,8 @@ function gpu_solver_step!(state)
         gpu_vector_spectral_to_physical!(br, bθ, bφ, spec(m.tor.spec_r, m.tor.spec_i),
             spec(m.pol.spec_r, m.pol.spec_i), cfg, state.nlops_mag.lfac, state.nlops_mag.rscale,
             state.nlops_mag.d1, state.nlops_mag.rinv, bw)
-        jtr = similar(m.tor.spec_r); jti = similar(m.tor.spec_i); jpr = similar(m.pol.spec_r); jpi = similar(m.pol.spec_i)
+        jtr = gpu_scratch!(ws, :st_jtr, m.tor.spec_r); jti = gpu_scratch!(ws, :st_jti, m.tor.spec_i)
+        jpr = gpu_scratch!(ws, :st_jpr, m.pol.spec_r); jpi = gpu_scratch!(ws, :st_jpi, m.pol.spec_i)
         gpu_spectral_curl!(jtr, jti, jpr, jpi, m.tor.spec_r, m.tor.spec_i, m.pol.spec_r, m.pol.spec_i,
             state.nlops_mag.d1, state.nlops_mag.d2, state.nlops_mag.lfac, state.nlops_mag.rinv, state.nlops_mag.rinv2,
             state.nlops_mag.r, bw)
@@ -92,14 +93,16 @@ function gpu_solver_step!(state)
     t = state.temperature
     gpu_scalar_field_step!(t.spec_r, t.spec_i, t.prev_nl_r, t.prev_nl_i, u.data, uθ.data, uφ.data, cfg,
         state.d1, state.mvals, state.rinv, t.lin, t.lu, t.bc_in_r, t.bc_in_i, t.bc_out_r, t.bc_out_i,
-        state.inv_dt_temp, linw, lmax, bw; ws = ws, tag = :st_temp)
+        state.inv_dt_temp, linw, lmax, bw; ws = ws, tag = :st_temp,
+        internal_source = t.internal_source)
 
     # --- (6) composition step (if present) with the shared u ---
     if state.composition !== nothing
         c = state.composition
         gpu_scalar_field_step!(c.spec_r, c.spec_i, c.prev_nl_r, c.prev_nl_i, u.data, uθ.data, uφ.data, cfg,
             state.d1, state.mvals, state.rinv, c.lin, c.lu, c.bc_in_r, c.bc_in_i, c.bc_out_r, c.bc_out_i,
-            state.inv_dt_comp, linw, lmax, bw; ws = ws, tag = :st_comp)
+            state.inv_dt_comp, linw, lmax, bw; ws = ws, tag = :st_comp,
+            internal_source = c.internal_source)
     end
 
     # --- (7) roll the persistent physical buffers (current synthesis → lagged) for the next step ---
