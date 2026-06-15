@@ -74,6 +74,49 @@ function _cb3_stage_matrices(state::SolverState{T, <:AbstractArchitecture},
     return create_solver_implicit_matrix_store(matrices)
 end
 
+# RK3's three substages use distinct γ, so the (γ·dt)-shifted implicit operators and
+# poloidal W-split differ per stage. They depend only on (γ, dt, parameters, geometry);
+# parameters/geometry are fixed per run, so we cache per stage and invalidate when dt
+# changes. This replaces a full rebuild + LU-refactorization of every operator on every
+# substage (3×/step) with a build-once-per-(stage, dt).
+function _cb3_invalidate_caches_if_dt_changed!(state::SolverState)
+    caches = state.timestep_caches
+    if caches.cb3_built_dt != state.parameters.timestep
+        fill!(caches.cb3_stage_matrices, nothing)
+        fill!(caches.cb3_poloidal_split, nothing)
+        caches.cb3_built_dt = state.parameters.timestep
+    end
+    return nothing
+end
+
+function _get_or_build_cb3_stage_matrices!(state::SolverState{T, <:AbstractArchitecture},
+        stage::Int, gamma::Float64) where {T}
+    caches = state.timestep_caches
+    cached = caches.cb3_stage_matrices[stage]
+    cached === nothing || return cached::Dict{Symbol, ImplicitMatrixSet{T}}
+    built = _cb3_stage_matrices(state, gamma)
+    caches.cb3_stage_matrices[stage] = built
+    return built::Dict{Symbol, ImplicitMatrixSet{T}}
+end
+
+function _get_or_build_cb3_poloidal_split!(state::SolverState{T, <:AbstractArchitecture},
+        stage::Int, gamma::Float64, velocity_bc::Int) where {T}
+    caches = state.timestep_caches
+    cached = caches.cb3_poloidal_split[stage]
+    cached === nothing || return cached::PoloidalSplitMatrices{T}
+    split = create_velocity_poloidal_split_matrices(
+        state.runtime.shtns_config,
+        state.runtime.outer_core_domain,
+        state.parameters.Ek,
+        gamma * state.parameters.timestep;
+        velocity_bc_code = velocity_bc,
+        theta = 1.0,
+        T = T,
+    )
+    caches.cb3_poloidal_split[stage] = split
+    return split
+end
+
 function _cb3_apply_scalar_stage!(state, field, key::Symbol, solve_step!, matrices,
         gamma::Float64, zeta::Float64; mass_coeff::Float64 = 1.0)
     mset = matrices[key]
@@ -138,18 +181,10 @@ function _cb3_apply_velocity_toroidal_stage!(state::SolverState{T, <:AbstractArc
 end
 
 function _cb3_apply_poloidal_wsplit_stage!(state::SolverState{T, <:AbstractArchitecture},
-        gamma::Float64, zeta::Float64) where {T}
+        stage::Int, gamma::Float64, zeta::Float64) where {T}
     velocity = state.fields.velocity
     velocity_bc = _velocity_bc_code(state.parameters.velocity_bcs)
-    split = create_velocity_poloidal_split_matrices(
-        state.runtime.shtns_config,
-        state.runtime.outer_core_domain,
-        state.parameters.Ek,
-        gamma * state.parameters.timestep;
-        velocity_bc_code = velocity_bc,
-        theta = 1.0,
-        T = T,
-    )
+    split = _get_or_build_cb3_poloidal_split!(state, stage, gamma, velocity_bc)
     domain = state.runtime.outer_core_domain
     cfg = velocity.poloidal.config
     nr = domain.N
@@ -257,11 +292,11 @@ function _cb3_apply_magnetic_stage!(state::SolverState{T, <:AbstractArchitecture
     return state
 end
 
-function _cb3_apply_stage!(state::SolverState, gamma::Float64, zeta::Float64)
-    matrices = _cb3_stage_matrices(state, gamma)
+function _cb3_apply_stage!(state::SolverState, stage::Int, gamma::Float64, zeta::Float64)
+    matrices = _get_or_build_cb3_stage_matrices!(state, stage, gamma)
 
     _cb3_apply_velocity_toroidal_stage!(state, matrices, gamma, zeta)
-    _cb3_apply_poloidal_wsplit_stage!(state, gamma, zeta)
+    _cb3_apply_poloidal_wsplit_stage!(state, stage, gamma, zeta)
     _cb3_apply_magnetic_stage!(state, matrices, gamma, zeta)
 
     _cb3_apply_scalar_stage!(
@@ -295,12 +330,13 @@ Advance one complete Cavaglieri-Bewley/Williamson 2N-storage IMEX-RK3 step.
 before entering this function; substages 2 and 3 recompute them here.
 """
 function integrate_solver_cb3_step!(state::SolverState)
+    _cb3_invalidate_caches_if_dt_changed!(state)
     for stage in 1:3
         stage == 1 || begin
             compute_solver_nonlinear_terms!(state)
             apply_solver_topography!(state)
         end
-        _cb3_apply_stage!(state, CB3_GAMMA[stage], CB3_ZETA[stage])
+        _cb3_apply_stage!(state, stage, CB3_GAMMA[stage], CB3_ZETA[stage])
         _sync_solver_nonlinear_histories!(
             state,
             state.parameters.include_magnetic && state.fields.magnetic !== nothing,

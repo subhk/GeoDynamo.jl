@@ -314,6 +314,15 @@ mutable struct TimestepCaches{T}
     erk2_boundary_specs::Dict{Tuple{Symbol, Int}, SolverERK2BoundarySpec{T}}
     # Stage-4B: lazily built poloidal W-split operators (CNAB2 velocity path).
     poloidal_split::Union{PoloidalSplitMatrices{T}, Nothing}
+    # RungeKutta3 (CB3) per-substage implicit operators + poloidal W-split. RK3 uses
+    # three distinct γ coefficients, so each substage's (γ·dt)-shifted operators differ;
+    # they are cached per stage (slots 1..3) and rebuilt only when dt changes. Without
+    # this, every substage rebuilt + LU-refactorized every operator. Stored as
+    # `Vector{Any}` because `ImplicitMatrixSet` is defined below this struct; the getter
+    # `_get_or_build_cb3_stage_matrices!` asserts the concrete element type.
+    cb3_stage_matrices::Vector{Any}
+    cb3_poloidal_split::Vector{Union{PoloidalSplitMatrices{T}, Nothing}}
+    cb3_built_dt::Float64
 end
 
 function TimestepCaches{T}() where {T}
@@ -324,7 +333,10 @@ function TimestepCaches{T}() where {T}
         Dict{Symbol, SolverRadialWork{T}}(),
         Dict{Symbol, SolverERK2FieldBuffers{T}}(),
         Dict{Tuple{Symbol, Int}, SolverERK2BoundarySpec{T}}(),
-        nothing
+        nothing,
+        Any[nothing, nothing, nothing],
+        Union{PoloidalSplitMatrices{T}, Nothing}[nothing, nothing, nothing],
+        NaN
     )
 end
 

@@ -305,7 +305,7 @@ const BCS2 = GeoDynamo.bcs                      # bcs module
             vo[idx10] = value_outer
             d1o[idx10] = d1_outer
             return TC2.BoundaryDerivativeCache{T}(
-                lmax, mmax, nlm, vi, vo, d1i, d1o, nothing, nothing)
+                lmax, mmax, nlm, nothing, vi, vo, d1i, d1o, nothing, nothing)
         end
 
         # Topography with a single mode h_{1,0} = h_amp.
@@ -389,12 +389,12 @@ const BCS2 = GeoDynamo.bcs                      # bcs module
         vo[idx10] = complex(P_val, 0.0)
         d1o[idx10] = complex(dP_dr, 0.0)
         p_only = TC2.BoundaryDerivativeCache{T}(
-            lmax, mmax, nlm, vi, vo, d1i, d1o, nothing, nothing)
+            lmax, mmax, nlm, nothing, vi, vo, d1i, d1o, nothing, nothing)
         T_val = 0.6
         vot = zeros(Complex{T}, nlm)
         vot[idx10] = complex(T_val, 0.0)
         t_only = TC2.BoundaryDerivativeCache{T}(
-            lmax, mmax, nlm, zeros(Complex{T}, nlm), vot,
+            lmax, mmax, nlm, nothing, zeros(Complex{T}, nlm), vot,
             zeros(Complex{T}, nlm), zeros(Complex{T}, nlm), nothing, nothing)
         cfg_imp_slope = TC2.TopographyCouplingConfig(
             enabled = true, include_shift_terms = false,

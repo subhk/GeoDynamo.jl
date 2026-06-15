@@ -79,7 +79,6 @@ function compute_boundary_derivative_cache(field,
 
     data_real = parent(field.data_real)
     data_imag = parent(field.data_imag)
-    lm_range = field.pencil.axes_local[1]
     r_range = field.pencil.axes_local[3]
 
     comm = get_comm()
@@ -97,11 +96,14 @@ function compute_boundary_derivative_cache(field,
         fill!(profile_real, zero(T))
         fill!(profile_imag, zero(T))
 
-        if lm_idx in lm_range
-            slot = local_spectral_storage_slot(field.config, lm_idx)
-            slot !== nothing && gather_local_radial_profile!(profile_real, profile_imag,
-                data_real, data_imag, slot, r_range)
-        end
+        # Ownership is encoded by local_spectral_storage_slot (it returns nothing for
+        # modes whose storage slot is not held on this rank). The old
+        # `lm_idx in field.pencil.axes_local[1]` guard used the l-slot axis (1:lmax+1)
+        # as if it were a mode-index range, so every canonical mode index > lmax+1
+        # (i.e. all m>0 modes) was silently skipped — leaving the cache m=0-only.
+        slot = local_spectral_storage_slot(field.config, lm_idx)
+        slot !== nothing && gather_local_radial_profile!(profile_real, profile_imag,
+            data_real, data_imag, slot, r_range)
 
         MPI.Allreduce!(profile_real, gathered_real, MPI.SUM, comm)
         MPI.Allreduce!(profile_imag, gathered_imag, MPI.SUM, comm)
@@ -128,6 +130,13 @@ function compute_boundary_derivative_cache(field,
         d2_inner, d2_outer)
 end
 
+# Canonical m-major mode index of (l, m) for a full triangular layout
+# (m in 0:mmax, l in m:lmax) — matches the SHTnsKit config's mode ordering. Used as
+# a config-free fallback for directly-built caches (unit tests) that carry no config.
+@inline function _canonical_mode_index(l::Int, m::Int, lmax::Int)
+    return m * (lmax + 1) - (m * (m - 1)) ÷ 2 + (l - m + 1)
+end
+
 function _cache_index(cache::BoundaryDerivativeCache, l::Int, m::Int)
     if l > cache.lmax || abs(m) > l || abs(m) > cache.mmax
         return 0
@@ -135,8 +144,10 @@ function _cache_index(cache::BoundaryDerivativeCache, l::Int, m::Int)
     # The cache is FILLED in canonical m-major order (compute_boundary_derivative_cache
     # writes values_inner[lm_idx] for lm_idx in 1:nlm via local_spectral_storage_slot).
     # Read with the matching canonical index — lm_to_index is l-major and would scramble
-    # modes (e.g. lmax=4: (l=2,m=0) is canonical index 3 but lm_to_index gives 4).
-    return get_mode_index(cache.config, l, abs(m))
+    # modes (e.g. lmax=4: (l=2,m=1) is canonical index 7 but lm_to_index gives 5).
+    cfg = cache.config
+    cfg === nothing && return _canonical_mode_index(l, abs(m), cache.lmax)
+    return get_mode_index(cfg, l, abs(m))
 end
 
 function _apply_m_conjugate(val::Complex{T}, m::Int) where {T}

@@ -55,6 +55,18 @@ end
     @test all(isfinite, parent(st.fields.temperature.spectral.data_real))
     @test all(isfinite, parent(st.fields.velocity.toroidal.data_real))
 
+    # RK3 per-substage implicit operators are cached (built once per (stage, dt))
+    # instead of rebuilt + refactorized every substage. After a step all three stage
+    # slots are populated and keyed to the current dt.
+    @test st.timestep_caches.cb3_built_dt == st.parameters.timestep
+    @test all(!isnothing, st.timestep_caches.cb3_stage_matrices)
+    @test all(!isnothing, st.timestep_caches.cb3_poloidal_split)
+    # A second step reuses the cached operators (no rebuild) and stays finite.
+    GeoDynamo.solver_step!(st)
+    @test st.step == 2
+    @test all(isfinite, parent(st.fields.temperature.spectral.data_real))
+    @test all(isfinite, parent(st.fields.velocity.poloidal.data_real))
+
     st_cpu = build_small_cb3_state()
     GeoDynamo.solver_step!(st_cpu)
     gst = GeoDynamo.build_gpu_solver_state(st_cpu)
