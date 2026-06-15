@@ -32,13 +32,19 @@ end
 # substitution along dim 3, reading its degree's LU factor lu_batched[:,:,li].
 # Mirrors solve_banded! exactly (banded_operators.jl:84-125). The bounded j-ranges
 # guarantee the band row index bw+1+i-j ∈ [1, 2bw+1], so no in-loop guard is needed.
-@kernel function _banded_solve_kernel!(X, @Const(B), @Const(lu_batched), bw::Int, nr::Int)
+@kernel function _banded_solve_kernel!(X, B, @Const(lu_batched), bw::Int, nr::Int)
     li, mi = @index(Global, NTuple)
     T = eltype(X)
-    # @Const(B) + in-place X===B safety: B[li,mi,i] is read ONCE at step i, BEFORE
-    # X[li,mi,i] is written; the back sweep reads only X, never B. So no written
-    # location is re-read through the B pointer → the read-only cache (__ldg on CUDA)
-    # never sees a stale value, even when X===B. Do NOT move the B read after the X write.
+    # B is deliberately NOT @Const: callers solve in place (X === B, see
+    # gpu_implicit_solve_field! in implicit_solve.jl and the inner-core path), so B
+    # may alias X. On CUDA @Const lowers to __ldg/__restrict__, which asserts the B
+    # and X pointers do NOT alias — a contract the in-place solve violates (UB, and
+    # invisible on the Array backend where @Const is a no-op). Dropping @Const(B)
+    # only forgoes the read-only-cache hint; the access pattern is unchanged:
+    # B[li,mi,i] is read ONCE at forward step i to seed X[li,mi,i], and the back
+    # sweep reads only X — so no written location is ever re-read through B, even
+    # when X===B. Do NOT move the B read after the X write. @Const(lu_batched) stays
+    # — those LU factors are genuinely read-only.
     # Forward: L y = b  (unit diagonal)
     @inbounds for i in 1:nr
         s = zero(T)

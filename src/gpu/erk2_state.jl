@@ -151,6 +151,9 @@ function build_gpu_erk2_state(st)
     params = st.parameters
     params.timestepper isa ExponentialRungeKutta2 || error(
         "build_gpu_erk2_state: state is configured with $(typeof(params.timestepper)), not ExponentialRungeKutta2")
+    params.geometry === :shell || error(
+        "build_gpu_erk2_state: GPU ERK2 supports only :shell geometry, got $(params.geometry) " *
+        "(the velocity-poloidal recovery + boundary packs hard-code the shell layout)")
     runtime = st.runtime
     cfg = runtime.shtns_config
     domain = runtime.outer_core_domain
@@ -190,34 +193,39 @@ function build_gpu_erk2_state(st)
 
     split = _get_or_build_poloidal_split!(st, velocity_bc_code)
 
-    fields = Dict{Symbol, Any}()
-    fields[:temperature] = (;
+    # Per-field packs as concretely-typed locals (no Dict{Symbol,Any} indirection,
+    # so each `erk.<field>` infers its concrete NamedTuple type). Optional fields
+    # are `nothing` unless the corresponding physics is active.
+    temperature = (;
         _pack_erk2_cache(temp_cache, nl, nr)...,
         bc = _pack_erk2_bc(temp_spec, cfg, nl, nm, nr, T))
-    fields[:velocity_tor] = (;
+    velocity_tor = (;
         _pack_erk2_cache(vel_tor_cache, nl, nr)...,
         bc = _pack_erk2_bc(vel_tor_spec, cfg, nl, nm, nr, T))
-    fields[:velocity_pol] = (;
+    velocity_pol = (;
         _pack_erk2_cache(vel_pol_cache, nl, nr)...,
         bc = _pack_erk2_bc(nothing, cfg, nl, nm, nr, T))
 
+    magnetic_tor = nothing
+    magnetic_pol = nothing
     if params.include_magnetic && st.fields.magnetic !== nothing
         mag_tor_spec = _get_or_build_erk2_boundary_spec!(
-            caches, :magnetic_tor, 0, () -> build_solver_erk2_magnetic_tor_bc(T, nr))
+            caches, :magnetic_tor, 0, () -> build_solver_erk2_magnetic_tor_bc(T, domain))
         mag_pol_spec = _get_or_build_erk2_boundary_spec!(
             caches, :magnetic_pol, 0, () -> build_solver_erk2_magnetic_pol_bc(T, domain))
         mag_tor_cache = get_solver_erk2_magnetic_toroidal_cache!(
             caches, 1.0, T, cfg, domain, dt; use_krylov = false)
         mag_pol_cache = get_solver_erk2_magnetic_poloidal_cache!(
             caches, 1.0, T, cfg, domain, dt; use_krylov = false)
-        fields[:magnetic_tor] = (;
+        magnetic_tor = (;
             _pack_erk2_cache(mag_tor_cache, nl, nr)...,
             bc = _pack_erk2_bc(mag_tor_spec, cfg, nl, nm, nr, T))
-        fields[:magnetic_pol] = (;
+        magnetic_pol = (;
             _pack_erk2_cache(mag_pol_cache, nl, nr)...,
             bc = _pack_erk2_bc(mag_pol_spec, cfg, nl, nm, nr, T))
     end
 
+    composition = nothing
     if st.fields.composition !== nothing
         comp_spec = _get_or_build_erk2_boundary_spec!(
             caches, :composition, composition_bc_code,
@@ -228,7 +236,7 @@ function build_gpu_erk2_state(st)
         comp_cache = get_solver_erk2_composition_cache!(
             caches, params.Pm / params.Sc, T, cfg, domain, dt, composition_bc_code;
             use_krylov = false)
-        fields[:composition] = (;
+        composition = (;
             _pack_erk2_cache(comp_cache, nl, nr)...,
             bc = _pack_erk2_bc(comp_spec, cfg, nl, nm, nr, T))
     end
@@ -237,11 +245,11 @@ function build_gpu_erk2_state(st)
 
     return (;
         dt = dt,
-        temperature = fields[:temperature],
-        velocity_tor = fields[:velocity_tor],
-        velocity_pol = fields[:velocity_pol],
-        magnetic_tor = get(fields, :magnetic_tor, nothing),
-        magnetic_pol = get(fields, :magnetic_pol, nothing),
-        composition = get(fields, :composition, nothing),
+        temperature = temperature,
+        velocity_tor = velocity_tor,
+        velocity_pol = velocity_pol,
+        magnetic_tor = magnetic_tor,
+        magnetic_pol = magnetic_pol,
+        composition = composition,
         recovery = recovery)
 end
