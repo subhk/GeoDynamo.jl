@@ -70,8 +70,10 @@ end
         "function get_bc_vectors(field)"
     )
     @test _sc_occ("field.boundary_values", get_bc_vectors)
-    @test _sc_occ("inner_real=view(field.boundary_values, 1, :)", get_bc_vectors)
-    @test _sc_occ("inner_imag=nothing", get_bc_vectors)
+    @test _sc_occ("view(field.boundary_values, 1, :)", get_bc_vectors)
+    # get_bc_vectors returns the uniform, type-stable `_BCVectors` shape (absent
+    # slots are positional `nothing`) rather than a 3-way union of NamedTuples.
+    @test _sc_occ("_BCVectors(", get_bc_vectors)
 
     runtime_create = _temperature_bc_static_function_body(
         backend,

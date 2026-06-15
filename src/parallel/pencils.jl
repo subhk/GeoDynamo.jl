@@ -223,8 +223,10 @@ function analyze_load_balance(pencil::Pencil)::Float64
     avg_size = total_size / nprocs
     imbalance = (max_size - min_size) / avg_size * 100
 
+    # Collective: every rank must call MPI.Gather; only root receives the result.
+    all_sizes = MPI.Gather(local_elements, comm; root = 0)
+
     if rank == 0
-        all_sizes = MPI.Gather(local_elements, comm; root = 0)
         std_size = std(all_sizes)
 
         println("\nLoad Balance Analysis:")
@@ -413,6 +415,7 @@ function validate_radial_distribution(pencils; warn_uneven::Bool = true, strict:
     valid = true
     problematic_pencils = Symbol[]
     distribution_info = Dict{Symbol, Tuple{Int, Int}}()
+    checked_pencils = Pencil[]
 
     for (name, pencil) in pairs(pencils)
         # Only the r-local compute pencils (:spec, :mixed) require synchronized
@@ -423,6 +426,12 @@ function validate_radial_distribution(pencils; warn_uneven::Bool = true, strict:
         # The :θ/:φ transpose pencils also distribute r by design (FFT orientations).
         # Skip all of these to avoid false "uneven radial distribution" alarms.
         name in (:spec, :mixed) || continue
+        # :mixed aliases the :spec pencil (mixed = pencil_spec), so checking both
+        # would run the identical MPI.Allgather twice. De-duplicate by object
+        # identity — the alias relationship is the same on every rank, so the
+        # collective count stays consistent across ranks.
+        any(p -> p === pencil, checked_pencils) && continue
+        push!(checked_pencils, pencil)
         # Use range_local accessor for version compatibility
         local_axes = range_local(pencil)
         if length(local_axes) >= 3

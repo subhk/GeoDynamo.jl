@@ -283,10 +283,21 @@ function compute_all_gradients_spectral!(
         𝔽::ScalarFieldType{T},
         domain::RadialDomainType,
         ws::SolverGradientWorkspace{T}) where {T}
-    compute_theta_gradient_spectral!(𝔽, ws)
-    compute_phi_gradient_spectral!(𝔽, ws)
+    # Only the RADIAL spectral gradient is consumed downstream. The live
+    # consumer `transform_field_and_gradients_to_physical!` reads `ws.∇r_spec`
+    # (scalar synthesis → 𝔽.gradient.r_component) and recomputes the EXACT
+    # tangential (θ/φ) physical gradient via raw sphtor synthesis of the
+    # scalar's own coefficients (S = 𝔽.spectral, T = 0) — it never reads
+    # `ws.∇θ_spec` / `ws.∇φ_spec`. The θ/φ spectral-recurrence outputs were
+    # therefore computed and then discarded; worse,
+    # `compute_theta_gradient_spectral!` issues 2 MPI Allreduces per call
+    # (4 wasted collectives per step across temperature + composition) on
+    # multi-rank runs. Skip both tangential recurrences and
+    # `apply_geometric_factors_spectral!` (which only rescales those discarded
+    # θ/φ outputs by 1/r); compute solely the radial gradient that is used.
+    # `zero_gradient_workspace!` (run by the caller) leaves ws.∇θ_spec /
+    # ws.∇φ_spec zeroed, which nothing reads.
     compute_radial_gradient_spectral!(𝔽, domain, ws)
-    apply_geometric_factors_spectral!(ws, 𝔽, domain)
 
     return ws
 end

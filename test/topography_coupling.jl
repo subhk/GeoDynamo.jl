@@ -162,6 +162,99 @@ const topocpl = GeoDynamo.bcs.topography
         @test haskey(op_m, (2, 0, :dP))
     end
 
+    # The fill-with-a-constant tests above cannot see two mode-indexing bugs because
+    # every spectral slot holds the same value. The two testsets below excite a SINGLE
+    # non-axisymmetric mode so a scrambled read or a doubled write becomes visible.
+    @testset "Bug 1: boundary-derivative cache reads modes in canonical m-major order" begin
+        # The cache is FILLED in canonical m-major order (mode index 1:nlm via
+        # local_spectral_storage_slot) but used to be READ with the l-major lm_to_index,
+        # so get_cache_value(l,m) returned a different mode's data.
+        pol = state.fields.velocity.poloidal
+        cfg = pol.config
+
+        # Excite ONLY canonical mode (l=2, m=1) with a known constant radial profile.
+        fill!(parent(pol.data_real), 0.0)
+        fill!(parent(pol.data_imag), 0.0)
+        src = topocpl.get_mode_index(cfg, 2, 1)          # canonical (m-major) index
+        @test src > 0
+        sslot = topocpl.local_spectral_storage_slot(cfg, src)
+        @test sslot !== nothing
+        V = 0.7
+        parent(pol.data_real)[sslot[1], sslot[2], :] .= V
+
+        cache = topocpl.compute_boundary_derivative_cache(
+            pol, state.fields.velocity.∂r, state.fields.velocity.∂²r,
+            state.fields.velocity.domain)
+
+        # The two index conventions genuinely disagree for (2,1) — that disagreement is
+        # exactly the bug. (m-major canonical index 7 vs l-major lm_to_index 5 at lmax 4.)
+        @test topocpl.lm_to_index(2, 1, L) != src
+
+        # Correct mode (2,1) must return V. Under the l-major bug it read the wrong slot
+        # (an unexcited mode) and returned 0.
+        @test real(topocpl.get_cache_value(cache, 2, 1, GeoDynamo.OUTER_BOUNDARY)) ≈ V
+
+        # (3,0) is the mode the buggy l-major index aliased onto slot `src`
+        # (lm_to_index(3,0,4) == 7 == canonical index of (2,1)); the old code therefore
+        # returned V here. The fixed canonical read must return 0 (this mode is unexcited).
+        @test real(topocpl.get_cache_value(cache, 3, 0, GeoDynamo.OUTER_BOUNDARY)) ≈ 0 atol=1e-12
+        # Another unexcited mode also reads zero.
+        @test real(topocpl.get_cache_value(cache, 1, 0, GeoDynamo.OUTER_BOUNDARY)) ≈ 0 atol=1e-12
+    end
+
+    @testset "Bug 2: apply loop writes each m>=0 slot once (no +/-m double-application)" begin
+        # The apply loops used to iterate m in -l:l and write lm_to_spectral_index(l, m),
+        # which maps +m and -m to the SAME m>=0 storage slot — so each m != 0 slot was
+        # corrected twice. After the fix the OUTER (CMB) row delta for every non-axisymmetric
+        # target must equal exactly ONE application of the per-mode correction.
+        vel = state.fields.velocity
+        pol = vel.poloidal
+        tor = vel.toroidal
+        cfg = pol.config
+
+        # Single source mode (l=2, m=1) in the poloidal field, toroidal zeroed.
+        fill!(parent(pol.data_real), 0.0)
+        fill!(parent(pol.data_imag), 0.0)
+        fill!(parent(tor.data_real), 0.0)
+        fill!(parent(tor.data_imag), 0.0)
+        src = topocpl.get_mode_index(cfg, 2, 1)
+        sslot = topocpl.local_spectral_storage_slot(cfg, src)
+        @test sslot !== nothing
+        parent(pol.data_real)[sslot[1], sslot[2], :] .= 0.7
+
+        # Caches exactly as apply_velocity_topography_correction! builds them internally
+        # (it does not modify field data, only boundary_values, so these match its caches).
+        p_cache = topocpl.compute_boundary_derivative_cache(pol, vel.∂r, vel.∂²r, vel.domain)
+        t_cache = topocpl.compute_boundary_derivative_cache(tor, vel.∂r, vel.∂²r, vel.domain)
+
+        ro = topodata.cmb.radius
+        bv0 = copy(pol.boundary_values)
+        @test topocpl.apply_velocity_topography_correction!(vel, topodata, config) === nothing
+
+        # For every non-axisymmetric target, the CMB-row (row 2) delta must match a single
+        # application of the impermeability correction. The poloidal boundary row only ever
+        # receives the impermeability term (the no-slip/stress-free terms go to the toroidal
+        # row), so this is an exact comparison.
+        nonzero_seen = false
+        for l in 1:L
+            for m in 1:min(l, L)
+                idx = topocpl.get_mode_index(cfg, l, m)
+                (idx <= 0 || idx > size(pol.boundary_values, 2)) && continue
+                imp = topocpl.compute_impermeability_correction(
+                    l, m, p_cache, t_cache, topodata.cmb, topodata.gaunt_cache,
+                    ro, GeoDynamo.OUTER_BOUNDARY, config)
+                expected = -config.epsilon * real(imp) * ro^2 / (l * (l + 1))
+                actual = pol.boundary_values[2, idx] - bv0[2, idx]
+                @test actual ≈ expected atol=1e-12 rtol=1e-9
+                abs(expected) > 1e-10 && (nonzero_seen = true)
+            end
+        end
+        # Non-vacuous: at least one m>0 correction is genuinely nonzero, so the equality
+        # checks above would fail under the old double-application (which adds the spurious
+        # -m pass on top of the +m correction).
+        @test nonzero_seen
+    end
+
     if MPI.Initialized()
         MPI.Barrier(GeoDynamo.get_comm())
         if FINALIZE_MPI_TOPO_COUPLING && !MPI.Finalized()

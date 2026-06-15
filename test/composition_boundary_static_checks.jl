@@ -67,8 +67,9 @@ end
         numerics,
         "function get_bc_vectors(field)"
     )
-    @test _sc_occ("inner_real=view(field.boundary_values, 1, :)", get_bc_vectors)
-    @test _sc_occ("inner_imag=nothing", get_bc_vectors)
+    @test _sc_occ("view(field.boundary_values, 1, :)", get_bc_vectors)
+    # Uniform, type-stable `_BCVectors` return shape (absent slots positional `nothing`).
+    @test _sc_occ("_BCVectors(", get_bc_vectors)
 
     runtime_create = _composition_bc_static_function_body(
         backend,

@@ -180,7 +180,9 @@ tangential components (1/sinθ structure) suffers beyond lmax for m>0 modes.
 Replaces a stub that hardcoded (0.0, 0.0).
 Allocation-heavy (builds scratch fields per call) — diagnostic path only.
 
-# TODO(stage2): MPI.Allreduce the norms for multi-rank.
+The per-mode accumulators are reduced across the communicator (SUM for the L2
+numerator and count, MAX for L∞) so the returned norms are global on multi-rank
+runs; under a single rank / no MPI the reduction is the identity.
 """
 function compute_divergence_spectral(
         tor_spec::SpectralFieldType{T},
@@ -228,6 +230,17 @@ function compute_divergence_spectral(
                 count += 1
             end
         end
+    end
+    # Reduce the rank-local partial accumulators across the communicator: each
+    # rank owns a disjoint subset of spectral modes (non-owned modes are skipped
+    # via local_spectral_storage_slot returning nothing), so the L2 numerator and
+    # the mode/node count are summed and L∞ takes the max. Under a single rank (or
+    # no MPI) this is the identity.
+    if mpi_initialized()
+        comm = mpi_comm()
+        sumsq = allreduce_sum(sumsq, comm)
+        count = allreduce_sum(count, comm)
+        linf = allreduce_max(linf, comm)
     end
     l2 = count > 0 ? sqrt(sumsq / count) : 0.0
     return (l2, linf)

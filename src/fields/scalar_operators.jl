@@ -120,14 +120,15 @@ function _build_mode_index_table(config::SHTnsKitConfig)
 end
 
 function get_mode_index(config::SHTnsKitConfig, l::Int, m::Int)
+    # NOTE: `table` is never reassigned inside the `lock` closure — the closure
+    # RETURNS the table instead. This keeps `table` from being captured-and-
+    # reassigned across the closure boundary (which would box it into a
+    # `Core.Box`, adding a heap alloc + dynamic dispatch on every call — and this
+    # is called nr×nlm×2 times per scalar field per timestep).
     table = get(_MODE_INDEX_CACHE, config, nothing)
     if table === nothing
-        lock(_MODE_INDEX_CACHE_LOCK) do
-            table = get(_MODE_INDEX_CACHE, config, nothing)
-            if table === nothing
-                table = _build_mode_index_table(config)
-                _MODE_INDEX_CACHE[config] = table
-            end
+        table = lock(_MODE_INDEX_CACHE_LOCK) do
+            get!(() -> _build_mode_index_table(config), _MODE_INDEX_CACHE, config)
         end
     end
     return get(table, (l, m), 0)
@@ -148,6 +149,11 @@ struct GradientWorkspace{T}
     ∇θ_spec::SHTnsSpecField{T}
     ∇φ_spec::SHTnsSpecField{T}
     ∇r_spec::SHTnsSpecField{T}
+    # Scratch buffers (length nlm) for the θ-gradient cross-rank spectral gather.
+    # Allocated once here and refilled per radial level, so the θ-gradient kernel
+    # does not allocate full-spectrum vectors on every call.
+    gather_real::Vector{T}
+    gather_imag::Vector{T}
 end
 
 """
@@ -165,7 +171,9 @@ function create_gradient_workspace(::Type{T}, config::SHTnsKitConfig,
     GradientWorkspace{T}(
         create_shtns_spectral_field(T, config, domain, pencil_spec),
         create_shtns_spectral_field(T, config, domain, pencil_spec),
-        create_shtns_spectral_field(T, config, domain, pencil_spec)
+        create_shtns_spectral_field(T, config, domain, pencil_spec),
+        zeros(T, config.nlm),
+        zeros(T, config.nlm)
     )
 end
 
@@ -285,9 +293,10 @@ function compute_theta_gradient_spectral!(𝔽::AbstractScalarField{T}, ws::Grad
     comm = get_comm()
     multi = MPI.Initialized() && MPI.Comm_size(comm) > 1
 
-    # Pre-allocate full spectral vectors for gathering across ranks
-    full_real = zeros(T, nlm)
-    full_imag = zeros(T, nlm)
+    # Reuse the pre-allocated workspace buffers for gathering across ranks
+    # (refilled per radial level below) instead of allocating per call.
+    full_real = ws.gather_real
+    full_imag = ws.gather_imag
 
     @inbounds for r_idx in r_range
         local_r = r_idx - first(r_range) + 1

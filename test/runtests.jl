@@ -208,6 +208,7 @@ additional_tests = (
     "erk2_integration_step.jl",
     "cnab2_rhs_distributed_equivalence.jl",
     "force_projection_reference.jl",
+    "nonlinear_radial_gradient_used.jl",
     "solenoidal_transform_pair.jl",
     "r_dist_solenoidal_synthesis.jl",
     "poloidal_momentum_split.jl",
@@ -231,6 +232,7 @@ additional_tests = (
     # spec for a not-yet-implemented Mie-consistent poloidal reconstruction (see its
     # header + memory) and currently errors in setup.
     "analytical_blob_radial.jl",
+    "uniform_field_ic.jl",
     "composition_analytical_ic.jl",
     "composition_ic_bc_consistency.jl",
     "conductive_profile.jl",

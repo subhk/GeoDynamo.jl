@@ -161,9 +161,17 @@ function write_fields!(fields::Dict{String, Any}, tracker::TimeTracker,
 
     # Restart file
     if should_restart
-        write_restart!(fields, tracker, metadata, config, pencils;
+        # A restart must be a faithful, lossless continuation of the run, so it is
+        # always written at Float64 regardless of the (possibly Float32) history
+        # `output_precision`. Only the restart config is overridden here; the
+        # history write above keeps the caller's precision untouched.
+        # The true radial collocation grid is also threaded through so the stored
+        # "r" coordinate matches the solver's Chebyshev nodes instead of the
+        # equispaced fallback fabricated when `radial_grid` is missing.
+        write_restart!(fields, tracker, metadata, with_output_precision(config, Float64), pencils;
             shtns_config = shtns_config,
-            geometry = geometry, radius_ratio = radius_ratio)
+            geometry = geometry, radius_ratio = radius_ratio,
+            radial_grid = radial_grid)
     end
 
     # Update tracker

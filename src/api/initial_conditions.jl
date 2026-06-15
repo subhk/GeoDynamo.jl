@@ -20,12 +20,18 @@
 """
     RandomPerturbation(; amplitude, lmax, domain=nothing, seed=nothing)
 
-Superimpose random spectral perturbations up to degree `lmax` on a field.
+Superimpose random spectral perturbations up to degree `lmax` ON a field. The
+perturbation is *added* to the field's existing spectral content (it does not
+clear the field first), so a base state applied earlier — e.g.
+`set!(model, :temperature, AnalyticIC(:conductive))` — survives. Apply the base
+IC first, then the `RandomPerturbation`.
 
 - `amplitude` – overall scale of the perturbation (required)
 - `lmax`      – maximum spherical-harmonic degree to excite (required)
-- `domain`    – radial domain, forwarded to the underlying randomizer so that
-                ball-regularity conditions are enforced when r=0 is included
+- `domain`    – DEPRECATED / unused. Accepted and forwarded for API symmetry,
+                but the underlying randomizers currently ignore it (the off-center
+                ball grid has no r=0 node, so no field-plane regularity zeroing is
+                needed). Kept to avoid breaking existing call sites.
 - `seed`      – optional `Int` random seed for reproducibility
 """
 struct RandomPerturbation

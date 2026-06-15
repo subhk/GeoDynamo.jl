@@ -168,7 +168,12 @@ function extract_field_info(
     if pencils !== nothing
         try
             nr = size_global(pencils.r)[3]
-        catch
+        catch e
+            # The global radial count sets the NetCDF radial dimension. Silently
+            # swallowing here would leave `nr` at this rank's local slab size and
+            # write a truncated/wrong global radial axis, so fail loud instead.
+            @warn "Failed to read global radial size from pencils.r; cannot set the NetCDF radial dimension" exception = (e, catch_backtrace())
+            rethrow()
         end
     end
 
@@ -196,8 +201,13 @@ function extract_field_info(
                 local_ranges[:spec] = legacy_spec_range
                 local_spectral_modes = collect(legacy_spec_range)
             end
-        catch
-            # Fallback if pencil ranges not available
+        catch e
+            # These local ownership ranges tell each rank which slice of the
+            # global file to write. Swallowing the error would leave them empty,
+            # so a distributed run would write degraded/incomplete output without
+            # any indication. Fail loud instead.
+            @warn "Failed to extract local pencil ranges / spectral modes for output" exception = (e, catch_backtrace())
+            rethrow()
         end
     elseif config !== nothing
         local_spectral_modes = local_spectral_mode_indices(config)

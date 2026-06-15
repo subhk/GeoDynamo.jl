@@ -43,5 +43,9 @@ function make_subcomms(comm, pencil_r)
     r_lo = Int(first(lr[3]))                  # identifies this rank's r-slab
     θ_transform_comm = MPI.Comm_split(comm, r_lo, rank)   # share r-slab, split θ
     r_transpose_comm = MPI.Comm_split(comm, θ_lo, rank)   # share θ-slab, split r
+    # NOTE on lifetime: these sub-communicators live for the duration of the grid and
+    # are intentionally NOT freed here. They remain in use across the whole run (every
+    # transform/transpose), so calling MPI.Comm_free on them would free a comm still in
+    # use; rely on MPI finalization to reclaim them instead.
     return θ_transform_comm, r_transpose_comm
 end

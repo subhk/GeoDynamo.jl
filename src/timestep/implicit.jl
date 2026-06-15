@@ -135,7 +135,7 @@ function apply_explicit_operator!(output::SHTnsSpecField{T},
     nl_real = parent(nonlinear.data_real)
     nl_imag = parent(nonlinear.data_imag)
 
-    lm_range = get_local_range(input.pencil, 1)
+    lm_range = local_spectral_mode_indices(input.config)
     r_range = get_local_range(input.pencil, 3)
 
     @inbounds for lm_idx in lm_range
@@ -269,7 +269,7 @@ function solve_implicit_step!(solution::SHTnsSpecField{T},
     rhs_real = parent(rhs.data_real)
     rhs_imag = parent(rhs.data_imag)
 
-    lm_range = get_local_range(solution.pencil, 1)
+    lm_range = local_spectral_mode_indices(solution.config)
     r_range = get_local_range(solution.pencil, 3)
     nr = matrices.system_matrices[1].size  # Full radial size (local = global for spectral)
 

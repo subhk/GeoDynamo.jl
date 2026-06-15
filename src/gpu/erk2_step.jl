@@ -294,8 +294,13 @@ function gpu_erk2_solver_step!(state, erk)
     V_r[1, :, :] .= zero(T); V_i[1, :, :] .= zero(T)
 
     # --- prepare every field (linear/k1/stage from u₀, n₀) ---
-    fields = Any[
-        (erk.temperature, state.temperature.spec_r, state.temperature.spec_i, n0.t_r, n0.t_i),
+    # Each entry is the homogeneous tuple (pack, u_r, u_i, n_r, n_i): all `erk.*`
+    # packs share one concrete NamedTuple type and all spectral/nonlinear arrays
+    # share one concrete array type, so the containers below are typed concretely
+    # (no per-element boxing / dynamic dispatch in the prepare/finalize loops).
+    field0 = (erk.temperature, state.temperature.spec_r, state.temperature.spec_i, n0.t_r, n0.t_i)
+    fields = typeof(field0)[
+        field0,
         (erk.velocity_tor, v.tor.spec_r, v.tor.spec_i, n0.vt_r, n0.vt_i),
         (erk.velocity_pol, V_r, V_i, n0.vp_r, n0.vp_i),
     ]
@@ -305,7 +310,9 @@ function gpu_erk2_solver_step!(state, erk)
     has_comp && push!(fields,
         (erk.composition, state.composition.spec_r, state.composition.spec_i, n0.c_r, n0.c_i))
 
-    prepared = Any[]
+    ScrT = typeof(v.tor.spec_r); FldT = typeof(erk.velocity_tor)
+    prepared = Vector{@NamedTuple{fld::FldT, ur::ScrT, ui::ScrT,
+        acc_r::ScrT, st_r::ScrT, acc_i::ScrT, st_i::ScrT}}()
     for (fi, (fld, ur, ui, nr_, ni_)) in enumerate(fields)
         ftag = Symbol(:e_f, fi)
         acc_r, st_r = _gpu_erk2_prepare(ur, nr_, fld, dt, fld.bc, nr, work,
@@ -326,7 +333,8 @@ function gpu_erk2_solver_step!(state, erk)
     # --- stage nonlinear pass at the provisional fields ---
     nstage = _gpu_erk2_nl_arrays(v.tor.spec_r, has_mag, has_comp, work, :e_ns)
     _gpu_erk2_nonlinear_pass!(state, nstage)
-    stage_nls = Any[(nstage.t_r, nstage.t_i), (nstage.vt_r, nstage.vt_i), (nstage.vp_r, nstage.vp_i)]
+    nlpair0 = (nstage.t_r, nstage.t_i)
+    stage_nls = typeof(nlpair0)[nlpair0, (nstage.vt_r, nstage.vt_i), (nstage.vp_r, nstage.vp_i)]
     has_mag && push!(stage_nls, (nstage.mt_r, nstage.mt_i), (nstage.mp_r, nstage.mp_i))
     has_comp && push!(stage_nls, (nstage.c_r, nstage.c_i))
 

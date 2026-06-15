@@ -63,7 +63,10 @@ function _poloidal_force_projection!(velocity_fields)
     cfg = velocity_fields.nl_poloidal.config
     domain = velocity_fields.domain
     T = eltype(parent(velocity_fields.nl_poloidal.data_real))
-    D1 = create_derivative_matrix(T, 1, domain)
+    # Reuse the cached first-derivative operator (built from this same
+    # outer-core domain in the field constructor) instead of rebuilding the
+    # identical banded matrix every CNAB2 step.
+    ∂r = velocity_fields.∂r
     nr = domain.N
     rS = Vector{T}(undef, nr)
     drS = Vector{T}(undef, nr)
@@ -85,7 +88,7 @@ function _poloidal_force_projection!(velocity_fields)
                 rS[r_idx] = T(domain.r[r_idx, 4]) *
                             local_spectral_value(s_arr, slot, r_idx)
             end
-            mul!(drS, D1, rS)
+            mul!(drS, ∂r, rS)
             for r_idx in 1:nr
                 q = local_spectral_value(q_arr, slot, r_idx)
                 set_local_spectral_value!(s_arr, slot, r_idx, drS[r_idx] - q)

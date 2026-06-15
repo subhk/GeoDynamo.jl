@@ -260,7 +260,10 @@ function enforce_velocity_boundary_values!(𝒰::SHTnsVelocityFields{T}) where {
     tor_bc = 𝒰.toroidal.boundary_values
     pol_bc = 𝒰.poloidal.boundary_values
 
-    lm_range = get_local_range(𝒰.toroidal.pencil, 1)
+    # Axis 1 of the spectral pencil is the l-slot axis (length lmax+1), NOT the
+    # flattened mode list — iterating it as a mode index would visit only the
+    # m=0 block. Use the true local mode indices (1:nlm).
+    lm_range = local_spectral_mode_indices(config)
     r_range = get_local_range(𝒰.toroidal.pencil, 3)
 
     has_inner = 1 in r_range && domain.r[1, 4] > 0
@@ -317,7 +320,10 @@ function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
     ζᴾ_imag = parent(𝒰.ζᴾ.data_imag)
 
     config = 𝒰.toroidal.config
-    lm_range = get_local_range(𝒰.toroidal.pencil, 1)
+    # Axis 1 of the spectral pencil is the l-slot axis (length lmax+1), NOT the
+    # flattened mode list — iterating it as a mode index would visit only the
+    # m=0 block. Use the true local mode indices (1:nlm).
+    lm_range = local_spectral_mode_indices(config)
     r_range = get_local_range(𝒰.toroidal.pencil, 3)
     nr = domain.N
 

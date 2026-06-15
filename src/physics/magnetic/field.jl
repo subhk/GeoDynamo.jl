@@ -526,8 +526,12 @@ function add_inner_core_rotation!(ℬ::SHTnsMagneticFields{T}, Ω::Float64) wher
     NLᴾ_real = parent(ℬ.nl_poloidal.data_real)
     NLᴾ_imag = parent(ℬ.nl_poloidal.data_imag)
 
-    # Get local ranges
-    lm_range = get_local_range(ℬ.toroidal_ic.pencil, 1)
+    # Get local ranges. Axis 1 of the spectral pencil is the l-slot axis
+    # (length lmax+1), NOT the flattened mode list — iterating it as a mode
+    # index would visit only the m=0 block (and m=0 modes are skipped here
+    # anyway, so the loop body was a no-op). Use the true local mode indices.
+    config = ℬ.toroidal.config
+    lm_range = local_spectral_mode_indices(config)
     r_range = get_local_range(ℬ.toroidal_ic.pencil, 3)
 
     # Rotation factor for inner core coupling (direct rotation rate, no arbitrary scaling)
@@ -539,9 +543,9 @@ function add_inner_core_rotation!(ℬ::SHTnsMagneticFields{T}, Ω::Float64) wher
     # Add rotation effects to nonlinear terms at inner core boundary
     @inbounds for lm_idx in lm_range
         if lm_idx <= ℬ.toroidal_ic.nlm
-            slot = local_spectral_storage_slot(ℬ.toroidal.config, lm_idx)
+            slot = local_spectral_storage_slot(config, lm_idx)
             slot === nothing && continue
-            m = ℬ.toroidal.config.m_values[lm_idx]
+            m = config.m_values[lm_idx]
 
             # Only affects m ≠ 0 modes (azimuthal dependence)
             if m != 0

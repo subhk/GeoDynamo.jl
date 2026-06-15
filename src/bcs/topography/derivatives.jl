@@ -34,11 +34,15 @@ end
 Cache of boundary values and radial derivatives for a spectral field.
 All values are stored for m >= 0 (SHTnsKit triangular indexing) and
 are expanded to negative m using conjugate symmetry.
+
+`config` is retained so reads index modes in the SAME canonical m-major order
+the cache was filled in (via `local_spectral_storage_slot` / `get_mode_index`).
 """
 struct BoundaryDerivativeCache{T <: AbstractFloat}
     lmax::Int
     mmax::Int
     nlm::Int
+    config::Any
     value_inner::Vector{Complex{T}}
     value_outer::Vector{Complex{T}}
     d1_inner::Vector{Complex{T}}
@@ -118,7 +122,7 @@ function compute_boundary_derivative_cache(field,
         end
     end
 
-    return BoundaryDerivativeCache{T}(lmax, mmax, nlm,
+    return BoundaryDerivativeCache{T}(lmax, mmax, nlm, field.config,
         values_inner, values_outer,
         d1_inner, d1_outer,
         d2_inner, d2_outer)
@@ -128,7 +132,11 @@ function _cache_index(cache::BoundaryDerivativeCache, l::Int, m::Int)
     if l > cache.lmax || abs(m) > l || abs(m) > cache.mmax
         return 0
     end
-    return lm_to_index(l, abs(m), cache.lmax)
+    # The cache is FILLED in canonical m-major order (compute_boundary_derivative_cache
+    # writes values_inner[lm_idx] for lm_idx in 1:nlm via local_spectral_storage_slot).
+    # Read with the matching canonical index — lm_to_index is l-major and would scramble
+    # modes (e.g. lmax=4: (l=2,m=0) is canonical index 3 but lm_to_index gives 4).
+    return get_mode_index(cache.config, l, abs(m))
 end
 
 function _apply_m_conjugate(val::Complex{T}, m::Int) where {T}

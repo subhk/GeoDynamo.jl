@@ -22,6 +22,7 @@ import ..get_local_range
 import ..local_spectral_storage_slot
 import ..set_local_spectral_value!
 import ..local_spectral_value
+import ..get_mode_index
 import ..get_comm
 import ..size_global
 
@@ -38,7 +39,12 @@ export randomize_scalar_field!, randomize_vector_field!, randomize_magnetic_fiel
 """
     randomize_scalar_field!(field; amplitude, lmax, domain=nothing)
 
-Populate a scalar spectral field (temperature/composition) with random perturbations up to degree `lmax`.
+Superimpose random spectral perturbations up to degree `lmax` ONTO a scalar
+spectral field (temperature/composition). The perturbation is *added* to the
+field's existing content (no clearing first), so a previously set base state —
+e.g. a `set!(:conductive)` mean gradient — is preserved.
+
+`domain` is accepted for API symmetry but currently unused.
 """
 function randomize_scalar_field!(field; amplitude::Real, lmax::Int, domain = nothing)
     spectral = getproperty(field, :spectral)
@@ -47,9 +53,10 @@ function randomize_scalar_field!(field; amplitude::Real, lmax::Int, domain = not
     cfg = spectral.config
     r_range = get_local_range(spectral.pencil, 3)
     T = eltype(real3)
-    fill!(real3, zero(T))
-    fill!(imag3, zero(T))
     amp = Float64(amplitude)
+    # SUPERIMPOSE: add the perturbation onto the EXISTING spectral content (no
+    # `fill!(0)` first) so any prior base state survives. The perturbation is
+    # real-valued ⇒ the imaginary part is left untouched (imag += 0).
     # Index storage by (l_slot, m_slot) via the mode → slot map so EVERY owned
     # (l, m) mode is perturbed — not just the m = 0 column (the legacy
     # `[idx, 1, r]` idiom pinned dim-2 to slot 1, silently zeroing all m > 0).
@@ -59,9 +66,9 @@ function randomize_scalar_field!(field; amplitude::Real, lmax::Int, domain = not
         slot === nothing && continue          # mode not owned by this rank
         for (local_r, _global_r) in enumerate(r_range)
             local_r <= size(real3, 3) || continue
+            prev = local_spectral_value(real3, slot, local_r)
             set_local_spectral_value!(real3, slot, local_r,
-                                      convert(T, amp * (rand() - 0.5)))
-            set_local_spectral_value!(imag3, slot, local_r, zero(T))
+                                      prev + convert(T, amp * (rand() - 0.5)))
         end
     end
     # Verify initial conditions are finite after all transformations
@@ -74,7 +81,11 @@ end
 """
     randomize_vector_field!(field; amplitude, lmax, domain=nothing)
 
-Populate velocity-like toroidal/poloidal fields with random perturbations up to degree `lmax`.
+Superimpose random perturbations up to degree `lmax` ONTO velocity-like
+toroidal/poloidal fields. The perturbation is *added* to the existing spectral
+content (no clearing first), so a prior base state is preserved.
+
+`domain` is accepted for API symmetry but currently unused.
 """
 function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain = nothing)
     amp = Float64(amplitude)
@@ -83,9 +94,9 @@ function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain = not
         imag3 = parent(spectral.data_imag)
         cfg = spectral.config
         T = eltype(real3)
-        fill!(real3, zero(T))
-        fill!(imag3, zero(T))
         r_range = get_local_range(spectral.pencil, 3)
+        # SUPERIMPOSE onto existing content (no `fill!(0)`); real-valued
+        # perturbation leaves the imaginary part untouched.
         # Perturb every owned (l, m) mode with 1 ≤ l ≤ lmax (l = 0 carries no
         # toroidal/poloidal vector content). Slot-indexed so m > 0 is populated.
         for lm in 1:cfg.nlm
@@ -95,9 +106,9 @@ function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain = not
             slot === nothing && continue
             for (local_r, _global_r) in enumerate(r_range)
                 local_r <= size(real3, 3) || continue
+                prev = local_spectral_value(real3, slot, local_r)
                 set_local_spectral_value!(real3, slot, local_r,
-                                          convert(T, amp * (rand() - 0.5)))
-                set_local_spectral_value!(imag3, slot, local_r, zero(T))
+                                          prev + convert(T, amp * (rand() - 0.5)))
             end
         end
     end
@@ -112,7 +123,11 @@ end
 """
     randomize_magnetic_field!(field; amplitude, lmax, domain=nothing)
 
-Populate magnetic toroidal/poloidal fields with random perturbations.
+Superimpose random perturbations ONTO magnetic toroidal/poloidal fields. The
+perturbation is *added* to the existing spectral content (no clearing first),
+so a prior base state is preserved.
+
+`domain` is accepted for API symmetry but currently unused.
 """
 function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain = nothing)
     amp = Float64(amplitude)
@@ -121,9 +136,9 @@ function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain = n
         imag3 = parent(spectral.data_imag)
         cfg = spectral.config
         T = eltype(real3)
-        fill!(real3, zero(T))
-        fill!(imag3, zero(T))
         r_range = get_local_range(spectral.pencil, 3)
+        # SUPERIMPOSE onto existing content (no `fill!(0)`); real-valued
+        # perturbation leaves the imaginary part untouched.
         # Slot-indexed perturbation over every owned (l, m) mode, 1 ≤ l ≤ lmax.
         for lm in 1:cfg.nlm
             l = cfg.l_values[lm]
@@ -132,9 +147,9 @@ function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain = n
             slot === nothing && continue
             for (local_r, _global_r) in enumerate(r_range)
                 local_r <= size(real3, 3) || continue
+                prev = local_spectral_value(real3, slot, local_r)
                 set_local_spectral_value!(real3, slot, local_r,
-                                          convert(T, amp * (rand() - 0.5)))
-                set_local_spectral_value!(imag3, slot, local_r, zero(T))
+                                          prev + convert(T, amp * (rand() - 0.5)))
             end
         end
     end
@@ -633,7 +648,9 @@ function set_analytical_initial_conditions!(field, field_type::Symbol, pattern::
             geometry = geometry, source = source, diffusivity = diffusivity,
             domain = domain, parameters...)
     elseif field_type == :magnetic
-        set_analytical_magnetic!(field, pattern, amplitude; parameters...)
+        # `domain` is threaded through so :uniform_field can build its radial
+        # profile against the PHYSICAL radius (the synthesis divides B_r by r²).
+        set_analytical_magnetic!(field, pattern, amplitude; domain = domain, parameters...)
     elseif field_type == :velocity
         set_analytical_velocity!(field, pattern, amplitude; parameters...)
     elseif field_type == :composition
@@ -754,13 +771,19 @@ function set_analytical_temperature!(temp_field, pattern::Symbol, amplitude;
 end
 
 """
-    set_analytical_magnetic!(mag_field, pattern, amplitude; parameters...)
+    set_analytical_magnetic!(mag_field, pattern, amplitude; domain=nothing, parameters...)
 
-Set analytical magnetic field patterns.
+Set analytical magnetic field patterns (`:dipole`, `:uniform_field`).
+
+For `:uniform_field`, pass `direction = :z` (default, axial) or `direction = :x`.
+`domain` (the radial grid) lets the uniform profile be built against the PHYSICAL
+radius so the synthesized field is exactly uniform; without it the profile uses
+the normalized radial coordinate and is only approximately uniform.
 
 Uses PencilArray structure with data_real/data_imag arrays.
 """
-function set_analytical_magnetic!(mag_field, pattern::Symbol, amplitude; parameters...)
+function set_analytical_magnetic!(mag_field, pattern::Symbol, amplitude;
+        domain = nothing, parameters...)
     # Helper to set field values
     function set_spectral_values!(spectral, l_target, value_fn)
         real_data = parent(spectral.data_real)
@@ -799,11 +822,57 @@ function set_analytical_magnetic!(mag_field, pattern::Symbol, amplitude; paramet
         set_spectral_values!(mag_field.toroidal, 1, r -> 0.1 * amplitude * sin(π * r))
 
     elseif pattern == :uniform_field
+        # A spatially-uniform field is a POLOIDAL l = 1 mode. The synthesis
+        # convention is  B_r = l(l+1)·P/r²  (= _solenoidal_vr_factor, numerics.jl)
+        # with the spheroidal tangential scalar  S = (∂_r P)/r.  Choosing the
+        # radial profile  P(r) = C·r²  makes BOTH B_r = 2C·Y and S = 2C·∂Y/∂θ
+        # radius-INDEPENDENT, i.e. a constant Cartesian field (divergence- and
+        # curl-free in the interior).  With the orthonormal Y_1^0 = √(3/4π)·cosθ,
+        # the coefficient  C = (amplitude/2)·√(4π/3)  yields B_z = amplitude for
+        # the axial (:z) field.
+        #
+        # Direction → (l, m) of the poloidal mode:
+        #   :z  (axial)  → (1, 0):  B_r ∝ cosθ
+        #   :x           → (1, 1) real part:  B_r ∝ sinθ·cosφ
+        # The old code was doubly wrong: :z used an l = 0 poloidal mode, which is
+        # IDENTICALLY ZERO (B_r ∝ l(l+1) = 0), and :x used (1, 0), an axial (z)
+        # field — not x. The (1, 1) mode is addressed directly via get_mode_index
+        # since the `set_spectral_values!` helper only reaches m = 0.
+        #
+        # NOTE: the :x (1,1) field reuses the SAME coefficient C; it is exactly
+        # uniform and along x, but its magnitude may carry an O(1) SHTnsKit m = 1
+        # synthesis-normalization factor relative to `amplitude` (the m = 0 ↔ m = 1
+        # normalization was not pinned here). When no `domain` is supplied there
+        # are no physical radii, so the profile falls back to the normalized
+        # coordinate r_frac² and the field is then only approximately uniform.
         direction = get(parameters, :direction, :z)
-        if direction == :z
-            set_spectral_values!(mag_field.poloidal, 0, r -> amplitude)
-        elseif direction == :x
-            set_spectral_values!(mag_field.poloidal, 1, r -> amplitude)
+        m_target = direction === :z ? 0 :
+                   direction === :x ? 1 :
+                   throw(ArgumentError(
+                       "uniform_field: unsupported direction $(direction) (use :z or :x)"))
+
+        pol = mag_field.poloidal
+        real_data = parent(pol.data_real)
+        imag_data = parent(pol.data_imag)
+        Tp = eltype(real_data)
+        nr = size(real_data, 3)
+        config = pol.config
+        r_range = get_local_range(pol.pencil, 3)
+        coeff_scale = Tp(0.5 * Float64(amplitude) * sqrt(4 * π / 3))
+
+        lm_idx = get_mode_index(config, 1, m_target)   # 0 if (l,m) not in truncation
+        if lm_idx != 0
+            slot = local_spectral_storage_slot(config, lm_idx)
+            if slot !== nothing                        # mode owned by this rank
+                for (local_r, global_r) in enumerate(r_range)
+                    local_r <= size(real_data, 3) || continue
+                    r2 = domain === nothing ?
+                         ((global_r - 1) / max(nr - 1, 1))^2 :
+                         Float64(domain.r[global_r, 4])^2
+                    set_local_spectral_value!(real_data, slot, local_r, coeff_scale * Tp(r2))
+                    set_local_spectral_value!(imag_data, slot, local_r, zero(Tp))
+                end
+            end
         end
 
     else

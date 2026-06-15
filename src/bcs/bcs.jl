@@ -621,13 +621,11 @@ function shtns_spectral_to_physical(coeffs::Vector{T}, config, nlat::Int, nlon::
         physical_data = SHTnsKit.synthesis(shtconfig, coeffs_matrix; real_output = true)
         return physical_data
     catch e
-        @warn "SHTnsKit synthesis failed, using fallback: $e"
-        # Fallback: uniform field with l=0 value
-        physical_data = zeros(Float64, nlat, nlon)
-        if length(coeffs) > 0
-            fill!(physical_data, real(coeffs[1]))
-        end
-        return physical_data
+        error("SHTnsKit synthesis failed: $e. " *
+              "Refusing to fall back to a uniform l=0 field, as this would " *
+              "silently substitute incorrect (axisymmetric, constant) boundary " *
+              "data for the requested spectral coefficients. Check SHTnsKit " *
+              "configuration and coefficient shape.")
     end
 end
 

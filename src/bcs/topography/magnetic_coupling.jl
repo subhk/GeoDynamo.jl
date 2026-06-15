@@ -133,13 +133,13 @@ function apply_magnetic_correction_at_boundary!(poloidal,
     P_bv = poloidal.boundary_values
     T_bv = toroidal.boundary_values
 
-    # Compute corrections for each (l, m) mode
+    # Compute corrections for each (l, m) mode.
+    # Only iterate m >= 0: boundary_values stores m >= 0 modes only, and +m/-m map to
+    # the SAME slot via lm_to_spectral_index(l, abs(m)). The inner correction sum below
+    # already spans all coupled source modes (lp, mp = m - M), so a negative-m pass would
+    # only re-write the same slot — a spurious double application.
     for l in 1:lmax  # Start from l=1 (l=0 has no magnetic dipole)
-        for m in -l:l
-            if abs(m) > mmax
-                continue
-            end
-
+        for m in 0:min(l, mmax)
             lm_idx = lm_to_spectral_index(l, m, poloidal.config)
             if lm_idx <= 0 || lm_idx > size(P_bv, 2)
                 continue

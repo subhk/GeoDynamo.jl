@@ -117,6 +117,15 @@ macro solver_threaded_local_spectral_modes(
     end
 end
 
+# Uniform return shape for `get_bc_vectors`: every branch yields this single
+# concrete NamedTuple type (absent slots are `nothing`), so the return is
+# inferable instead of a 3-way union of differently-typed NamedTuples. The slot
+# type is widened to `Union{Nothing, AbstractVector}`; the typed constructor
+# converts each value (views pass through unchanged, `nothing` stays `nothing`).
+const _BCModeVector = Union{Nothing, AbstractVector}
+const _BCVectors = NamedTuple{(:inner_real, :outer_real, :inner_imag, :outer_imag),
+                              NTuple{4, _BCModeVector}}
+
 """
     get_bc_vectors(field)
 
@@ -125,6 +134,9 @@ Return mode-indexed scalar boundary vectors for timestep solves.
 When a spectral BC file has been loaded, the interpolation cache supplies real
 and imaginary values for each mode. Otherwise the solver falls back to the
 field's parameter-derived `boundary_values`, which contains real values only.
+
+Always returns a `_BCVectors` with the four keys `inner_real`, `outer_real`,
+`inner_imag`, `outer_imag`; absent slots are `nothing`.
 """
 function get_bc_vectors(field)
     cache = field.boundary_interpolation_cache
@@ -132,30 +144,25 @@ function get_bc_vectors(field)
         bc_real = cache.bc_real
         bc_imag = cache.bc_imag
         if cache.bc_loaded && bc_real !== nothing && bc_imag !== nothing
-            return (
-                inner_real = view(bc_real, 1, :),
-                outer_real = view(bc_real, 2, :),
-                inner_imag = view(bc_imag, 1, :),
-                outer_imag = view(bc_imag, 2, :)
-            )
+            return _BCVectors((
+                view(bc_real, 1, :),
+                view(bc_real, 2, :),
+                view(bc_imag, 1, :),
+                view(bc_imag, 2, :)
+            ))
         end
     end
 
     if hasfield(typeof(field), :boundary_values)
-        return (
-            inner_real = view(field.boundary_values, 1, :),
-            outer_real = view(field.boundary_values, 2, :),
-            inner_imag = nothing,
-            outer_imag = nothing
-        )
+        return _BCVectors((
+            view(field.boundary_values, 1, :),
+            view(field.boundary_values, 2, :),
+            nothing,
+            nothing
+        ))
     end
 
-    return (
-        inner_real = nothing,
-        outer_real = nothing,
-        inner_imag = nothing,
-        outer_imag = nothing
-    )
+    return _BCVectors((nothing, nothing, nothing, nothing))
 end
 
 @inline function mpi_barrier!(comm = mpi_comm())
@@ -857,7 +864,12 @@ function _storage_spheroidal_from_poloidal!(s_re, s_im, p_re, p_im, config, doma
         "(got $(length(r_range)) of $nr levels)")
     (s_re === p_re || s_im === p_im) && error(
         "storage spheroidal coupling writes dst before reading src — dst must not alias src")
-    D1   = create_derivative_matrix(Float64, 1, domain)
+    # Reuse the precomputed banded first-derivative operator instead of
+    # rebuilding it every call. On this (unscaled) outer domain
+    # domain.dr_matrices[1] is exactly create_derivative_matrix(Float64, 1,
+    # domain).data, with the same bandwidth and size, so the mul! result is
+    # bit-for-bit identical.
+    D1   = BandedMatrix{Float64}(domain.dr_matrices[1], domain_bandwidth(domain), nr)
     prof = Vector{Float64}(undef, nr)
     dpr  = Vector{Float64}(undef, nr)
     for (src, dst) in ((p_re, s_re), (p_im, s_im))
@@ -1675,8 +1687,17 @@ function _induction_curl_potentials!(magnetic_fields)
     cfg = magnetic_fields.nl_toroidal.config
     domain = magnetic_fields.outer_domain
     T = eltype(parent(magnetic_fields.nl_toroidal.data_real))
-    D1 = create_derivative_matrix(T, 1, domain)
     nr = domain.N
+    # Reuse the precomputed banded first-derivative operator instead of
+    # rebuilding it every call. domain.dr_matrices[1] is exactly
+    # create_derivative_matrix(Float64, 1, domain).data on this (unscaled) outer
+    # domain; reuse it directly when the field eltype is Float64 (the standard
+    # case), converting only for a non-Float64 eltype so the operator matches the
+    # data vectors. Float64(coeffs) → T(coeffs) reproduces the old operator's
+    # entries bit-for-bit, so mul! is numerically identical.
+    dr1 = domain.dr_matrices[1]
+    D1 = BandedMatrix{T}(eltype(dr1) === T ? dr1 : T.(dr1),
+                         domain_bandwidth(domain), nr)
     rS = Vector{T}(undef, nr)
     drS = Vector{T}(undef, nr)
     r_range = local_range(magnetic_fields.nl_toroidal.pencil, 3)
@@ -1727,7 +1748,12 @@ function apply_inner_core_rotation!(magnetic_fields, rotation_rate)
     nl_pol_real = parent(magnetic_fields.nl_poloidal.data_real)
     nl_pol_imag = parent(magnetic_fields.nl_poloidal.data_imag)
 
-    lm_range = local_range(magnetic_fields.toroidal_ic.pencil, 1)
+    # Iterate over actual locally-owned spectral mode indices (1:nlm), NOT the
+    # l-slot storage axis (axis 1 = 1:lmax+1). Feeding storage-axis indices to
+    # m_values/local_spectral_storage_slot made the m != 0 guard never fire
+    # (every storage-axis index landed on an m = 0 block), silently turning the
+    # inner-core rotation coupling into a no-op.
+    lm_range = local_spectral_mode_indices(magnetic_fields.toroidal.config)
     r_range = local_range(magnetic_fields.toroidal_ic.pencil, 3)
     rotation_factor = rotation_rate
 
