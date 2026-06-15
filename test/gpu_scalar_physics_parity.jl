@@ -18,18 +18,19 @@ MPI.Initialized() || MPI.Init()
 #
 #   (2) Internal heating. The GPU scalar nonlinear must add the internal-source
 #       profile into the advection before the spectral analysis, like the CPU
-#       (solver_add_internal_sources_local!). This test sets internal_heating ≠ 0.
+#       (solver_add_internal_sources_local!). The source profile is set directly
+#       on the field so the parity genuinely exercises the source-add (the
+#       internal_heating IC plumbing populates it lazily, off this code path).
 #
-# Both run on the Array backend (the GPU≈CPU gate); two CNAB2 steps after warm-up.
+# Both run on the Array backend (the GPU≈CPU gate); two CNAB2 steps.
 # =============================================================================
 
-function _scalar_phys_state(; Pr, internal_heating)
+function _scalar_phys_state(; Pr)
     params = GeoDynamo.SolverParameters(
         geometry = :shell, lmax = 6, mmax = 6, nlat = 14, nlon = 28, nr = 8, nr_inner = 4,
         radial_bandwidth = 3, radius_ratio = 0.35,
         Ek = 1e-3, Ra = 1e5, Pm = 1.0, Pr = Pr, timestep = 1e-4,
         include_magnetic = false, include_composition = false,
-        internal_heating = internal_heating,
         temperature_bcs = GeoDynamo.BoundaryConditions(
             inner = GeoDynamo.ValueBoundaryCondition(1.0),
             outer = GeoDynamo.ValueBoundaryCondition(0.0)))
@@ -43,8 +44,9 @@ function _scalar_phys_state(; Pr, internal_heating)
     return st
 end
 
+# `st` must already be warmed up (one solver_step!) so the velocity lag is set
+# and build_gpu_solver_state captures a consistent state.
 function _scalar_parity(st; nsteps = 2)
-    GeoDynamo.solver_step!(st)                  # warm-up (sets the velocity lag)
     gst = GeoDynamo.build_gpu_solver_state(st)
     cfg = st.backend.shtns_config
     nr = st.runtime.outer_core_domain.N
@@ -66,16 +68,21 @@ end
 
 @testset "GPU≈CPU scalar physics parity (Pm/Pr≠1, internal heating)" begin
     @testset "Pm/Pr ≠ 1 (Pr = 2): scalar mass coefficient" begin
-        st = _scalar_phys_state(; Pr = 2.0, internal_heating = nothing)
+        st = _scalar_phys_state(; Pr = 2.0)
         @test st.parameters.Pm / st.parameters.Pr != 1.0    # the regime the old (Pm/Pr)/dt bug corrupted
+        GeoDynamo.solver_step!(st)                           # warm-up
         worst, finite = _scalar_parity(st)
         @test worst < 1e-9
         @test finite
     end
 
     @testset "internal heating ≠ 0" begin
-        st = _scalar_phys_state(; Pr = 1.5, internal_heating = 2.0)
-        # the source must actually be populated, else this would not exercise the fix
+        st = _scalar_phys_state(; Pr = 1.5)
+        GeoDynamo.solver_step!(st)                           # warm-up (is_initialized ⇒ no later IC clobber)
+        # Force a nonzero radial source profile so the parity exercises the GPU
+        # source-add. The CPU reads field.internal_sources every step; build_gpu_solver_state
+        # captures it into the device bundle.
+        fill!(st.fields.temperature.internal_sources, 2.0)
         @test !all(iszero, st.fields.temperature.internal_sources)
         worst, finite = _scalar_parity(st)
         @test worst < 1e-9
