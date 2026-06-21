@@ -17,7 +17,7 @@ product back to spectral.  `nl_*`/`s_*` are dense `(nl,nm,nr)`; `u_*` physical
 same backend; `nl_*` distinct from `s_*`.  (Scratch is pooled via GPUWorkspace when `ws` is supplied.)
 """
 function gpu_scalar_nonlinear!(nl_r, nl_i, s_r, s_i, u_r, u_θ, u_φ, config, d1, mvals, rinv, lmax::Int, bw::Int;
-        ws = nothing, tag::Symbol = :snl)
+        ws = nothing, tag::Symbol = :snl, internal_source = nothing)
     spec_size = size(s_r)
     nr = spec_size[3]
     arch = arch_of(u_r)
@@ -56,6 +56,12 @@ function gpu_scalar_nonlinear!(nl_r, nl_i, s_r, s_i, u_r, u_θ, u_φ, config, d1
     # 3. advection in physical space
     adv = gpu_scratch_phys!(ws, Symbol(tag, :_adv), eltype(u_r), arch, config, nr)
     gpu_scalar_advection!(adv.data, u_r, u_θ, u_φ, grP.data, gtP.data, gpP.data)
+    # 3b. add the internal source profile (per-radial-level, broadcast over lat/lon)
+    #     into the advection BEFORE the analysis — mirrors the CPU
+    #     solver_add_internal_sources_local! (internal_heating / compositional_source).
+    if internal_source !== nothing
+        adv.data .+= reshape(internal_source, 1, 1, nr)
+    end
     # 4. analyze the product back to spectral → nl
     gpu_scalar_physical_to_spectral!(spec(nl_r, nl_i), adv, config; ws, tag = Symbol(tag, :_an))
     return nothing

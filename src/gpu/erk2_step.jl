@@ -231,11 +231,11 @@ function _gpu_erk2_nonlinear_pass!(state, out)
 
     gpu_scalar_nonlinear!(out.t_r, out.t_i, state.temperature.spec_r, state.temperature.spec_i,
         u.data, uθ.data, uφ.data, cfg, state.d1, state.mvals, state.rinv, lmax, bw;
-        ws, tag = :e_tnl)
+        ws, tag = :e_tnl, internal_source = state.temperature.internal_source)
     if state.composition !== nothing
         gpu_scalar_nonlinear!(out.c_r, out.c_i, state.composition.spec_r, state.composition.spec_i,
             u.data, uθ.data, uφ.data, cfg, state.d1, state.mvals, state.rinv, lmax, bw;
-            ws, tag = :e_cnl)
+            ws, tag = :e_cnl, internal_source = state.composition.internal_source)
     end
 
     state.T_phys .= Tn.data

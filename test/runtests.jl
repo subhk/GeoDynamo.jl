@@ -174,6 +174,7 @@ additional_tests = (
     "gpu_phase6_run.jl",
     "gpu_erk2_step.jl",
     "gpu_bc_combo_parity.jl",
+    "gpu_scalar_physics_parity.jl",
     "gpu_workspace_pool.jl",
     "gpu_simulation_dispatch.jl",
     "gpu_coverage.jl",

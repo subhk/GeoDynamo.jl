@@ -183,6 +183,9 @@ function _pack_wsplit(split, nl::Int, nr::Int, bw::Int, ::Type{T}) where {T}
         d1_outer = Vector{T}(split.d1_row_outer))
 end
 
+# `map` over the CB3_GAMMA tuple returns a concrete `NTuple{3, NamedTuple}` (the three
+# stage packs are homogeneously typed), so `state.cb3[stage]` field reads infer concretely
+# — unlike the old `Any[]` + `push!` + `Tuple(packs)`, which produced an abstract `Tuple`.
 function _build_cb3_stage_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {T}
     # SMR/Cavaglieri-Bewley IMEX-RK3: the per-stage system matrix is
     # (mass/dt) I − β·L built with the FULL step dt and the companion CN
@@ -203,10 +206,10 @@ function _build_cb3_stage_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {
         magnetic_ic_admittance === nothing || throw(ArgumentError(
             "RungeKutta3 GPU path does not yet support magnetic_inner_bc=:conducting_inner_core"))
         store = create_solver_implicit_matrix_store(matrices)
-        vtor_lin, vtor_lu, _ = _pack_implicit(store[:velocity_tor], nl, T)
-        mt_lin, mt_lu, _ = _pack_implicit(store[:magnetic_tor], nl, T)
-        mp_lin, mp_lu, _ = _pack_implicit(store[:magnetic_pol], nl, T)
-        tt_lin, tt_lu, _ = _pack_implicit(store[:temperature], nl, T)
+        _, vtor_lu, _ = _pack_implicit(store[:velocity_tor], nl, T)
+        _, mt_lu, _ = _pack_implicit(store[:magnetic_tor], nl, T)
+        _, mp_lu, _ = _pack_implicit(store[:magnetic_pol], nl, T)
+        _, tt_lu, _ = _pack_implicit(store[:temperature], nl, T)
         cc = haskey(store, :composition) ? _pack_implicit(store[:composition], nl, T) : nothing
         split = create_velocity_poloidal_split_matrices(
             st.runtime.shtns_config,
@@ -229,9 +232,8 @@ function _build_cb3_stage_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {
             composition_lin = cc === nothing ? nothing : cc[1],
             composition_lu = cc === nothing ? nothing : cc[2],
             wsplit = _pack_wsplit(split, nl, nr, bw, T),
-        ))
+        )
     end
-    return Tuple(packs)
 end
 
 """
@@ -268,6 +270,16 @@ function build_gpu_solver_state(st)
         error("build_gpu_solver_state: only insulating magnetic is supported; " *
               "magnetic_ic_admittance is set (conducting inner core not yet wired into gpu_solver_step!)")
     end
+    # The GPU kernels hard-code the spherical-shell layout (shell poloidal recovery,
+    # shell BC rows); a :ball config would silently integrate the wrong operators.
+    p.geometry === :shell || error(
+        "build_gpu_solver_state: GPU solver supports only :shell geometry, got $(p.geometry).")
+    # Topography core-mantle coupling has no GPU counterpart — the CPU applies
+    # apply_solver_topography! after each nonlinear pass; the GPU step never does.
+    # Error rather than silently drop the coupling when it is enabled.
+    st.topography.config.enabled && error(
+        "build_gpu_solver_state: topography coupling is enabled but the GPU step path " *
+        "does not apply it (no GPU port of apply_solver_topography!).")
 
     # --- shared operators (host-side) ---
     d1 = Array{T}(vel.∂r.data)
@@ -304,7 +316,13 @@ function build_gpu_solver_state(st)
         bc_in_i = cpu_bc_to_dense(bc.inner_imag, cfg, T)
         bc_out_r = cpu_bc_to_dense(bc.outer_real, cfg, T)
         bc_out_i = cpu_bc_to_dense(bc.outer_imag, cfg, T)
-        (; b..., bc_in_r = bc_in_r, bc_in_i = bc_in_i, bc_out_r = bc_out_r, bc_out_i = bc_out_i)
+        # Internal source (internal_heating / compositional_source): a per-radial-level
+        # profile the CPU adds into the advection physical field before the spectral
+        # analysis (solver_add_internal_sources_local!). Carry the nr-vector so the GPU
+        # scalar nonlinear can do the same; `nothing` when no source is configured.
+        src = all(iszero, field.internal_sources) ? nothing : collect(T, field.internal_sources)
+        (; b..., bc_in_r = bc_in_r, bc_in_i = bc_in_i, bc_out_r = bc_out_r, bc_out_i = bc_out_i,
+            internal_source = src)
     end
     function mbundle(spec, prev_field, key)
         sr, si = cpu_spectral_to_dense(spec, cfg, nr, T)
@@ -354,8 +372,11 @@ function build_gpu_solver_state(st)
         lorentz_coeff = T(1.0 / p.Pm),
         inv_dt_vel = T(p.Ek / p.timestep),
         inv_dt_mag = T(1.0 / p.timestep),
-        inv_dt_temp = T((p.Pm / p.Pr) / p.timestep),
-        inv_dt_comp = T((p.Pm / p.Sc) / p.timestep),
+        # Scalar mass coefficient is 1 (not Pm/Pr or Pm/Sc): the CPU scalar implicit
+        # matrices fold the diffusivity into L and use a 1/dt mass term (scalar_bc.jl,
+        # mass_coeff=1). The GPU reuses those CPU LUs, so the RHS mass term MUST match.
+        inv_dt_temp = T(1.0 / p.timestep),
+        inv_dt_comp = T(1.0 / p.timestep),
         cb3 = cb3,
         velocity = velocity, magnetic = magnetic,
         temperature = temperature, composition = composition,
@@ -376,6 +397,11 @@ function _to_device(x, arch)
     elseif x isa AbstractArray
         return on_architecture(arch, x)
     elseif x isa NamedTuple
+        return map(v -> _to_device(v, arch), x)
+    elseif x isa Tuple
+        # e.g. `cb3` is a Tuple of per-stage NamedTuple packs; without this branch
+        # it would fall through unchanged and its LU/W-split arrays would stay on
+        # the host while the rest of the state moves to the device.
         return map(v -> _to_device(v, arch), x)
     else
         return x

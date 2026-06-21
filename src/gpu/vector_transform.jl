@@ -85,9 +85,11 @@ arrays — mixing host and device arrays errors at broadcast time (use
 function gpu_vr_scale!(vr_alm_r, vr_alm_i, pol_r, pol_i, lfac, rscale)
     lf = reshape(lfac, :, 1, 1)
     rs = reshape(rscale, 1, 1, :)
-    fac = lf .* rs          # (lmax+1, 1, nr) — matches scalar f = lfac[l]*rscale[k] in loops
-    @. vr_alm_r = pol_r * fac
-    @. vr_alm_i = pol_i * fac
+    # Fused: the `(lf * rs)` sub-broadcast is evaluated lazily inside the kernel
+    # (no materialized (lmax+1,1,nr) temporary) and the parens keep the ORIGINAL
+    # `pol * (lf*rs)` multiply association → bit-identical to `pol * fac`.
+    @. vr_alm_r = pol_r * (lf * rs)
+    @. vr_alm_i = pol_i * (lf * rs)
     return nothing
 end
 
