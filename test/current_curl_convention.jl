@@ -65,6 +65,20 @@ MPI.Initialized() || MPI.Init()
     expT_r, expP_r = curl_dense(T_r, P_r)
     expT_i, expP_i = curl_dense(T_i, P_i)
 
+    @testset "legacy compute_current_density_spectral! uses the Stage-2 convention" begin
+        # The exported legacy curl (_spectral_curl_torpol!) must agree with the
+        # SAME Stage-2 stored-potential rule as the live path — previously it used
+        # (λP/r² − P″ − 2P′/r; −λT/r²), a wrong J. Run first so the field is still
+        # the original (T,P).
+        GeoDynamo.compute_current_density_spectral!(mag, dom)
+        jt_r, jt_i = GeoDynamo.cpu_spectral_to_dense(mag.work_tor, cfg, nr, Float64)
+        jp_r, jp_i = GeoDynamo.cpu_spectral_to_dense(mag.work_pol, cfg, nr, Float64)
+        @test isapprox(jt_r, expT_r; atol = 1e-12, rtol = 1e-10)
+        @test isapprox(jt_i, expT_i; atol = 1e-12, rtol = 1e-10)
+        @test isapprox(jp_r, expP_r; atol = 1e-12, rtol = 1e-10)
+        @test isapprox(jp_i, expP_i; atol = 1e-12, rtol = 1e-10)
+    end
+
     @testset "J = ∇×B matches the Stage-2 (vorticity-rule) potentials" begin
         GeoDynamo.solver_compute_current_density_spectral!(mag, dom)
         jt_r, jt_i = GeoDynamo.cpu_spectral_to_dense(mag.work_tor, cfg, nr, Float64)

@@ -594,3 +594,43 @@ end
     @test isapprox(parent(Rpol.data_real), parent(Rpol_ref.data_real); rtol = 1e-10)
     @test isapprox(parent(Rpol.data_imag), parent(Rpol_ref.data_imag); rtol = 1e-10)
 end
+
+# ===========================================================================
+# Legacy compute_velocity_nonlinear! must pass `domain` to the vector analysis,
+# so the Stage-2 solenoidal recovery folds the RADIAL force component (buoyancy /
+# Lorentz) into the poloidal nonlinear. Without it the radial force is silently
+# dropped (the poloidal reduces to the raw spheroidal scalar of the tangential
+# part) — the "convection-can't-start-from-rest" bug.
+# ===========================================================================
+@testset "legacy velocity nonlinear: radial force recovered only with domain" begin
+    cfg, dom = _fp_setup()
+    r_range = GeoDynamo.range_local(cfg.pencils.r, 3)
+
+    # Purely radial force F = r·Y_{1,0} r̂ (tangential components zero).
+    lm_seed = _fp_lm_index(cfg, 1, 0)
+    delta = _fp_delta_spec(cfg, dom, lm_seed)
+    Ygrid = _fp_phys(cfg, dom)
+    GeoDynamo.scalar_spectral_to_physical!(delta, Ygrid)
+    F = _fp_vec(cfg, dom)
+    for k in axes(parent(F.r_component.data), 3)
+        r_k = dom.r[k + first(r_range) - 1, 4]
+        parent(F.r_component.data)[:, :, k] .= r_k .* parent(Ygrid.data)[:, :, k]
+    end
+
+    # WITHOUT domain: the radial force is discarded ⇒ poloidal ≈ 0.
+    tor0 = _fp_spec(cfg, dom); pol0 = _fp_spec(cfg, dom)
+    GeoDynamo.shtnskit_vector_analysis!(F, tor0, pol0)
+    pol0_norm = norm(vcat(vec(parent(pol0.data_real)), vec(parent(pol0.data_imag))))
+
+    # WITH domain: Stage-2 recovery folds the radial force into the poloidal.
+    tor1 = _fp_spec(cfg, dom); pol1 = _fp_spec(cfg, dom)
+    GeoDynamo.shtnskit_vector_analysis!(F, tor1, pol1; domain = dom)
+    pol1_norm = norm(vcat(vec(parent(pol1.data_real)), vec(parent(pol1.data_imag))))
+
+    @test pol0_norm < 1e-8     # radial force lost without domain
+    @test pol1_norm > 1e-6     # radial force recovered with domain
+
+    # The fix: compute_velocity_nonlinear! must pass the domain to the analysis.
+    src = read(joinpath(@__DIR__, "..", "src", "physics", "velocity", "field.jl"), String)
+    @test occursin("𝒰.nl_poloidal;\n        domain = outer_core_domain)", src)
+end

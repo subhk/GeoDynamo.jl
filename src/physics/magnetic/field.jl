@@ -394,18 +394,24 @@ function _spectral_curl_torpol!(
                 else
                     r⁻¹ = domain.r[r_idx, 3]
                     r⁻² = domain.r[r_idx, 2]
+                    # Stage-2 stored-potential curl convention (matches the live
+                    # solver_compute_current_density_spectral! and the velocity
+                    # vorticity): for a (T,P) field the curl potentials are
+                    #   T_curl = D_pol(P)/r = (P″ − l(l+1)/r²·P)/r
+                    #   P_curl = −r·T
+                    # Applied twice this reproduces −(Δ_l T, D_pol P) (curl-curl =
+                    # −Laplacian). The former formula (λP/r² − P″ − 2P′/r ; −λT/r²)
+                    # mixed conventions and fed the Lorentz force a wrong J.
                     set_local_spectral_value!(dst_tor_r, slot, local_r,
-                        l_factor * r⁻² * Pᴾ_profile_real[r_idx] -
-                        d²ᴾ_dr²_real[r_idx] -
-                        2.0 * r⁻¹ * dᴾ_dr_real[r_idx])
+                        r⁻¹ * (d²ᴾ_dr²_real[r_idx] -
+                               l_factor * r⁻² * Pᴾ_profile_real[r_idx]))
                     set_local_spectral_value!(dst_tor_i, slot, local_r,
-                        l_factor * r⁻² * Pᴾ_profile_imag[r_idx] -
-                        d²ᴾ_dr²_imag[r_idx] -
-                        2.0 * r⁻¹ * dᴾ_dr_imag[r_idx])
+                        r⁻¹ * (d²ᴾ_dr²_imag[r_idx] -
+                               l_factor * r⁻² * Pᴾ_profile_imag[r_idx]))
                     set_local_spectral_value!(dst_pol_r, slot, local_r,
-                        -l_factor * r⁻² * local_spectral_value(src_tor_r, slot, local_r))
+                        -r_val * local_spectral_value(src_tor_r, slot, local_r))
                     set_local_spectral_value!(dst_pol_i, slot, local_r,
-                        -l_factor * r⁻² * local_spectral_value(src_tor_i, slot, local_r))
+                        -r_val * local_spectral_value(src_tor_i, slot, local_r))
                 end
             end
         end

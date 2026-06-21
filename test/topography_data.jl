@@ -136,7 +136,10 @@ const topo = GeoDynamo.bcs.topography
         # amplitude of first coeff = sqrt(9+16) = 5
         topo.update_topography_statistics!(field)
         @test field.max_amplitude ≈ 5.0
-        @test field.rms_amplitude ≈ 5.0  # only one nonzero coeff
+        # rms_amplitude is now the spatial RMS sqrt(<h²>) = sqrt((1/4π)∫h²dΩ).
+        # The single nonzero coeff is slot 1 = mode (0,0) (m=0, no doubling), so
+        # the sphere-average factor is the only change: 5 / sqrt(4π).
+        @test field.rms_amplitude ≈ 5.0 / sqrt(4pi)
     end
 
     # ─── create_topography_data ───────────────────────────────────────────

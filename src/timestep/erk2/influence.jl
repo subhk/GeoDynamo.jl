@@ -79,11 +79,14 @@ function create_solver_velocity_poloidal_influence_matrices(
 
     first_derivative = build_radial_derivative_matrix(T, 1, domain)
     second_derivative = build_radial_derivative_matrix(T, 2, domain)
-    laplacian = build_radial_laplacian(domain)
-    bandwidth = laplacian.bandwidth
+    bandwidth = second_derivative.bandwidth
     r_inv_sq = @views domain.r[1:nr, 2]
 
-    base_data = T.(diffusivity .* laplacian.data)
+    # Poloidal diffusion operator D_pol = ∂² − l(l+1)/r² (bare ∂², NO 2/r term):
+    # the influence Green functions MUST use the SAME operator as the paired main
+    # solve (create_velocity_poloidal_matrices, also D_pol) for the correction to
+    # cancel the boundary residuals. The −l(l+1)/r² shift is added per-l below.
+    base_data = T.(diffusivity .* second_derivative.data)
     influence_matrices = Dict{Int, ERK2InfluenceOp{T}}()
 
     for l in l_values
@@ -131,8 +134,13 @@ function create_solver_velocity_poloidal_influence_matrices(
                 physical_system_data[bandwidth + 1 + 1 - j, j] = first_derivative.data[bandwidth + 1 + 1 - j, j]
             end
         else
+            # Stress-free inner: P″ − (2/r)P′ = 0 (no-tangential-stress), matching
+            # the main solve; the bare P″ row missed the −2P′/r metric term.
+            r2_in = T(2 / domain.r[1, 4])
             @inbounds for j in 1:(1 + bandwidth)
-                physical_system_data[bandwidth + 1 + 1 - j, j] = second_derivative.data[bandwidth + 1 + 1 - j, j]
+                physical_system_data[bandwidth + 1 + 1 - j, j] =
+                    second_derivative.data[bandwidth + 1 + 1 - j, j] -
+                    r2_in * first_derivative.data[bandwidth + 1 + 1 - j, j]
             end
         end
 
@@ -141,8 +149,12 @@ function create_solver_velocity_poloidal_influence_matrices(
                 physical_system_data[bandwidth + 1 + nr - j, j] = first_derivative.data[bandwidth + 1 + nr - j, j]
             end
         else
+            # Stress-free outer: P″ − (2/r)P′ = 0.
+            r2_out = T(2 / domain.r[nr, 4])
             @inbounds for j in (nr - bandwidth):nr
-                physical_system_data[bandwidth + 1 + nr - j, j] = second_derivative.data[bandwidth + 1 + nr - j, j]
+                physical_system_data[bandwidth + 1 + nr - j, j] =
+                    second_derivative.data[bandwidth + 1 + nr - j, j] -
+                    r2_out * first_derivative.data[bandwidth + 1 + nr - j, j]
             end
         end
 

@@ -542,8 +542,13 @@ function compute_velocity_nonlinear!(𝒰::SHTnsVelocityFields{T},
     compute_all_nonlinear_terms!(𝒰, temp_field, comp_field, mag_field, outer_core_domain)
 
     # Step 5: Use enhanced vector analysis with efficient data layout
-    # (geometry-blind since the ball grid has no r=0 node — off-center grid)
-    shtnskit_vector_analysis!(𝒰.advection_physical, 𝒰.nl_toroidal, 𝒰.nl_poloidal)
+    # (geometry-blind since the ball grid has no r=0 node — off-center grid).
+    # Pass the domain so vector_physical_to_spectral! runs the Stage-2 solenoidal
+    # recovery (poloidal from the RADIAL force component): without it the radial
+    # buoyancy / Lorentz force is silently dropped and the poloidal RHS reduces to
+    # the raw spheroidal scalar — the "convection-can't-start-from-rest" bug.
+    shtnskit_vector_analysis!(𝒰.advection_physical, 𝒰.nl_toroidal, 𝒰.nl_poloidal;
+        domain = outer_core_domain)
 end
 
 # =================================================

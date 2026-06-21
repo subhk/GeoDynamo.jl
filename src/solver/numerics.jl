@@ -1965,6 +1965,43 @@ function solver_build_banded_A(
     @inbounds for n in 1:nr
         data[bw + 1, n] -= diffusivity * l_factor * r_inv2[n]
     end
+
+    # The bare radial diffusion operator carries NO boundary rows, so it is
+    # rank-deficient (the exponential integrator's φ-function A⁻¹ solves then hit
+    # a singular LU — the EAB2 boundary-row crash). Embed a homogeneous-Dirichlet
+    # ETD operator: zero the wall COLUMNS in the interior rows (the wall nodes no
+    # longer couple inward) and decouple the wall ROWS into a stable diagonal. The
+    # interior block is then the NON-SINGULAR Dirichlet Laplacian; the wall nodes
+    # are algebraic and are overwritten by the actual (possibly inhomogeneous) BC
+    # projection applied AFTER the Krylov action (solver_enforce_erk2_bc!). This
+    # is exact for homogeneous walls and a first-order boundary-layer treatment
+    # for inhomogeneous walls.
+    diag_scale = one(Float64)
+    @inbounds for n in 2:(nr - 1)
+        diag_scale = max(diag_scale, abs(Float64(data[bw + 1, n])))
+    end
+    d_b = -T(diag_scale)   # stable (negative), scaled to the interior
+    # Zero wall column 1 (rows i>1) and column nr (rows i<nr).
+    @inbounds for i in 2:min(1 + bw, nr)
+        br = bw + i
+        1 <= br <= 2bw + 1 && (data[br, 1] = zero(T))
+    end
+    @inbounds for i in max(1, nr - bw):(nr - 1)
+        br = bw + 1 + i - nr
+        1 <= br <= 2bw + 1 && (data[br, nr] = zero(T))
+    end
+    # Decouple wall rows 1 and nr into a single stable diagonal.
+    @inbounds for j in 1:min(1 + bw, nr)
+        br = bw + 2 - j
+        1 <= br <= 2bw + 1 && (data[br, j] = zero(T))
+    end
+    data[bw + 1, 1] = d_b
+    @inbounds for j in max(1, nr - bw):nr
+        br = bw + 1 + nr - j
+        1 <= br <= 2bw + 1 && (data[br, j] = zero(T))
+    end
+    data[bw + 1, nr] = d_b
+
     return BandedOperator{T}(Matrix{T}(data), bw, nr)
 end
 
@@ -2008,6 +2045,53 @@ function solver_phi1_action_krylov(
     catch e
         e isa ErrorException && rethrow(e)
         error("Banded solve failed in solver_phi1_action_krylov: $e")
+    end
+end
+
+"""
+    solver_phi2_action_krylov(Aop!, A_lu, v, dt; m, tol)
+
+Compute φ₂(dt·A)·v where φ₂(z) = (eᶻ − 1 − z)/z². Uses the recurrence
+φ₂(z) = (φ₁(z) − 1)/z, so φ₂(dtA)v = (1/dt)·A⁻¹(φ₁(dtA)v − v) — the same banded
+A⁻¹ solve φ₁ already uses. Needed for second-order ETD Adams-Bashforth (EAB2):
+the previous-step nonlinear term must be weighted by φ₂, not φ₁.
+"""
+function solver_phi2_action_krylov(
+        Aop!,
+        A_lu::Union{OldBandedLU{T}, BandedFactorization{T}},
+        v::Vector{T},
+        dt::Float64;
+        m::Int = 20,
+        tol::Float64 = 1e-8
+) where {T}
+    if LA.norm(v) < series_tol(T)
+        return zeros(T, length(v))
+    end
+
+    # Small-dt series: φ₂(z) = 1/2 + z/6 + … ⇒ φ₂(dtA)v ≈ v/2 + (dt/6)·Av.
+    if dt < 1e-8
+        Av = similar(v)
+        Aop!(Av, v)
+        local_scale = abs(dt) * LA.norm(Av) / max(LA.norm(v), eps(real(T)))
+        if local_scale < sqrt(eps(real(T)))
+            return (v ./ 2) .+ (dt / 6) .* Av
+        end
+    end
+
+    p1 = solver_phi1_action_krylov(Aop!, A_lu, v, dt; m, tol)  # φ₁(dtA)v
+    c = p1 .- v
+    x = copy(c)
+    try
+        solve_banded!(x, A_lu, c)
+        @. x = x / dt   # φ₂(dtA)v = (1/dt) A⁻¹(φ₁(dtA)v − v)
+        if !all(isfinite, x)
+            error("Non-finite result in solver_phi2_action_krylov. " *
+                  "Consider reducing dt or checking the banded operator conditioning.")
+        end
+        return x
+    catch e
+        e isa ErrorException && rethrow(e)
+        error("Banded solve failed in solver_phi2_action_krylov: $e")
     end
 end
 

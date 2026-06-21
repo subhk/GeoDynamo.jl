@@ -190,19 +190,22 @@ function create_velocity_poloidal_matrices(config::SHTnsKitConfig,
         mass_coeff::Float64 = 1.0,
         T::Type{<:Number} = Float64)
     unique_l = unique(config.l_values)
-    laplacian = create_radial_laplacian(domain)
+    d1_matrix = create_derivative_matrix(T, 1, domain)
+    d2_matrix = create_derivative_matrix(T, 2, domain)
     r_inv_sq = @views domain.r[1:domain.N, 2]
 
-    base_data = T.(diffusivity .* laplacian.data)
+    # Poloidal diffusion operator D_pol = ∂² − l(l+1)/r² — the radial part of the
+    # double-curl, which has NO 2/r term (unlike the scalar Laplacian ∂²+2/r∂).
+    # The base is the bare ∂² here; the −l(l+1)/r² shift is added per-l below.
+    # (Matches the W-split builder; the full P=0 / P'=0 wall conditions are
+    # completed by the influence-matrix correction, not by this 2nd-order solve.)
+    base_data = T.(diffusivity .* d2_matrix.data)
     system_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
     linear_matrices = Vector{BandedMatrix{T}}(undef, length(unique_l))
     factorizations = Vector{BandedLU{T}}(undef, length(unique_l))
     l_values = Vector{Int}(undef, length(unique_l))
     lookup = Dict{Int, Int}()
 
-    # Create derivative matrices for BCs
-    d1_matrix = create_derivative_matrix(T, 1, domain)
-    d2_matrix = create_derivative_matrix(T, 2, domain)
     bw = radial_bandwidth(domain)
     N = domain.N
 
@@ -246,9 +249,13 @@ function create_velocity_poloidal_matrices(config::SHTnsKitConfig,
                 system_data[bw + 1 + 1 - j, j] = d1_matrix.data[bw + 1 + 1 - j, j]
             end
         else
-            # Stress-free at inner: second derivative row (∂²P/∂r² = value)
+            # Stress-free at inner: the no-tangential-stress row P″ − (2/r)P′ = 0
+            # (from σ_rθ ∝ r·∂_r(u_θ/r) with u_θ ~ P′/r). The bare P″=0 row missed
+            # the −2P′/r metric term.
+            r2_in = T(2 / domain.r[1, 4])
             @inbounds for j in 1:(1 + bw)
-                system_data[bw + 1 + 1 - j, j] = d2_matrix.data[bw + 1 + 1 - j, j]
+                system_data[bw + 1 + 1 - j, j] =
+                    d2_matrix.data[bw + 1 + 1 - j, j] - r2_in * d1_matrix.data[bw + 1 + 1 - j, j]
             end
         end
 
@@ -259,9 +266,11 @@ function create_velocity_poloidal_matrices(config::SHTnsKitConfig,
                 system_data[bw + 1 + N - j, j] = d1_matrix.data[bw + 1 + N - j, j]
             end
         else
-            # Stress-free at outer: second derivative row (∂²P/∂r² = value)
+            # Stress-free at outer: P″ − (2/r)P′ = 0 (see inner comment).
+            r2_out = T(2 / domain.r[N, 4])
             @inbounds for j in (N - bw):N
-                system_data[bw + 1 + N - j, j] = d2_matrix.data[bw + 1 + N - j, j]
+                system_data[bw + 1 + N - j, j] =
+                    d2_matrix.data[bw + 1 + N - j, j] - r2_out * d1_matrix.data[bw + 1 + N - j, j]
             end
         end
 

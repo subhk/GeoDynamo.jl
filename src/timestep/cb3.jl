@@ -4,23 +4,43 @@
 
 const CB3_GAMMA = (8.0 / 15.0, 5.0 / 12.0, 3.0 / 4.0)
 const CB3_ZETA = (0.0, -17.0 / 60.0, -5.0 / 12.0)
+# Companion Crank-Nicolson coefficients for the implicit (diffusion) operator L
+# of the Spalart-Moser-Rogers / Cavaglieri-Bewley IMEX-RK3. Substage k is
+#   (I − β_k·dt·L) φ^k = φ^{k-1} + dt[γ_k N^{k-1} + ζ_k N^{k-2} + α_k·L·φ^{k-1}]
+# with α explicit and β implicit. Per stage α_k + β_k = γ_k + ζ_k and the totals
+# Σα = Σβ = 1/2 (Σ(α+β) = 1), so the linear operator advances by exactly dt and
+# the scheme is 2nd-order consistent for both the nonlinear and the diffusion
+# terms. (Treating L fully implicitly with the explicit weights γ, as a prior
+# version did, gave Σ = 1.7 and over-integrated diffusion ~70% per step.)
+const CB3_ALPHA = (29.0 / 96.0, -3.0 / 40.0, 1.0 / 6.0)
+const CB3_BETA = (37.0 / 160.0, 5.0 / 24.0, 1.0 / 6.0)
 
 """
-    solver_build_rhs_cb3_stage!(rhs, u, n, nprev, dt, gamma, zeta; mass_coeff)
+    solver_build_rhs_cb3_stage!(rhs, u, n, nprev, matrices, dt, gamma, zeta, alpha; mass_coeff, work)
 
-Build the linearly implicit low-storage RK3 substage RHS. The substage equation
-is scaled by `1 / gamma` so it can reuse the existing shifted matrix form
-`(mass_coeff / (gamma*dt)) I - L`.
+Build the SMR/Cavaglieri-Bewley IMEX-RK3 substage RHS
+
+    rhs = (mass_coeff/dt)·u + γ·N + ζ·N_prev + α·(L·u)
+
+consumed by the implicit solve against the system matrix `(mass_coeff/dt) I −
+β·L` (built per stage with `theta = β`). `L` is the diffusivity-scaled linear
+operator carried in `matrices.linear_matrices`; the explicit `α·L·u` term is the
+companion Crank-Nicolson half and mirrors the CNAB2 `(1−θ)·L·u` carry-over in
+`solver_build_rhs_cnab2!`. Per-mode and radius-coupled only, so assembly needs no
+inter-rank communication (each mode owns its full radial profile locally).
 """
 function solver_build_rhs_cb3_stage!(
         rhs::SpectralFieldType{T},
         u::SpectralFieldType{T},
         n::SpectralFieldType{T},
         nprev::SpectralFieldType{T},
+        matrices::ImplicitMatrixSet{T},
         dt::Float64,
         gamma::Float64,
-        zeta::Float64;
-        mass_coeff::Float64 = 1.0
+        zeta::Float64,
+        alpha::Float64;
+        mass_coeff::Float64 = 1.0,
+        work::Union{SolverRadialWork{T}, Nothing} = nothing,
 ) where {T}
     rhs_real = parent(rhs.data_real)
     rhs_imag = parent(rhs.data_imag)
@@ -32,42 +52,71 @@ function solver_build_rhs_cb3_stage!(
     p_imag = parent(nprev.data_imag)
 
     r_range = local_range(u.pencil, 3)
-    inv_stage_dt = T(mass_coeff / (gamma * dt))
-    zeta_over_gamma = T(zeta / gamma)
+    inv_stage_dt = T(mass_coeff / dt)
+    γT = T(gamma)
+    ζT = T(zeta)
+    αT = T(alpha)
+    add_linear = !iszero(alpha)
+
+    nr_global = add_linear ? matrices.system_matrices[1].size : 0
+    work_ok = work !== nothing && length(work.u_real_global) == nr_global
+    u_real_global = add_linear ? (work_ok ? work.u_real_global : zeros(T, nr_global)) : T[]
+    u_imag_global = add_linear ? (work_ok ? work.u_imag_global : zeros(T, nr_global)) : T[]
+    linear_real = add_linear ? (work_ok ? work.linear_real : zeros(T, nr_global)) : T[]
+    linear_imag = add_linear ? (work_ok ? work.linear_imag : zeros(T, nr_global)) : T[]
 
     @inbounds for lm_idx in 1:u.nlm
         slot = local_spectral_storage_slot(u.config, lm_idx)
         slot === nothing && continue
+
+        l = u.config.l_values[lm_idx]
+
+        if add_linear
+            matrix_idx = get(matrices.lookup, l, nothing)
+            matrix_idx === nothing && error("Missing implicit matrix for l=$l")
+            fill!(u_real_global, zero(T))
+            fill!(u_imag_global, zero(T))
+            gather_local_radial_profile!(
+                u_real_global, u_imag_global, u_real, u_imag, slot, r_range)
+            fill!(linear_real, zero(T))
+            fill!(linear_imag, zero(T))
+            apply_banded_full!(linear_real, matrices.linear_matrices[matrix_idx], u_real_global)
+            apply_banded_full!(linear_imag, matrices.linear_matrices[matrix_idx], u_imag_global)
+        end
+
         for r_idx in r_range
             local_r = r_idx - first(r_range) + 1
             local_r <= size(rhs_real, 3) || continue
-            set_local_spectral_value!(
-                rhs_real, slot, local_r,
-                inv_stage_dt * local_spectral_value(u_real, slot, local_r) +
-                local_spectral_value(n_real, slot, local_r) +
-                zeta_over_gamma * local_spectral_value(p_real, slot, local_r),
-            )
-            set_local_spectral_value!(
-                rhs_imag, slot, local_r,
-                inv_stage_dt * local_spectral_value(u_imag, slot, local_r) +
-                local_spectral_value(n_imag, slot, local_r) +
-                zeta_over_gamma * local_spectral_value(p_imag, slot, local_r),
-            )
+            vr = inv_stage_dt * local_spectral_value(u_real, slot, local_r) +
+                 γT * local_spectral_value(n_real, slot, local_r) +
+                 ζT * local_spectral_value(p_real, slot, local_r)
+            vi = inv_stage_dt * local_spectral_value(u_imag, slot, local_r) +
+                 γT * local_spectral_value(n_imag, slot, local_r) +
+                 ζT * local_spectral_value(p_imag, slot, local_r)
+            if add_linear
+                vr += αT * linear_real[r_idx]
+                vi += αT * linear_imag[r_idx]
+            end
+            set_local_spectral_value!(rhs_real, slot, local_r, vr)
+            set_local_spectral_value!(rhs_imag, slot, local_r, vi)
         end
     end
     return rhs
 end
 
 function _cb3_stage_matrices(state::SolverState{T, <:AbstractArchitecture},
-        gamma::Float64) where {T}
+        beta::Float64) where {T}
+    # System matrix (mass/dt) I − β·L with the FULL step dt: the implicit
+    # diffusion weight is the companion CN coefficient β (not the explicit γ),
+    # and matrices.linear_matrices carries the bare L for the explicit α·L term.
     matrices, magnetic_ic_admittance = _build_implicit_matrices_dict(
         T,
         state.backend.shtns_config,
         state.backend.outer_core_domain,
         state.backend.inner_core_domain,
         state.parameters,
-        gamma * state.parameters.timestep;
-        theta = 1.0,
+        state.parameters.timestep;
+        theta = beta,
     )
     magnetic_ic_admittance === nothing || throw(ArgumentError(
         "RungeKutta3() does not yet support magnetic_inner_bc=:conducting_inner_core"))
@@ -90,27 +139,29 @@ function _cb3_invalidate_caches_if_dt_changed!(state::SolverState)
 end
 
 function _get_or_build_cb3_stage_matrices!(state::SolverState{T, <:AbstractArchitecture},
-        stage::Int, gamma::Float64) where {T}
+        stage::Int, beta::Float64) where {T}
     caches = state.timestep_caches
     cached = caches.cb3_stage_matrices[stage]
     cached === nothing || return cached::Dict{Symbol, ImplicitMatrixSet{T}}
-    built = _cb3_stage_matrices(state, gamma)
+    built = _cb3_stage_matrices(state, beta)
     caches.cb3_stage_matrices[stage] = built
     return built::Dict{Symbol, ImplicitMatrixSet{T}}
 end
 
 function _get_or_build_cb3_poloidal_split!(state::SolverState{T, <:AbstractArchitecture},
-        stage::Int, gamma::Float64, velocity_bc::Int) where {T}
+        stage::Int, beta::Float64, velocity_bc::Int) where {T}
     caches = state.timestep_caches
     cached = caches.cb3_poloidal_split[stage]
     cached === nothing || return cached::PoloidalSplitMatrices{T}
+    # W-advance system (Ek/dt) I − β·(Ek·D_pol) with the FULL step dt; split.w_linear
+    # carries Ek·D_pol for the explicit α·(Ek·D_pol)·W term.
     split = create_velocity_poloidal_split_matrices(
         state.runtime.shtns_config,
         state.runtime.outer_core_domain,
         state.parameters.Ek,
-        gamma * state.parameters.timestep;
+        state.parameters.timestep;
         velocity_bc_code = velocity_bc,
-        theta = 1.0,
+        theta = beta,
         T = T,
     )
     caches.cb3_poloidal_split[stage] = split
@@ -118,7 +169,7 @@ function _get_or_build_cb3_poloidal_split!(state::SolverState{T, <:AbstractArchi
 end
 
 function _cb3_apply_scalar_stage!(state, field, key::Symbol, solve_step!, matrices,
-        gamma::Float64, zeta::Float64; mass_coeff::Float64 = 1.0)
+        gamma::Float64, zeta::Float64, alpha::Float64; mass_coeff::Float64 = 1.0)
     mset = matrices[key]
     radial_work = get_radial_work!(
         state.timestep_caches,
@@ -130,10 +181,13 @@ function _cb3_apply_scalar_stage!(state, field, key::Symbol, solve_step!, matric
         field.spectral,
         field.nonlinear,
         field.prev_nonlinear,
+        mset,
         state.parameters.timestep,
         gamma,
-        zeta;
+        zeta,
+        alpha;
         mass_coeff,
+        work = radial_work,
     )
     bc = get_bc_vectors(field)
     solve_step!(
@@ -150,7 +204,7 @@ function _cb3_apply_scalar_stage!(state, field, key::Symbol, solve_step!, matric
 end
 
 function _cb3_apply_velocity_toroidal_stage!(state::SolverState{T, <:AbstractArchitecture},
-        matrices, gamma::Float64, zeta::Float64) where {T}
+        matrices, gamma::Float64, zeta::Float64, alpha::Float64) where {T}
     velocity = state.fields.velocity
     mset = matrices[:velocity_tor]
     radial_work = get_radial_work!(
@@ -163,10 +217,13 @@ function _cb3_apply_velocity_toroidal_stage!(state::SolverState{T, <:AbstractArc
         velocity.toroidal,
         velocity.nl_toroidal,
         velocity.prev_nl_toroidal,
+        mset,
         state.parameters.timestep,
         gamma,
-        zeta;
+        zeta,
+        alpha;
         mass_coeff = state.parameters.Ek,
+        work = radial_work,
     )
     solver_solve_velocity_implicit_step!(
         velocity.toroidal,
@@ -181,10 +238,10 @@ function _cb3_apply_velocity_toroidal_stage!(state::SolverState{T, <:AbstractArc
 end
 
 function _cb3_apply_poloidal_wsplit_stage!(state::SolverState{T, <:AbstractArchitecture},
-        stage::Int, gamma::Float64, zeta::Float64) where {T}
+        stage::Int, gamma::Float64, zeta::Float64, alpha::Float64, beta::Float64) where {T}
     velocity = state.fields.velocity
     velocity_bc = _velocity_bc_code(state.parameters.velocity_bcs)
-    split = _get_or_build_cb3_poloidal_split!(state, stage, gamma, velocity_bc)
+    split = _get_or_build_cb3_poloidal_split!(state, stage, beta, velocity_bc)
     domain = state.runtime.outer_core_domain
     cfg = velocity.poloidal.config
     nr = domain.N
@@ -193,11 +250,14 @@ function _cb3_apply_poloidal_wsplit_stage!(state::SolverState{T, <:AbstractArchi
         "RungeKutta3 poloidal W-split requires the radial axis fully local " *
         "(got $(length(r_range)) of $nr levels)")
 
-    inv_stage_dt = T(state.parameters.Ek / (gamma * state.parameters.timestep))
-    zeta_over_gamma = T(zeta / gamma)
+    inv_stage_dt = T(state.parameters.Ek / state.parameters.timestep)
+    γT = T(gamma)
+    ζT = T(zeta)
+    αT = T(alpha)
 
     P = Vector{T}(undef, nr)
     W = Vector{T}(undef, nr)
+    LW = Vector{T}(undef, nr)
     rhs = Vector{T}(undef, nr)
     Wp = Vector{T}(undef, nr)
     Pp = Vector{T}(undef, nr)
@@ -224,11 +284,12 @@ function _cb3_apply_poloidal_wsplit_stage!(state::SolverState{T, <:AbstractArchi
             for r_idx in 1:nr
                 P[r_idx] = local_spectral_value(p_arr, slot, r_idx)
             end
-            mul!(W, split.dpol_op[idx], P)
+            mul!(W, split.dpol_op[idx], P)        # W = D_pol·P
+            mul!(LW, split.w_linear[idx], W)      # Ek·D_pol·W (explicit CN term)
             for r_idx in 1:nr
-                rhs[r_idx] = inv_stage_dt * W[r_idx] +
-                             local_spectral_value(n_arr, slot, r_idx) +
-                             zeta_over_gamma * local_spectral_value(pn_arr, slot, r_idx)
+                rhs[r_idx] = inv_stage_dt * W[r_idx] + αT * LW[r_idx] +
+                             γT * local_spectral_value(n_arr, slot, r_idx) +
+                             ζT * local_spectral_value(pn_arr, slot, r_idx)
             end
             solve_banded!(Wp, split.w_factor[idx], rhs)
             Wp[1] = zero(T)
@@ -253,7 +314,7 @@ function _cb3_apply_poloidal_wsplit_stage!(state::SolverState{T, <:AbstractArchi
 end
 
 function _cb3_apply_magnetic_stage!(state::SolverState{T, <:AbstractArchitecture},
-        matrices, gamma::Float64, zeta::Float64) where {T}
+        matrices, gamma::Float64, zeta::Float64, alpha::Float64) where {T}
     magnetic = state.fields.magnetic
     magnetic === nothing && return state
     state.magnetic_ic_admittance === nothing || throw(ArgumentError(
@@ -276,10 +337,13 @@ function _cb3_apply_magnetic_stage!(state::SolverState{T, <:AbstractArchitecture
             solution,
             nonlinear,
             prev,
+            mset,
             state.parameters.timestep,
             gamma,
-            zeta;
+            zeta,
+            alpha;
             mass_coeff = 1.0,
+            work = radial_work,
         )
         solver_solve_magnetic_implicit_step!(
             solution,
@@ -292,12 +356,13 @@ function _cb3_apply_magnetic_stage!(state::SolverState{T, <:AbstractArchitecture
     return state
 end
 
-function _cb3_apply_stage!(state::SolverState, stage::Int, gamma::Float64, zeta::Float64)
-    matrices = _get_or_build_cb3_stage_matrices!(state, stage, gamma)
+function _cb3_apply_stage!(state::SolverState, stage::Int, gamma::Float64, zeta::Float64,
+        alpha::Float64, beta::Float64)
+    matrices = _get_or_build_cb3_stage_matrices!(state, stage, beta)
 
-    _cb3_apply_velocity_toroidal_stage!(state, matrices, gamma, zeta)
-    _cb3_apply_poloidal_wsplit_stage!(state, stage, gamma, zeta)
-    _cb3_apply_magnetic_stage!(state, matrices, gamma, zeta)
+    _cb3_apply_velocity_toroidal_stage!(state, matrices, gamma, zeta, alpha)
+    _cb3_apply_poloidal_wsplit_stage!(state, stage, gamma, zeta, alpha, beta)
+    _cb3_apply_magnetic_stage!(state, matrices, gamma, zeta, alpha)
 
     _cb3_apply_scalar_stage!(
         state,
@@ -307,6 +372,7 @@ function _cb3_apply_stage!(state::SolverState, stage::Int, gamma::Float64, zeta:
         matrices,
         gamma,
         zeta,
+        alpha,
     )
     if state.fields.composition !== nothing
         _cb3_apply_scalar_stage!(
@@ -317,6 +383,7 @@ function _cb3_apply_stage!(state::SolverState, stage::Int, gamma::Float64, zeta:
             matrices,
             gamma,
             zeta,
+            alpha,
         )
     end
     return state
@@ -336,7 +403,8 @@ function integrate_solver_cb3_step!(state::SolverState)
             compute_solver_nonlinear_terms!(state)
             apply_solver_topography!(state)
         end
-        _cb3_apply_stage!(state, stage, CB3_GAMMA[stage], CB3_ZETA[stage])
+        _cb3_apply_stage!(state, stage, CB3_GAMMA[stage], CB3_ZETA[stage],
+            CB3_ALPHA[stage], CB3_BETA[stage])
         _sync_solver_nonlinear_histories!(
             state,
             state.parameters.include_magnetic && state.fields.magnetic !== nothing,

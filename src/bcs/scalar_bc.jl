@@ -61,12 +61,15 @@ function _apply_scalar_boundary_rows!(
         end
     end
 
-    if scalar_bc_code == 4 && l == 0
-        @inbounds for j in 1:(1 + bw)
-            system_data[bw + 1 + 1 - j, j] = zero(T)
-        end
-        system_data[bw + 1, 1] = one(T)
-    end
+    # NOTE: double-Neumann (scalar_bc_code == 4) needs NO special l == 0 handling.
+    # The time-stepping operator (mass/dt) I − θ κ L is a positive-shifted
+    # Helmholtz operator and stays non-singular under pure-Neumann rows on every
+    # degree, including the l = 0 mean mode — the (mass/dt) I shift lifts the
+    # bare-Laplacian constant null space. A former Dirichlet "pin" here overwrote
+    # the inner Neumann derivative row with an identity row, which then imposed
+    # the inner FLUX datum as a prescribed VALUE on the mean mode (wrong
+    # units/condition for nonzero inner flux). The genuinely singular steady
+    # solve lives in conductive_profile_solve, which gauge-fixes separately.
 
     return system_data
 end
