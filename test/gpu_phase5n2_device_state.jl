@@ -78,7 +78,11 @@ end
         end
         # coupling factors
         p = st.parameters
-        @test gst.inv_dt_temp ≈ (p.Pm / p.Pr) / p.timestep
+        # Scalar mass coefficient is 1 (diffusivity is folded into the implicit
+        # operator L, which the GPU reuses from the CPU matrices) ⇒ inv_dt = 1/dt,
+        # NOT (Pm/Pr)/dt. (Pm=Pr=1 here, so this only changed the intent, not the value.)
+        @test gst.inv_dt_temp ≈ 1.0 / p.timestep
+        @test gst.inv_dt_comp ≈ 1.0 / p.timestep
         @test gst.inv_dt_vel ≈ p.Ek / p.timestep
         @test gst.inv_dt_mag ≈ 1.0 / p.timestep
         @test gst.thermal_factor ≈ (p.Pm / p.Pr) * p.Ra
