@@ -217,6 +217,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
     ri = state.topography.radius
     ε = config.epsilon
     lmax = state.topography.lmax
+    mmax = state.topography.mmax
     nlm = state.topography.nlm
 
     # Base flux (flat-sphere)
@@ -260,10 +261,14 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
 
     warned_missing_d2 = false
 
-    # Add topography corrections to normal derivative
+    # Add topography corrections to normal derivative.
+    # Iterate the target order m ≥ 0 ONLY (matching the thermal/velocity/magnetic
+    # coupling siblings): the flux storage keeps m ≥ 0 modes, and the inner sum
+    # over (lp, mp = m − M) already gathers every coupled source. A −m target pass
+    # would write the SAME abs(m) slot again — a spurious double application.
     for l in 0:lmax
-        for m in -l:l
-            lm_idx = lm_to_index(l, abs(m), lmax)
+        for m in 0:min(l, mmax)
+            lm_idx = lm_to_index(l, m, lmax, mmax)
             if lm_idx > nlm
                 continue
             end
@@ -287,7 +292,7 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                         G = get_gaunt_tensor(gaunt, l, m, lp, mp, L, M)
                         G_grad = get_gradient_gaunt(gaunt, l, m, lp, mp, L, M)
 
-                        lp_idx = lm_to_index(lp, abs(mp), lmax)
+                        lp_idx = lm_to_index(lp, abs(mp), lmax, mmax)
                         if lp_idx > nlm
                             continue
                         end

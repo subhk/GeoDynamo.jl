@@ -260,6 +260,19 @@ function conductive_profile_solve(; domain, bc_code::Int,
     _zero_scalar_boundary_rows!(sys, bw, N)
     _apply_scalar_boundary_rows!(sys, T.(d1.data), bc_code, 0, bw, N,
         inner_regularity, Float64(domain.r[1, 3]))
+    if bc_code == 4
+        # Double-Neumann (NN): the STEADY bare Laplacian has a constant null
+        # space (both walls Neumann ⇒ the mean level is unconstrained), so anchor
+        # the otherwise-free gauge by pinning the inner mean value (rhs[1] =
+        # inner_value below). This is a property of the singular steady solve
+        # ONLY — the implicit time-stepping operator (mass/dt) I − θκL is already
+        # non-singular under pure-Neumann rows, so its builder must NOT pin l=0
+        # (see _apply_scalar_boundary_rows!).
+        @inbounds for j in 1:(1 + bw)
+            sys[bw + 1 + 1 - j, j] = zero(T)
+        end
+        sys[bw + 1, 1] = one(T)
+    end
     A = BandedMatrix{T}(sys, bw, N)
     lu = factorize_banded(A)
     rhs = Vector{T}(undef, N)

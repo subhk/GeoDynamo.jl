@@ -221,6 +221,10 @@ function solver_eab2_update_krylov_cached!(
     u_imag_next = work_ok ? krylov_work.tmp_imag : Vector{T}(undef, nr)
     krylov_action_work = work_ok ? krylov_work.krylov : nothing
     inv_mass_coeff = T(inv(mass_coeff))
+    # ETD2 needs the previous-step nonlinear term weighted by φ₂, applied to the
+    # difference (N_n − N_{n-1}); these reused per-mode scratch vectors hold it.
+    diff_real = Vector{T}(undef, nr)
+    diff_imag = Vector{T}(undef, nr)
 
     # Each mode owns a COMPLETE radial profile on a single rank (the spectral
     # pencil keeps the radial dimension local), and the exp/φ₁ Krylov actions are
@@ -248,36 +252,43 @@ function solver_eab2_update_krylov_cached!(
         fill!(u_imag_global, zero(T))
         fill!(nl_real_global, zero(T))
         fill!(nl_imag_global, zero(T))
+        fill!(diff_real, zero(T))
+        fill!(diff_imag, zero(T))
 
         gather_local_radial_profile!(
             u_real_global, u_imag_global, u_real, u_imag, slot, r_range)
         for r_idx in r_range
             local_r = r_idx - first(r_range) + 1
             local_r <= size(n_real, 3) || continue
-            nl_real_global[r_idx] = inv_mass_coeff * (
-                T(1.5) * local_spectral_value(n_real, slot, local_r) -
-                T(0.5) * local_spectral_value(p_real, slot, local_r)
-            )
-            nl_imag_global[r_idx] = inv_mass_coeff * (
-                T(1.5) * local_spectral_value(n_imag, slot, local_r) -
-                T(0.5) * local_spectral_value(p_imag, slot, local_r)
-            )
+            nr_v = local_spectral_value(n_real, slot, local_r)
+            pr_v = local_spectral_value(p_real, slot, local_r)
+            ni_v = local_spectral_value(n_imag, slot, local_r)
+            pi_v = local_spectral_value(p_imag, slot, local_r)
+            # N_n (for φ₁) and N_n − N_{n-1} (for φ₂).
+            nl_real_global[r_idx] = inv_mass_coeff * nr_v
+            nl_imag_global[r_idx] = inv_mass_coeff * ni_v
+            diff_real[r_idx] = inv_mass_coeff * (nr_v - pr_v)
+            diff_imag[r_idx] = inv_mass_coeff * (ni_v - pi_v)
         end
 
-        # The exponential action advances the linear part, while phi₁(Adt)
-        # applies the matching correction to the Adams-Bashforth nonlinear term.
         Aop = SolverBandedAction(operator_matrix)
 
         exp_action_krylov!(
             u_real_next, Aop, u_real_global, dt; m, tol, work = krylov_action_work)
         exp_action_krylov!(
             u_imag_next, Aop, u_imag_global, dt; m, tol, work = krylov_action_work)
-        phi1_action_krylov!(nl_real_global, Aop, operator_lu, nl_real_global,
-            dt; m, tol, work = krylov_action_work)
-        phi1_action_krylov!(nl_imag_global, Aop, operator_lu, nl_imag_global,
-            dt; m, tol, work = krylov_action_work)
-        @. u_real_next = u_real_next + dt * nl_real_global
-        @. u_imag_next = u_imag_next + dt * nl_imag_global
+
+        # Second-order exponential Adams-Bashforth (ETD2 / Nørsett):
+        #   u_{n+1} = e^{hL}u_n + h[φ₁(hL)·N_n + φ₂(hL)·(N_n − N_{n-1})].
+        # The previous-step term carries the DISTINCT matrix function φ₂, not φ₁;
+        # applying φ₁ to the whole AB2 blend (1.5N_n − 0.5N_{n-1}) is only first
+        # order for the stiff (diffusive) part.
+        phi1_real = solver_phi1_action_krylov(Aop, operator_lu, nl_real_global, dt; m, tol)
+        phi1_imag = solver_phi1_action_krylov(Aop, operator_lu, nl_imag_global, dt; m, tol)
+        phi2_real = solver_phi2_action_krylov(Aop, operator_lu, diff_real, dt; m, tol)
+        phi2_imag = solver_phi2_action_krylov(Aop, operator_lu, diff_imag, dt; m, tol)
+        @. u_real_next = u_real_next + dt * (phi1_real + phi2_real)
+        @. u_imag_next = u_imag_next + dt * (phi1_imag + phi2_imag)
 
         if bc_spec !== nothing
             # Krylov actions operate on the full radial vector and can move the

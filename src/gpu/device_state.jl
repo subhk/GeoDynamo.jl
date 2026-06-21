@@ -187,15 +187,21 @@ end
 # stage packs are homogeneously typed), so `state.cb3[stage]` field reads infer concretely
 # — unlike the old `Any[]` + `push!` + `Tuple(packs)`, which produced an abstract `Tuple`.
 function _build_cb3_stage_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {T}
-    return map(CB3_GAMMA) do gamma
+    # SMR/Cavaglieri-Bewley IMEX-RK3: the per-stage system matrix is
+    # (mass/dt) I − β·L built with the FULL step dt and the companion CN
+    # coefficient β (NOT γ·dt with full-implicit θ=1). The bare per-l linear
+    # operators (lin / wlin) are retained so the step can add the explicit α·L
+    # term, mirroring the CPU path in src/timestep/cb3.jl.
+    packs = Any[]
+    for beta in CB3_BETA
         matrices, magnetic_ic_admittance = _build_implicit_matrices_dict(
             T,
             st.backend.shtns_config,
             st.backend.outer_core_domain,
             st.backend.inner_core_domain,
             st.parameters,
-            gamma * st.parameters.timestep;
-            theta = 1.0,
+            st.parameters.timestep;
+            theta = beta,
         )
         magnetic_ic_admittance === nothing || throw(ArgumentError(
             "RungeKutta3 GPU path does not yet support magnetic_inner_bc=:conducting_inner_core"))
@@ -209,16 +215,21 @@ function _build_cb3_stage_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {
             st.runtime.shtns_config,
             st.runtime.outer_core_domain,
             st.parameters.Ek,
-            gamma * st.parameters.timestep;
+            st.parameters.timestep;
             velocity_bc_code = _velocity_bc_code(st.parameters.velocity_bcs),
-            theta = 1.0,
+            theta = beta,
             T = T,
         )
-        (;
+        push!(packs, (;
+            velocity_tor_lin = vtor_lin,
             velocity_tor_lu = vtor_lu,
+            magnetic_tor_lin = mt_lin,
             magnetic_tor_lu = mt_lu,
+            magnetic_pol_lin = mp_lin,
             magnetic_pol_lu = mp_lu,
+            temperature_lin = tt_lin,
             temperature_lu = tt_lu,
+            composition_lin = cc === nothing ? nothing : cc[1],
             composition_lu = cc === nothing ? nothing : cc[2],
             wsplit = _pack_wsplit(split, nl, nr, bw, T),
         )

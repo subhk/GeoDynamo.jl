@@ -339,28 +339,38 @@ function compute_theta_gradient_spectral!(𝔽::AbstractScalarField{T}, ws::Grad
                 dtheta_real = zero(T)
                 dtheta_imag = zero(T)
 
-                # Recurrence relations for ∂/∂θ (4π-normalized SH)
-                # ∂Y_l^m/∂θ = A_+^{l,m} Y_{l+1}^m + A_-^{l,m} Y_{l-1}^m
+                # sinθ·∂θf collected at OUTPUT mode (l,m). The standard recurrence
+                # is sinθ·∂θY_l = A_+(l)·Y_{l+1} + A_-(l)·Y_{l-1} with
+                #   A_+(l) = l·sqrt((l+|m|+1)(l-|m|+1)/((2l+1)(2l+3))),
+                #   A_-(l) = −(l+1)·sqrt((l+|m|)(l-|m|)/((2l-1)(2l+1))).
+                # Summing a_{l'}·sinθ∂θY_{l'} and collecting the Y_l term gives
+                #   b_l = A_+(l-1)·a_{l-1} + A_-(l+1)·a_{l+1},
+                # i.e. the source a_{l∓1} is weighted by A_±(l∓1), NOT A_±(l) (the
+                # former code used A_±(l), the coefficients of Y_{l±1} in
+                # sinθ∂θY_l — the wrong l-argument — which produced a corrupted
+                # gradient). The extra sinθ is removed in physical space afterwards.
 
-                # Contribution from Y_{l+1}^m (forward coupling)
+                # Forward source a_{l+1,m}, weighted by A_-(l+1) = −(l+2)·…
                 if l < 𝔽.config.lmax
                     lm_plus = get_mode_index(𝔽.config, l+1, m)
                     if lm_plus > 0 && lm_plus <= nlm
-                        A_plus = T(l) * sqrt(T((l + abs_m + 1) * (l - abs_m + 1)) /
-                                      T((2*l + 1) * (2*l + 3)))
-                        dtheta_real += A_plus * full_real[lm_plus]
-                        dtheta_imag += A_plus * full_imag[lm_plus]
+                        coeff_plus = -T(l + 2) *
+                            sqrt(T((l + abs_m + 1) * (l - abs_m + 1)) /
+                                 T((2*l + 1) * (2*l + 3)))
+                        dtheta_real += coeff_plus * full_real[lm_plus]
+                        dtheta_imag += coeff_plus * full_imag[lm_plus]
                     end
                 end
 
-                # Contribution from Y_{l-1}^m (backward coupling)
+                # Backward source a_{l-1,m}, weighted by A_+(l-1) = (l-1)·…
                 if l > abs_m
                     lm_minus = get_mode_index(𝔽.config, l-1, m)
                     if lm_minus > 0 && lm_minus <= nlm
-                        A_minus = -T(l + 1) * sqrt(T((l + abs_m) * (l - abs_m)) /
-                                       T((2*l - 1) * (2*l + 1)))
-                        dtheta_real += A_minus * full_real[lm_minus]
-                        dtheta_imag += A_minus * full_imag[lm_minus]
+                        coeff_minus = T(l - 1) *
+                            sqrt(T((l + abs_m) * (l - abs_m)) /
+                                 T((2*l - 1) * (2*l + 1)))
+                        dtheta_real += coeff_minus * full_real[lm_minus]
+                        dtheta_imag += coeff_minus * full_imag[lm_minus]
                     end
                 end
 
@@ -571,8 +581,12 @@ in a single batched operation to minimize communication.
 """
 function transform_field_and_gradients_to_physical!(
         𝔽::AbstractScalarField{T}, ws::GradientWorkspace{T}) where {T}
-    # Create arrays of fields to transform
-    spectral_fields = [𝔽.spectral,
+    # Create arrays of fields to transform. The element types are pinned to the
+    # abstract SHTnsSpecField{T}/SHTnsPhysField{T} so batch_spectral_to_physical!
+    # (which dispatches on Vector{SHTnsSpecField{T}}) resolves even when all four
+    # fields share one concrete pencil type (a bare literal would narrow to the
+    # concrete element type and miss the method).
+    spectral_fields = SHTnsSpecField{T}[𝔽.spectral,
         ws.∇θ_spec,
         ws.∇φ_spec,
         ws.∇r_spec]
@@ -580,13 +594,41 @@ function transform_field_and_gradients_to_physical!(
     # Determine physical field based on field type
     main_physical_field = get_main_physical_field(𝔽)
 
-    physical_fields = [main_physical_field,
+    physical_fields = SHTnsPhysField{T}[main_physical_field,
         𝔽.gradient.θ_component,
         𝔽.gradient.φ_component,
         𝔽.gradient.r_component]
 
     # Single batched transform with one MPI communication
     batch_spectral_to_physical!(spectral_fields, physical_fields)
+
+    # The θ-recurrence synthesizes sinθ·∂θf and the φ-coefficients synthesize
+    # ∂φf, so after the ×1/r scaling both physical tangential components carry an
+    # extra sinθ. Divide it out to recover (∇f)_θ = (1/r)∂θf and
+    # (∇f)_φ = (1/(r sinθ))∂φf, so u·∇f is not suppressed toward the poles.
+    _divide_tangential_gradients_by_sintheta!(𝔽)
+end
+
+# Divide the physical tangential scalar-gradient components by sinθ, indexed by
+# the GLOBAL colatitude of each (possibly θ-distributed) physical row.
+function _divide_tangential_gradients_by_sintheta!(𝔽::AbstractScalarField{T}) where {T}
+    gθ = parent(𝔽.gradient.θ_component.data)
+    gφ = parent(𝔽.gradient.φ_component.data)
+    cfg = 𝔽.config
+    θ_range = local_range(cfg.pencils.r, 1)
+    ntheta = length(cfg.theta_grid)
+    @inbounds for i in axes(gθ, 1)
+        θ_idx = i + first(θ_range) - 1
+        sθ = (1 <= θ_idx <= ntheta) ? sin(cfg.theta_grid[θ_idx]) : zero(Float64)
+        inv_s = iszero(sθ) ? zero(T) : one(T) / T(sθ)
+        for k in axes(gθ, 3)
+            for j in axes(gθ, 2)
+                gθ[i, j, k] *= inv_s
+                gφ[i, j, k] *= inv_s
+            end
+        end
+    end
+    return 𝔽
 end
 
 # Helper function to get the appropriate main physical field

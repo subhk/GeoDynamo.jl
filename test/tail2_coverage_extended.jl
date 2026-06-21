@@ -148,8 +148,14 @@ const BCS2 = GeoDynamo.bcs                      # bcs module
             @test loaded.coeffs_imag[1:n] ≈ hi
             @test all(iszero, loaded.coeffs_real[(n + 1):end])
             @test contains(loaded.description, "loaded from")
-            # statistics recomputed on load
-            @test loaded.rms_amplitude ≈ sqrt(sum(hr .^ 2 .+ hi .^ 2))
+            # statistics recomputed on load. rms_amplitude is the spatial RMS
+            # sqrt((1/4π)∫h²dΩ): the m>0 coefficients each count twice (the −m
+            # partner shares the stored slot). The first n=15 coeffs follow the
+            # lmax=4 packing (l ≤ 4 ⇒ min(l,mmax)=l), so build the matching m>0
+            # weights independently of the production routine.
+            rms_weights = Float64[m == 0 ? 1.0 : 2.0 for l in 0:4 for m in 0:l]
+            expected_rms = sqrt(sum(rms_weights .* (hr .^ 2 .+ hi .^ 2)) / (4pi))
+            @test loaded.rms_amplitude ≈ expected_rms
 
             # real single-variable "h" (NetCDF has no native complex type, so the
             # complex-"h" branch is unreachable via NCDatasets; the real branch

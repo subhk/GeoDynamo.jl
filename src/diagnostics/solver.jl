@@ -55,6 +55,35 @@ function trim_energy_tracker!(tracker::SolverEnergyTracker)
     return tracker
 end
 
+# Volume-integral energy ½∫f²dV of a scalar spectral field, using the same
+# angular-Parseval + radial r²·integration_weights convention as
+# compute_kinetic_energy (a scalar carries no l(l+1) factor). Keeps the
+# thermal/compositional diagnostic weighted CONSISTENTLY with kinetic/magnetic,
+# instead of the former raw grid-count sum.
+function _solver_scalar_spectral_energy(field, domain::RadialDomain)
+    sr = parent(field.spectral.data_real)
+    si = parent(field.spectral.data_imag)
+    cfg = field.spectral.config
+    lm_range = local_spectral_mode_indices(cfg)
+    r_range = range_local(cfg.pencils.spec, 3)
+    local_energy = 0.0
+    @inbounds for lm_idx in lm_range
+        lm_idx <= cfg.nlm || continue
+        slot = local_spectral_storage_slot(cfg, lm_idx)
+        slot === nothing && continue
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            local_r <= size(sr, 3) || continue
+            r = domain.r[r_idx, 4]
+            r_weight = r^2 * domain.integration_weights[r_idx]
+            local_energy += r_weight *
+                            (local_spectral_value(sr, slot, local_r)^2 +
+                             local_spectral_value(si, slot, local_r)^2)
+        end
+    end
+    return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
+end
+
 function compute_total_energy!(state::SolverState{T, <:AbstractArchitecture}) where {T}
     tracker = state.energy_tracker
     tracker.enable_tracking || return nothing
@@ -65,38 +94,16 @@ function compute_total_energy!(state::SolverState{T, <:AbstractArchitecture}) wh
     composition = state.fields.composition
     domain = state.backend.outer_core_domain
 
-    vector_spectral_to_physical!(velocity.toroidal, velocity.poloidal, velocity.velocity; domain = domain)
-    if magnetic !== nothing
-        vector_spectral_to_physical!(magnetic.toroidal, magnetic.poloidal, magnetic.magnetic; domain = domain)
-    end
-
-    scalar_spectral_to_physical!(temperature.spectral, temperature.temperature)
-
-    if composition !== nothing
-        scalar_spectral_to_physical!(composition.spectral, composition.composition)
-    end
-
-    kinetic_e = vector_energy(
-        parent(velocity.velocity.r_component.data),
-        parent(velocity.velocity.θ_component.data),
-        parent(velocity.velocity.φ_component.data)
-    )
-
-    magnetic_e = 0.0
-    if magnetic !== nothing
-        magnetic_e = vector_energy(
-            parent(magnetic.magnetic.r_component.data),
-            parent(magnetic.magnetic.θ_component.data),
-            parent(magnetic.magnetic.φ_component.data)
-        )
-    end
-
-    thermal_e = field_energy(parent(temperature.temperature.data))
-
-    compositional_e = 0.0
-    if composition !== nothing
-        compositional_e = field_energy(parent(composition.composition.data))
-    end
+    # Physical volume-integral energies ½∫|f|²dV computed directly from the
+    # spectral coefficients (angular integral via l(l+1)/Parseval, radial via
+    # r²·integration_weights). This is the conserved physical energy the
+    # conservation report claims to monitor — NOT a grid-count-weighted sum of
+    # physical samples (which is resolution/clustering dependent).
+    kinetic_e = compute_kinetic_energy(velocity, domain)
+    magnetic_e = magnetic === nothing ? 0.0 : compute_magnetic_energy(magnetic, domain)
+    thermal_e = _solver_scalar_spectral_energy(temperature, domain)
+    compositional_e = composition === nothing ? 0.0 :
+                      _solver_scalar_spectral_energy(composition, domain)
 
     total_e = kinetic_e + magnetic_e + thermal_e + compositional_e
 

@@ -109,19 +109,21 @@ using MPI
         @test isapprox(dP[N], 0.0; atol = der_atol)
     end
 
-    @testset "poloidal stress-free ⇒ P = 0 (influence) and ∂²P/∂r² = 0" begin
+    @testset "poloidal stress-free ⇒ P = 0 (influence) and P″ − (2/r)P′ = 0" begin
         P = solve_mode(pol(4), l, make_rhs())
-        d2P = d2 * P
-        @test isapprox(d2P[1], 0.0; atol = der_atol)
-        @test isapprox(d2P[N], 0.0; atol = der_atol)
+        dP = d1 * P; d2P = d2 * P
+        # No-tangential-stress condition is P″ − (2/r)P′ = 0 (the bare P″=0 row
+        # missed the −2P′/r metric term; main + influence now both carry it).
+        @test isapprox(d2P[1] - 2 * rinv_in * dP[1], 0.0; atol = der_atol)
+        @test isapprox(d2P[N] - 2 * rinv_out * dP[N], 0.0; atol = der_atol)
         infl = GeoDynamo.create_velocity_poloidal_influence_matrices(
             Float64, cfg, dom, 1.0, dt, bc_sf_sf; theta = θ)
         GeoDynamo.apply_influence_matrix_correction!(P, infl[l])
-        d2P = d2 * P
+        dP = d1 * P; d2P = d2 * P
         @test isapprox(P[1], 0.0; atol = val_atol)
         @test isapprox(P[N], 0.0; atol = val_atol)
-        @test isapprox(d2P[1], 0.0; atol = der_atol)
-        @test isapprox(d2P[N], 0.0; atol = der_atol)
+        @test isapprox(d2P[1] - 2 * rinv_in * dP[1], 0.0; atol = der_atol)
+        @test isapprox(d2P[N] - 2 * rinv_out * dP[N], 0.0; atol = der_atol)
     end
 
     @testset "production scaling (main diffusivity = Ek, influence = 1) keeps BCs exact" begin
@@ -132,11 +134,11 @@ using MPI
         infl = GeoDynamo.create_velocity_poloidal_influence_matrices(
             Float64, cfg, dom, 1.0, dt, bc_sf_sf; theta = θ)
         GeoDynamo.apply_influence_matrix_correction!(P, infl[l])
-        d2P = d2 * P
+        dP = d1 * P; d2P = d2 * P
         @test isapprox(P[1], 0.0; atol = val_atol)
         @test isapprox(P[N], 0.0; atol = val_atol)
-        @test isapprox(d2P[1], 0.0; atol = 1.0e-5)
-        @test isapprox(d2P[N], 0.0; atol = 1.0e-5)
+        @test isapprox(d2P[1] - 2 * rinv_in * dP[1], 0.0; atol = 1.0e-5)
+        @test isapprox(d2P[N] - 2 * rinv_out * dP[N], 0.0; atol = 1.0e-5)
     end
 
     @testset "rotating inner core: toroidal l=1 no-slip enforces T[inner] = Ω·r_inner" begin

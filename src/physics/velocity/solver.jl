@@ -227,9 +227,14 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{
         split = _get_or_build_poloidal_split!(state, velocity_bc)
         _apply_poloidal_wsplit_cnab2!(velocity, split, runtime.outer_core_domain, dt)
     else
-        # Stage-4B: nl_poloidal now carries the W-equation RHS (N_W); the
-        # exponential/theta paths still expect the legacy projection and are
-        # gated until ported.
+        # Stage-4B: nl_poloidal carries the W-equation RHS (N_W); the exponential
+        # (ERK2/EAB2) and theta-method poloidal paths are gated until ported to
+        # the W-split. NOTE: EAB2 layers 1 (φ2 order) and 2 (singular operator)
+        # are fixed; the remaining layer 3 is the exponential W-split P-recovery
+        # with a LIFT-based φ₁-column influence (the homogeneous-Dirichlet ETD
+        # operator decouples the walls, so the influence source must be the
+        # boundary-coupling columns, not unit wall vectors). See
+        # docs/superpowers/plans/2026-06-10-double-curl-stage4b-poloidal-momentum.md.
         error(_VEL_POL_STAGE4B_MSG)
     end
 

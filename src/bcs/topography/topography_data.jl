@@ -148,24 +148,24 @@ TopographyData() = TopographyData{Float64}()
 # ================================================================================
 
 """
-    lm_to_index(l::Int, m::Int, lmax::Int) -> Int
+    lm_to_index(l::Int, m::Int, lmax::Int, mmax::Int = lmax) -> Int
 
-Convert (l, m) to linear index for spectral coefficient storage.
-Uses the convention: index = l(l+1)/2 + m + 1 for m >= 0
+Convert (l, m) to the linear index of the SEQUENTIAL coefficient storage
+(filled as: for l'=0..lmax, for m'=0..min(l',mmax)). Degree l' contributes
+min(l',mmax)+1 slots; ±m share one slot via conjugate symmetry. When
+`mmax ≥ lmax` this reduces to the classic full-triangle index l(l+1)/2 + |m| + 1;
+for a truncated `mmax` it does NOT — the old full-triangle formula read the wrong
+slot (and ran off the end of the array) whenever mmax < lmax.
 """
-function lm_to_index(l::Int, m::Int, lmax::Int)
+function lm_to_index(l::Int, m::Int, lmax::Int, mmax::Int = lmax)
     @assert l >= 0 && l <= lmax "l must be in [0, lmax]"
     @assert abs(m) <= l "m must satisfy |m| <= l"
 
-    if m >= 0
-        # Standard indexing for m >= 0
-        idx = l * (l + 1) ÷ 2 + m + 1
-    else
-        # Negative m uses conjugate relation
-        # Map to positive m index and flag for conjugate
-        idx = l * (l + 1) ÷ 2 + (-m) + 1
+    offset = 0
+    for lp in 0:(l - 1)
+        offset += min(lp, mmax) + 1
     end
-    return idx
+    return offset + abs(m) + 1
 end
 
 """
@@ -292,7 +292,7 @@ function get_coefficient(field::TopographyField{T}, l::Int, m::Int) where {T}
         return zero(Complex{T})
     end
 
-    idx = lm_to_index(l, abs(m), field.lmax)
+    idx = lm_to_index(l, abs(m), field.lmax, field.mmax)
 
     if m >= 0
         return complex(field.coeffs_real[idx], field.coeffs_imag[idx])
@@ -309,17 +309,26 @@ end
 Update RMS and max amplitude statistics for the topography field.
 """
 function update_topography_statistics!(field::TopographyField{T}) where {T}
-    # RMS amplitude: sqrt(Σ |h_{LM}|²)
+    # RMS amplitude over the sphere: sqrt(<h²>) = sqrt((1/4π) ∫ h² dΩ). With
+    # orthonormalized harmonics and a REAL field, ∫h² dΩ = Σ_l (|h_{l,0}|² +
+    # 2 Σ_{m>0} |h_{l,m}|²) — the m>0 coefficients each count twice because the
+    # storage keeps only m ≥ 0 (the −m partner shares the slot). The old code
+    # summed the raw stored coefficients (no 1/4π, no m>0 doubling).
     sum_sq = zero(T)
     max_amp = zero(T)
 
-    for i in 1:field.nlm
-        amp_sq = field.coeffs_real[i]^2 + field.coeffs_imag[i]^2
-        sum_sq += amp_sq
-        max_amp = max(max_amp, sqrt(amp_sq))
+    idx = 0
+    for l in 0:field.lmax
+        for m in 0:min(l, field.mmax)
+            idx += 1
+            amp_sq = field.coeffs_real[idx]^2 + field.coeffs_imag[idx]^2
+            weight = m == 0 ? one(T) : T(2)
+            sum_sq += weight * amp_sq
+            max_amp = max(max_amp, sqrt(amp_sq))
+        end
     end
 
-    field.rms_amplitude = sqrt(sum_sq)
+    field.rms_amplitude = sqrt(sum_sq / T(4) / T(pi))
     field.max_amplitude = max_amp
 
     return field

@@ -123,6 +123,13 @@ function compute_spectral_energy_diagnostics!(diagnostics::Dict{String, Float64}
     # align exactly.  Slots with lm_map value 0 are unused padding and are
     # skipped.  This is correct for every Phase (single-rank dense nlm list,
     # Phase-3 (lmax+1,mmax+1,nr) rectangular grid, and any future layout).
+    # Toroidal/poloidal components store scalar POTENTIALS; the physical field
+    # energy per degree carries an l(l+1) factor (Σ_lm l(l+1)(|T|²+|P|²) is the
+    # angular energy). Without it peak_l / spectral_centroid rank coefficient
+    # magnitudes rather than energy. Scalars (temperature/composition) carry no
+    # such factor.
+    is_vector = occursin("toroidal", component) || occursin("poloidal", component)
+
     lm_map = local_spectral_lm_map(config)
     for i1 in axes(real_part, 1), i2 in axes(real_part, 2)
         # Guard: lm_map may be smaller than real_part if shapes diverge (e.g.
@@ -131,11 +138,12 @@ function compute_spectral_energy_diagnostics!(diagnostics::Dict{String, Float64}
         mode = lm_map[i1, i2]
         mode == 0 && continue
         l = config.l_values[mode]
+        l_weight = is_vector ? Float64(l * (l + 1)) : 1.0
         l_energy = zero(Float64)
         for k in axes(real_part, 3)
             l_energy += Float64(real_part[i1, i2, k])^2 + Float64(imag_part[i1, i2, k])^2
         end
-        l_energies[l + 1] += l_energy
+        l_energies[l + 1] += l_weight * l_energy
     end
 
     # Reduce l_energies across all MPI ranks so that every rank holds the

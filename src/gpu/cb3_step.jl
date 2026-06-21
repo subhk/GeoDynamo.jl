@@ -2,18 +2,26 @@
 # GPU Cavaglieri-Bewley / Williamson 2N-storage IMEX-RK3
 # =============================================================================
 
-function gpu_build_rhs_cb3_stage!(rr, ri, ur, ui, nr_, ni_, pr, pi_,
-        inv_stage_dt, zeta_over_gamma)
+function gpu_build_rhs_cb3_stage!(rr, ri, ur, ui, nr_, ni_, pr, pi_, Lur, Lui,
+        inv_stage_dt, gamma, zeta, alpha)
     T = eltype(rr)
     a = T(inv_stage_dt)
-    z = T(zeta_over_gamma)
-    @. rr = a * ur + nr_ + z * pr
-    @. ri = a * ui + ni_ + z * pi_
+    g = T(gamma)
+    z = T(zeta)
+    al = T(alpha)
+    # rhs = (mass/dt)·u + γ·N + ζ·N_prev + α·(L·u)  (SMR/Cavaglieri-Bewley)
+    @. rr = a * ur + g * nr_ + z * pr + al * Lur
+    @. ri = a * ui + g * ni_ + z * pi_ + al * Lui
     return nothing
 end
 
-function _gpu_cb3_solve_field!(bundle, lu, nr_, ni_, inv_stage_dt,
-        zeta_over_gamma, bw::Int; apply_bc::Bool = true)
+function _gpu_cb3_solve_field!(bundle, lin, lu, nr_, ni_, inv_stage_dt,
+        gamma, zeta, alpha, bw::Int; apply_bc::Bool = true)
+    # Explicit companion-CN term α·(L·u) over the current field.
+    Lur = similar(bundle.spec_r)
+    Lui = similar(bundle.spec_i)
+    gpu_batched_banded_matvec_perl!(Lur, bundle.spec_r, lin, bw)
+    gpu_batched_banded_matvec_perl!(Lui, bundle.spec_i, lin, bw)
     rr = similar(bundle.spec_r)
     ri = similar(bundle.spec_i)
     gpu_build_rhs_cb3_stage!(
@@ -21,7 +29,8 @@ function _gpu_cb3_solve_field!(bundle, lu, nr_, ni_, inv_stage_dt,
         bundle.spec_r, bundle.spec_i,
         nr_, ni_,
         bundle.prev_nl_r, bundle.prev_nl_i,
-        inv_stage_dt, zeta_over_gamma,
+        Lur, Lui,
+        inv_stage_dt, gamma, zeta, alpha,
     )
     if apply_bc
         # `get(::NamedTuple, k, default)` evaluates `default` EAGERLY even when
@@ -74,20 +83,28 @@ function _gpu_cb3_recover_poloidal!(P, W, ws, bw::Int)
 end
 
 function _gpu_cb3_poloidal_stage!(pol, nl_r, nl_i, stage, inv_stage_dt,
-        zeta_over_gamma, bw::Int)
+        gamma, zeta, alpha, bw::Int)
     ws = stage.wsplit
     W_r = similar(pol.spec_r)
     W_i = similar(pol.spec_i)
-    gpu_batched_banded_matvec_perl!(W_r, pol.spec_r, ws.dpol, bw)
+    gpu_batched_banded_matvec_perl!(W_r, pol.spec_r, ws.dpol, bw)   # W = D_pol·P
     gpu_batched_banded_matvec_perl!(W_i, pol.spec_i, ws.dpol, bw)
+
+    # Explicit companion-CN term α·(Ek·D_pol)·W.
+    LW_r = similar(pol.spec_r)
+    LW_i = similar(pol.spec_i)
+    gpu_batched_banded_matvec_perl!(LW_r, W_r, ws.wlin, bw)
+    gpu_batched_banded_matvec_perl!(LW_i, W_i, ws.wlin, bw)
 
     rr = similar(pol.spec_r)
     ri = similar(pol.spec_i)
     T = eltype(rr)
     a = T(inv_stage_dt)
-    z = T(zeta_over_gamma)
-    @. rr = a * W_r + nl_r + z * pol.prev_nl_r
-    @. ri = a * W_i + nl_i + z * pol.prev_nl_i
+    g = T(gamma)
+    z = T(zeta)
+    al = T(alpha)
+    @. rr = a * W_r + al * LW_r + g * nl_r + z * pol.prev_nl_r
+    @. ri = a * W_i + al * LW_i + g * nl_i + z * pol.prev_nl_i
     gpu_batched_banded_solve!(rr, rr, ws.wlu, bw)
     gpu_batched_banded_solve!(ri, ri, ws.wlu, bw)
     _gpu_cb3_recover_poloidal!(pol.spec_r, rr, ws, bw)
@@ -130,7 +147,7 @@ function gpu_cb3_solver_step!(state)
     for stage_index in 1:3
         gamma = CB3_GAMMA[stage_index]
         zeta = CB3_ZETA[stage_index]
-        zeta_over_gamma = zeta / gamma
+        alpha = CB3_ALPHA[stage_index]
         stage = state.cb3[stage_index]
 
         has_mag = state.magnetic !== nothing
@@ -144,11 +161,14 @@ function gpu_cb3_solver_step!(state)
 
         _gpu_cb3_solve_field!(
             state.velocity.tor,
+            stage.velocity_tor_lin,
             stage.velocity_tor_lu,
             nl.vt_r,
             nl.vt_i,
-            state.nlops_vel.E / (gamma * dt),
-            zeta_over_gamma,
+            state.nlops_vel.E / dt,
+            gamma,
+            zeta,
+            alpha,
             bw,
         )
         _gpu_cb3_poloidal_stage!(
@@ -156,49 +176,63 @@ function gpu_cb3_solver_step!(state)
             nl.vp_r,
             nl.vp_i,
             stage,
-            state.nlops_vel.E / (gamma * dt),
-            zeta_over_gamma,
+            state.nlops_vel.E / dt,
+            gamma,
+            zeta,
+            alpha,
             bw,
         )
         if has_mag
             _gpu_cb3_solve_field!(
                 state.magnetic.tor,
+                stage.magnetic_tor_lin,
                 stage.magnetic_tor_lu,
                 nl.mt_r,
                 nl.mt_i,
-                1.0 / (gamma * dt),
-                zeta_over_gamma,
+                1.0 / dt,
+                gamma,
+                zeta,
+                alpha,
                 bw;
                 apply_bc = false,
             )
             _gpu_cb3_solve_field!(
                 state.magnetic.pol,
+                stage.magnetic_pol_lin,
                 stage.magnetic_pol_lu,
                 nl.mp_r,
                 nl.mp_i,
-                1.0 / (gamma * dt),
-                zeta_over_gamma,
+                1.0 / dt,
+                gamma,
+                zeta,
+                alpha,
                 bw;
                 apply_bc = false,
             )
         end
         _gpu_cb3_solve_field!(
             state.temperature,
+            stage.temperature_lin,
             stage.temperature_lu,
             nl.t_r,
             nl.t_i,
-            state.inv_dt_temp / gamma,
-            zeta_over_gamma,
+            state.inv_dt_temp,
+            gamma,
+            zeta,
+            alpha,
             bw,
         )
         if has_comp
             _gpu_cb3_solve_field!(
                 state.composition,
+                stage.composition_lin,
                 stage.composition_lu,
                 nl.c_r,
                 nl.c_i,
-                state.inv_dt_comp / gamma,
-                zeta_over_gamma,
+                state.inv_dt_comp,
+                gamma,
+                zeta,
+                alpha,
                 bw,
             )
         end

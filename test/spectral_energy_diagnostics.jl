@@ -141,6 +141,33 @@ const FINALIZE_MPI_SPEC_DIAG = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") =
         @test diagnostics["velocity_toroidal_low_mode_fraction"] ≈ 1.0 atol = 1e-10
     end
 
+    @testset "vector spectral energy carries the l(l+1) factor" begin
+        # Equal coefficient energy at l=2 and l=8. For a VECTOR potential the
+        # physical energy weight l(l+1) makes l=8 (×72) dominate l=2 (×6) ⇒
+        # peak_l=8; without the factor the two are equal and argmax returns the
+        # first (l=2). A SCALAR carries no factor ⇒ peak_l stays at l=2.
+        rp2, ip2, p2 = make_spec_at_lm(cfg, nr, 2, 0)
+        rp8, ip8, p8 = make_spec_at_lm(cfg, nr, 8, 0)
+        rp = rp2 .+ rp8
+        ip = ip2 .+ ip8
+        tp2 = (nranks > 1) ? MPI.Allreduce(p2, MPI.SUM, comm) : p2
+        tp8 = (nranks > 1) ? MPI.Allreduce(p8, MPI.SUM, comm) : p8
+        if tp2 >= 1 && tp8 >= 1
+            fields = Dict{String, Any}(
+                "velocity_toroidal" => Dict("real" => rp, "imag" => ip))
+            fi = GeoDynamo.extract_field_info(fields, cfg, nothing; radius_ratio = 0.35)
+
+            dV = Dict{String, Float64}()
+            GeoDynamo.compute_spectral_energy_diagnostics!(dV, "velocity_toroidal", rp, ip, fi)
+            @test dV["velocity_toroidal_peak_l"] == 8.0
+            @test dV["velocity_toroidal_spectral_centroid"] > 6.0
+
+            dS = Dict{String, Float64}()
+            GeoDynamo.compute_spectral_energy_diagnostics!(dS, "temperature_spectral", rp, ip, fi)
+            @test dS["temperature_spectral_peak_l"] == 2.0
+        end
+    end
+
     # ----------------------------------------------------------------
     # Test 2: Energy at l=5, m=3 (another m>0 mode).
     # Checks that the lm_map indexing assigns energy to the correct l.

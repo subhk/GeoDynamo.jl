@@ -50,7 +50,11 @@ end
     @test _sc_occ("system_data[bw + 1, 1] = one(T)", scalar_rows)
     @test _sc_occ("system_data[bw + 1, N] = one(T)", scalar_rows)
     @test _sc_occ("= d1_data", scalar_rows)
-    @test _sc_occ("scalar_bc_code == 4 && l == 0", scalar_rows)
+    # Double-Neumann (code 4) must NOT special-case l == 0 with a Dirichlet pin:
+    # the time-stepping operator is non-singular under pure-Neumann rows, and the
+    # former pin imposed the inner FLUX datum as a prescribed VALUE on the mean
+    # mode. The special-case was removed; assert it stays removed.
+    @test !_sc_occ("scalar_bc_code == 4 && l == 0", scalar_rows)
 
     legacy_temperature_solve = _temperature_bc_static_function_body(
         thermal_bc,

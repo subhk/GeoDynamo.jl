@@ -102,19 +102,25 @@ end
         @test isapprox(T[N], -0.3; atol = val_atol)      # Dirichlet outer
     end
 
-    @testset "NN (code 4), l=0 mean mode ⇒ inner pinned to Dirichlet (gauge fix)" begin
+    @testset "NN (code 4), l=0 mean mode ⇒ inner Neumann (no Dirichlet pin)" begin
         mats = mat(4)
         e1 = zeros(N);
         e1[1] = 1.0
-        # Structural: l=0 inner row is the identity (pinned); l≥1 inner stays Neumann.
-        @test _tempbc_banded_row(mats.system_matrices[mats.lookup[0]], 1) ≈ e1 atol=1e-14
-        @test !(_tempbc_banded_row(mats.system_matrices[mats.lookup[2]], 1) ≈ e1)
-        # Behavioral: the solve is well-posed (no singular pivot) and honors the
-        # pinned inner value plus the prescribed outer flux.
-        T = solve_mode(mats, 0, rhs_with(0.8, -0.2))
+        # Structural: the l=0 inner row is the SAME Neumann first-derivative
+        # stencil as l ≥ 1 — NOT a Dirichlet identity pin on the mean mode.
+        inner0 = _tempbc_banded_row(mats.system_matrices[mats.lookup[0]], 1)
+        inner2 = _tempbc_banded_row(mats.system_matrices[mats.lookup[2]], 1)
+        @test !(inner0 ≈ e1)
+        @test inner0 ≈ inner2
+        # Behavioral: the l=0 solve is well-posed — the (mass/dt)I shift lifts the
+        # pure-Neumann constant null space (the Neumann Laplacian is negative
+        # semidefinite, so (mass/dt) I − θκL has no zero eigenvalue) — and it
+        # honors the prescribed inner AND outer flux (not a pinned value).
+        T = solve_mode(mats, 0, rhs_with(0.5, -0.2))
         dT = d1 * T
-        @test isapprox(T[1], 0.8; atol = val_atol)     # pinned reference value
-        @test isapprox(dT[N], -0.2; atol = der_atol)     # outer flux still honored
+        @test all(isfinite, T)
+        @test isapprox(dT[1], 0.5; atol = der_atol)     # inner flux honored
+        @test isapprox(dT[N], -0.2; atol = der_atol)     # outer flux honored
     end
 
     @testset "thermal BC code mapping matches BoundaryConditions types" begin
