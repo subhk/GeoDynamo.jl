@@ -191,9 +191,9 @@ function _build_cb3_stage_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {
     # (mass/dt) I − β·L built with the FULL step dt and the companion CN
     # coefficient β (NOT γ·dt with full-implicit θ=1). The bare per-l linear
     # operators (lin / wlin) are retained so the step can add the explicit α·L
-    # term, mirroring the CPU path in src/timestep/cb3.jl.
-    packs = Any[]
-    for beta in CB3_BETA
+    # term, mirroring the CPU path in src/timestep/cb3.jl. `map` over CB3_BETA
+    # returns a concrete NTuple{3} so `state.cb3[stage]` field reads infer.
+    return map(CB3_BETA) do beta
         matrices, magnetic_ic_admittance = _build_implicit_matrices_dict(
             T,
             st.backend.shtns_config,
@@ -206,10 +206,10 @@ function _build_cb3_stage_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {
         magnetic_ic_admittance === nothing || throw(ArgumentError(
             "RungeKutta3 GPU path does not yet support magnetic_inner_bc=:conducting_inner_core"))
         store = create_solver_implicit_matrix_store(matrices)
-        _, vtor_lu, _ = _pack_implicit(store[:velocity_tor], nl, T)
-        _, mt_lu, _ = _pack_implicit(store[:magnetic_tor], nl, T)
-        _, mp_lu, _ = _pack_implicit(store[:magnetic_pol], nl, T)
-        _, tt_lu, _ = _pack_implicit(store[:temperature], nl, T)
+        vtor_lin, vtor_lu, _ = _pack_implicit(store[:velocity_tor], nl, T)
+        mt_lin, mt_lu, _ = _pack_implicit(store[:magnetic_tor], nl, T)
+        mp_lin, mp_lu, _ = _pack_implicit(store[:magnetic_pol], nl, T)
+        tt_lin, tt_lu, _ = _pack_implicit(store[:temperature], nl, T)
         cc = haskey(store, :composition) ? _pack_implicit(store[:composition], nl, T) : nothing
         split = create_velocity_poloidal_split_matrices(
             st.runtime.shtns_config,
@@ -220,7 +220,7 @@ function _build_cb3_stage_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {
             theta = beta,
             T = T,
         )
-        push!(packs, (;
+        (;
             velocity_tor_lin = vtor_lin,
             velocity_tor_lu = vtor_lu,
             magnetic_tor_lin = mt_lin,
