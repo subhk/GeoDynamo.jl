@@ -406,7 +406,10 @@ function build_magnetic_implicit_matrices_conducting(::Type{T}, cfg, domain, ic_
     uniq_l = filter(>(0), sort(unique(cfg.l_values)))
 
     adm_tor = create_inner_core_admittance(T, uniq_l, ic_domain, η, dt; theta = theta)
-    adm_pol = create_inner_core_admittance(T, uniq_l, ic_domain, η, dt; theta = theta)
+    # Poloidal uses D_pol (no 2/r) to match create_magnetic_poloidal_matrices;
+    # toroidal keeps the full scalar Laplacian to match the toroidal builder.
+    adm_pol = create_inner_core_admittance(T, uniq_l, ic_domain, η, dt;
+        theta = theta, poloidal = true)
 
     alpha_tor = Dict{Int, T}(l => inner_core_alpha(adm_tor, l) for l in uniq_l)
     alpha_pol = Dict{Int, T}(l => inner_core_alpha(adm_pol, l) for l in uniq_l)

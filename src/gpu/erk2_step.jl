@@ -179,30 +179,13 @@ function _gpu_erk2_nonlinear_pass!(state, out)
     Cn = state.composition === nothing ? nothing :
         (c = ph(:e_C); gpu_scalar_spectral_to_physical!(c, spec(state.composition.spec_r, state.composition.spec_i), cfg; ws, tag = :e_Cs); c)
 
-    # velocity nonlinear with the LAGGED B/J buffers
-    gpu_velocity_nonlinear!(out.vt_r, out.vt_i, out.vp_r, out.vp_i,
-        v.tor.spec_r, v.tor.spec_i, v.pol.spec_r, v.pol.spec_i, cfg,
-        state.nlops_vel.d1, state.nlops_vel.d2, state.nlops_vel.lfac,
-        state.nlops_vel.rinv, state.nlops_vel.rinv2, state.nlops_vel.rscale,
-        state.nlops_vel.sinθ, state.nlops_vel.cosθ, state.nlops_vel.E, lmax, bw;
-        ws = ws, tag = :e_vnl,
-        T_phys = Tn.data, thermal_factor = state.thermal_factor, r_vec = state.r_vec,
-        C_phys = Cn === nothing ? nothing : Cn.data,
-        comp_factor = state.composition === nothing ? zero(eltype(v.tor.spec_r)) : state.comp_factor,
-        J_r = state.J_r, J_θ = state.J_θ, J_φ = state.J_φ,
-        B_r = state.B_r, B_θ = state.B_θ, B_φ = state.B_φ,
-        lorentz_coeff = state.lorentz_coeff)
-
-    # shared u for induction + scalar advection (current velocity spec)
-    u = ph(:e_ur); uθ = ph(:e_ut); uφ = ph(:e_up)
-    gpu_vector_spectral_to_physical!(u, uθ, uφ, spec(v.tor.spec_r, v.tor.spec_i),
-        spec(v.pol.spec_r, v.pol.spec_i), cfg,
-        state.nlops_vel.lfac, state.nlops_vel.rscale, state.nlops_vel.d1, state.nlops_vel.rinv, bw;
-        ws, tag = :e_us)
-
+    # FRESH magnetic B/J physical from the CURRENT magnetic spectral state, so
+    # the velocity Lorentz force below uses the current field — NOT one-step
+    # lagged (matches the CPU fix in compute_solver_nonlinear_terms!). The
+    # magnetic NONLINEAR (u×B induction) still runs after the shared u below.
+    Brd = Bθd = Bφd = Jrd = Jθd = Jφd = nothing
     if state.magnetic !== nothing
         m = state.magnetic
-        # refresh B/J buffers from the current magnetic spec (CPU magnetic pass)
         br = ph(:e_Br); bθ = ph(:e_Bt); bφ = ph(:e_Bp)
         gpu_vector_spectral_to_physical!(br, bθ, bφ, spec(m.tor.spec_r, m.tor.spec_i),
             spec(m.pol.spec_r, m.pol.spec_i), cfg,
@@ -220,7 +203,33 @@ function _gpu_erk2_nonlinear_pass!(state, out)
             ws, tag = :e_Js)
         state.B_r .= br.data; state.B_θ .= bθ.data; state.B_φ .= bφ.data
         state.J_r .= jr.data; state.J_θ .= jθ.data; state.J_φ .= jφ.data
+        Brd = br.data; Bθd = bθ.data; Bφd = bφ.data
+        Jrd = jr.data; Jθd = jθ.data; Jφd = jφ.data
+    end
 
+    # velocity nonlinear with the FRESH B/J buffers
+    gpu_velocity_nonlinear!(out.vt_r, out.vt_i, out.vp_r, out.vp_i,
+        v.tor.spec_r, v.tor.spec_i, v.pol.spec_r, v.pol.spec_i, cfg,
+        state.nlops_vel.d1, state.nlops_vel.d2, state.nlops_vel.lfac,
+        state.nlops_vel.rinv, state.nlops_vel.rinv2, state.nlops_vel.rscale,
+        state.nlops_vel.sinθ, state.nlops_vel.cosθ, state.nlops_vel.E, lmax, bw;
+        ws = ws, tag = :e_vnl,
+        T_phys = Tn.data, thermal_factor = state.thermal_factor, r_vec = state.r_vec,
+        C_phys = Cn === nothing ? nothing : Cn.data,
+        comp_factor = state.composition === nothing ? zero(eltype(v.tor.spec_r)) : state.comp_factor,
+        J_r = Jrd, J_θ = Jθd, J_φ = Jφd,
+        B_r = Brd, B_θ = Bθd, B_φ = Bφd,
+        lorentz_coeff = state.lorentz_coeff)
+
+    # shared u for induction + scalar advection (current velocity spec)
+    u = ph(:e_ur); uθ = ph(:e_ut); uφ = ph(:e_up)
+    gpu_vector_spectral_to_physical!(u, uθ, uφ, spec(v.tor.spec_r, v.tor.spec_i),
+        spec(v.pol.spec_r, v.pol.spec_i), cfg,
+        state.nlops_vel.lfac, state.nlops_vel.rscale, state.nlops_vel.d1, state.nlops_vel.rinv, bw;
+        ws, tag = :e_us)
+
+    if state.magnetic !== nothing
+        m = state.magnetic
         gpu_magnetic_nonlinear!(out.mt_r, out.mt_i, out.mp_r, out.mp_i,
             m.tor.spec_r, m.tor.spec_i, m.pol.spec_r, m.pol.spec_i,
             u.data, uθ.data, uφ.data, cfg,

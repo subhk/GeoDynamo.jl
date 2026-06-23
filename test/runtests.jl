@@ -217,6 +217,7 @@ additional_tests = (
     "solenoidal_transform_pair.jl",
     "r_dist_solenoidal_synthesis.jl",
     "poloidal_momentum_split.jl",
+    "lorentz_fresh_magnetic.jl",
     "shell_boundaries.jl",
     "shtnskit_roundtrip.jl",
     "theta_dist_adapter.jl",
@@ -250,6 +251,7 @@ additional_tests = (
     "magnetic_conducting_inner_core.jl",
     "magnetic_conducting_matrix_rows.jl",
     "magnetic_inner_core_admittance.jl",
+    "inner_core_poloidal_operator.jl",
     "magnetic_inner_core_history.jl",
     "magnetic_inner_core_reconstruct.jl",
     # Integration tests
