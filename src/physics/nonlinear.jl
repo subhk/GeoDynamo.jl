@@ -1030,6 +1030,20 @@ function compute_solver_nonlinear_terms!(state::SolverState)
             solver_main_physical_field(state.fields.composition))
     end
 
+    # The velocity Lorentz force (add_lorentz_force!) reads the magnetic field
+    # and current in PHYSICAL space. Those buffers are otherwise refreshed only
+    # by the magnetic nonlinear pass below, which runs AFTER velocity — so the
+    # Lorentz force saw a one-step-lagged (first-step-zero) field, an O(dt)
+    # inconsistency (the same lag class as the buoyancy bug fixed above).
+    # Refresh them from the current spectral magnetic state FIRST; the magnetic
+    # pass re-does it (acceptable, like the scalar passes above).
+    if state.parameters.include_magnetic && state.fields.magnetic !== nothing
+        refresh_magnetic_physical_fields!(
+            state.fields.magnetic, state.backend.outer_core_domain)
+        refresh_current_physical_fields!(
+            state.fields.magnetic, state.backend.outer_core_domain)
+    end
+
     # Velocity nonlinear terms define the advecting flow shared by every other
     # subsystem, so that path runs first.
     solver_compute_velocity_nonlinear!(

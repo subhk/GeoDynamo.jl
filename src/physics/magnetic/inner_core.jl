@@ -85,12 +85,19 @@ positive harmonic degree in `l_values`.
 """
 function create_inner_core_admittance(::Type{T}, l_values, ic_domain,
         diffusivity::Float64, dt::Float64;
-        theta::Float64 = 0.5) where {T}
+        theta::Float64 = 0.5, poloidal::Bool = false) where {T}
     uniq = sort(unique(l_values));
     filter!(>(0), uniq)
     Nic = ic_domain.N;
     bw = radial_bandwidth(ic_domain)
-    lap = create_radial_laplacian(T, ic_domain)
+    # POLOIDAL magnetic potentials diffuse with D_pol = d²/dr² − l(l+1)/r²
+    # (NO 2/r term), matching the outer-core `create_magnetic_poloidal_matrices`
+    # operator the ICB admittance is paired with via the Robin row
+    # `(∂/∂r − α_l)S = φ0`. TOROIDAL potentials keep the full scalar Laplacian
+    # ∇²_l = d²/dr² + (2/r)d/dr − l(l+1)/r². The −l(l+1)/r² term is added per
+    # degree in the loop below, so only the base radial operator differs here.
+    lap = poloidal ? create_derivative_matrix(T, 2, ic_domain) :
+                     create_radial_laplacian(T, ic_domain)
     d1 = create_derivative_matrix(T, 1, ic_domain)
     r_inv_sq = @views ic_domain.r[1:Nic, 2]
     d1_top = T[(1 <= bw+1+Nic-j <= 2bw+1) ? d1.data[bw + 1 + Nic - j, j] : zero(T)

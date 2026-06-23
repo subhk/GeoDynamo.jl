@@ -6,12 +6,11 @@
 # synthesizes the shared physical velocity u, reused by every other field.
 #
 # BUFFER FRESHNESS (matches CPU exactly): compute_solver_nonlinear_terms!
-# refreshes the scalar physical fields from the CURRENT spectral state BEFORE
-# the velocity force assembly (the buoyancy-lag fix), so buoyancy reads FRESH
-# T/C synthesized at the start of this step.  The Lorentz inputs B/J keep the
-# one-step lag: CPU's prepare_magnetic_fields! runs AFTER velocity, so the
-# Lorentz force reads the physical B/J left by the PREVIOUS step's magnetic
-# pass (`state.B_*`/`J_*`, rolled at the end of each step here).
+# refreshes BOTH the scalar physical fields (buoyancy) AND the magnetic
+# field/current (Lorentz) from the CURRENT spectral state BEFORE the velocity
+# force assembly, so buoyancy reads FRESH T/C and the Lorentz force reads FRESH
+# B/J (`Bn_*`/`Jn_*`) synthesized at the start of this step — NOT one-step
+# lagged.  `state.B_*`/`J_*` are still rolled at the end for any external reader.
 # u itself is NOT lagged (fresh synth of current velocity).
 #
 # `state` (NamedTuple) holds the per-field bundles, shared operators, coupling
@@ -71,16 +70,17 @@ function gpu_solver_step!(state)
         Bn_r = br.data; Bn_θ = bθ.data; Bn_φ = bφ.data; Jn_r = jr.data; Jn_θ = jθ.data; Jn_φ = jφ.data
     end
 
-    # --- (3) velocity step: FRESH T/C (CPU refreshes scalars before velocity),
-    #         LAGGED B/J (CPU's magnetic pass runs after velocity) ---
+    # --- (3) velocity step: FRESH T/C and FRESH B/J, both synthesized above from
+    #         the current spectral state (matches the CPU fix that refreshes the
+    #         magnetic field before velocity, removing the Lorentz one-step lag) ---
     gpu_velocity_field_step!(v.tor, v.pol, cfg, state.nlops_vel, state.influence,
         state.inv_dt_vel, linw, lmax, bw;
         wsplit = get(state, :wsplit, nothing), ws = ws,
         T_phys = Tn.data, thermal_factor = state.thermal_factor, r_vec = state.r_vec,
         C_phys = Cn === nothing ? nothing : Cn.data,
         comp_factor = state.composition === nothing ? zero(eltype(v.tor.spec_r)) : state.comp_factor,
-        J_r = state.J_r, J_θ = state.J_θ, J_φ = state.J_φ,
-        B_r = state.B_r, B_θ = state.B_θ, B_φ = state.B_φ, lorentz_coeff = state.lorentz_coeff)
+        J_r = Jn_r, J_θ = Jn_θ, J_φ = Jn_φ,
+        B_r = Bn_r, B_θ = Bn_θ, B_φ = Bn_φ, lorentz_coeff = state.lorentz_coeff)
 
     # --- (4) magnetic step (if present) with the shared u ---
     if state.magnetic !== nothing
