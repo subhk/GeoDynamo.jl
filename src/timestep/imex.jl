@@ -453,6 +453,8 @@ function solver_solve_velocity_implicit_step!(
         domain::Union{RadialDomainType, Nothing} = nothing,
         rot_omega::Float64 = 0.0,
         current_field::Union{SpectralFieldType{T}, Nothing} = nothing,
+        bc_inner::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_outer::Union{AbstractVector{T}, Nothing} = nothing,
         work::Union{SolverRadialWork{T}, Nothing} = nothing
 ) where {T}
     sol_real = parent(solution.data_real)
@@ -491,6 +493,15 @@ function solver_solve_velocity_implicit_step!(
                 end
             end
 
+            # Topography boundary correction (real-only) added to the endpoint RHS
+            # rows. Zero when topography is disabled ⇒ identical to the base solve.
+            if bc_inner !== nothing && lm_idx <= length(bc_inner)
+                inner_real += bc_inner[lm_idx]
+            end
+            if bc_outer !== nothing && lm_idx <= length(bc_outer)
+                outer_real += bc_outer[lm_idx]
+            end
+
             tmp_real[1] = inner_real
             tmp_imag[1] = zero(T)
             tmp_real[nr] = outer_real
@@ -520,6 +531,16 @@ conditions.
 For toroidal magnetic fields the optional inner boundary vector is interpreted
 as an imposed boundary increment relative to `prev_bc_inner`.
 """
+# Topography boundary RHS (real + imag, inner + outer) for a magnetic component,
+# packaged for kwarg-splatting into solver_solve_magnetic_implicit_step!. Zero when
+# topography is disabled ⇒ the insulating default solve is unchanged.
+@inline _topo_mag_bc(field) = (
+    topo_bc_inner = view(field.boundary_values, 1, :),
+    topo_bc_inner_imag = view(field.boundary_values_imag, 1, :),
+    topo_bc_outer = view(field.boundary_values, 2, :),
+    topo_bc_outer_imag = view(field.boundary_values_imag, 2, :),
+)
+
 function solver_solve_magnetic_implicit_step!(
         solution::SpectralFieldType{T},
         rhs::SpectralFieldType{T},
@@ -529,6 +550,10 @@ function solver_solve_magnetic_implicit_step!(
         prev_bc_inner::Union{Vector{T}, Nothing} = nothing,
         mag_bc_inner_imag::Union{Vector{T}, Nothing} = nothing,
         prev_bc_inner_imag::Union{Vector{T}, Nothing} = nothing,
+        topo_bc_inner::Union{AbstractVector{T}, Nothing} = nothing,
+        topo_bc_inner_imag::Union{AbstractVector{T}, Nothing} = nothing,
+        topo_bc_outer::Union{AbstractVector{T}, Nothing} = nothing,
+        topo_bc_outer_imag::Union{AbstractVector{T}, Nothing} = nothing,
         work::Union{SolverRadialWork{T}, Nothing} = nothing
 ) where {T}
     sol_real = parent(solution.data_real)
@@ -571,10 +596,28 @@ function solver_solve_magnetic_implicit_step!(
             end
         end
 
+        # Topography boundary correction: additive RHS at BOTH endpoints (the stored
+        # value is already the RHS target -ε·corr, no sign flip). Zero when topography
+        # is disabled ⇒ the insulating default stays homogeneous (outer = 0).
+        outer_real = zero(T)
+        outer_imag = zero(T)
+        if topo_bc_inner !== nothing && lm_idx <= length(topo_bc_inner)
+            inner_real += topo_bc_inner[lm_idx]
+        end
+        if topo_bc_inner_imag !== nothing && lm_idx <= length(topo_bc_inner_imag)
+            inner_imag += topo_bc_inner_imag[lm_idx]
+        end
+        if topo_bc_outer !== nothing && lm_idx <= length(topo_bc_outer)
+            outer_real += topo_bc_outer[lm_idx]
+        end
+        if topo_bc_outer_imag !== nothing && lm_idx <= length(topo_bc_outer_imag)
+            outer_imag += topo_bc_outer_imag[lm_idx]
+        end
+
         tmp_real[1] = inner_real
         tmp_imag[1] = inner_imag
-        tmp_real[nr] = zero(T)
-        tmp_imag[nr] = zero(T)
+        tmp_real[nr] = outer_real
+        tmp_imag[nr] = outer_imag
 
         solve_banded!(tmp_real, matrices.factorizations[matrix_idx], tmp_real)
         solve_banded!(tmp_imag, matrices.factorizations[matrix_idx], tmp_imag)

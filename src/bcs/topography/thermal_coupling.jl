@@ -74,6 +74,10 @@ function apply_thermal_topography_correction!(
     bv = hasfield(typeof(temperature_field), :boundary_values) ?
          temperature_field.boundary_values : spectral.boundary_values
 
+    # Re-establish the un-corrected base before applying the (lagged) correction so
+    # it does not compound across timesteps. See reset_boundary_to_base! (topography.jl).
+    reset_boundary_to_base!(bv)
+
     # Radial derivative metadata for accurate coupling terms
     ∂r = hasfield(typeof(temperature_field), :∂r) ?
          temperature_field.∂r : nothing

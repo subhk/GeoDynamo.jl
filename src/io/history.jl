@@ -24,11 +24,15 @@ function write_fields!(state, tracker::TimeTracker,
     comm = output_comm()
     current_time = metadata["current_time"]
 
-    # Synchronize output decision across all ranks (collective)
-    local_output = should_output_now(tracker, current_time, config) ? 1 : 0
-    local_restart = should_restart_now(tracker, current_time, config) ? 1 : 0
-    so = MPI.Bcast(local_output, 0, comm) != 0
-    sr = MPI.Bcast(local_restart, 0, comm) != 0
+    # Synchronize output decision across all ranks in ONE collective (fused Bcast
+    # of both flags instead of two — this fires every step).
+    flags = Int[
+        should_output_now(tracker, current_time, config) ? 1 : 0,
+        should_restart_now(tracker, current_time, config) ? 1 : 0,
+    ]
+    MPI.Bcast!(flags, 0, comm)
+    so = flags[1] != 0
+    sr = flags[2] != 0
 
     if !so && !sr
         return false
@@ -77,10 +81,13 @@ function write_fields!(fields::Dict{String, Any}, tracker::TimeTracker,
 
     # When called from a state object, the decision is already made and this path
     # always writes. When called directly with a Dict, re-check.
-    local_output = should_output_now(tracker, current_time, config) ? 1 : 0
-    local_restart = should_restart_now(tracker, current_time, config) ? 1 : 0
-    should_output = MPI.Bcast(local_output, 0, comm) != 0
-    should_restart = MPI.Bcast(local_restart, 0, comm) != 0
+    flags = Int[
+        should_output_now(tracker, current_time, config) ? 1 : 0,
+        should_restart_now(tracker, current_time, config) ? 1 : 0,
+    ]
+    MPI.Bcast!(flags, 0, comm)
+    should_output = flags[1] != 0
+    should_restart = flags[2] != 0
 
     if !should_output && !should_restart
         return false

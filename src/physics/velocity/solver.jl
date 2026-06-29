@@ -131,6 +131,8 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{
             :toroidal;
             velocity_bc_code = velocity_bc,
             domain = runtime.outer_core_domain,
+            bc_inner = view(velocity.toroidal.boundary_values, 1, :),
+            bc_outer = view(velocity.toroidal.boundary_values, 2, :),
             work = radial_work
         )
     elseif timestepper isa ExponentialAdamsBashforth2
@@ -177,6 +179,8 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{
             :toroidal;
             velocity_bc_code = velocity_bc,
             domain = runtime.outer_core_domain,
+            bc_inner = view(velocity.toroidal.boundary_values, 1, :),
+            bc_outer = view(velocity.toroidal.boundary_values, 2, :),
             work = radial_work
         )
     end
@@ -278,15 +282,20 @@ function _apply_poloidal_wsplit_cnab2!(velocity, split::PoloidalSplitMatrices{T}
     inv_dt = T(split.mass_coeff / dt)
     one_m_theta = T(1.0 - split.theta)
 
-    P = Vector{T}(undef, nr); W = Vector{T}(undef, nr)
-    LW = Vector{T}(undef, nr); rhs = Vector{T}(undef, nr)
-    Wp = Vector{T}(undef, nr); Pp = Vector{T}(undef, nr)
+    P, W, LW, rhs, Wp, Pp = split.work   # cached per-step radial scratch
 
-    for (p_arr, n_arr, pn_arr) in (
-        (parent(velocity.poloidal.data_real),
+    # Topography impermeability correction modifies the P wall VALUE (real-only,
+    # stored in poloidal.boundary_values). Injected as the Dirichlet RHS of the
+    # P-recovery (Wp[1]/Wp[nr]); zero when topography is disabled ⇒ unchanged.
+    pol_bv = velocity.poloidal.boundary_values
+
+    for (is_real, p_arr, n_arr, pn_arr) in (
+        (true,
+         parent(velocity.poloidal.data_real),
          parent(velocity.nl_poloidal.data_real),
          parent(velocity.prev_nl_poloidal.data_real)),
-        (parent(velocity.poloidal.data_imag),
+        (false,
+         parent(velocity.poloidal.data_imag),
          parent(velocity.nl_poloidal.data_imag),
          parent(velocity.prev_nl_poloidal.data_imag)),
     )
@@ -323,9 +332,12 @@ function _apply_poloidal_wsplit_cnab2!(velocity, split::PoloidalSplitMatrices{T}
                     dot(split.d1_row_inner, Wp) -
                     T((l + 1) * split.reg_r_inv) * Wp[1] : zero(T)
 
-            # Dirichlet P-recovery (P = 0 rows ⇒ zero those RHS entries;
-            # ball: row 1 is the regularity Robin with homogeneous RHS)
-            Wp[1] = zero(T); Wp[nr] = zero(T)
+            # Dirichlet P-recovery: the wall RHS entries are the imposed P values.
+            # Base impermeability is P=0; the topography correction (real part of
+            # poloidal.boundary_values) shifts the wall value. Ball: row 1 is the
+            # regularity Robin (homogeneous RHS) — never inject there.
+            Wp[1] = (is_real && !split.ball) ? pol_bv[1, lm] : zero(T)
+            Wp[nr] = is_real ? pol_bv[2, lm] : zero(T)
             solve_banded!(Pp, split.p_factor[idx], Wp)
 
             # Influence correction: zero the remaining endpoint residuals via

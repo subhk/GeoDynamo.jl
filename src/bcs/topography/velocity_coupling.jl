@@ -82,6 +82,11 @@ function apply_velocity_topography_correction!(velocity_field, topography::Topog
         return nothing
     end
 
+    # Re-establish the un-corrected base boundary rows before applying the (lagged)
+    # corrections so they do not compound across timesteps. See reset_boundary_to_base!.
+    reset_boundary_to_base!(poloidal.boundary_values)
+    reset_boundary_to_base!(toroidal.boundary_values)
+
     # The expensive radial traces are staged once per field, then reused for
     # both boundaries and every coupled (l,m) mode. That keeps the topography
     # correction focused on mode coupling rather than repeated radial algebra.
@@ -494,14 +499,16 @@ function get_spectral_radial_derivative(field, l::Int, m::Int, r,
     profile_imag = zeros(T, nr)
     data_real = parent(field.data_real)
     data_imag = parent(field.data_imag)
-    lm_range = field.pencil.axes_local[1]
     r_range = field.pencil.axes_local[3]
 
-    if idx in lm_range
-        slot = local_spectral_storage_slot(field.config, idx)
-        slot !== nothing && gather_local_radial_profile!(profile_real, profile_imag,
-            data_real, data_imag, slot, r_range)
-    end
+    # Ownership is encoded by local_spectral_storage_slot (nothing ⇒ not held on
+    # this rank). The old `idx in field.pencil.axes_local[1]` guard used the l-slot
+    # axis (1:lmax+1) as if it were a mode-index range, so every canonical mode
+    # index > lmax+1 (all m>0 modes) was silently skipped — leaving the gathered
+    # profile zero and the derivative 0. Mirror compute_boundary_derivative_cache.
+    slot = local_spectral_storage_slot(field.config, idx)
+    slot !== nothing && gather_local_radial_profile!(profile_real, profile_imag,
+        data_real, data_imag, slot, r_range)
 
     comm = get_comm()
     if comm !== nothing && MPI.Comm_size(comm) > 1

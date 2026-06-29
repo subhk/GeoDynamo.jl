@@ -61,6 +61,29 @@ const SHTnsSpecField = AbstractSpectralField
            hasfield(typeof(field), :nlm)
 end
 
+# ----------------------------------------------------------------------------
+# Per-step boundary-value base reset
+#
+# Topography corrections are a LAGGED function of the current field state and are
+# re-applied every timestep (apply_solver_topography! runs each step/substage).
+# They write the corrected boundary row in place (`bv -= ε·corr`). Without
+# re-establishing the un-corrected base each step, the correction compounds:
+# step n holds `base - n·ε·corr` instead of `base - ε·corr`, an unbounded drift.
+#
+# The base is captured on the FIRST call for a given boundary_values array (before
+# any correction has been written) and restored before each subsequent application.
+# Keyed by array identity so each field (temperature/composition/velocity poloidal
+# & toroidal/magnetic) gets its own base snapshot. Velocity/magnetic bases are the
+# all-zero initial rows; temperature/composition carry the parameter mean-mode base.
+# ----------------------------------------------------------------------------
+const _BOUNDARY_VALUE_BASE = IdDict{Any, Any}()
+
+function reset_boundary_to_base!(bv::AbstractMatrix)
+    base = get!(() -> copy(bv), _BOUNDARY_VALUE_BASE, bv)
+    copyto!(bv, base)
+    return bv
+end
+
 # ================================================================================
 # Topography Coupling Enable/Disable Flags
 # ================================================================================

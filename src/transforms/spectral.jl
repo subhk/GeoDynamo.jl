@@ -138,6 +138,8 @@ mutable struct SHTnsBuffers
     disttranspose_mbridge::Union{Any, Nothing}     # _MBridge (concrete); built lazily on first transform
     p3_scalar_scratch::Union{Any, Nothing}         # NamedTuple (Alm/fspatial/solve)
     p3_vector_scratch::Union{Any, Nothing}         # NamedTuple (Slm/Tlm/Vr_alm/Vt/Vp/Vr/solve)
+    solenoidal_prof::Union{Vector{Float64}, Nothing}  # cached nr-scratch for solenoidal coupling
+    solenoidal_dpr::Union{Vector{Float64}, Nothing}
 end
 
 """
@@ -152,7 +154,8 @@ function SHTnsBuffers()
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing,
-        nothing, nothing, nothing, nothing, nothing
+        nothing, nothing, nothing, nothing, nothing,
+        nothing, nothing
     )
 end
 

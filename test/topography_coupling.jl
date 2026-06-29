@@ -110,6 +110,25 @@ const topocpl = GeoDynamo.bcs.topography
         @test state.fields.temperature.boundary_values == bv1
     end
 
+    @testset "thermal topography correction does not drift across steps" begin
+        # The correction is a LAGGED function of the current field state, applied
+        # every step. Applying it twice WITHOUT changing the field state must be
+        # idempotent: the base boundary row is re-established each step, so the
+        # result is `base - ε·corr(state)`, not `base - 2·ε·corr(state)`. The bug
+        # was an in-place `-=` with no per-step base reset ⇒ unbounded drift.
+        temp = state.fields.temperature
+        temp.bc_type_outer .= Int(GeoDynamo.DIRICHLET)  # deterministic branch
+        Tc = (r) -> r
+
+        topocpl.apply_thermal_topography_correction!(temp, topodata, config; T_cond = Tc)
+        bv_after_1 = copy(temp.boundary_values)
+
+        topocpl.apply_thermal_topography_correction!(temp, topodata, config; T_cond = Tc)
+        bv_after_2 = copy(temp.boundary_values)
+
+        @test bv_after_2 ≈ bv_after_1
+    end
+
     @testset "apply_composition_topography_correction! reuses the thermal path" begin
         @test topocpl.apply_composition_topography_correction!(
             state.fields.composition, topodata, config) === nothing
@@ -228,13 +247,14 @@ const topocpl = GeoDynamo.bcs.topography
         t_cache = topocpl.compute_boundary_derivative_cache(tor, vel.∂r, vel.∂²r, vel.domain)
 
         ro = topodata.cmb.radius
-        bv0 = copy(pol.boundary_values)
         @test topocpl.apply_velocity_topography_correction!(vel, topodata, config) === nothing
+        bv_once = copy(pol.boundary_values)
 
-        # For every non-axisymmetric target, the CMB-row (row 2) delta must match a single
-        # application of the impermeability correction. The poloidal boundary row only ever
-        # receives the impermeability term (the no-slip/stress-free terms go to the toroidal
-        # row), so this is an exact comparison.
+        # The correction now re-establishes the base each call (no per-step drift),
+        # so the CMB-row (row 2) absolute value equals a SINGLE impermeability
+        # correction on top of the zero velocity base. The poloidal boundary row only
+        # ever receives the impermeability term (no-slip/stress-free go to the toroidal
+        # row), so this is an exact comparison; a +/-m double-application would double it.
         nonzero_seen = false
         for l in 1:L
             for m in 1:min(l, L)
@@ -244,11 +264,16 @@ const topocpl = GeoDynamo.bcs.topography
                     l, m, p_cache, t_cache, topodata.cmb, topodata.gaunt_cache,
                     ro, GeoDynamo.OUTER_BOUNDARY, config)
                 expected = -config.epsilon * real(imp) * ro^2 / (l * (l + 1))
-                actual = pol.boundary_values[2, idx] - bv0[2, idx]
+                actual = pol.boundary_values[2, idx]
                 @test actual ≈ expected atol=1e-12 rtol=1e-9
                 abs(expected) > 1e-10 && (nonzero_seen = true)
             end
         end
+
+        # Idempotent re-application: applying again from the same field state must
+        # reproduce the same boundary rows (drift fix), not accumulate.
+        @test topocpl.apply_velocity_topography_correction!(vel, topodata, config) === nothing
+        @test pol.boundary_values ≈ bv_once
         # Non-vacuous: at least one m>0 correction is genuinely nonzero, so the equality
         # checks above would fail under the old double-application (which adds the spurious
         # -m pass on top of the +m correction).

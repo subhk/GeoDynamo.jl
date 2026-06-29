@@ -821,10 +821,16 @@ end
 function transform_field_and_gradients_to_physical!(
         𝔽::ScalarFieldType{T},
         ws::SolverGradientWorkspace{T},
-        domain::RadialDomainType
+        domain::RadialDomainType;
+        skip_main_synthesis::Bool = false
 ) where {T}
     main_physical_field = solver_main_physical_field(𝔽)
-    scalar_spectral_to_physical!(𝔽.spectral, main_physical_field)
+    # The main physical field (𝔽.temperature/composition) is a dedicated buffer
+    # that solver_zero_scalar_work_arrays! does NOT touch. When skip_main_synthesis,
+    # it was already synthesized this step by the up-front refresh in
+    # compute_solver_nonlinear_terms! (spectral unchanged since), so re-synthesizing
+    # is redundant. The tangential/radial GRADIENT synthesis below is still required.
+    skip_main_synthesis || scalar_spectral_to_physical!(𝔽.spectral, main_physical_field)
     # EXACT tangential gradient via the raw sphtor synthesis of the scalar's
     # own coefficients: S = 𝔽.spectral, T = 0 gives (∂θf, (1/sinθ)∂φf) on the
     # unit sphere; dividing by r yields the TRUE physical gradient components.
@@ -969,9 +975,10 @@ function solver_compute_magnetic_nonlinear!(
         velocity_fields,
         outer_domain::RadialDomainType,
         inner_domain::RadialDomainType,
-        rotation_rate::Float64 = 0.0
+        rotation_rate::Float64 = 0.0;
+        physical_fresh::Bool = false
 ) where {T}
-    prepare_magnetic_fields!(magnetic_fields, outer_domain)
+    prepare_magnetic_fields!(magnetic_fields, outer_domain; skip_refresh = physical_fresh)
     apply_magnetic_nonlinear_terms!(
         magnetic_fields,
         velocity_fields;
@@ -1013,7 +1020,7 @@ function GeoDynamo.compute_composition_nonlinear!(
     )
 end
 
-function compute_solver_nonlinear_terms!(state::SolverState)
+function compute_solver_nonlinear_terms!(state::SolverState; reuse_physical::Bool = true)
     # Buoyancy reads the scalar PHYSICAL fields during the velocity force
     # assembly below. Refresh them from the current spectral state FIRST —
     # historically they were only populated by each scalar's own nonlinear
@@ -1064,7 +1071,8 @@ function compute_solver_nonlinear_terms!(state::SolverState)
             state.fields.magnetic,
             state.fields.velocity,
             state.backend.outer_core_domain,
-            inner_domain
+            inner_domain;
+            physical_fresh = reuse_physical
         )
     end
 
@@ -1074,7 +1082,8 @@ function compute_solver_nonlinear_terms!(state::SolverState)
         state.fields.temperature,
         state.fields.velocity,
         state.backend.outer_core_domain,
-        state.runtime.gradient_workspace
+        state.runtime.gradient_workspace;
+        physical_fresh = reuse_physical
     )
 
     if state.fields.composition !== nothing
@@ -1082,7 +1091,8 @@ function compute_solver_nonlinear_terms!(state::SolverState)
             state.fields.composition,
             state.fields.velocity,
             state.backend.outer_core_domain,
-            state.runtime.gradient_workspace
+            state.runtime.gradient_workspace;
+            physical_fresh = reuse_physical
         )
     end
 
