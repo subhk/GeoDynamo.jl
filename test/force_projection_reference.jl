@@ -631,6 +631,9 @@ end
     @test pol1_norm > 1e-6     # radial force recovered with domain
 
     # The fix: compute_velocity_nonlinear! must pass the domain to the analysis.
-    src = read(joinpath(@__DIR__, "..", "src", "physics", "velocity", "field.jl"), String)
+    # Normalize CRLF→LF so the literal "\n" in the pattern matches on Windows
+    # (git checks out source with \r\n there, which broke this static check).
+    src = replace(read(joinpath(@__DIR__, "..", "src", "physics", "velocity", "field.jl"), String),
+        "\r\n" => "\n")
     @test occursin("𝒰.nl_poloidal;\n        domain = outer_core_domain)", src)
 end

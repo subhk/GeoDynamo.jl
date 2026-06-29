@@ -1039,8 +1039,11 @@ function compute_kinetic_energy(𝒰::SHTnsVelocityFields{T}, outer_core_domain:
             slot === nothing && continue
             l_factor = 𝒰.l_factors[lm_idx]
 
-            # Spectral kinetic energy weight: l(l+1) for toroidal-poloidal decomposition
-            weight = Float64(l_factor)
+            # Spectral kinetic energy weight: l(l+1) for toroidal-poloidal decomposition.
+            # Parseval factor: m>0 coefficients carry double the energy of m=0 (the
+            # -m conjugate partner is not stored in the m>=0-only real-field layout).
+            mweight = (config.m_values[lm_idx] == 0) ? 1.0 : 2.0
+            weight = Float64(l_factor) * mweight
 
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1

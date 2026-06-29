@@ -83,3 +83,37 @@ end
     @test !occursin("for m in -l:l", src)
     @test occursin("for m in 0:min(l, mmax)", src)
 end
+
+@testset "get_spectral_radial_derivative gathers m>0 modes (not just l-slot axis)" begin
+    # The gather was gated by `idx in field.pencil.axes_local[1]`, i.e. the l-slot
+    # axis (1:lmax+1), used as if it were a mode-index range. Any canonical mode
+    # index > lmax+1 (every m>0 mode) was skipped ⇒ profile stayed zero ⇒ the
+    # derivative came back exactly 0. An m=0 mode (idx ≤ lmax+1) was unaffected, so
+    # an m>0 mode and an m=0 mode of the SAME degree l, holding the SAME radial
+    # profile, must yield the SAME (nonzero) radial derivative.
+    lmax = 2; mmax = 2; nr = 8
+    cfg = GeoDynamo.create_shtnskit_config(lmax = lmax, mmax = mmax,
+        nlat = 8, nlon = 12, nr = nr)
+    dom = GeoDynamo.create_radial_domain(nr)
+    field = GeoDynamo.create_shtns_spectral_field(Float64, cfg, dom, cfg.pencils.spec)
+    ∂r = GeoDynamo.create_derivative_matrix(Float64, 1, dom)
+
+    # Same non-constant radial profile in the (2,0) [m=0, idx≤lmax+1] and
+    # (2,2) [m>0, idx>lmax+1] storage slots.
+    real3 = parent(field.data_real)
+    for (l, m) in ((2, 0), (2, 2))
+        idx = TopoFix.lm_to_spectral_index(l, m, cfg)
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, idx)
+        for k in 1:nr
+            real3[slot[1], slot[2], k] = Float64(k)
+        end
+    end
+
+    d_m0 = TopoFix.get_spectral_radial_derivative(field, 2, 0, 0.0,
+        TopoFix.OUTER_BOUNDARY; ∂r = ∂r, domain = dom)
+    d_m2 = TopoFix.get_spectral_radial_derivative(field, 2, 2, 0.0,
+        TopoFix.OUTER_BOUNDARY; ∂r = ∂r, domain = dom)
+
+    @test abs(d_m0) > 0
+    @test d_m2 ≈ d_m0
+end

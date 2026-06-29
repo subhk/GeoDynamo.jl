@@ -63,10 +63,12 @@ function solver_compute_composition_nonlinear!(
         𝔽::CompositionFieldType{T},
         vel_fields,
         outer_core_domain::RadialDomainType,
-        ws::SolverGradientWorkspace{T}) where {T}
+        ws::SolverGradientWorkspace{T};
+        physical_fresh::Bool = false) where {T}
     return _solver_compute_scalar_nonlinear!(
         𝔽, vel_fields, outer_core_domain, ws;
         add_internal_sources = true,
+        physical_fresh = physical_fresh,
     )
 end
 

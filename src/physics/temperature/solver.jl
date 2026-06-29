@@ -98,11 +98,13 @@ function solver_compute_temperature_nonlinear!(
         temp_𝔽::TemperatureFieldType{T},
         vel_fields,
         outer_core_domain::RadialDomainType,
-        ws::SolverGradientWorkspace{T},
+        ws::SolverGradientWorkspace{T};
+        physical_fresh::Bool = false,
 ) where {T}
     return _solver_compute_scalar_nonlinear!(
         temp_𝔽, vel_fields, outer_core_domain, ws;
         add_internal_sources = true,
+        physical_fresh = physical_fresh,
     )
 end
 

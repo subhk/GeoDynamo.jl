@@ -870,8 +870,14 @@ function _storage_spheroidal_from_poloidal!(s_re, s_im, p_re, p_im, config, doma
     # domain).data, with the same bandwidth and size, so the mul! result is
     # bit-for-bit identical.
     D1   = BandedMatrix{Float64}(domain.dr_matrices[1], domain_bandwidth(domain), nr)
-    prof = Vector{Float64}(undef, nr)
-    dpr  = Vector{Float64}(undef, nr)
+    # Cached per-step radial scratch (reused across the ~6 solenoidal syntheses/step).
+    bufs = config._buffers
+    if bufs.solenoidal_prof === nothing || length(bufs.solenoidal_prof) != nr
+        bufs.solenoidal_prof = Vector{Float64}(undef, nr)
+        bufs.solenoidal_dpr = Vector{Float64}(undef, nr)
+    end
+    prof = bufs.solenoidal_prof::Vector{Float64}
+    dpr  = bufs.solenoidal_dpr::Vector{Float64}
     for (src, dst) in ((p_re, s_re), (p_im, s_im))
         fill!(dst, 0.0)
         @inbounds for lm in 1:config.nlm

@@ -33,6 +33,7 @@ function _solver_compute_scalar_nonlinear!(
         outer_core_domain::RadialDomainType,
         ws::SolverGradientWorkspace{T};
         add_internal_sources::Bool,
+        physical_fresh::Bool = false,
 ) where {T}
     t_start = timing_enabled() ? mpi_wtime() : 0.0
 
@@ -50,7 +51,8 @@ function _solver_compute_scalar_nonlinear!(
     if timing_enabled()
         t_transform = mpi_wtime()
     end
-    transform_field_and_gradients_to_physical!(𝔽, ws, outer_core_domain)
+    transform_field_and_gradients_to_physical!(𝔽, ws, outer_core_domain;
+        skip_main_synthesis = physical_fresh)
     if timing_enabled()
         𝔽.transform_time[] += mpi_wtime() - t_transform
     end

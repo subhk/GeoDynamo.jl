@@ -71,12 +71,15 @@ function _solver_scalar_spectral_energy(field, domain::RadialDomain)
         lm_idx <= cfg.nlm || continue
         slot = local_spectral_storage_slot(cfg, lm_idx)
         slot === nothing && continue
+        # Parseval factor: m>0 coefficients carry double the energy of m=0 (the
+        # -m conjugate partner is not stored in the m>=0-only real-field layout).
+        mweight = (cfg.m_values[lm_idx] == 0) ? 1.0 : 2.0
         for r_idx in r_range
             local_r = r_idx - first(r_range) + 1
             local_r <= size(sr, 3) || continue
             r = domain.r[r_idx, 4]
             r_weight = r^2 * domain.integration_weights[r_idx]
-            local_energy += r_weight *
+            local_energy += mweight * r_weight *
                             (local_spectral_value(sr, slot, local_r)^2 +
                              local_spectral_value(si, slot, local_r)^2)
         end

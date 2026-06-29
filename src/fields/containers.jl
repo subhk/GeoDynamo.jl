@@ -73,6 +73,7 @@ mutable struct SHTnsSpecField{
     bc_type_inner::Vector{Int}    # BC type at inner boundary for each mode
     bc_type_outer::Vector{Int}    # BC type at outer boundary for each mode
     boundary_values::Matrix{T}    # [2, nlm] boundary values (row 1=inner, row 2=outer)
+    boundary_values_imag::Matrix{T}  # [2, nlm] imag boundary values (magnetic topography m>0)
 end
 
 # ================================================================================
@@ -239,10 +240,11 @@ function create_shtns_spectral_field(::Type{T}, config::AbstractSHTnsConfig,
     bc_inner = fill(Int(DIRICHLET), nlm)
     bc_outer = fill(Int(DIRICHLET), nlm)
     boundary_vals = zeros(T, 2, nlm)  # Row 1: inner, Row 2: outer
+    boundary_vals_imag = zeros(T, 2, nlm)
 
     return SHTnsSpecField(config, nlm,
         data_real, data_imag, pencil_spec,
-        bc_inner, bc_outer, boundary_vals)
+        bc_inner, bc_outer, boundary_vals, boundary_vals_imag)
 end
 
 """
@@ -440,9 +442,11 @@ function Base.similar(field::SHTnsSpecField{T}, ::Type{S}) where {T, S <: Number
     bc_inner = copy(field.bc_type_inner)
     bc_outer = copy(field.bc_type_outer)
     boundary_values = zeros(S, size(field.boundary_values, 1), size(field.boundary_values, 2))
+    boundary_values_imag = zeros(S, size(field.boundary_values_imag, 1),
+        size(field.boundary_values_imag, 2))
     return SHTnsSpecField(field.config, field.nlm,
         data_real, data_imag, field.pencil,
-        bc_inner, bc_outer, boundary_values)
+        bc_inner, bc_outer, boundary_values, boundary_values_imag)
 end
 
 function Base.copy(field::SHTnsSpecField{T}) where {T}
@@ -452,6 +456,7 @@ function Base.copy(field::SHTnsSpecField{T}) where {T}
     duplicate.bc_type_inner .= field.bc_type_inner
     duplicate.bc_type_outer .= field.bc_type_outer
     duplicate.boundary_values .= field.boundary_values
+    duplicate.boundary_values_imag .= field.boundary_values_imag
     return duplicate
 end
 

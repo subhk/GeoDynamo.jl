@@ -83,8 +83,24 @@ function compute_boundary_derivative_cache(field,
 
     comm = get_comm()
 
-    profile_real = zeros(T, nr)
-    profile_imag = zeros(T, nr)
+    # Gather every mode's radial profile in ONE collective (per real/imag) instead
+    # of 2·nlm per-mode Allreduces. Each rank fills only its owned modes' columns
+    # (zeros elsewhere) via local_spectral_storage_slot ownership (nothing ⇒ not
+    # held; the old `lm_idx in axes_local[1]` l-slot guard wrongly dropped all m>0
+    # modes), then SUM reconstructs the full set on every rank.
+    all_real = zeros(T, nr, nlm)
+    all_imag = zeros(T, nr, nlm)
+    @inbounds for lm_idx in 1:nlm
+        slot = local_spectral_storage_slot(field.config, lm_idx)
+        slot === nothing && continue
+        gather_local_radial_profile!(view(all_real, :, lm_idx), view(all_imag, :, lm_idx),
+            data_real, data_imag, slot, r_range)
+    end
+    if MPI.Comm_size(comm) > 1
+        MPI.Allreduce!(all_real, MPI.SUM, comm)
+        MPI.Allreduce!(all_imag, MPI.SUM, comm)
+    end
+
     gathered_real = zeros(T, nr)
     gathered_imag = zeros(T, nr)
     dprofile_real = zeros(T, nr)
@@ -92,21 +108,13 @@ function compute_boundary_derivative_cache(field,
     d2profile_real = ∂²r === nothing ? zeros(T, 0) : zeros(T, nr)
     d2profile_imag = ∂²r === nothing ? zeros(T, 0) : zeros(T, nr)
 
-    for lm_idx in 1:nlm
-        fill!(profile_real, zero(T))
-        fill!(profile_imag, zero(T))
-
-        # Ownership is encoded by local_spectral_storage_slot (it returns nothing for
-        # modes whose storage slot is not held on this rank). The old
-        # `lm_idx in field.pencil.axes_local[1]` guard used the l-slot axis (1:lmax+1)
-        # as if it were a mode-index range, so every canonical mode index > lmax+1
-        # (i.e. all m>0 modes) was silently skipped — leaving the cache m=0-only.
-        slot = local_spectral_storage_slot(field.config, lm_idx)
-        slot !== nothing && gather_local_radial_profile!(profile_real, profile_imag,
-            data_real, data_imag, slot, r_range)
-
-        MPI.Allreduce!(profile_real, gathered_real, MPI.SUM, comm)
-        MPI.Allreduce!(profile_imag, gathered_imag, MPI.SUM, comm)
+    @inbounds for lm_idx in 1:nlm
+        # Copy the gathered column into the reused work vectors (__apply_∂r! needs
+        # a contiguous Vector, not a view).
+        for r_idx in 1:nr
+            gathered_real[r_idx] = all_real[r_idx, lm_idx]
+            gathered_imag[r_idx] = all_imag[r_idx, lm_idx]
+        end
 
         values_inner[lm_idx] = complex(gathered_real[1], gathered_imag[1])
         values_outer[lm_idx] = complex(gathered_real[nr], gathered_imag[nr])

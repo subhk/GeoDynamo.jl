@@ -70,6 +70,13 @@ function apply_magnetic_topography_correction!(magnetic_field, topography::Topog
         return nothing
     end
 
+    # Re-establish the un-corrected base boundary rows (real + imag) before applying
+    # the lagged correction so it does not compound across timesteps/substages.
+    reset_boundary_to_base!(poloidal.boundary_values)
+    reset_boundary_to_base!(toroidal.boundary_values)
+    reset_boundary_to_base!(poloidal.boundary_values_imag)
+    reset_boundary_to_base!(toroidal.boundary_values_imag)
+
     # Precompute boundary value/derivative caches once for this field
     p_cache = compute_boundary_derivative_cache(poloidal,
         magnetic_field.∂r,
@@ -129,9 +136,12 @@ function apply_magnetic_correction_at_boundary!(poloidal,
     # Get boundary row index (1 for inner, 2 for outer)
     bc_row = location == INNER_BOUNDARY ? 1 : 2
 
-    # Get poloidal/toroidal boundary values
+    # Get poloidal/toroidal boundary values (real + imag; imag carries the m>0
+    # coupling that the real-only channel would drop).
     P_bv = poloidal.boundary_values
     T_bv = toroidal.boundary_values
+    P_bv_i = poloidal.boundary_values_imag
+    T_bv_i = toroidal.boundary_values_imag
 
     # Compute corrections for each (l, m) mode.
     # Only iterate m >= 0: boundary_values stores m >= 0 modes only, and +m/-m map to
@@ -153,6 +163,8 @@ function apply_magnetic_correction_at_boundary!(poloidal,
                 )
                 P_bv[bc_row, lm_idx] -= ε * real(P_corr)
                 T_bv[bc_row, lm_idx] -= ε * real(T_corr)
+                P_bv_i[bc_row, lm_idx] -= ε * imag(P_corr)
+                T_bv_i[bc_row, lm_idx] -= ε * imag(T_corr)
 
             elseif bc_type == :insulating_inner
                 # ICB insulating: ∂_r P - (l+1)/r_i P = 0, T = 0
@@ -162,6 +174,8 @@ function apply_magnetic_correction_at_boundary!(poloidal,
                 )
                 P_bv[bc_row, lm_idx] -= ε * real(P_corr)
                 T_bv[bc_row, lm_idx] -= ε * real(T_corr)
+                P_bv_i[bc_row, lm_idx] -= ε * imag(P_corr)
+                T_bv_i[bc_row, lm_idx] -= ε * imag(T_corr)
             end
         end
     end

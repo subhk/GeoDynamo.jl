@@ -56,3 +56,20 @@ function get_nprocs()
     get_comm()
     return MPI_STATE.nprocs
 end
+
+"""
+    rank_seed(seed, rank = get_rank())
+
+Per-rank RNG seed offset for random initial conditions. Each MPI rank fills a
+DISJOINT subset of spectral modes by stepping a shared `rand()` stream, so a
+common seed gave the k-th owned mode the SAME random draw on every rank
+(spurious cross-rank correlation). Offsetting by `rank` decorrelates the ranks.
+
+Rank 0 keeps the seed unchanged, so single-rank (nprocs==1) runs are bit-for-bit
+identical to before. `nothing` passes through (caller skips seeding and uses the
+per-process default RNG). NOTE: the resulting IC depends on the rank count
+(disjoint fill from per-rank streams) — it is reproducible for a fixed
+(seed, rank-count), not across different rank counts.
+"""
+rank_seed(::Nothing, rank::Integer = 0) = nothing
+rank_seed(seed::Integer, rank::Integer = get_rank()) = seed + rank

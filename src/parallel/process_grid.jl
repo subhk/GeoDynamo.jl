@@ -21,6 +21,81 @@ Read `GEODYNAMO_PROC_GRID` from the environment and parse it for `nprocs` ranks.
 """
 read_proc_grid(nprocs::Int) = parse_proc_grid(get(ENV, "GEODYNAMO_PROC_GRID", nothing), nprocs)
 
+# Size of the i-th (0-based) block when D items are split into P balanced contiguous
+# blocks (sizes differ by at most 1) — matches PencilArrays' default axis split.
+@inline _balanced_block_size(D::Int, P::Int, i::Int) = (b = D ÷ P; r = D % P; b + (i < r ? 1 : 0))
+@inline _balanced_block_offset(D::Int, P::Int, i::Int) =
+    sum(j -> _balanced_block_size(D, P, j), 0:(i - 1); init = 0)
+
+"""
+    spectral_mode_counts(θ_ranks, r_ranks, lmax, mmax) -> Vector{Int}
+
+Number of spherical-harmonic modes each rank owns under the spectral pencil's
+contiguous-block split (m over `θ_ranks`, l over `r_ranks`). Because of triangular
+truncation (valid modes need `m ≤ l`), equal SLOT blocks give unequal MODE counts,
+and a square grid can leave a rank with ZERO modes (high-m / low-l corner). Used to
+warn about idle ranks and load imbalance at grid setup. Pure function (no MPI).
+"""
+function spectral_mode_counts(θ_ranks::Int, r_ranks::Int, lmax::Int, mmax::Int)
+    counts = Int[]
+    for iθ in 0:(θ_ranks - 1)
+        m_sz = _balanced_block_size(mmax + 1, θ_ranks, iθ)
+        m_off = _balanced_block_offset(mmax + 1, θ_ranks, iθ)   # m-slot offset (m = slot)
+        for ir in 0:(r_ranks - 1)
+            l_sz = _balanced_block_size(lmax + 1, r_ranks, ir)
+            l_off = _balanced_block_offset(lmax + 1, r_ranks, ir)
+            c = 0
+            for ms in 0:(m_sz - 1)
+                m = m_off + ms
+                for ls in 0:(l_sz - 1)
+                    l = l_off + ls
+                    (0 <= m <= l <= lmax && m <= mmax) && (c += 1)
+                end
+            end
+            push!(counts, c)
+        end
+    end
+    return counts
+end
+
+"""
+    validate_proc_grid(θ_ranks, r_ranks; nlat, nr, lmax, mmax)
+
+Warn (once, on rank 0) about a process grid that over-decomposes an axis (idle
+ranks) or yields a large spherical-harmonic mode-load imbalance. Purely advisory —
+does not change the decomposition.
+"""
+function validate_proc_grid(θ_ranks::Int, r_ranks::Int; nlat::Int, nr::Int,
+        lmax::Int, mmax::Int)
+    (θ_ranks <= 1 && r_ranks <= 1) && return nothing
+    get_rank() == 0 || return nothing
+
+    msgs = String[]
+    θ_ranks > nlat     && push!(msgs, "θ_ranks=$θ_ranks > nlat=$nlat ⇒ ranks with no latitudes")
+    θ_ranks > mmax + 1 && push!(msgs, "θ_ranks=$θ_ranks > mmax+1=$(mmax + 1) ⇒ ranks with no m-modes")
+    r_ranks > nr       && push!(msgs, "r_ranks=$r_ranks > nr=$nr ⇒ ranks with no radial levels")
+    r_ranks > lmax + 1 && push!(msgs, "r_ranks=$r_ranks > lmax+1=$(lmax + 1) ⇒ ranks with no l-slots")
+
+    counts = spectral_mode_counts(θ_ranks, r_ranks, lmax, mmax)
+    if !isempty(counts)
+        nzero = count(==(0), counts)
+        if nzero > 0
+            push!(msgs, "$nzero of $(length(counts)) ranks own ZERO spectral modes " *
+                        "(idle in radial solves and the m-distributed transform). Prefer a grid " *
+                        "without empty m>l blocks — e.g. $(θ_ranks * r_ranks)x1 over a square grid.")
+        else
+            mx = maximum(counts); av = sum(counts) / length(counts)
+            av > 0 && mx / av > 1.5 && push!(msgs,
+                "spectral mode-load imbalance max/avg=$(round(mx / av, digits = 2)) " *
+                "(triangular truncation + contiguous blocks); the heaviest rank gates each step")
+        end
+    end
+
+    isempty(msgs) ||
+        @warn "Process grid $(θ_ranks)×$(r_ranks) decomposition warnings:\n - " * join(msgs, "\n - ")
+    return nothing
+end
+
 """
     make_subcomms(comm, pencil_r) -> (θ_transform_comm, r_transpose_comm)
 

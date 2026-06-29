@@ -70,12 +70,20 @@ function initialize_magnetic_field!(state::SolverState{T, <:AbstractArchitecture
     return state
 end
 
-function prepare_magnetic_fields!(magnetic_fields, outer_domain)
-    # Induction terms need magnetic field and current in physical space. Refresh
-    # both from the spectral toroidal/poloidal representation before use.
+function prepare_magnetic_fields!(magnetic_fields, outer_domain; skip_refresh::Bool = false)
+    # Induction terms need the magnetic field in physical space. Reset the work
+    # buffers the nonlinear pass writes (work_tor/pol, work/induction_physical).
     reset_magnetic_work_arrays!(magnetic_fields)
-    refresh_magnetic_physical_fields!(magnetic_fields, outer_domain)
-    refresh_current_physical_fields!(magnetic_fields, outer_domain)
+    # When skip_refresh, the B (magnetic.magnetic) and current (magnetic.current)
+    # physical buffers were already synthesized this step by the up-front refresh
+    # in compute_solver_nonlinear_terms! and survive reset (it does not touch them).
+    # The induction pass reads only B physical + u (never current / J-spectral), and
+    # the spectral magnetic state is unchanged since the up-front refresh, so the
+    # re-synthesis here is redundant. See mpi-efficiency-audit.
+    if !skip_refresh
+        refresh_magnetic_physical_fields!(magnetic_fields, outer_domain)
+        refresh_current_physical_fields!(magnetic_fields, outer_domain)
+    end
     return magnetic_fields
 end
 
@@ -127,10 +135,18 @@ function _magnetic_toroidal_inner_bc_increment(
 
     comm = mpi_comm()
     if mpi_comm_size(comm) > 1
-        allreduce_sum_in_place!(bc_real, comm)
-        allreduce_sum_in_place!(bc_imag, comm)
-        allreduce_sum_in_place!(prev_real, comm)
-        allreduce_sum_in_place!(prev_imag, comm)
+        # Fuse the four boundary-vector reductions into ONE collective.
+        nlm = magnetic.toroidal.nlm
+        packed = Vector{T}(undef, 4 * nlm)
+        @inbounds copyto!(packed, 1, bc_real, 1, nlm)
+        @inbounds copyto!(packed, nlm + 1, bc_imag, 1, nlm)
+        @inbounds copyto!(packed, 2 * nlm + 1, prev_real, 1, nlm)
+        @inbounds copyto!(packed, 3 * nlm + 1, prev_imag, 1, nlm)
+        allreduce_sum_in_place!(packed, comm)
+        @inbounds copyto!(bc_real, 1, packed, 1, nlm)
+        @inbounds copyto!(bc_imag, 1, packed, nlm + 1, nlm)
+        @inbounds copyto!(prev_real, 1, packed, 2 * nlm + 1, nlm)
+        @inbounds copyto!(prev_imag, 1, packed, 3 * nlm + 1, nlm)
     end
 
     return (bc_real, prev_real, bc_imag, prev_imag)
@@ -184,8 +200,14 @@ function _magnetic_conducting_history_flux(
 
     comm = mpi_comm()
     if mpi_comm_size(comm) > 1
-        allreduce_sum_in_place!(φ0_real, comm)
-        allreduce_sum_in_place!(φ0_imag, comm)
+        # Fuse the real+imag reductions into ONE collective (this fires for both
+        # toroidal and poloidal every step under a conducting inner core).
+        packed = Vector{T}(undef, 2 * nlm)
+        @inbounds copyto!(packed, 1, φ0_real, 1, nlm)
+        @inbounds copyto!(packed, nlm + 1, φ0_imag, 1, nlm)
+        allreduce_sum_in_place!(packed, comm)
+        @inbounds copyto!(φ0_real, 1, packed, 1, nlm)
+        @inbounds copyto!(φ0_imag, 1, packed, nlm + 1, nlm)
     end
 
     return φ0_real, φ0_imag
@@ -284,6 +306,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{
             :toroidal;
             mag_bc_inner = φ0_real,
             mag_bc_inner_imag = φ0_imag,
+            _topo_mag_bc(magnetic.toroidal)...,
             work = radial_work
         )
         # Reconstruct the inner-core profile from the new ICB value (g = toroidal[ICB]).
@@ -318,6 +341,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{
             prev_bc_inner = inner_bc === nothing ? nothing : inner_bc[2],
             mag_bc_inner_imag = inner_bc === nothing ? nothing : inner_bc[3],
             prev_bc_inner_imag = inner_bc === nothing ? nothing : inner_bc[4],
+            _topo_mag_bc(magnetic.toroidal)...,
             work = radial_work
         )
     elseif timestepper isa ExponentialAdamsBashforth2
@@ -362,6 +386,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{
             prev_bc_inner = inner_bc === nothing ? nothing : inner_bc[2],
             mag_bc_inner_imag = inner_bc === nothing ? nothing : inner_bc[3],
             prev_bc_inner_imag = inner_bc === nothing ? nothing : inner_bc[4],
+            _topo_mag_bc(magnetic.toroidal)...,
             work = radial_work
         )
     end
@@ -408,6 +433,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{
             :poloidal;
             mag_bc_inner = φ0_real,
             mag_bc_inner_imag = φ0_imag,
+            _topo_mag_bc(magnetic.poloidal)...,
             work = radial_work
         )
         _magnetic_conducting_reconstruct!(magnetic.poloidal, magnetic.poloidal_ic, adm_pol)
@@ -434,7 +460,8 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{
             magnetic.poloidal,
             magnetic.work_pol,
             matrices,
-            :poloidal,
+            :poloidal;
+            _topo_mag_bc(magnetic.poloidal)...,
             work = radial_work
         )
     elseif timestepper isa ExponentialAdamsBashforth2
@@ -471,7 +498,8 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{
             magnetic.poloidal,
             magnetic.nl_poloidal,
             matrices,
-            :poloidal,
+            :poloidal;
+            _topo_mag_bc(magnetic.poloidal)...,
             work = radial_work
         )
     end

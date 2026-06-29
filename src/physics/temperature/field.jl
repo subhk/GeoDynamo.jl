@@ -418,10 +418,16 @@ function compute_thermal_energy(temp_𝔽::SHTnsTemperatureField{T}) where {T}
             slot = local_spectral_storage_slot(temp_𝔽.config, lm_idx)
             slot === nothing && continue
 
+            # Parseval factor for real-field, m>=0-only storage: m>0 coefficients
+            # carry double the energy of their m=0 counterparts (the -m conjugate
+            # partner is not stored separately).
+            mweight = (temp_𝔽.config.m_values[lm_idx] == 0) ? 1.0 : 2.0
+
             @simd for r_idx in r_range
                 local_r = r_idx - first(r_range) + 1
                 if local_r <= size(spec_real, 3)
-                    local_energy += (local_spectral_value(spec_real, slot, local_r)^2 +
+                    local_energy += mweight *
+                                    (local_spectral_value(spec_real, slot, local_r)^2 +
                                      local_spectral_value(spec_imag, slot, local_r)^2)
                 end
             end

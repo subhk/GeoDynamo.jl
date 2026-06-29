@@ -24,6 +24,7 @@ import ..set_local_spectral_value!
 import ..local_spectral_value
 import ..get_mode_index
 import ..get_comm
+import ..rank_seed
 import ..size_global
 
 const GEODYNAMO_PARENT = parentmodule(@__MODULE__)
@@ -379,7 +380,9 @@ function generate_random_initial_conditions!(field, field_type::Symbol;
         modes_range = 1:10,
         seed::Union{Int, Nothing} = nothing)
     if seed !== nothing
-        Random.seed!(seed)
+        # Per-rank offset so each MPI rank draws an independent random stream
+        # (rank 0 unchanged ⇒ single-rank runs identical to before).
+        Random.seed!(rank_seed(seed))
     end
 
     println("Generating random initial conditions for $field_type...")

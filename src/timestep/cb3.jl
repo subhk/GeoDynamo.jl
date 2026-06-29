@@ -232,6 +232,8 @@ function _cb3_apply_velocity_toroidal_stage!(state::SolverState{T, <:AbstractArc
         :toroidal;
         velocity_bc_code = _velocity_bc_code(state.parameters.velocity_bcs),
         domain = state.runtime.outer_core_domain,
+        bc_inner = view(velocity.toroidal.boundary_values, 1, :),
+        bc_outer = view(velocity.toroidal.boundary_values, 2, :),
         work = radial_work,
     )
     return state
@@ -255,18 +257,18 @@ function _cb3_apply_poloidal_wsplit_stage!(state::SolverState{T, <:AbstractArchi
     ζT = T(zeta)
     αT = T(alpha)
 
-    P = Vector{T}(undef, nr)
-    W = Vector{T}(undef, nr)
-    LW = Vector{T}(undef, nr)
-    rhs = Vector{T}(undef, nr)
-    Wp = Vector{T}(undef, nr)
-    Pp = Vector{T}(undef, nr)
+    P, W, LW, rhs, Wp, Pp = split.work   # cached per-step radial scratch
 
-    for (p_arr, n_arr, pn_arr) in (
-        (parent(velocity.poloidal.data_real),
+    # Topography impermeability correction modifies the P wall value (real-only).
+    pol_bv = velocity.poloidal.boundary_values
+
+    for (is_real, p_arr, n_arr, pn_arr) in (
+        (true,
+         parent(velocity.poloidal.data_real),
          parent(velocity.nl_poloidal.data_real),
          parent(velocity.prev_nl_poloidal.data_real)),
-        (parent(velocity.poloidal.data_imag),
+        (false,
+         parent(velocity.poloidal.data_imag),
          parent(velocity.nl_poloidal.data_imag),
          parent(velocity.prev_nl_poloidal.data_imag)),
     )
@@ -292,8 +294,10 @@ function _cb3_apply_poloidal_wsplit_stage!(state::SolverState{T, <:AbstractArchi
                              ζT * local_spectral_value(pn_arr, slot, r_idx)
             end
             solve_banded!(Wp, split.w_factor[idx], rhs)
-            Wp[1] = zero(T)
-            Wp[nr] = zero(T)
+            # Dirichlet P-recovery wall RHS = imposed P value (base 0 + topography
+            # real correction). Ball inner row is regularity ⇒ never inject there.
+            Wp[1] = (is_real && !split.ball) ? pol_bv[1, lm] : zero(T)
+            Wp[nr] = is_real ? pol_bv[2, lm] : zero(T)
             solve_banded!(Pp, split.p_factor[idx], Wp)
 
             rho1 = dot(split.d1_row_inner, Pp)
@@ -350,6 +354,7 @@ function _cb3_apply_magnetic_stage!(state::SolverState{T, <:AbstractArchitecture
             work,
             mset,
             component;
+            _topo_mag_bc(solution)...,
             work = radial_work,
         )
     end

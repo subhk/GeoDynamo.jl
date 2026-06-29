@@ -90,7 +90,11 @@ The mode-slot (l, m) layout is identical to the outer-core spectral pencil.
 """
 function create_inner_core_spectral_pencil(config, reference_spec_pencil, nr_inner::Int)
     spec_dims = spectral_mode_grid_dims(config, nr_inner)
-    return Pencil(topology(reference_spec_pencil), spec_dims, (1, 2))
+    # Decomp MUST match the outer-core spectral pencil (decomp `(2,1)`: m→θ_ranks,
+    # l→r_ranks, r local). `add_inner_core_rotation!` derives one storage slot from
+    # the outer pencil and indexes both outer NL arrays and these inner-core arrays
+    # with it; a transposed `(1,2)` here would address the wrong mode on nprocs>1.
+    return Pencil(topology(reference_spec_pencil), spec_dims, (2, 1))
 end
 
 """
@@ -118,6 +122,10 @@ function create_pencil_topology(shtns_config; nr::Int, optimize::Bool = true)
     # At nprocs==1 returns (1,1) without requiring the env var.
     θ_ranks, r_ranks = read_proc_grid(nprocs)
     proc_dims = (θ_ranks, r_ranks)
+
+    # Advisory: warn (rank 0) about idle ranks / mode-load imbalance from this grid.
+    validate_proc_grid(θ_ranks, r_ranks; nlat = nlat, nr = nr,
+        lmax = shtns_config.lmax, mmax = shtns_config.mmax)
 
     # Create PencilArrays topology
     # Construct MPI-aware topology (modern PencilArrays exports MPITopology)

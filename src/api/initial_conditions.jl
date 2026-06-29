@@ -184,7 +184,9 @@ function _apply_initial_condition!(
         ic::RandomPerturbation
 )
     if ic.seed !== nothing
-        Random.seed!(ic.seed)
+        # Per-rank offset so each MPI rank draws an independent random stream
+        # (rank 0 unchanged ⇒ single-rank runs identical to before).
+        Random.seed!(rank_seed(ic.seed))
     end
 
     f = _get_field(model, field)
