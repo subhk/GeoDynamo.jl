@@ -1621,8 +1621,10 @@ function solver_compute_current_density_spectral!(magnetic_fields, outer_domain)
         "current-density curl requires the radial axis fully local " *
         "(got $(length(r_range)) of $nr levels); r-distributed support is a follow-up")
 
-    P_prof = Vector{T}(undef, nr)
-    d2P = Vector{T}(undef, nr)
+    # Reuse the magnetic field's cached curl scratch (slots 1,2) instead of
+    # allocating two nr-vectors on every (per-step, magnetic-run) call.
+    P_prof = magnetic_fields.curl_work[1]
+    d2P    = magnetic_fields.curl_work[2]
 
     for (src_t, src_p, dst_t, dst_p) in (
         (parent(magnetic_fields.toroidal.data_real),
@@ -1704,8 +1706,10 @@ function _induction_curl_potentials!(magnetic_fields)
     dr1 = domain.dr_matrices[1]
     D1 = BandedMatrix{T}(eltype(dr1) === T ? dr1 : T.(dr1),
                          domain_bandwidth(domain), nr)
-    rS = Vector{T}(undef, nr)
-    drS = Vector{T}(undef, nr)
+    # Reuse cached curl scratch (slots 3,4 — current-density uses 1,2) instead of
+    # allocating two nr-vectors on every induction nonlinear pass.
+    rS  = magnetic_fields.curl_work[3]
+    drS = magnetic_fields.curl_work[4]
     r_range = local_range(magnetic_fields.nl_toroidal.pencil, 3)
     length(r_range) == nr || error(
         "induction curl projection requires the radial axis fully local " *
@@ -2183,11 +2187,6 @@ end
         end
         return dest
     end
-end
-
-function solver_synchronize_pencil_transforms!(field::SpectralFieldType{T}) where {T}
-    mpi_barrier!()
-    field
 end
 
 function rcond_estimate(lu_A, A::Matrix{T}) where {T}

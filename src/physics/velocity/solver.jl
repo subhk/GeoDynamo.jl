@@ -68,8 +68,12 @@ function _poloidal_force_projection!(velocity_fields)
     # identical banded matrix every CNAB2 step.
     ∂r = velocity_fields.∂r
     nr = domain.N
-    rS = Vector{T}(undef, nr)
-    drS = Vector{T}(undef, nr)
+    # Reuse the field's cached workspace scratch instead of allocating two
+    # nr-vectors every velocity nonlinear pass. The mode loop is serial, so the
+    # thread-1 buffers are safe.
+    ws = _get_or_build_velocity_workspace!(velocity_fields, nr)
+    rS  = ws.force_proj_rS[1]
+    drS = ws.force_proj_drS[1]
     r_range = local_range(velocity_fields.nl_poloidal.pencil, 3)
     length(r_range) == nr || error(
         "poloidal force projection requires the radial axis fully local " *

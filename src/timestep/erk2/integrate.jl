@@ -392,7 +392,11 @@ function finalize_solver_erk2_field!(
             u_real, u_imag, result_real_profile, result, slot, r_range)
     end
 
-    solver_synchronize_pencil_transforms!(u)
+    # No barrier here: the finalize writes above are owner-local per-mode
+    # (gather/scatter_local_radial_profile! touch only this rank's pencil
+    # storage), so there is nothing cross-rank to synchronize. The next consumer
+    # of `u` is the following step's nonlinear synthesis, which carries its own
+    # θ_comm/r_comm collectives — those provide the only fence that is needed.
     return u
 end
 

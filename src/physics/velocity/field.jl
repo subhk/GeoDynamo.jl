@@ -133,6 +133,10 @@ struct VelocityWorkspace{T}
     bc_dprofile_real::Vector{Vector{T}}
     bc_dprofile_imag::Vector{Vector{T}}
     bc_correction::Vector{Vector{T}}
+    # Force-projection radial scratch (nl-3): rS and ∂r(rS) for
+    # _poloidal_force_projection!, cached instead of allocated per call.
+    force_proj_rS::Vector{Vector{T}}
+    force_proj_drS::Vector{Vector{T}}
 end
 
 # Include matrix-embedded velocity BC functions
@@ -216,7 +220,9 @@ function create_velocity_workspace(::Type{T}, nr::Int,
     return VelocityWorkspace{T}(
         bufs(), bufs(), bufs(), bufs(), bufs(), bufs(), bufs(), bufs(),
         # BC buffers
-        bufs(), bufs(), bufs(), bufs(), bufs()
+        bufs(), bufs(), bufs(), bufs(), bufs(),
+        # force-projection scratch (nl-3)
+        bufs(), bufs()
     )
 end
 
