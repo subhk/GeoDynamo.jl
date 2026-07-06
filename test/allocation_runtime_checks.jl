@@ -22,6 +22,12 @@ const FINALIZE_MPI_ALLOC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "t
 _alloc_theta_grad(f, ws) = @allocated GeoDynamo.compute_theta_gradient_spectral!(f, ws)
 _alloc_phi_grad(f, ws) = @allocated GeoDynamo.compute_phi_gradient_spectral!(f, ws)
 _alloc_mode_indices(cfg) = @allocated GeoDynamo.local_spectral_mode_indices(cfg)
+# Curl / projection radial scratch (nl-1/nl-2/nl-3): these per-mode kernels used
+# to allocate fresh Vector{T}(undef, nr) scratch every call. Measured through a
+# barrier so the per-call heap traffic isn't masked by call-site dispatch.
+_alloc_current_density(m, d) = @allocated GeoDynamo.solver_compute_current_density_spectral!(m, d)
+_alloc_induction_curl(m) = @allocated GeoDynamo._induction_curl_potentials!(m)
+_alloc_poloidal_force(v) = @allocated GeoDynamo._poloidal_force_projection!(v)
 # Mirrors the per-mode BC-enforcement pattern in prepare/finalize_solver_erk2_field!:
 # read the mode-value slots off the spec, enforce both endpoints with the overrides.
 function _alloc_enforce_bc(stage, spec, l, nr, lm_idx)
@@ -99,7 +105,7 @@ end
     @testset "scalar transforms issue one batched θ_comm spectral collective (#6)" begin
         # Phase-3 DistTransposePlan path: each scalar transform performs exactly ONE
         # θ_comm m-axis redistribution (synthesis: Allgatherv in spec_storage_to_solve!;
-        # analysis: Allreduce in solve_to_spec_storage!), batched over ALL radial
+        # analysis: Allgatherv in solve_to_spec_storage!), batched over ALL radial
         # levels (independent of nr).  The heavy Legendre/FFT work is θ-distributed
         # inside dist_synthesis!/dist_analysis! and is NOT counted here.  No full-grid
         # gather and no per-radial-level collective occur.
@@ -150,6 +156,27 @@ end
         @test w1 === w2
         @test w1.tmp_real === w2.tmp_real      # same backing vector, not reallocated
         @test length(w1.tmp_real) == domain.N
+    end
+
+    # --- B2. Per-mode curl/projection scratch is cached, not reallocated -------
+    @testset "curl/projection radial scratch is cached (nl-1/nl-2/nl-3)" begin
+        # solver_compute_current_density_spectral!, _induction_curl_potentials!
+        # and _poloidal_force_projection! formerly did Vector{T}(undef, nr) per
+        # call for their radial work vectors. They now reuse pre-allocated scratch
+        # (magnetic curl_work / velocity workspace), so the warm call is heap-free.
+        mag = state.fields.magnetic
+        vel = state.fields.velocity
+        nr  = domain.N
+        # Warm: compile + lazily build the velocity field workspace.
+        GeoDynamo.solver_compute_current_density_spectral!(mag, domain)
+        GeoDynamo._induction_curl_potentials!(mag)
+        GeoDynamo._poloidal_force_projection!(vel)
+
+        @test _alloc_current_density(mag, domain) == 0
+        @test _alloc_poloidal_force(vel) == 0
+        # Induction keeps only the no-copy BandedMatrix operator wrapper, far
+        # below one nr radial vector; the two nr scratch vectors are gone.
+        @test _alloc_induction_curl(mag) < nr * sizeof(Float64)
     end
 
     @testset "transform buffer cache warm path returns cached object (#4)" begin

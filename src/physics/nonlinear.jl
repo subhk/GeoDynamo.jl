@@ -313,7 +313,7 @@ solver_main_physical_field(𝔽::CompositionFieldType{T}) where {T} = 𝔽.compo
 # Number of batched cross-rank SPECTRAL collectives issued by the most recent
 # scalar transform.  The Phase-3 path performs exactly ONE θ_comm m-axis
 # redistribution per call (synthesis: Allgatherv in spec_storage_to_solve!;
-# analysis: Allreduce in solve_to_spec_storage!), batched over ALL radial levels
+# analysis: Allgatherv in solve_to_spec_storage!), batched over ALL radial levels
 # (independent of nr).  The heavy Legendre/FFT work is θ-distributed inside
 # dist_synthesis!/dist_analysis! and is NOT counted here.
 const _SCALAR_GATHER_REDUCE_COUNT = Ref(0)
