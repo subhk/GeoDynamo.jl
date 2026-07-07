@@ -430,8 +430,13 @@ function scalar_spectral_to_physical!(
         phys::PhysicalFieldType{T}) where {T}
     config = spec.config
     plan   = get_disttranspose_plan(config)
+    sc     = _scalar_scratch(config, plan)
+    # Function barrier: plan + sc are ::Any from Union{Any,Nothing} cache fields;
+    # specialize the body on their concrete types to stop per-operand boxing.
+    return _scalar_synthesis_kernel!(config, plan, sc, spec, phys)
+end
 
-    sc       = _scalar_scratch(config, plan)
+function _scalar_synthesis_kernel!(config, plan, sc, spec, phys)
     Alm      = sc.Alm
     fspatial = sc.fspatial
     solve    = sc.solve
@@ -609,8 +614,13 @@ function scalar_physical_to_spectral!(
 ) where {T}
     config = spec.config
     plan   = get_disttranspose_plan(config)
+    sc     = _scalar_scratch(config, plan)
+    # Function barrier: plan + sc are ::Any from Union{Any,Nothing} cache fields;
+    # specialize the body on their concrete types to stop per-operand boxing.
+    return _scalar_analysis_kernel!(config, plan, sc, phys, spec)
+end
 
-    sc       = _scalar_scratch(config, plan)
+function _scalar_analysis_kernel!(config, plan, sc, phys, spec)
     Alm      = sc.Alm
     fspatial = sc.fspatial
 

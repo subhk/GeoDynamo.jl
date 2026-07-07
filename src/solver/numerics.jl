@@ -944,7 +944,20 @@ function vector_spectral_to_physical_disttranspose!(
         config, plan,
         toroidal, poloidal, vector_field, domain, vr_factor;
         raw_spheroidal::Bool = false)
-    sc  = _vector_scratch(config, plan)
+    # Function barrier: `plan` and `sc` come from `Union{Any,Nothing}` cache
+    # fields (SHTnsBuffers.disttranspose_plan / p3_vector_scratch), so they are
+    # `::Any` here. Funnel them into the kernel so Julia specializes on their
+    # concrete runtime types — otherwise every `sc.<field>`/`plan` use boxes its
+    # operand (~75 KB/call of pure boxing on this per-step hot path).
+    sc = _vector_scratch(config, plan)
+    return _vector_synthesis_kernel!(
+        config, plan, sc, toroidal, poloidal, vector_field, domain, vr_factor,
+        raw_spheroidal)
+end
+
+function _vector_synthesis_kernel!(
+        config, plan, sc, toroidal, poloidal, vector_field, domain, vr_factor,
+        raw_spheroidal)
     Slm = sc.Slm   # spheroidal/poloidal
     Tlm = sc.Tlm   # toroidal
     Vt  = sc.Vt
@@ -1073,7 +1086,13 @@ end
 # tangential components alone, matching the historical 2-component analysis).
 function vector_physical_to_spectral_disttranspose!(
         config, plan, vector_field, toroidal, poloidal)
-    sc  = _vector_scratch(config, plan)
+    # Function barrier (see _vector_synthesis_kernel!): plan + sc are ::Any from
+    # the Union{Any,Nothing} caches; specialize the body on their concrete types.
+    sc = _vector_scratch(config, plan)
+    return _vector_analysis_kernel!(config, plan, sc, vector_field, toroidal, poloidal)
+end
+
+function _vector_analysis_kernel!(config, plan, sc, vector_field, toroidal, poloidal)
     Slm = sc.Slm   # spheroidal/poloidal
     Tlm = sc.Tlm   # toroidal
     Vt  = sc.Vt
@@ -1211,8 +1230,6 @@ function compute_vorticity_spectral!(
     pol_profile_imag_bufs = workspace.Pᴾ_profile_imag
     tor_profile_real_bufs = workspace.Tᵀ_profile_real
     tor_profile_imag_bufs = workspace.Tᵀ_profile_imag
-    dpol_dr_real_bufs = workspace.∂ᵣpoloidal_real
-    dpol_dr_imag_bufs = workspace.∂ᵣpoloidal_imag
     d2pol_dr2_real_bufs = workspace.∂ᵣᵣpoloidal_real
     d2pol_dr2_imag_bufs = workspace.∂ᵣᵣpoloidal_imag
 
@@ -1223,8 +1240,6 @@ function compute_vorticity_spectral!(
         pol_profile_imag = pol_profile_imag_bufs[tid]
         tor_profile_real = tor_profile_real_bufs[tid]
         tor_profile_imag = tor_profile_imag_bufs[tid]
-        dpol_dr_real = dpol_dr_real_bufs[tid]
-        dpol_dr_imag = dpol_dr_imag_bufs[tid]
         d2pol_dr2_real = d2pol_dr2_real_bufs[tid]
         d2pol_dr2_imag = d2pol_dr2_imag_bufs[tid]
 
@@ -1237,8 +1252,6 @@ function compute_vorticity_spectral!(
         solver_extract_local_radial_profile!(
             tor_profile_imag, u_tor_imag, slot, nr, r_range)
 
-        apply_radial_derivative!(dpol_dr_real, velocity_fields.∂r, pol_profile_real)
-        apply_radial_derivative!(dpol_dr_imag, velocity_fields.∂r, pol_profile_imag)
         apply_radial_derivative!(d2pol_dr2_real, velocity_fields.∂²r, pol_profile_real)
         apply_radial_derivative!(d2pol_dr2_imag, velocity_fields.∂²r, pol_profile_imag)
 

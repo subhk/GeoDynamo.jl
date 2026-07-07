@@ -280,6 +280,12 @@ additional_tests = (
     # scalar+vector dist_* roundtrip, partition-neutrality).  Multi-rank gate
     # (2×2/2×1 p3_transpose + mpi_parallel_invariants) runs via the MPI shell runner.
     "p3_transpose.jl",
+    # Thread-safety regression: concurrent get_radial_work! Dict inserts from the
+    # threaded implicit update must not corrupt the shared radial_work cache.
+    "get_radial_work_threadsafety.jl",
+    # Allocation regression: the SH transform path must stay type-stable (no
+    # per-operand boxing of the Any-typed cached scratch/plan).
+    "transform_allocation_regression.jl",
 )
 
 previous_setting = haskey(ENV, MPI_FINALIZE_KEY) ? ENV[MPI_FINALIZE_KEY] : nothing
