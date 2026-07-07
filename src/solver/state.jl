@@ -305,6 +305,11 @@ mutable struct TimestepCaches{T}
     # Field-keyed scratch profiles shared by CNAB2/EAB2 solves. Keeping them in
     # the timestep cache avoids reallocating full radial work vectors every step.
     radial_work::Dict{Symbol, SolverRadialWork{T}}
+    # Guards concurrent get-or-create on `radial_work`. The threaded implicit
+    # update spawns one task per field, each inserting a distinct key on the
+    # first step; without this lock the concurrent Dict resizes corrupt the
+    # table (heap corruption / UndefRefError). See get_radial_work!.
+    radial_work_lock::ReentrantLock
     # Field-keyed ERK2 stage buffers. These buffers are full spectral arrays, so
     # they must be reused across timesteps rather than rebuilt for each stage.
     erk2_field_buffers::Dict{Symbol, SolverERK2FieldBuffers{T}}
@@ -332,6 +337,7 @@ function TimestepCaches{T}() where {T}
         nothing, nothing, nothing, nothing, nothing, nothing,
         nothing,
         Dict{Symbol, SolverRadialWork{T}}(),
+        ReentrantLock(),
         Dict{Symbol, SolverERK2FieldBuffers{T}}(),
         Dict{Tuple{Symbol, Int}, SolverERK2BoundarySpec{T}}(),
         nothing,

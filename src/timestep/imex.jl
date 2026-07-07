@@ -102,12 +102,20 @@ function get_radial_work!(
 ) where {T}
     # Each field/update family gets one scratch bundle sized for its radial
     # operator. Recreate it only when resolution or operator size changes.
-    work = get(caches.radial_work, key, nothing)
-    if work === nothing || length(work.tmp_real) != nr
-        work = SolverRadialWork{T}(nr)
-        caches.radial_work[key] = work
+    #
+    # The lock makes the get-or-create atomic. `_apply_solver_implicit_updates_threaded!`
+    # spawns one task per field and calls this concurrently; a bare `Dict` insert
+    # under a concurrent resize corrupts the table (heap corruption / UndefRefError).
+    # The lock is uncontended after the first step — once every key is present this
+    # only reads — so the steady-state cost is a single cheap acquire.
+    return lock(caches.radial_work_lock) do
+        work = get(caches.radial_work, key, nothing)
+        if work === nothing || length(work.tmp_real) != nr
+            work = SolverRadialWork{T}(nr)
+            caches.radial_work[key] = work
+        end
+        return work
     end
-    return work
 end
 
 @inline function boundary_mode_value(mode_values, lm_idx::Int)

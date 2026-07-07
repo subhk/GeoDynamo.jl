@@ -355,8 +355,6 @@ function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
             Pᴾ_profile_imag = ws.Pᴾ_profile_imag[tid]
             Tᵀ_profile_real = ws.Tᵀ_profile_real[tid]
             Tᵀ_profile_imag = ws.Tᵀ_profile_imag[tid]
-            ∂ᵣpoloidal_real = ws.∂ᵣpoloidal_real[tid]
-            ∂ᵣpoloidal_imag = ws.∂ᵣpoloidal_imag[tid]
             ∂ᵣᵣpoloidal_real = ws.∂ᵣᵣpoloidal_real[tid]
             ∂ᵣᵣpoloidal_imag = ws.∂ᵣᵣpoloidal_imag[tid]
 
@@ -365,8 +363,6 @@ function compute_vorticity_spectral_full!(𝒰::SHTnsVelocityFields{T},
             extract_local_radial_profile!(Tᵀ_profile_real, uᵀ_real, slot, nr, r_range)
             extract_local_radial_profile!(Tᵀ_profile_imag, uᵀ_imag, slot, nr, r_range)
 
-            apply_∂r!(∂ᵣpoloidal_real, 𝒰.∂r, Pᴾ_profile_real)
-            apply_∂r!(∂ᵣpoloidal_imag, 𝒰.∂r, Pᴾ_profile_imag)
             apply_∂r!(∂ᵣᵣpoloidal_real, 𝒰.∂²r, Pᴾ_profile_real)
             apply_∂r!(∂ᵣᵣpoloidal_imag, 𝒰.∂²r, Pᴾ_profile_imag)
 
