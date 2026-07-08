@@ -15,8 +15,7 @@ Run with:
 """
 
 using GeoDynamo
-using GeoDynamo.bcs:
-                     get_boundary_statistics,
+using GeoDynamo.bcs: get_boundary_statistics,
                      interpolate_boundary_to_grid,
                      load_composition_boundaries_from_files,
                      load_temperature_boundaries_from_files,
