@@ -1,5 +1,5 @@
-<h1 align="center">
-  <img src="assets/logo.svg" alt="GeoDynamo.jl — radial magnetic field (Br), Mollweide projection" height="60">
+<h1>
+  <img src="assets/logo.svg" alt="GeoDynamo.jl — radial magnetic field (Br), Mollweide projection" height="60" align="middle">
   GeoDynamo.jl
 </h1>
 
