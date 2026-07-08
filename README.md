@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="GeoDynamo.jl — radial magnetic field (Br), Mollweide projection" width="460">
+</p>
+
 # GeoDynamo.jl
 
 [![CI Status](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml?query=branch%3Amain)
