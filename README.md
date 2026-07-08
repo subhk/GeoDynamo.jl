@@ -1,8 +1,7 @@
-<p align="center">
-  <img src="assets/logo.svg" alt="GeoDynamo.jl — radial magnetic field (Br), Mollweide projection" width="460">
-</p>
-
-# GeoDynamo.jl
+<h1 align="center">
+  <img src="assets/logo.svg" alt="GeoDynamo.jl — radial magnetic field (Br), Mollweide projection" height="72">
+  GeoDynamo.jl
+</h1>
 
 [![CI Status](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/subhk/GeoDynamo.jl/actions/workflows/ci.yml?query=branch%3Amain)
 [![Stable Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://subhk.github.io/GeoDynamo.jl/stable/)
