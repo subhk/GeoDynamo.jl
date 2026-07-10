@@ -235,6 +235,13 @@ function _parameter_errors_warnings(params::SolverParameters)
         push!(warnings, "timestep = $(params.timestep) is very large; check CFL condition")
     end
 
+    if !(params.timestepper isa Union{CNAB2, ExponentialRungeKutta2, RungeKutta3})
+        supported = "CNAB2, ExponentialRungeKutta2, or RungeKutta3"
+        push!(errors,
+            "timestepper = $(nameof(typeof(params.timestepper))) is not supported by the solver; " *
+            "use $supported")
+    end
+
     params.stop_iteration >= 1 ||
         push!(errors, "stop_iteration = $(params.stop_iteration) must be >= 1")
 

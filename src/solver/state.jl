@@ -282,7 +282,8 @@ struct PoloidalSplitMatrices{T}
     mass_coeff::Float64
     ball::Bool          # full-sphere: mixed influence rows + regularity recovery
     reg_r_inv::Float64  # 1/r₁ for the regularity Robin rows (0 for shell)
-    work::NTuple{6, Vector{T}}  # cached per-step radial scratch (P,W,LW,rhs,Wp,Pp)
+    # Cached radial scratch shared by mutually exclusive CNAB2/ERK2/CB3 updates.
+    work::NTuple{6, Vector{T}}
 end
 
 mutable struct TimestepCaches{T}

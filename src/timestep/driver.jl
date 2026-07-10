@@ -153,7 +153,7 @@ mismatch, which deadlocks. So restrict threaded field updates to single-rank
 runs regardless of scheme; multi-rank runs use the sequential path.
 """
 @inline function _solver_can_thread_implicit_updates(timestepper)
-    return mpi_comm_size() == 1
+    return Threads.nthreads() > 1 && mpi_comm_size() == 1
 end
 
 """

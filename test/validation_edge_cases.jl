@@ -78,10 +78,11 @@ using Test
         @test is_valid
     end
 
-    @testset "Valid etd scheme passes" begin
+    @testset "Unsupported etd scheme fails validation" begin
         params = GeoDynamo.SolverParameters(timestepper = GeoDynamo.ETD())
-        is_valid, _, _ = GeoDynamo.validate_parameters(params; strict = false)
-        @test is_valid
+        is_valid, errors, _ = GeoDynamo.validate_parameters(params; strict = false)
+        @test !is_valid
+        @test any(contains(error, "not supported by the solver") for error in errors)
     end
 
     @testset "Multiple simultaneous errors" begin

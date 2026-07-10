@@ -1839,6 +1839,59 @@ end
 # ================================================================================
 # These functions use Wigner D-matrices for efficient field rotations in spectral space
 
+function _pack_dense_real_coefficients!(packed::Vector{ComplexF64},
+        alm::Matrix{ComplexF64}, config::SHTnsKitConfig)
+    length(packed) == config.nlm || throw(DimensionMismatch(
+        "packed coefficient length $(length(packed)) != nlm $(config.nlm)"))
+    fill!(packed, 0.0 + 0.0im)
+    @inbounds for lm_idx in 1:config.nlm
+        l = config.l_values[lm_idx]
+        m = config.m_values[lm_idx]
+        packed[lm_idx] = alm[l + 1, m + 1]
+    end
+    return packed
+end
+
+function _unpack_dense_real_coefficients!(alm::Matrix{ComplexF64},
+        packed::Vector{ComplexF64}, config::SHTnsKitConfig)
+    length(packed) == config.nlm || throw(DimensionMismatch(
+        "packed coefficient length $(length(packed)) != nlm $(config.nlm)"))
+    fill!(alm, 0.0 + 0.0im)
+    @inbounds for lm_idx in 1:config.nlm
+        l = config.l_values[lm_idx]
+        m = config.m_values[lm_idx]
+        alm[l + 1, m + 1] = packed[lm_idx]
+    end
+    return alm
+end
+
+function _rotate_dense_real_y!(output::Matrix{ComplexF64},
+        config::SHTnsKitConfig, alm::Matrix{ComplexF64}, beta::Real)
+    input_packed = Vector{ComplexF64}(undef, config.nlm)
+    output_packed = similar(input_packed)
+    _pack_dense_real_coefficients!(input_packed, alm, config)
+    SHTnsKit.SH_Yrotate(config.sht_config, input_packed, beta, output_packed)
+    return _unpack_dense_real_coefficients!(output, output_packed, config)
+end
+
+function _rotate_dense_real_90y!(output::Matrix{ComplexF64},
+        config::SHTnsKitConfig, alm::Matrix{ComplexF64})
+    input_packed = Vector{ComplexF64}(undef, config.nlm)
+    output_packed = similar(input_packed)
+    _pack_dense_real_coefficients!(input_packed, alm, config)
+    SHTnsKit.SH_Yrotate90(config.sht_config, input_packed, output_packed)
+    return _unpack_dense_real_coefficients!(output, output_packed, config)
+end
+
+function _rotate_dense_real_90x!(output::Matrix{ComplexF64},
+        config::SHTnsKitConfig, alm::Matrix{ComplexF64})
+    input_packed = Vector{ComplexF64}(undef, config.nlm)
+    output_packed = similar(input_packed)
+    _pack_dense_real_coefficients!(input_packed, alm, config)
+    SHTnsKit.SH_Xrotate90(config.sht_config, input_packed, output_packed)
+    return _unpack_dense_real_coefficients!(output, output_packed, config)
+end
+
 """
     rotate_field_z!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, alpha::Real;
                     alm_out::Union{Matrix{ComplexF64},Nothing}=nothing)
@@ -1901,19 +1954,8 @@ The rotated coefficients
 """
 function rotate_field_y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64}, beta::Real;
         alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
-    # Use zeros instead of similar to avoid uninitialized data if SHTnsKit function doesn't fill output
     output = alm_out === nothing ? zeros(ComplexF64, size(alm)) : alm_out
-
-    try
-        SHTnsKit.SH_Yrotate(config.sht_config, alm, beta, output)
-    catch e
-        @warn "SH_Yrotate not available, y-rotation requires Wigner d-matrices. Returning identity (unrotated copy)."
-        # Y-rotation is complex - requires Wigner d-matrices
-        # Return identity (copy input) when native support is unavailable
-        # This prevents returning uninitialized data
-        copyto!(output, alm)
-    end
-    return output
+    return _rotate_dense_real_y!(output, config, alm, beta)
 end
 
 """
@@ -1933,16 +1975,8 @@ The rotated coefficients
 """
 function rotate_field_90y!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
         alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
-    # Use zeros instead of similar to avoid uninitialized data if SHTnsKit function doesn't fill output
     output = alm_out === nothing ? zeros(ComplexF64, size(alm)) : alm_out
-
-    try
-        SHTnsKit.SH_Yrotate90(config.sht_config, alm, output)
-    catch e
-        # Fallback to general Y rotation
-        rotate_field_y!(config, alm, π/2; alm_out = output)
-    end
-    return output
+    return _rotate_dense_real_90y!(output, config, alm)
 end
 
 """
@@ -1962,20 +1996,8 @@ The rotated coefficients
 """
 function rotate_field_90x!(config::SHTnsKitConfig, alm::Matrix{ComplexF64};
         alm_out::Union{Matrix{ComplexF64}, Nothing} = nothing)
-    # Use zeros instead of similar to avoid uninitialized data if SHTnsKit function doesn't fill output
     output = alm_out === nothing ? zeros(ComplexF64, size(alm)) : alm_out
-
-    try
-        SHTnsKit.SH_Xrotate90(config.sht_config, alm, output)
-    catch e
-        # Fallback: decompose into Z and Y rotations
-        # Use zeros instead of similar to avoid uninitialized values at invalid (l,m) positions
-        temp = zeros(ComplexF64, size(alm))
-        rotate_field_z!(config, alm, π/2; alm_out = temp)
-        rotate_field_90y!(config, temp; alm_out = output)
-        rotate_field_z!(config, output, -π/2; alm_out = output)
-    end
-    return output
+    return _rotate_dense_real_90x!(output, config, alm)
 end
 
 """

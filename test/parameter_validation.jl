@@ -82,6 +82,30 @@ using Test
         @test_throws MethodError GeoDynamo.SolverParameters(timestepper = :rk4)
     end
 
+    @testset "Unsupported solver timesteppers fail validation" begin
+        for timestepper in (
+            GeoDynamo.ExponentialAdamsBashforth2(),
+            GeoDynamo.ETD(),
+            GeoDynamo.ThetaMethod(),
+        )
+            params = GeoDynamo.SolverParameters(timestepper = timestepper)
+            is_valid, errors, _ = GeoDynamo.validate_parameters(params; strict = false)
+            @test !is_valid
+            @test any(contains(error, "not supported by the solver") for error in errors)
+        end
+
+        for timestepper in (
+            GeoDynamo.CNAB2(),
+            GeoDynamo.ExponentialRungeKutta2(),
+            GeoDynamo.RungeKutta3(),
+        )
+            params = GeoDynamo.SolverParameters(timestepper = timestepper)
+            is_valid, errors, _ = GeoDynamo.validate_parameters(params; strict = false)
+            @test is_valid
+            @test isempty(errors)
+        end
+    end
+
     @testset "Simulation timestepper accepts a scheme symbol" begin
         # The high-level `Simulation`/`_resolve_timestepper` path is lenient: a
         # bare scheme Symbol passed as `timestepper` is converted to its struct

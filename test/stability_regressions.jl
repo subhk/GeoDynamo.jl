@@ -1,5 +1,16 @@
 using Test
 
+_alloc_topography_cache_index(cache) = @allocated GeoDynamo.bcs.topography._cache_index(cache, 1, 0)
+_alloc_topography_cache_value(cache) = @allocated GeoDynamo.bcs.topography.get_cache_value(
+    cache, 1, 0, GeoDynamo.OUTER_BOUNDARY)
+
+function _weakly_cache_boundary_base()
+    topo = GeoDynamo.bcs.topography
+    boundary = reshape([1.0, 2.0], 1, 2)
+    topo.reset_boundary_to_base!(boundary)
+    return WeakRef(boundary)
+end
+
 @testset "Stability Regressions" begin
     @testset "gpu scratch allocation hook is inferred" begin
         ci = only(code_typed(GeoDynamo.gpu_scratch_zeros, (Type{Float64}, Int, Int); optimize = true))
@@ -8,6 +19,49 @@ using Test
 
     @testset "topography spectral compatibility is not Any" begin
         @test GeoDynamo.bcs.topography.SHTnsSpecField !== Any
+    end
+
+    @testset "topography derivative cache lookups are concrete and allocation-free" begin
+        topo = GeoDynamo.bcs.topography
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 2, mmax = 2, nlat = 8, nlon = 16, nr = 4)
+        z = zeros(ComplexF64, cfg.nlm)
+        cache = topo.BoundaryDerivativeCache{Float64}(
+            cfg.lmax, cfg.mmax, cfg.nlm, cfg,
+            z, z, z, z, nothing, nothing)
+
+        topo.get_cache_value(cache, 1, 0, GeoDynamo.OUTER_BOUNDARY)
+        @test isconcretetype(fieldtype(typeof(cache), :config))
+        @test _alloc_topography_cache_index(cache) == 0
+        @test _alloc_topography_cache_value(cache) == 0
+    end
+
+    @testset "topography boundary bases do not retain simulations" begin
+        topo = GeoDynamo.bcs.topography
+        @test isdefined(topo, :clear_boundary_value_base_cache!)
+        if isdefined(topo, :clear_boundary_value_base_cache!)
+            topo.clear_boundary_value_base_cache!()
+            boundary = reshape([1.0, 2.0], 1, 2)
+            topo.reset_boundary_to_base!(boundary)
+            fill!(boundary, 0.0)
+            topo.reset_boundary_to_base!(boundary)
+            @test boundary == reshape([1.0, 2.0], 1, 2)
+
+            topo.clear_boundary_value_base_cache!()
+            weak_boundary = _weakly_cache_boundary_base()
+            GC.gc()
+            GC.gc()
+            @test weak_boundary.value === nothing
+            @test isempty(topo._BOUNDARY_VALUE_BASE)
+
+            topo.clear_boundary_value_base_cache!()
+            @test isempty(topo._BOUNDARY_VALUE_BASE)
+        end
+    end
+
+    @testset "single-thread solver avoids task-spawning implicit path" begin
+        expected = Threads.nthreads() > 1
+        @test GeoDynamo._solver_can_thread_implicit_updates(GeoDynamo.CNAB2()) == expected
     end
 
     @testset "scalar cache cleanup helpers empty global caches" begin
@@ -121,7 +175,7 @@ using Test
         @test changed_theta !== changed_bc
     end
 
-    @testset "EAB2 caches can be prepared before threaded implicit updates" begin
+    @testset "unsupported EAB2 state is rejected before cache preparation" begin
         params = GeoDynamo.SolverParameters(
             architecture = :cpu,
             geometry = :shell,
@@ -139,25 +193,7 @@ using Test
             topography_enabled = false,
             stefan_enabled = false
         )
-        state = GeoDynamo.initialize_simulation(Float64, params)
-        tc = state.timestep_caches
-
-        # Reset all ETD fields to nothing to simulate a cold cache
-        tc.etd_temperature = nothing
-        tc.etd_velocity_toroidal = nothing
-        tc.etd_velocity_poloidal = nothing
-        tc.etd_magnetic_toroidal = nothing
-        tc.etd_magnetic_poloidal = nothing
-        tc.etd_composition = nothing
-
-        GeoDynamo._prepare_solver_eab2_caches!(state)
-
-        @test tc.etd_temperature !== nothing
-        @test tc.etd_velocity_toroidal !== nothing
-        @test tc.etd_velocity_poloidal !== nothing
-        @test tc.etd_magnetic_toroidal !== nothing
-        @test tc.etd_magnetic_poloidal !== nothing
-        @test tc.etd_composition !== nothing
+        @test_throws ArgumentError GeoDynamo.initialize_simulation(Float64, params)
     end
 
     @testset "sync_spectral_history! copies real and imaginary coefficients" begin

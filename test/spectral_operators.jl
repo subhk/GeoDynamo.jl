@@ -158,4 +158,16 @@ const G = GeoDynamo
         @test G.rotate_field_90x!(cfg, mono; alm_out = newalm()) ≈ mono
         @test G.rotate_field_euler!(cfg, mono, 0.3, 0.6, 0.9; alm_out = newalm()) ≈ mono
     end
+
+    @testset "Y rotation changes and round-trips a dipole" begin
+        dipole = newalm()
+        set!(dipole, 1, 0, 1.0 + 0im)
+
+        rotated = G.rotate_field_y!(cfg, dipole, π / 2; alm_out = newalm())
+        @test !isapprox(rotated, dipole; atol = 1e-12, rtol = 1e-12)
+        @test abs(get(rotated, 1, 1)) > 0.5
+
+        restored = G.rotate_field_y!(cfg, rotated, -π / 2; alm_out = newalm())
+        @test restored≈dipole atol=1e-12 rtol=1e-12
+    end
 end

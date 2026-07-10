@@ -101,14 +101,12 @@ end
         end
     end
 
-    @testset "unsupported timestepper warns and falls back" begin
+    @testset "unsupported timestepper fails before dispatch" begin
         model = _dispatch_model()
-        local sim
-        @test_logs (:warn, r"CNAB2, ExponentialRungeKutta2, and RungeKutta3 only") match_mode = :any begin
-            sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 1,
+        @test_throws ArgumentError begin
+            GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 1,
                 gpu = true, timestepper = GeoDynamo.ThetaMethod())
         end
-        @test sim.gpu == false
     end
 
     @testset "gpu_sync = :output matches :every" begin

@@ -40,9 +40,12 @@ import ..bcs: shtns_spectral_to_physical
 # top level (two modules up: topography -> bcs -> GeoDynamo). Forward to them
 # lazily so this submodule does not depend on package include order.
 const _GEODYNAMO_TOP = parentmodule(parentmodule(@__MODULE__))
-@inline local_spectral_storage_slot(args...) = _GEODYNAMO_TOP.local_spectral_storage_slot(args...)
-@inline get_mode_index(args...) = _GEODYNAMO_TOP.get_mode_index(args...)
-@inline gather_local_radial_profile!(args...) = _GEODYNAMO_TOP.gather_local_radial_profile!(args...)
+@inline local_spectral_storage_slot(config, lm_idx::Int) =
+    _GEODYNAMO_TOP.local_spectral_storage_slot(config, lm_idx)
+@inline get_mode_index(config, l::Int, m::Int) = _GEODYNAMO_TOP.get_mode_index(config, l, m)
+@inline gather_local_radial_profile!(output_real, output_imag, data_real, data_imag,
+    slot, r_range) = _GEODYNAMO_TOP.gather_local_radial_profile!(
+    output_real, output_imag, data_real, data_imag, slot, r_range)
 
 # These will be available when the module is loaded in the context of GeoDynamo
 # Define an abstract type for spectral fields - actual implementations will be duck-typed
@@ -76,12 +79,68 @@ end
 # & toroidal/magnetic) gets its own base snapshot. Velocity/magnetic bases are the
 # all-zero initial rows; temperature/composition carry the parameter mean-mode base.
 # ----------------------------------------------------------------------------
-const _BOUNDARY_VALUE_BASE = IdDict{Any, Any}()
+struct BoundaryValueBase{A <: AbstractMatrix}
+    target::WeakRef
+    snapshot::A
+end
+
+const _BOUNDARY_VALUE_BASE = Dict{UInt, BoundaryValueBase}()
+const _BOUNDARY_VALUE_BASE_LOCK = ReentrantLock()
+
+@inline function _restore_boundary_to_base!(bv, entry::BoundaryValueBase)
+    copyto!(bv, entry.snapshot)
+    return bv
+end
+
+function _prune_boundary_value_base_cache!()
+    filter!(entry -> entry.second.target.value !== nothing, _BOUNDARY_VALUE_BASE)
+    return nothing
+end
+
+function _finalize_boundary_value_base!(key::UInt, target)
+    # A finalizer must not block if it interrupts code already holding this lock.
+    trylock(_BOUNDARY_VALUE_BASE_LOCK) || return nothing
+    try
+        entry = get(_BOUNDARY_VALUE_BASE, key, nothing)
+        if entry !== nothing
+            cached_target = entry.target.value
+            if cached_target === nothing || cached_target === target
+                delete!(_BOUNDARY_VALUE_BASE, key)
+            end
+        end
+    finally
+        unlock(_BOUNDARY_VALUE_BASE_LOCK)
+    end
+    return nothing
+end
 
 function reset_boundary_to_base!(bv::AbstractMatrix)
-    base = get!(() -> copy(bv), _BOUNDARY_VALUE_BASE, bv)
-    copyto!(bv, base)
+    entry = lock(_BOUNDARY_VALUE_BASE_LOCK) do
+        _prune_boundary_value_base_cache!()
+        key = objectid(bv)
+        entry = get(_BOUNDARY_VALUE_BASE, key, nothing)
+        if entry === nothing || entry.target.value !== bv
+            entry = BoundaryValueBase(WeakRef(bv), copy(bv))
+            _BOUNDARY_VALUE_BASE[key] = entry
+            if Base.ismutable(bv)
+                finalizer(bv) do target
+                    _finalize_boundary_value_base!(key, target)
+                end
+            end
+            entry
+        else
+            entry
+        end
+    end
+    _restore_boundary_to_base!(bv, entry)
     return bv
+end
+
+function clear_boundary_value_base_cache!()
+    lock(_BOUNDARY_VALUE_BASE_LOCK) do
+        empty!(_BOUNDARY_VALUE_BASE)
+    end
+    return nothing
 end
 
 # ================================================================================
@@ -281,6 +340,7 @@ export compute_stefan_flux
 
 # High-level interface
 export apply_all_topography_corrections!
+export clear_boundary_value_base_cache!
 
 # ================================================================================
 # High-level Interface Functions
