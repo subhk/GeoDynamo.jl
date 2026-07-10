@@ -101,7 +101,21 @@ macro solver_threaded_local_spectral_modes(
         lm_var, slot_var, lm_range, config, limit_data, storage_data, body)
     lm = esc(lm_var)
     slot = esc(slot_var)
-    return quote
+    serial_loop = quote
+        for $lm in $(esc(lm_range))
+            if $lm > length($(esc(limit_data)))
+                continue
+            end
+            $slot = local_spectral_storage_slot($(esc(config)), $lm)
+            $slot === nothing && continue
+            if $slot[1] > size($(esc(storage_data)), 1) ||
+               $slot[2] > size($(esc(storage_data)), 2)
+                continue
+            end
+            $(esc(body))
+        end
+    end
+    threaded_loop = quote
         Threads.@threads for $lm in $(esc(lm_range))
             if $lm > length($(esc(limit_data)))
                 continue
@@ -113,6 +127,13 @@ macro solver_threaded_local_spectral_modes(
                 continue
             end
             $(esc(body))
+        end
+    end
+    return quote
+        if Threads.nthreads() == 1
+            $serial_loop
+        else
+            $threaded_loop
         end
     end
 end

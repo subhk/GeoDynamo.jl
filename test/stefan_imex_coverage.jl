@@ -58,14 +58,12 @@ end
         @test all(isfinite, abs.(stefan.heat_flux_oc))
     end
 
-    @testset "IMEX EAB2 Krylov step runs + stays finite [LOCAL]" begin
-        st = _small_state(timestepper = GeoDynamo.ExponentialAdamsBashforth2(krylov_dimension = 8, tolerance = 1e-6),
+    @testset "Unsupported IMEX EAB2 fails during initialization [LOCAL]" begin
+        # The public solver must reject this incomplete scheme before allocating
+        # a full state or entering its CNAB2-only velocity-poloidal update.
+        @test_throws ArgumentError _small_state(
+            timestepper = GeoDynamo.ExponentialAdamsBashforth2(
+                krylov_dimension = 8, tolerance = 1e-6),
             include_magnetic = true)
-        # Stage-4B gate: velocity dynamics under the solenoidal convention are
-        # CNAB2-only — the EAB2 poloidal path refuses loudly until ported to
-        # the W-split (src/physics/velocity/solver.jl). The implicit updates
-        # run threaded, so the gate error surfaces as a TaskFailedException.
-        # The finite/advance asserts that lived here return with the EAB2 port.
-        @test_throws TaskFailedException GeoDynamo.solver_step!(st)
     end
 end

@@ -385,7 +385,7 @@ function _erk2_poloidal_to_V!(velocity, split::PoloidalSplitMatrices{T},
         Ek::Float64) where {T}
     cfg = velocity.poloidal.config
     nr = length(split.d1_row_inner)
-    P = Vector{T}(undef, nr); W = Vector{T}(undef, nr)
+    P, W = split.work[1], split.work[2]
     for (p_arr, v_arr) in (
         (parent(velocity.poloidal.data_real), parent(velocity.work_pol.data_real)),
         (parent(velocity.poloidal.data_imag), parent(velocity.work_pol.data_imag)),
@@ -427,9 +427,8 @@ function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
     nr = length(split.d1_row_inner)
     c = half ? dt / 2 : dt
     phis = half ? cache.phi1_half : cache.phi1_full
-    Wv = Vector{T}(undef, nr); Pt = Vector{T}(undef, nr)
-    g = Vector{T}(undef, nr)
-    h1 = Vector{T}(undef, nr); h2 = Vector{T}(undef, nr)
+    Wv, Pt, g, h1, h2 = split.work[1], split.work[2], split.work[3],
+                        split.work[4], split.work[5]
     invEk = 1.0 / Ek
     for (p_arr, v_arr) in (
         (parent(velocity.poloidal.data_real), parent(velocity.work_pol.data_real)),
