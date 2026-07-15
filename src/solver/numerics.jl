@@ -1152,9 +1152,7 @@ end
     fill!(parent(velocity_fields.work_tor.data_imag), z)
     fill!(parent(velocity_fields.work_pol.data_real), z)
     fill!(parent(velocity_fields.work_pol.data_imag), z)
-    fill!(parent(velocity_fields.work_physical.r_component.data), z)
-    fill!(parent(velocity_fields.work_physical.θ_component.data), z)
-    fill!(parent(velocity_fields.work_physical.φ_component.data), z)
+    # work_physical is never read on the solver path; skip zeroing it.
     fill!(parent(velocity_fields.advection_physical.r_component.data), z)
     fill!(parent(velocity_fields.advection_physical.θ_component.data), z)
     fill!(parent(velocity_fields.advection_physical.φ_component.data), z)
@@ -1334,11 +1332,7 @@ function compute_velocity_body_forces!(
         params::SolverParameters
 ) where {T}
     E = params.Ek
-    Pm = params.Pm
-    Pr = params.Pr
-    Sc = params.Sc
-    Ra = params.Ra
-    RaC = params.RaC
+    Pm = params.Pm   # Lorentz force; buoyancy prefactors moved to the spectral inject
 
     v_r = parent(velocity_fields.velocity.r_component.data)
     v_θ = parent(velocity_fields.velocity.θ_component.data)
@@ -1399,13 +1393,12 @@ function compute_velocity_body_forces!(
         end
     end
 
-    if temperature_field !== nothing
-        solver_add_thermal_buoyancy_force!(adv_r, temperature_field, (Pm / Pr) * Ra, domain)
-    end
-
-    if composition_field !== nothing
-        add_compositional_buoyancy_force!(adv_r, composition_field, (Pm / Sc) * RaC, domain)
-    end
+    # Buoyancy is NOT added here any more. It is linear in the scalar fields and
+    # purely radial, so it lives entirely in Q_F (the radial-force scalar) and is
+    # injected directly in spectral space in finish_velocity_nonlinear! — avoiding
+    # a scalar synthesis to the grid every step. (The prefactors were (Pm/Pr)·Ra
+    # for temperature and (Pm/Sc)·RaC for composition, with radial weight r =
+    # domain.r[:,4]; that exact form is reproduced spectrally.)
 
     if magnetic_field !== nothing
         solver_add_lorentz_force!(velocity_fields, magnetic_field, Pm)
@@ -1426,64 +1419,6 @@ function scalar_field_data_and_config(field)
     end
 
     error("Unsupported solver scalar field container: $(typeof(field))")
-end
-
-function solver_add_thermal_buoyancy_force!(
-        force_r::AbstractArray{T, 3},
-        scalar_field,
-        factor::Float64,
-        domain
-) where {T}
-    iszero(factor) && return force_r
-    scalar_data, config = scalar_field_data_and_config(scalar_field)
-    r_range = local_range(config.pencils.r, 3)
-    local_size = size(force_r)
-
-    @inbounds Threads.@threads for k in 1:local_size[3]
-        r_idx = k + first(r_range) - 1
-        r = r_idx <= domain.N ? domain.r[r_idx, 4] : 1.0
-        factor_r = factor * r
-        for j in 1:local_size[2]
-            @simd for i in 1:local_size[1]
-                linear_idx = i + (j - 1) * local_size[1] +
-                             (k - 1) * local_size[1] * local_size[2]
-                if linear_idx <= length(scalar_data)
-                    force_r[linear_idx] += factor_r * scalar_data[linear_idx]
-                end
-            end
-        end
-    end
-
-    return force_r
-end
-
-function add_compositional_buoyancy_force!(
-        force_r::AbstractArray{T, 3},
-        composition_field,
-        factor::Float64,
-        domain
-) where {T}
-    iszero(factor) && return force_r
-    composition_data, config = scalar_field_data_and_config(composition_field)
-    r_range = local_range(config.pencils.r, 3)
-    local_size = size(force_r)
-
-    @inbounds Threads.@threads for k in 1:local_size[3]
-        r_idx = k + first(r_range) - 1
-        r = r_idx <= domain.N ? domain.r[r_idx, 4] : 1.0
-        factor_r = factor * r
-        for j in 1:local_size[2]
-            @simd for i in 1:local_size[1]
-                linear_idx = i + (j - 1) * local_size[1] +
-                             (k - 1) * local_size[1] * local_size[2]
-                if linear_idx <= length(composition_data)
-                    force_r[linear_idx] += factor_r * composition_data[linear_idx]
-                end
-            end
-        end
-    end
-
-    return force_r
 end
 
 function solver_add_lorentz_force!(velocity_fields, magnetic_field, Pm::Float64)
@@ -1518,9 +1453,7 @@ end
     fill!(parent(magnetic_fields.work_tor.data_imag), z)
     fill!(parent(magnetic_fields.work_pol.data_real), z)
     fill!(parent(magnetic_fields.work_pol.data_imag), z)
-    fill!(parent(magnetic_fields.work_physical.r_component.data), z)
-    fill!(parent(magnetic_fields.work_physical.θ_component.data), z)
-    fill!(parent(magnetic_fields.work_physical.φ_component.data), z)
+    # work_physical is never read on the solver path; skip zeroing it.
     fill!(parent(magnetic_fields.induction_physical.r_component.data), z)
     fill!(parent(magnetic_fields.induction_physical.θ_component.data), z)
     fill!(parent(magnetic_fields.induction_physical.φ_component.data), z)

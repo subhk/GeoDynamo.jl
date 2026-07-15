@@ -34,7 +34,8 @@ function accumulate_velocity_nonlinear_terms!(
     )
 end
 
-function finish_velocity_nonlinear!(velocity_fields)
+function finish_velocity_nonlinear!(
+        velocity_fields, temperature_field, composition_field, params)
     # geometry-blind: the ball grid has no r=0 node (off-center grid)
     # Stage-4B momentum projections. Toroidal: r̂·∇× of momentum gives
     # Ek(∂t − Δ_l)T = T_F — the raw toroidal sphtor scalar of the force is
@@ -53,8 +54,64 @@ function finish_velocity_nonlinear!(velocity_fields)
         velocity_fields.advection_physical.r_component,
         velocity_fields.work_pol           # Q_F scratch
     )
+    # Buoyancy is exactly linear in the scalar fields and purely radial, so it
+    # contributes ONLY to Q_F (raw_spheroidal analysis above consumes just v_θ,v_φ,
+    # so S_F never sees it). The physical force factor·r·scalar(θ,φ) analyses to
+    # factor·r·scalar_spec (factor·r is constant per radial level), so inject it in
+    # spectral space directly instead of synthesizing T/C to the grid every step.
+    _add_spectral_buoyancy!(
+        velocity_fields, temperature_field, composition_field, params)
     _poloidal_force_projection!(velocity_fields)
     return velocity_fields.nl_toroidal, velocity_fields.nl_poloidal
+end
+
+# Add the buoyancy force to Q_F (velocity_fields.work_pol) directly in spectral
+# space — buoyancy is linear in the scalar, so this needs no transform:
+#   Q_F[l,m,r] += factor · r · scalar_spec[l,m,r]
+# with factor = (Pm/Pr)·Ra (temperature) and (Pm/Sc)·RaC (composition), and the
+# radial weight r = domain.r[r,4]. This reproduces the former physical-space
+# buoyancy (a scalar synthesis + force + radial analysis) with the same prefactors.
+function _add_spectral_buoyancy!(
+        velocity_fields, temperature_field, composition_field, params)
+    if temperature_field !== nothing
+        _accumulate_spectral_buoyancy!(
+            velocity_fields, temperature_field.spectral,
+            (params.Pm / params.Pr) * params.Ra)
+    end
+    if composition_field !== nothing
+        _accumulate_spectral_buoyancy!(
+            velocity_fields, composition_field.spectral,
+            (params.Pm / params.Sc) * params.RaC)
+    end
+    return velocity_fields
+end
+
+function _accumulate_spectral_buoyancy!(velocity_fields, scalar_spec, factor)
+    iszero(factor) && return velocity_fields
+    cfg = velocity_fields.work_pol.config
+    domain = velocity_fields.domain
+    T = eltype(parent(velocity_fields.work_pol.data_real))
+    nr = domain.N
+    r_range = local_range(velocity_fields.work_pol.pencil, 3)
+    length(r_range) == nr || error(
+        "spectral buoyancy injection requires the radial axis fully local " *
+        "(got $(length(r_range)) of $nr levels); r-distributed support is a follow-up")
+    for (q_arr, s_arr) in (
+        (parent(velocity_fields.work_pol.data_real), parent(scalar_spec.data_real)),
+        (parent(velocity_fields.work_pol.data_imag), parent(scalar_spec.data_imag)),
+    )
+        @inbounds for lm in 1:cfg.nlm
+            slot = local_spectral_storage_slot(cfg, lm)
+            slot === nothing && continue
+            for r_idx in 1:nr
+                fr = factor * domain.r[r_idx, 4]
+                q = local_spectral_value(q_arr, slot, r_idx)
+                set_local_spectral_value!(q_arr, slot, r_idx,
+                    q + T(fr * local_spectral_value(s_arr, slot, r_idx)))
+            end
+        end
+    end
+    return velocity_fields
 end
 
 # nl_poloidal holds S_F on entry, work_pol holds Q_F; combine in place:
@@ -413,22 +470,99 @@ function _erk2_poloidal_to_V!(velocity, split::PoloidalSplitMatrices{T},
     return velocity
 end
 
+# Lazily build (and cache on the state) the ERK2 P-recovery Green responses.
+# The φ1-column responses hᵢ and the 2×2 influence matrix depend only on the
+# degree l and on the stage half (dt/2 vs dt) — not on m and not on the
+# real/imag half of the spectral field — so they are built once per
+# (split, ERK2 cache, dt) instead of once per mode per half.
+function _get_or_build_erk2_poloidal_green!(caches::TimestepCaches{T},
+        split::PoloidalSplitMatrices{T}, cache::ERK2StageCache{T},
+        dt::Float64) where {T}
+    green = caches.erk2_poloidal_green
+    if green !== nothing && green.dt == dt &&
+       green.split === split && green.cache === cache
+        return green::ERK2PoloidalGreenCache{T}
+    end
+
+    nr = length(split.d1_row_inner)
+    nl = length(cache.l_values)
+    h1_half = [zeros(T, nr) for _ in 1:nl]
+    h2_half = [zeros(T, nr) for _ in 1:nl]
+    h1_full = [zeros(T, nr) for _ in 1:nl]
+    h2_full = [zeros(T, nr) for _ in 1:nl]
+    influence_half = [zeros(T, 2, 2) for _ in 1:nl]
+    influence_full = [zeros(T, 2, 2) for _ in 1:nl]
+    det_half = zeros(T, nl)
+    det_full = zeros(T, nl)
+    g = Vector{T}(undef, nr)
+
+    for (cidx, l) in enumerate(cache.l_values)
+        l == 0 && continue                       # l = 0 carries no poloidal flow
+        idx = get(split.lookup, l, 0)
+        idx == 0 && continue
+        for (c, phi, h1, h2, M, det) in (
+            (dt / 2, cache.phi1_half[cidx], h1_half[cidx], h2_half[cidx],
+             influence_half[cidx], det_half),
+            (dt, cache.phi1_full[cidx], h1_full[cidx], h2_full[cidx],
+             influence_full[cidx], det_full),
+        )
+            # Green responses through the SAME recovery (R zeroes the walls).
+            # Ball: row 1 applies ρ to the RAW g columns (no Ek factor) —
+            # the same aᵢ multiplies both gᵢ (row 1) and hᵢ (output).
+            @inbounds for r_idx in 1:nr
+                g[r_idx] = c * phi[r_idx, 1]
+            end
+            m11b = split.ball ?
+                   dot(split.d1_row_inner, g) -
+                   T((l + 1) * split.reg_r_inv) * g[1] : zero(T)
+            g[1] = zero(T); g[nr] = zero(T)
+            solve_banded!(h1, split.p_factor[idx], g)
+            @inbounds for r_idx in 1:nr
+                g[r_idx] = c * phi[r_idx, nr]
+            end
+            m12b = split.ball ?
+                   dot(split.d1_row_inner, g) -
+                   T((l + 1) * split.reg_r_inv) * g[1] : zero(T)
+            g[1] = zero(T); g[nr] = zero(T)
+            solve_banded!(h2, split.p_factor[idx], g)
+
+            if split.ball
+                M[1, 1] = m11b; M[1, 2] = m12b
+            else
+                M[1, 1] = dot(split.d1_row_inner, h1)
+                M[1, 2] = dot(split.d1_row_inner, h2)
+            end
+            M[2, 1] = dot(split.d1_row_outer, h1)
+            M[2, 2] = dot(split.d1_row_outer, h2)
+            det[cidx] = M[1, 1] * M[2, 2] - M[1, 2] * M[2, 1]
+        end
+    end
+
+    green = ERK2PoloidalGreenCache{T}(dt, h1_half, h2_half, h1_full, h2_full,
+        influence_half, influence_full, det_half, det_full, split, cache)
+    caches.erk2_poloidal_green = green
+    return green
+end
+
 # P ← recover(V) with Dirichlet walls + φ1-column influence corrections.
 # `half` selects the stage (dt/2, phi1_half) vs finalize (dt, phi1_full)
-# Green responses. cache_lookup maps l → the cache's per-l index.
+# Green responses, precomputed per degree in `green`. cache_lookup maps
+# l → the cache's per-l index.
 # Ball: the output is P = Pt + Σaᵢhᵢ with hᵢ = p_factor⁻¹R(gᵢ), so the
 # implied recovery RHS is Wv + Σaᵢgᵢ. Row 1 enforces the W-regularity
 # Robin functional on that composed object: ρ₁ on Wv, M[1,i] on the RAW
 # gᵢ — no Ek factor (verified: residual on the corrected field is 0 to
 # machine precision; an invEk here leaves (1−Ek)·ρ₁ uncorrected).
 function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
-        cache, cache_lookup, dt::Float64, Ek::Float64, half::Bool) where {T}
+        green::ERK2PoloidalGreenCache{T}, cache_lookup, Ek::Float64,
+        half::Bool) where {T}
     cfg = velocity.poloidal.config
     nr = length(split.d1_row_inner)
-    c = half ? dt / 2 : dt
-    phis = half ? cache.phi1_half : cache.phi1_full
-    Wv, Pt, g, h1, h2 = split.work[1], split.work[2], split.work[3],
-                        split.work[4], split.work[5]
+    h1s = half ? green.h1_half : green.h1_full
+    h2s = half ? green.h2_half : green.h2_full
+    Ms = half ? green.influence_half : green.influence_full
+    dets = half ? green.det_half : green.det_full
+    Wv, Pt = split.work[1], split.work[2]
     invEk = 1.0 / Ek
     for (p_arr, v_arr) in (
         (parent(velocity.poloidal.data_real), parent(velocity.work_pol.data_real)),
@@ -458,38 +592,11 @@ function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
             Wv[1] = zero(T); Wv[nr] = zero(T)
             solve_banded!(Pt, split.p_factor[idx], Wv)
 
-            # Green responses through the SAME recovery (R zeroes the walls).
-            # Ball: row 1 applies ρ to the RAW g columns (no Ek factor) —
-            # the same aᵢ multiplies both gᵢ (row 1) and hᵢ (output).
-            phi = phis[cidx]
-            for r_idx in 1:nr
-                g[r_idx] = c * phi[r_idx, 1]
-            end
-            m11b = split.ball ?
-                   dot(split.d1_row_inner, g) -
-                   T((l + 1) * split.reg_r_inv) * g[1] : zero(T)
-            g[1] = zero(T); g[nr] = zero(T)
-            solve_banded!(h1, split.p_factor[idx], g)
-            for r_idx in 1:nr
-                g[r_idx] = c * phi[r_idx, nr]
-            end
-            m12b = split.ball ?
-                   dot(split.d1_row_inner, g) -
-                   T((l + 1) * split.reg_r_inv) * g[1] : zero(T)
-            g[1] = zero(T); g[nr] = zero(T)
-            solve_banded!(h2, split.p_factor[idx], g)
-
-            if split.ball
-                m11 = m11b; m12 = m12b
-                r1 = rho1w
-            else
-                m11 = dot(split.d1_row_inner, h1)
-                m12 = dot(split.d1_row_inner, h2)
-                r1 = dot(split.d1_row_inner, Pt)
-            end
-            m21 = dot(split.d1_row_outer, h1); m22 = dot(split.d1_row_outer, h2)
+            h1 = h1s[cidx]; h2 = h2s[cidx]; M = Ms[cidx]
+            m11 = M[1, 1]; m12 = M[1, 2]; m21 = M[2, 1]; m22 = M[2, 2]
+            r1 = split.ball ? rho1w : dot(split.d1_row_inner, Pt)
             r2 = dot(split.d1_row_outer, Pt)
-            det = m11 * m22 - m12 * m21
+            det = dets[cidx]
             a1 = (-r1 * m22 + r2 * m12) / det
             a2 = (-r2 * m11 + r1 * m21) / det
             for r_idx in 1:nr

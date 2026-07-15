@@ -98,7 +98,7 @@ Different pencil orientations are optimal for different operations:
 - theta pencil: Optimal for Legendre transforms (all latitudes local)
 - r pencil: Optimal for radial operations (all radii local)
 """
-struct SHTnsPhysField{
+mutable struct SHTnsPhysField{
     T <: Number,
     C <: SHTnsKitConfig,
     D <: PencilArray{T, 3},
@@ -128,7 +128,7 @@ Components:
 Each component is a SHTnsPhysField, potentially with different pencil
 orientations for optimal computation of different operations.
 """
-struct SHTnsVectorField{
+mutable struct SHTnsVectorField{
     T <: Number,
     R <: SHTnsPhysField{T},
     Θ <: SHTnsPhysField{T},

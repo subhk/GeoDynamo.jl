@@ -144,16 +144,45 @@ end
 """
     _solver_can_thread_implicit_updates(timestepper)
 
-Return whether field implicit updates can run on Julia threads.
+Return whether field implicit updates can run on Julia threads for `timestepper`,
+based on the scheme and the rank topology alone.
 
-Field update kernels reach MPI collectives (ExponentialAdamsBashforth2 directly; others via influence
-and transpose paths). With more than one rank, issuing those collectives from
-multiple Julia threads lets the per-rank ordering diverge and the collectives
-mismatch, which deadlocks. So restrict threaded field updates to single-rank
-runs regardless of scheme; multi-rank runs use the sequential path.
+`ExponentialAdamsBashforth2` update kernels issue MPI collectives directly, so at
+more than one rank the `@spawn`'d field solves let the per-rank collective
+ordering diverge and deadlock. `CNAB2` field kernels, by contrast, are radial-only
+banded solves that issue NO collective in their base (single-field) path, so they
+may be threaded at any rank count. Single-rank runs may thread every scheme (the
+collectives are then no-ops and ordering is irrelevant).
+
+NOTE: a *conducting inner core* or a `CONTINUITY_MAG` magnetic inner boundary adds
+an `Allreduce` inside the CNAB2 magnetic toroidal/poloidal update tasks; that
+config-dependent hazard is excluded separately at the call site via
+`_solver_multirank_magnetic_collective`, since it needs the solver state.
 """
 @inline function _solver_can_thread_implicit_updates(timestepper)
-    return Threads.nthreads() > 1 && mpi_comm_size() == 1
+    return Threads.nthreads() > 1 && (mpi_comm_size() == 1 || timestepper isa CNAB2)
+end
+
+"""
+    _solver_multirank_magnetic_collective(state)
+
+Return `true` when a multi-rank run would issue an MPI collective from inside a
+spawned magnetic field-update task, so the caller must keep the field solves
+sequential.
+
+The conducting-inner-core CNAB2 branches call `_magnetic_conducting_history_flux`
+(an `Allreduce`) in BOTH the toroidal and poloidal spawned tasks, and the
+`CONTINUITY_MAG` toroidal branch calls `_magnetic_toroidal_inner_bc_increment`
+(also an `Allreduce`). Two spawned tasks each issuing a collective can interleave
+differently across ranks and deadlock, so these configs stay on the sequential
+path. Single-rank runs never reach here (the collectives are no-ops there).
+"""
+@inline function _solver_multirank_magnetic_collective(state::SolverState)
+    mpi_comm_size() == 1 && return false
+    magnetic = state.fields.magnetic
+    magnetic === nothing && return false
+    state.magnetic_ic_admittance !== nothing && return true
+    return any(==(Int(CONTINUITY_MAG)), magnetic.toroidal.bc_type_inner)
 end
 
 """
@@ -289,11 +318,15 @@ function apply_solver_implicit_step!(state::SolverState)
     if timestepper isa ExponentialRungeKutta2
         integrate_solver_erk2_step!(state)
     else
-        if _solver_can_thread_implicit_updates(timestepper)
+        if _solver_can_thread_implicit_updates(timestepper) &&
+           !_solver_multirank_magnetic_collective(state)
             _apply_solver_implicit_updates_threaded!(state)
         else
-            # ExponentialAdamsBashforth2 issues MPI collectives during the update, so multi-rank runs
-            # must keep those field solves on one thread to avoid deadlocks.
+            # Sequential path when threading is unsafe: ExponentialAdamsBashforth2
+            # issues MPI collectives during the update at multi-rank, and CNAB2
+            # with a conducting inner core / CONTINUITY_MAG magnetic BC issues an
+            # Allreduce inside the spawned magnetic tasks. Both would let per-rank
+            # collective ordering diverge and deadlock.
             _apply_solver_implicit_updates_sequential!(state)
         end
     end
