@@ -704,6 +704,11 @@ function integrate_solver_erk2_step!(state::SolverState{
         params.timestep;
         bc_spec = nothing
     )
+    # φ1-column Green responses + influence matrices for the P-recovery. They
+    # depend only on the degree l, so they are built once (memoized) instead of
+    # per mode inside the stage and finalize recoveries.
+    pol_green = _get_or_build_erk2_poloidal_green!(
+        state.timestep_caches, pol_split, vel_pol_cache, params.timestep)
 
     mag_tor_buffers = nothing
     mag_pol_buffers = nothing
@@ -825,8 +830,8 @@ function integrate_solver_erk2_step!(state::SolverState{
     apply_solver_erk2_stage!(vel_tor_buffers, state.fields.velocity.toroidal)
     apply_solver_erk2_stage!(vel_pol_buffers, state.fields.velocity.work_pol)
     # Stage P-recovery: the stage nonlinears must see a BC-consistent stage P.
-    _erk2_poloidal_recover!(state.fields.velocity, pol_split, vel_pol_cache,
-        vel_pol_buffers.cache_lookup, params.timestep, params.Ek, true)
+    _erk2_poloidal_recover!(state.fields.velocity, pol_split, pol_green,
+        vel_pol_buffers.cache_lookup, params.Ek, true)
     if mag_tor_buffers !== nothing
         apply_solver_erk2_stage!(mag_tor_buffers, state.fields.magnetic.toroidal)
         apply_solver_erk2_stage!(mag_pol_buffers, state.fields.magnetic.poloidal)
@@ -886,8 +891,8 @@ function integrate_solver_erk2_step!(state::SolverState{
     )
     # Final P-recovery (full-step φ1 Greens) — replaces the legacy
     # no-penetration influence correction.
-    _erk2_poloidal_recover!(state.fields.velocity, pol_split, vel_pol_cache,
-        vel_pol_buffers.cache_lookup, params.timestep, params.Ek, false)
+    _erk2_poloidal_recover!(state.fields.velocity, pol_split, pol_green,
+        vel_pol_buffers.cache_lookup, params.Ek, false)
 
     if mag_tor_buffers !== nothing
         finalize_solver_erk2_field!(

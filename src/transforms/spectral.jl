@@ -409,7 +409,7 @@ This struct encapsulates all parameters needed for transforms and parallelizatio
 config = create_shtnskit_config(lmax=32, mmax=32, nlat=64, nlon=128)
 ```
 """
-struct SHTnsKitConfig{T <: AbstractFloat, P, FP, TP, B <: SHTnsBuffers} <:
+mutable struct SHTnsKitConfig{T <: AbstractFloat, P, FP, TP, B <: SHTnsBuffers} <:
        AbstractSHTnsConfig
     # SHTnsKit configuration - the underlying transform engine
     sht_config::SHTnsKit.SHTConfig

@@ -836,10 +836,12 @@ function transform_field_and_gradients_to_physical!(
 ) where {T}
     main_physical_field = solver_main_physical_field(𝔽)
     # The main physical field (𝔽.temperature/composition) is a dedicated buffer
-    # that solver_zero_scalar_work_arrays! does NOT touch. When skip_main_synthesis,
-    # it was already synthesized this step by the up-front refresh in
-    # compute_solver_nonlinear_terms! (spectral unchanged since), so re-synthesizing
-    # is redundant. The tangential/radial GRADIENT synthesis below is still required.
+    # that solver_zero_scalar_work_arrays! does NOT touch. Nothing on the solver
+    # step reads it any more — buoyancy is injected in spectral space, and the
+    # scalar advection uses the GRADIENT, not the field itself — so when
+    # skip_main_synthesis we leave it stale; the output/restart path refreshes it
+    # via sync_output_physical_scalars!. The tangential/radial GRADIENT synthesis
+    # below is still required.
     skip_main_synthesis || scalar_spectral_to_physical!(𝔽.spectral, main_physical_field)
     # EXACT tangential gradient via the raw sphtor synthesis of the scalar's
     # own coefficients: S = 𝔽.spectral, T = 0 gives (∂θf, (1/sinθ)∂φf) on the
@@ -881,7 +883,7 @@ end
 function solver_zero_scalar_work_arrays!(𝔽::ScalarFieldType{T}) where {T}
     fill!(parent(𝔽.work_spectral.data_real), zero(T))
     fill!(parent(𝔽.work_spectral.data_imag), zero(T))
-    fill!(parent(𝔽.work_physical.data), zero(T))
+    # work_physical is never read on the solver path; skip zeroing it.
     fill!(parent(𝔽.advection_physical.data), zero(T))
     fill!(parent(𝔽.nonlinear.data_real), zero(T))
     fill!(parent(𝔽.nonlinear.data_imag), zero(T))
@@ -976,7 +978,11 @@ function solver_compute_velocity_nonlinear!(
         domain,
         solver_params
     )
-    finish_velocity_nonlinear!(velocity_fields)
+    finish_velocity_nonlinear!(
+        velocity_fields,
+        temperature_field,
+        composition_field,
+        solver_params)
     return velocity_fields
 end
 
@@ -1031,21 +1037,12 @@ function GeoDynamo.compute_composition_nonlinear!(
 end
 
 function compute_solver_nonlinear_terms!(state::SolverState; reuse_physical::Bool = true)
-    # Buoyancy reads the scalar PHYSICAL fields during the velocity force
-    # assembly below. Refresh them from the current spectral state FIRST —
-    # historically they were only populated by each scalar's own nonlinear
-    # pass (which runs AFTER velocity), so buoyancy saw zeros on the first
-    # step and a one-step-lagged temperature afterwards (an O(dt)
-    # inconsistency). One extra scalar synthesis per field per step;
-    # the scalar passes later re-do it (acceptable; optimization noted).
-    scalar_spectral_to_physical!(
-        state.fields.temperature.spectral,
-        solver_main_physical_field(state.fields.temperature))
-    if state.fields.composition !== nothing
-        scalar_spectral_to_physical!(
-            state.fields.composition.spectral,
-            solver_main_physical_field(state.fields.composition))
-    end
+    # Buoyancy is linear in the scalar fields and enters the velocity poloidal
+    # equation purely through Q_F (the radial-force scalar), so it is injected
+    # DIRECTLY in spectral space in finish_velocity_nonlinear! — no scalar
+    # synthesis to the grid is needed per step. The main physical T/C buffers are
+    # therefore left stale during the step; the output/restart path refreshes
+    # them via sync_output_physical_scalars!.
 
     # The velocity Lorentz force (add_lorentz_force!) reads the magnetic field
     # and current in PHYSICAL space. Those buffers are otherwise refreshed only

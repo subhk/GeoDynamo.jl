@@ -242,10 +242,18 @@ end
 # DEALIASED grids (nbin > mmax+1) the per-θ_comm-rank m-ownership differs, so a
 # θ_comm m-axis redistribution is required.
 #
-# We implement that redistribution by Allgatherv-ing the full m∈0..mmax columns
-# onto every θ_comm rank (one collective, batched over l_local × nr).  This
-# replicates only the small spectral m-axis; the heavy Legendre/FFT work stays
-# θ-distributed inside dist_synthesis!/dist_analysis!.
+# Two redistribution schemes are available, selected ONCE at build time by a
+# volume gate in `_build_mbridge`:
+#   * Allgatherv (default): gather the full m∈0..mmax columns onto every θ_comm
+#     rank (one collective, batched over l_local × nr). Simple and latency-cheap,
+#     but every rank receives the whole spectrum and keeps only its ~1/θ_size share.
+#   * Alltoallv (θ_size ≥ 4 on dealiased grids): a personalized exchange that moves
+#     only the columns each rank actually needs — the source (even-split) and
+#     destination (plan-bin) m-partitions are both disjoint & covering, so each
+#     m-column has exactly one owner on each side. This drops the replicated
+#     receive volume and the full-m reassembly at higher rank counts.
+# Either way only the small spectral m-axis crosses the wire; the heavy Legendre/
+# FFT work stays θ-distributed inside dist_synthesis!/dist_analysis!.
 
 # Concrete struct for per-config θ_comm m-redistribution metadata.
 # Replacing the old NamedTuple + IdDict{Any,Any} with a typed struct gives
@@ -274,6 +282,27 @@ struct _MBridge
     plan_send       ::Vector{ComplexF64}
     plan_recv       ::Vector{ComplexF64}
     plan_vbuf       ::MPI.VBuffer{Vector{ComplexF64}}
+    # --- Alltoallv (personalized-exchange) path, selected ONCE at build time ---
+    # When `use_a2a`, spec_storage_to_solve!/solve_to_spec_storage! use
+    # _fwd_a2a!/_bwd_a2a!, which move only the m-columns each rank actually needs
+    # (grouped per peer) instead of Allgatherv replicating the whole valid
+    # m-spectrum to every θ_comm member. When `use_a2a` is false the Allgatherv
+    # fields above are used. The gate is a volume check (see `_build_mbridge`).
+    use_a2a         ::Bool
+    # Forward (spec→solve): this rank's spec columns grouped by their plan-owner.
+    f_scnt          ::Vector{Int}       # send elements to each θ-rank (dest-major)
+    f_rcnt          ::Vector{Int}       # recv elements from each θ-rank (src-major)
+    f_cols          ::Vector{Int}       # dest-major list of local spec column jm (pack)
+    f_mi            ::Vector{Int}       # src-major list of this rank's plan mi (scatter)
+    f_sbuf          ::MPI.VBuffer{Vector{ComplexF64}}
+    f_rbuf          ::MPI.VBuffer{Vector{ComplexF64}}
+    # Backward (solve→spec): this rank's plan columns grouped by their spec-owner.
+    b_scnt          ::Vector{Int}
+    b_rcnt          ::Vector{Int}
+    b_mi            ::Vector{Int}       # dest-major list of this rank's plan mi (pack)
+    b_cols          ::Vector{Int}       # src-major list of local spec column jm (scatter)
+    b_sbuf          ::MPI.VBuffer{Vector{ComplexF64}}
+    b_rbuf          ::MPI.VBuffer{Vector{ComplexF64}}
 end
 
 function _build_mbridge(cfg, plan)
@@ -323,12 +352,87 @@ function _build_mbridge(cfg, plan)
     plan_recv       = Vector{ComplexF64}(undef, sum(plan_recvcounts))
     plan_vbuf       = MPI.VBuffer(plan_recv, plan_recvcounts)
 
+    # --- Alltoallv path metadata + volume gate ----------------------------------
+    # Both partitions of the valid m-set {0..mmax} are known here: the spec side
+    # (even split — m_counts/firsts) and the plan side (bin split — plan_m_all/
+    # plan_counts). Each is disjoint & covering, so every m-column has exactly one
+    # owner on each side. Group this rank's columns by the OTHER side's owner so an
+    # Alltoallv moves only the columns actually exchanged (vs Allgatherv, which
+    # replicates the full spectrum to every rank).
+    m_firsts_i = Int.(firsts)
+    plan_sets  = Vector{Set{Int}}(undef, θ_size)
+    let c = 0
+        for d in 1:θ_size
+            plan_sets[d] = Set(plan_m_all[c + 1 : c + plan_counts[d]])
+            c += plan_counts[d]
+        end
+    end
+    # spec-owner d holds the contiguous 0-based m-range [firsts[d]-1, +m_counts[d]).
+    spec_sets = [Set((m_firsts_i[d] - 1):(m_firsts_i[d] - 1 + m_counts[d] - 1)) for d in 1:θ_size]
+    # this rank's local spec columns → 0-based m (spec local range is contiguous).
+    my_spec_m = [first(spec_m_range) - 1 + jm - 1 for jm in 1:m_local_cnt]
+    # this rank's valid plan columns (m, mi), ordered by increasing m to match the
+    # spec-side pack order for every peer.
+    my_plan_sorted = sort([(mlocal[mi], mi) for mi in plan_valid_cols])
+
+    unit   = l_local * nr
+    f_scnt = zeros(Int, θ_size); f_rcnt = zeros(Int, θ_size)
+    f_cols = Int[]; f_mi = Int[]
+    b_scnt = zeros(Int, θ_size); b_rcnt = zeros(Int, θ_size)
+    b_mi   = Int[]; b_cols = Int[]
+    for d in 1:θ_size
+        # fwd send to plan-owner d: my spec columns whose m lies in d's plan set.
+        cols = [jm for (jm, m) in enumerate(my_spec_m) if 0 <= m <= mmax && m in plan_sets[d]]
+        append!(f_cols, cols); f_scnt[d] = length(cols) * unit
+        # bwd send to spec-owner d: my plan columns whose m lies in d's spec set.
+        mis = [mi for (m, mi) in my_plan_sorted if m in spec_sets[d]]
+        append!(b_mi, mis);    b_scnt[d] = length(mis) * unit
+    end
+    for s in 1:θ_size
+        # fwd recv from spec-owner s: my plan columns whose m lies in s's spec set.
+        mis = [mi for (m, mi) in my_plan_sorted if m in spec_sets[s]]
+        append!(f_mi, mis);    f_rcnt[s] = length(mis) * unit
+        # bwd recv from plan-owner s: my spec columns whose m lies in s's plan set.
+        cols = [jm for (jm, m) in enumerate(my_spec_m) if 0 <= m <= mmax && m in plan_sets[s]]
+        append!(b_cols, cols); b_rcnt[s] = length(cols) * unit
+    end
+    f_s    = Vector{ComplexF64}(undef, sum(f_scnt)); f_r = Vector{ComplexF64}(undef, sum(f_rcnt))
+    b_s    = Vector{ComplexF64}(undef, sum(b_scnt)); b_r = Vector{ComplexF64}(undef, sum(b_rcnt))
+    f_sbuf = MPI.VBuffer(f_s, f_scnt); f_rbuf = MPI.VBuffer(f_r, f_rcnt)
+    b_sbuf = MPI.VBuffer(b_s, b_scnt); b_rbuf = MPI.VBuffer(b_r, b_rcnt)
+
+    # Volume gate — identical on every rank (plan_counts/m_counts come from Allgather).
+    # Allgatherv delivers the FULL valid m-spectrum (mmax+1 columns) to every rank.
+    # Alltoallv delivers to the busiest rank only its plan-owned valid columns
+    # (max(plan_counts)), but pays the higher latency of a full personalized
+    # exchange (θ_size-1 peers) in place of Allgather's log-structured schedule.
+    # That saved bandwidth overcomes the latency penalty only when the busiest rank
+    # moves less than ~two-thirds of the replicated spectrum. This threshold was
+    # calibrated against measured ms/step: the busiest rank's share of the valid
+    # spectrum is ≥0.74 at θ_size==2 (Allgatherv wins — the dealiased plan piles the
+    # low-m bins onto rank 0) but ≤0.53 at θ_size==4 (Alltoallv wins 1.7–4.6×), so
+    # `3·max < 2·(mmax+1)` (share < 2/3) sits cleanly in the gap and reduces to
+    # θ_size ≥ 4 on the dealiased grids used here.
+    # `GEODYNAMO_MBRIDGE_A2A` is a validation/benchmark-only override ("1" forces
+    # Alltoallv, "0" forces Allgatherv); unset ⇒ the volume gate decides (production).
+    gate    = θ_size > 1 && 3 * maximum(plan_counts) < 2 * (mmax + 1)
+    use_a2a = haskey(ENV, "GEODYNAMO_MBRIDGE_A2A") ? (ENV["GEODYNAMO_MBRIDGE_A2A"] == "1") : gate
+    # The forward/backward kernels below issue a collective (Alltoallv! vs
+    # Allgatherv!) over θ_comm, so every rank in the communicator MUST pick the same
+    # branch. The volume gate already agrees on all ranks (its inputs come from
+    # Allgather), but the ENV override does not — set inconsistently it would deadlock.
+    # Broadcast the decision from the root so the communicator can never disagree.
+    use_a2a = MPI.bcast(use_a2a, θ_comm; root = 0)
+
     return _MBridge(θ_comm, θ_size,
                     spec_m_range, nr, l_local, mmax,
                     m_counts, Int.(firsts),
                     send, recv, vbuf, full3, local_full,
                     plan_valid_cols, plan_send_cnt, plan_counts, plan_m_all,
-                    plan_send, plan_recv, plan_vbuf)
+                    plan_send, plan_recv, plan_vbuf,
+                    use_a2a,
+                    f_scnt, f_rcnt, f_cols, f_mi, f_sbuf, f_rbuf,
+                    b_scnt, b_rcnt, b_mi, b_cols, b_sbuf, b_rbuf)
 end
 
 function _get_mbridge(cfg, plan)
@@ -343,6 +447,85 @@ function _get_mbridge(cfg, plan)
     end
 end
 
+# Alltoallv forward kernel (spec→solve). Groups this rank's spec columns by their
+# plan-owner, does one personalized exchange, and writes received columns straight
+# into `sp[il, k, mi]` — no full-m block, no replicate-to-all. All metadata is
+# prebuilt in `_build_mbridge`; the send/recv layout is (il fastest, column, k) per
+# peer block so pack and scatter agree. Selected only when `mb.use_a2a` (volume gate).
+function _fwd_a2a!(sp, mb::_MBridge, sr, si)
+    l_local = mb.l_local; nr = mb.nr; unit = l_local * nr
+    s = mb.f_sbuf.data::Vector{ComplexF64}
+    r = mb.f_rbuf.data::Vector{ComplexF64}
+    f_scnt = mb.f_scnt; f_rcnt = mb.f_rcnt; f_cols = mb.f_cols; f_mi = mb.f_mi
+    # 1. Pack dest-major: for each plan-owner d, my spec columns bound for d.
+    idx = 1; c0 = 0
+    @inbounds for d in 1:mb.θ_size
+        n = f_scnt[d] ÷ unit
+        for k in 1:nr, j in 1:n, il in 1:l_local
+            jm = f_cols[c0 + j]
+            s[idx] = complex(sr[il, jm, k], si[il, jm, k]); idx += 1
+        end
+        c0 += n
+    end
+    # 2. Personalized exchange over θ_comm (cached VBuffers).
+    MPI.Alltoallv!(mb.f_sbuf, mb.f_rbuf, mb.θ_comm)
+    # 3. Scatter received columns straight into the plan-oriented solve.
+    fill!(sp, zero(ComplexF64))
+    base = 0; c0 = 0
+    @inbounds for src in 1:mb.θ_size
+        n = f_rcnt[src] ÷ unit
+        for j in 1:n
+            mi = f_mi[c0 + j]
+            for k in 1:nr, il in 1:l_local
+                sp[il, k, mi] = r[base + (k - 1) * (n * l_local) + (j - 1) * l_local + il]
+            end
+        end
+        base += f_rcnt[src]; c0 += n
+    end
+    return nothing
+end
+
+# Alltoallv backward kernel (solve→spec) — mirror of _fwd_a2a!. Groups this rank's
+# plan-owned columns by their even-split spec-owner, exchanges, and writes straight
+# into `sr`/`si` (dropping the zero-padded full-m block). Imag part of m==0 is pinned
+# to zero, matching the Allgatherv path.
+function _bwd_a2a!(sr, si, mb::_MBridge, sp)
+    l_local = mb.l_local; nr = mb.nr; unit = l_local * nr
+    s = mb.b_sbuf.data::Vector{ComplexF64}
+    r = mb.b_rbuf.data::Vector{ComplexF64}
+    b_scnt = mb.b_scnt; b_rcnt = mb.b_rcnt; b_mi = mb.b_mi; b_cols = mb.b_cols
+    # 1. Pack dest-major: for each spec-owner d, my plan columns bound for d.
+    idx = 1; c0 = 0
+    @inbounds for d in 1:mb.θ_size
+        n = b_scnt[d] ÷ unit
+        for k in 1:nr, j in 1:n, il in 1:l_local
+            mi = b_mi[c0 + j]
+            s[idx] = sp[il, k, mi]; idx += 1
+        end
+        c0 += n
+    end
+    # 2. Personalized exchange over θ_comm.
+    MPI.Alltoallv!(mb.b_sbuf, mb.b_rbuf, mb.θ_comm)
+    # 3. Write received columns into this rank's even-split spec storage.
+    fill!(sr, zero(eltype(sr))); fill!(si, zero(eltype(si)))
+    spec_m_first = Int(first(mb.spec_m_range))
+    base = 0; c0 = 0
+    @inbounds for src in 1:mb.θ_size
+        n = b_rcnt[src] ÷ unit
+        for j in 1:n
+            jm = b_cols[c0 + j]
+            m  = spec_m_first + jm - 2            # 0-based m of local spec column jm
+            for k in 1:nr, il in 1:l_local
+                c = r[base + (k - 1) * (n * l_local) + (j - 1) * l_local + il]
+                sr[il, jm, k] = real(c)
+                si[il, jm, k] = (m == 0) ? zero(eltype(si)) : imag(c)
+            end
+        end
+        base += b_rcnt[src]; c0 += n
+    end
+    return nothing
+end
+
 """
     spec_storage_to_solve!(cfg, solve, sr, si, plan)
 
@@ -354,6 +537,11 @@ are zeroed.
 """
 function spec_storage_to_solve!(cfg, solve, sr, si, plan)
     mb = _get_mbridge(cfg, plan)
+    # Volume gate chose the Alltoallv path at setup (θ_size ≥ 4 on dealiased grids).
+    if mb.use_a2a
+        _fwd_a2a!(parent(solve)::AbstractArray{ComplexF64, 3}, mb, sr, si)
+        return solve
+    end
     # Type-assert the cached fields / plan / cfg to concrete types so the
     # hot loops below specialize and DON'T box (mb is a concrete _MBridge; the
     # asserts are now redundant but harmless and document the kernel's expected types).
@@ -421,6 +609,11 @@ even-split (mmax+1) m-partition), performing the θ_comm m-axis redistribution.
 """
 function solve_to_spec_storage!(cfg, sr, si, solve, plan)
     mb = _get_mbridge(cfg, plan)
+    # Volume gate chose the Alltoallv path at setup (mirrors spec_storage_to_solve!).
+    if mb.use_a2a
+        _bwd_a2a!(sr, si, mb, parent(solve)::AbstractArray{ComplexF64, 3})
+        return nothing
+    end
     # Concrete-typed locals (_get_mbridge returns a concrete _MBridge) → type-stable kernel below.
     _solve_to_spec_kernel!(sr, si, mb.local_full::Array{ComplexF64, 3},
                            parent(solve)::AbstractArray{ComplexF64, 3}, mb.θ_comm,

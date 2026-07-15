@@ -286,6 +286,29 @@ struct PoloidalSplitMatrices{T}
     work::NTuple{6, Vector{T}}
 end
 
+# ERK2 W-split P-recovery Green responses, per degree l and per stage half
+# (dt/2 columns for the stage, dt columns for the finalize):
+#   hᵢ = A_P⁻¹R(c·φ1(cA)·eᵢ)  with R zeroing the wall rows,
+#   M[j,i] = endpoint residual row j applied to hᵢ (ball: row 1 is the inner
+#   W-regularity Robin applied to the RAW gᵢ columns, as in the recovery).
+# These depend only on l — not on m, and not on the real/imag half — so they
+# are built once per (split, ERK2 cache, dt) instead of per mode. Vectors are
+# indexed by the ERK2 cache's degree index (`cache_lookup[l]`); `split` and
+# `cache` are kept for the identity check that invalidates a stale build.
+struct ERK2PoloidalGreenCache{T}
+    dt::Float64
+    h1_half::Vector{Vector{T}}
+    h2_half::Vector{Vector{T}}
+    h1_full::Vector{Vector{T}}
+    h2_full::Vector{Vector{T}}
+    influence_half::Vector{Matrix{T}}   # 2×2 per degree
+    influence_full::Vector{Matrix{T}}
+    det_half::Vector{T}
+    det_full::Vector{T}
+    split::PoloidalSplitMatrices{T}
+    cache::ERK2StageCache{T}
+end
+
 mutable struct TimestepCaches{T}
     # EAB2 exponential integrator caches.
     etd_velocity_toroidal::Union{EAB2CacheEntry{T}, Nothing}
@@ -321,6 +344,8 @@ mutable struct TimestepCaches{T}
     erk2_boundary_specs::Dict{Tuple{Symbol, Int}, SolverERK2BoundarySpec{T}}
     # Stage-4B: lazily built poloidal W-split operators (CNAB2 velocity path).
     poloidal_split::Union{PoloidalSplitMatrices{T}, Nothing}
+    # ERK2 velocity-poloidal recovery Greens (l-only; built once per dt).
+    erk2_poloidal_green::Union{ERK2PoloidalGreenCache{T}, Nothing}
     # RungeKutta3 (CB3) per-substage implicit operators + poloidal W-split. RK3 uses
     # three distinct γ coefficients, so each substage's (γ·dt)-shifted operators differ;
     # they are cached per stage (slots 1..3) and rebuilt only when dt changes. Without
@@ -341,6 +366,7 @@ function TimestepCaches{T}() where {T}
         ReentrantLock(),
         Dict{Symbol, SolverERK2FieldBuffers{T}}(),
         Dict{Tuple{Symbol, Int}, SolverERK2BoundarySpec{T}}(),
+        nothing,
         nothing,
         Any[nothing, nothing, nothing],
         Union{PoloidalSplitMatrices{T}, Nothing}[nothing, nothing, nothing],
