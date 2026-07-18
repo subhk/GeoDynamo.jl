@@ -18,7 +18,7 @@
 #   JULIA=/path/to/julia test/run_mpi_r_theta_restart_roundtrip.sh
 set -euo pipefail
 
-: "${JULIA:=$HOME/.julia/juliaup/julia-1.11.1+0.aarch64.apple.darwin14/bin/julia}"
+: "${JULIA:=julia}"
 : "${MPIEXEC_TIMEOUT:=300}"
 # Pin BLAS to 1 thread per rank — multi-threaded BLAS oversubscribes under MPI.
 : "${OPENBLAS_NUM_THREADS:=1}"
