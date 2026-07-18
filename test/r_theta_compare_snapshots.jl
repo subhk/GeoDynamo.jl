@@ -35,6 +35,7 @@ tensor_names = ["temp_real", "temp_imag",
 
 all_pass = true
 for (grid, file) in zip(grids[2:end], files[2:end])
+    global all_pass
     nlm, nr, tensors = read_snapshot(file)
     @assert nlm == nlm_ref && nr == nr_ref "Dimension mismatch for $grid"
     local_pass = true
