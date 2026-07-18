@@ -278,7 +278,8 @@ additional_tests = (
     # Phase-3 DistTransposePlan gate (Task 5)
     # Runs as a np=1 smoke test inside the suite (Alm↔spec_solve roundtrip,
     # scalar+vector dist_* roundtrip, partition-neutrality).  Multi-rank gate
-    # (2×2/2×1 p3_transpose + mpi_parallel_invariants) runs via the MPI shell runner.
+    # (4×1/2×2 p3_transpose + mpi_parallel_invariants) runs via
+    # test/run_mpi_p3_invariants.sh.
     "p3_transpose.jl",
     # Thread-safety regression: concurrent get_radial_work! Dict inserts from the
     # threaded implicit update must not corrupt the shared radial_work cache.

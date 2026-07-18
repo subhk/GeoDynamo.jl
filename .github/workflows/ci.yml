@@ -77,15 +77,15 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  # Multi-rank + multi-thread deadlock guard. The single-process `test` job
-  # cannot exercise it: the regression test in `test/mpi_threaded_step_smoke.jl`
-  # only bites under >=2 MPI ranks each with >=2 Julia threads. Linux/MPICH so
-  # MPIEXEC_TIMEOUT bounds a hang into a non-zero exit; timeout-minutes is a
-  # hard backstop if that ever fails to fire.
+  # Multi-rank MPI CPU correctness gates. The single-process `test` job cannot
+  # exercise rank decomposition, the two m-bridge communication branches,
+  # distributed I/O offsets, or multi-rank/thread collective ordering.
+  # MPIEXEC_TIMEOUT bounds a hung collective into a non-zero exit;
+  # timeout-minutes is the hard backstop.
   mpi-deadlock-guard:
-    name: MPI threaded-step deadlock guard
+    name: MPI CPU correctness gates
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -113,8 +113,37 @@ jobs:
           NTHREADS: '2'
         run: bash test/run_mpi_threaded_smoke.sh
 
+      - name: Distributed transpose and layout invariants
+        env:
+          MPIEXEC_TIMEOUT: '300'
+        run: bash test/run_mpi_p3_invariants.sh
+
+      - name: CNAB2 and ERK2 distributed equivalence
+        env:
+          MPIEXEC_TIMEOUT: '300'
+          NRANKS: '2'
+        run: bash test/run_mpi_cnab2_erk2_equivalence_smoke.sh
+
+      - name: Hydrodynamic process-grid equivalence
+        env:
+          MPIEXEC_TIMEOUT: '300'
+          NRANKS: '4'
+        run: bash test/run_mpi_r_theta_equivalence.sh
+
+      - name: MHD and composition process-grid equivalence
+        env:
+          MPIEXEC_TIMEOUT: '300'
+          NRANKS: '4'
+        run: bash test/run_mpi_r_theta_equivalence_mhd.sh
+
       - name: Multi-rank distributed write round-trip
         env:
           MPIEXEC_TIMEOUT: '300'
           NRANKS: '2'
+          GEODYNAMO_PROC_GRID: '1x2'
         run: bash test/run_mpi_write_roundtrip_smoke.sh
+
+      - name: Distributed restart round-trip matrix
+        env:
+          MPIEXEC_TIMEOUT: '300'
+        run: bash test/run_mpi_r_theta_restart_roundtrip.sh
