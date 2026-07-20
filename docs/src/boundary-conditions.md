@@ -180,9 +180,12 @@ For simulations with a solid, electrically conducting inner core:
 
     **Scope (current implementation):** equal conductivity `σ_ic = σ_oc`; inner core
     co-rotating with the frame (no differential rotation / advection); `CNAB2`
-    timestepper only (conducting + `ExponentialAdamsBashforth2` raises an error). Variable
+    timestepper only — `RungeKutta3`, `ExponentialRungeKutta2` and
+    `ExponentialAdamsBashforth2` all raise an error rather than silently falling back
+    to an insulating inner boundary. Variable
     `inner_core_conductivity_ratio` and inner-core rotation are not yet wired into
-    the magnetic solve. Design + scope rationale:
+    the magnetic solve (a non-unit ratio is currently ignored, not honoured).
+    Design + scope rationale:
     `docs/superpowers/specs/2026-05-26-conducting-inner-core-design.md`.
 
 #### Perfect Conductor

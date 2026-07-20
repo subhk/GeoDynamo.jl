@@ -197,6 +197,7 @@ additional_tests = (
     "composition_magnetic_fields.jl",
     "allocation_runtime_checks.jl",
     "magnetic_boundary_numerical.jl",
+    "magnetic_shell_freedecay.jl",
     "velocity_boundary_numerical.jl",
     "temperature_boundary_numerical.jl",
     "composition_boundary_numerical.jl",

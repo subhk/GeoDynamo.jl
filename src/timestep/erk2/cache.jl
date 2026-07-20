@@ -1,6 +1,141 @@
 # ERK2 cache lifecycle: cache builders, memoized accessors, and bundle persistence.
 
 """
+    solver_erk2_constraint_row(T, side, boundary_idx, l, nr) -> Vector{T}
+
+Dense length-`nr` row of the linear constraint that `solver_enforce_erk2_bc!`
+imposes at `boundary_idx` for degree `l`.
+
+The generator rows and the endpoint projection are both derived from this one
+function, so the two can never drift apart — previously the cache builders
+re-stamped the rows by hand and only source-text matching tied them together.
+"""
+function solver_erk2_constraint_row(
+        ::Type{T},
+        side::SolverERK2BoundarySide{T},
+        boundary_idx::Int,
+        l::Int,
+        nr::Int
+) where {T}
+    row = zeros(T, nr)
+    if side.type === :dirichlet || (side.l0_dirichlet && l == 0)
+        row[boundary_idx] = one(T)
+        return row
+    end
+    copyto!(row, side.stencil)
+    self_correction = side.fixed_correction
+    if side.use_l_correction
+        self_correction += side.l_sign * T(l) * side.r_inv
+    end
+    row[boundary_idx] += self_correction
+    return row
+end
+
+"""
+    solver_erk2_constrained_propagators(operator, row_inner, row_outer, dt, l)
+
+Build the ERK2 propagator matrices for a radial generator subject to the two
+endpoint constraints `row_inner · x = v_in`, `row_outer · x = v_out`.
+
+Stamping a constraint row into a generator and then exponentiating it does *not*
+impose the constraint: `exp(dt·A)` treats that row as an evolution equation for
+the endpoint, so the interior only ever sees the boundary condition through the
+post-hoc endpoint projection, one step late. For Dirichlet rows the two happen
+to coincide, but for the derivative (Robin) rows used by the magnetic poloidal
+insulating condition the lag is a genuine error in the diffusion operator: it
+grows with `dt` *and* with radial resolution, and shows up directly as a
+free-decay rate tens of percent below the analytic shell eigenvalue.
+
+The constraint is instead eliminated. With `I` the interior indices and
+`b = (1, nr)` the endpoints, the constraints give `x_b = g0 + G·x_I`, so the
+interior obeys the reduced ODE
+
+    d/dt x_I = Ã·x_I + A_Ib·g0 + N_I,      Ã = A_II + A_Ib·G
+
+whose exponential propagators are exact. `g0` is recovered from the incoming
+endpoint values (`g0 = x_b − G·x_I`, exact whenever the incoming state satisfies
+the constraint), which keeps the inhomogeneous case correct without any change
+to the caller. The results are embedded back into `nr × nr` matrices so the
+staged integrator is untouched, and the trailing endpoint projection becomes a
+no-op rather than the sole enforcement.
+
+Returns `(E_half, E_full, phi1_half, phi1_full, phi2_full)`.
+"""
+function solver_erk2_constrained_propagators(
+        operator::Matrix{T},
+        row_inner::Vector{T},
+        row_outer::Vector{T},
+        dt::Float64,
+        l::Int
+) where {T}
+    nr = size(operator, 1)
+    nr >= 5 || throw(ArgumentError(
+        "ERK2 boundary elimination needs nr >= 5 radial points, got nr=$nr"))
+    interior = 2:(nr - 1)
+    edges = [1, nr]
+    n_int = length(interior)
+
+    # x_b = g0 + G·x_I from the two constraint rows.
+    C_bb = T[row_inner[1] row_inner[nr]
+             row_outer[1] row_outer[nr]]
+    C_bI = Matrix{T}(undef, 2, n_int)
+    @inbounds for (jj, j) in enumerate(interior)
+        C_bI[1, jj] = row_inner[j]
+        C_bI[2, jj] = row_outer[j]
+    end
+    # Relative test: the endpoint coefficients scale like 1/h, so an absolute
+    # threshold would wave a singular block through on a fine grid.
+    C_bb_scale = max(maximum(abs, C_bb), one(T))
+    abs(LA.det(C_bb)) > eps(T) * C_bb_scale^2 || throw(ArgumentError(
+        "ERK2 boundary constraints are not solvable for the endpoint values " *
+        "(singular 2x2 endpoint block at l=$l); the radial stencil probably " *
+        "spans the whole domain"))
+    G = -(C_bb \ C_bI)
+
+    A_II = operator[interior, interior]
+    A_Ib = operator[interior, edges]
+    A_tilde = A_II + A_Ib * G
+
+    # Interior -> full expansion: endpoints follow the (homogeneous) constraint.
+    # Any inhomogeneous offset is reinstated by the endpoint projection.
+    M = zeros(T, nr, n_int)
+    @inbounds for (jj, j) in enumerate(interior)
+        M[j, jj] = one(T)
+    end
+    @inbounds for jj in 1:n_int
+        M[1, jj] = G[1, jj]
+        M[nr, jj] = G[2, jj]
+    end
+
+    function embed(interior_block::Matrix{T}, edge_block::Union{Matrix{T}, Nothing})
+        out = zeros(T, nr, nr)
+        out[:, interior] = M * interior_block
+        if edge_block !== nothing
+            out[:, edges] = M * edge_block
+        end
+        return out
+    end
+
+    # Scale s: x_I(s) = e^{sÃ}x_I + s·φ1(sÃ)·(A_Ib·g0 + N_I), and
+    # g0 = x_b − G·x_I is linear in the incoming full vector.
+    function propagators(s::Float64)
+        sT = T(s)
+        sA = sT .* A_tilde
+        Es = exp(sA)
+        phi1s = solver_compute_phi1_function(sA, Es)
+        forcing = (sT .* phi1s) * A_Ib         # multiplies g0
+        return (embed(Es - forcing * G, forcing), embed(phi1s, nothing), sA, Es)
+    end
+
+    E_half, phi1_half, _, _ = propagators(dt / 2)
+    E_full, phi1_full, sA_full, Es_full = propagators(dt)
+    phi2_full = embed(
+        solver_compute_phi2_function(sA_full, Es_full; l = l), nothing)
+
+    return (E_half, E_full, phi1_half, phi1_full, phi2_full)
+end
+
+"""
     create_solver_erk2_scalar_cache(T, config, domain, diffusivity, dt, boundary_condition; ...)
 
 Precompute ERK2 propagators for scalar fields with embedded boundary rows.
@@ -194,10 +329,16 @@ function create_solver_erk2_cache(
 end
 
 """
-    create_solver_erk2_magnetic_toroidal_cache(T, config, domain, diffusivity, dt; ...)
+    create_solver_erk2_magnetic_toroidal_cache(T, config, domain, diffusivity, dt; bc_spec, ...)
 
-Precompute ERK2 propagators for magnetic toroidal fields with embedded
-homogeneous Dirichlet boundary rows.
+Precompute ERK2 propagators for magnetic toroidal fields with the endpoint
+constraints eliminated from the generator.
+
+`bc_spec` supplies the endpoint descriptors; it defaults to the shell insulating
+pair (homogeneous Dirichlet on both walls). Pass the ball spec built with
+`inner_regularity = true` to get the center-regularity inner row. The spec must
+be the same one the staged integrator enforces after each step — see
+`solver_erk2_constrained_propagators`.
 """
 function create_solver_erk2_magnetic_toroidal_cache(
         ::Type{T},
@@ -205,6 +346,7 @@ function create_solver_erk2_magnetic_toroidal_cache(
         domain::RadialDomainType,
         diffusivity::Float64,
         dt::Float64;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -214,6 +356,8 @@ function create_solver_erk2_magnetic_toroidal_cache(
     bandwidth = laplacian.bandwidth
     r_inv_sq = @views domain.r[1:nr, 2]
     l_values = unique(config.l_values)
+    spec = bc_spec === nothing ?
+           build_solver_erk2_magnetic_tor_bc(T, domain) : bc_spec
 
     E_half = Matrix{T}[]
     E_full = Matrix{T}[]
@@ -222,7 +366,7 @@ function create_solver_erk2_magnetic_toroidal_cache(
     phi2_full = Matrix{T}[]
 
     if mpi_rank() == 0
-        @info "Creating solver ERK2 cache for magnetic toroidal with embedded Dirichlet BCs"
+        @info "Creating solver ERK2 cache for magnetic toroidal with eliminated BC rows"
     end
 
     for l in l_values
@@ -234,31 +378,24 @@ function create_solver_erk2_magnetic_toroidal_cache(
             operator_dense[n, n] -= diffusivity * l_factor * r_inv_sq[n]
         end
 
-        operator_dense[1, :] .= zero(T)
-        operator_dense[nr, :] .= zero(T)
-
         if use_krylov
+            operator_dense[1, :] .= zero(T)
+            operator_dense[nr, :] .= zero(T)
             push!(E_half, operator_dense)
             push!(E_full, operator_dense)
             push!(phi1_half, operator_dense)
             push!(phi1_full, operator_dense)
             push!(phi2_full, operator_dense)
         else
-            operator_half = (dt / 2) .* operator_dense
-            operator_full = dt .* operator_dense
-
-            E_half_l = exp(operator_half)
-            E_full_l = exp(operator_full)
-            push!(E_half, Matrix{T}(E_half_l))
-            push!(E_full, Matrix{T}(E_full_l))
-
-            phi1_half_l = solver_compute_phi1_function(operator_half, E_half_l)
-            phi1_full_l = solver_compute_phi1_function(operator_full, E_full_l)
-            push!(phi1_half, Matrix{T}(phi1_half_l))
-            push!(phi1_full, Matrix{T}(phi1_full_l))
-
-            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l = l)
-            push!(phi2_full, Matrix{T}(phi2_full_l))
+            row_inner = solver_erk2_constraint_row(T, spec.inner, 1, l, nr)
+            row_outer = solver_erk2_constraint_row(T, spec.outer, nr, l, nr)
+            E_h, E_f, p1_h, p1_f, p2_f = solver_erk2_constrained_propagators(
+                operator_dense, row_inner, row_outer, dt, l)
+            push!(E_half, E_h)
+            push!(E_full, E_f)
+            push!(phi1_half, p1_h)
+            push!(phi1_full, p1_f)
+            push!(phi2_full, p2_f)
         end
     end
 
@@ -282,10 +419,17 @@ function create_solver_erk2_magnetic_toroidal_cache(
 end
 
 """
-    create_solver_erk2_magnetic_poloidal_cache(T, config, domain, diffusivity, dt; ...)
+    create_solver_erk2_magnetic_poloidal_cache(T, config, domain, diffusivity, dt; bc_spec, ...)
 
-Precompute ERK2 propagators for magnetic poloidal fields with embedded
-insulating boundary rows.
+Precompute ERK2 propagators for magnetic poloidal fields with the insulating
+endpoint constraints eliminated from the generator.
+
+`bc_spec` supplies the endpoint descriptors; it defaults to the insulating pair
+(∂r − (l+1)/r)P = 0 inner and (∂r + l/r)P = 0 outer. Both are derivative rows,
+so eliminating them is what makes the propagator actually satisfy them — see
+`solver_erk2_constrained_propagators`. The ball center-regularity inner row is
+algebraically identical to the insulating inner row, so `inner_regularity` does
+not change this operator.
 """
 function create_solver_erk2_magnetic_poloidal_cache(
         ::Type{T},
@@ -293,6 +437,7 @@ function create_solver_erk2_magnetic_poloidal_cache(
         domain::RadialDomainType,
         diffusivity::Float64,
         dt::Float64;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -301,12 +446,12 @@ function create_solver_erk2_magnetic_poloidal_cache(
     # D_pol = d²/dr² − l(l+1)/r² (no 2/r term) — same operator the CNAB2
     # magnetic-poloidal matrices use since the Stage-4A consistency fix.
     laplacian = create_derivative_matrix(Float64, 2, domain)
-    first_derivative = build_radial_derivative_matrix(T, 1, domain)
     nr = domain.N
     bandwidth = laplacian.bandwidth
     r_inv_sq = @views domain.r[1:nr, 2]
-    r_inv = @views domain.r[1:nr, 3]
     l_values = unique(config.l_values)
+    spec = bc_spec === nothing ?
+           build_solver_erk2_magnetic_pol_bc(T, domain) : bc_spec
 
     E_half = Matrix{T}[]
     E_full = Matrix{T}[]
@@ -315,7 +460,7 @@ function create_solver_erk2_magnetic_poloidal_cache(
     phi2_full = Matrix{T}[]
 
     if mpi_rank() == 0
-        @info "Creating solver ERK2 cache for magnetic poloidal (D_pol) with embedded insulating BCs"
+        @info "Creating solver ERK2 cache for magnetic poloidal (D_pol) with eliminated insulating BCs"
     end
 
     for l in l_values
@@ -327,53 +472,24 @@ function create_solver_erk2_magnetic_poloidal_cache(
             operator_dense[n, n] -= diffusivity * l_factor * r_inv_sq[n]
         end
 
-        operator_dense[1, :] .= zero(T)
-        operator_dense[nr, :] .= zero(T)
-
-        # Insulating inner: (∂r − (l+1)/r)P = 0 — interior vacuum P ∝ r^{l+1}
-        # under B_r = λP/r² (2026-06-11 audit; matches the CNAB2 banded row in
-        # create_magnetic_poloidal_matrices and the endpoint descriptors).
-        for j in max(1, 1 - bandwidth):min(nr, 1 + bandwidth)
-            band_idx = bandwidth + 1 + 1 - j
-            if 1 <= band_idx <= 2 * bandwidth + 1
-                operator_dense[1, j] = T(first_derivative.data[band_idx, j])
-            end
-        end
-        operator_dense[1, 1] -= T(l + 1) * r_inv[1]
-
-        # Insulating outer: (∂r + l/r)P = 0 — exterior vacuum P ∝ r^{−l};
-        # verified by the full-sphere dipole free-decay rate σ = π²
-        # (test/ball_bessel_decay.jl).
-        for j in max(1, nr - bandwidth):min(nr, nr + bandwidth)
-            band_idx = bandwidth + 1 + nr - j
-            if 1 <= band_idx <= 2 * bandwidth + 1
-                operator_dense[nr, j] = T(first_derivative.data[band_idx, j])
-            end
-        end
-        operator_dense[nr, nr] += T(l) * r_inv[nr]
-
         if use_krylov
+            operator_dense[1, :] .= zero(T)
+            operator_dense[nr, :] .= zero(T)
             push!(E_half, operator_dense)
             push!(E_full, operator_dense)
             push!(phi1_half, operator_dense)
             push!(phi1_full, operator_dense)
             push!(phi2_full, operator_dense)
         else
-            operator_half = (dt / 2) .* operator_dense
-            operator_full = dt .* operator_dense
-
-            E_half_l = exp(operator_half)
-            E_full_l = exp(operator_full)
-            push!(E_half, Matrix{T}(E_half_l))
-            push!(E_full, Matrix{T}(E_full_l))
-
-            phi1_half_l = solver_compute_phi1_function(operator_half, E_half_l)
-            phi1_full_l = solver_compute_phi1_function(operator_full, E_full_l)
-            push!(phi1_half, Matrix{T}(phi1_half_l))
-            push!(phi1_full, Matrix{T}(phi1_full_l))
-
-            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l = l)
-            push!(phi2_full, Matrix{T}(phi2_full_l))
+            row_inner = solver_erk2_constraint_row(T, spec.inner, 1, l, nr)
+            row_outer = solver_erk2_constraint_row(T, spec.outer, nr, l, nr)
+            E_h, E_f, p1_h, p1_f, p2_f = solver_erk2_constrained_propagators(
+                operator_dense, row_inner, row_outer, dt, l)
+            push!(E_half, E_h)
+            push!(E_full, E_f)
+            push!(phi1_half, p1_h)
+            push!(phi1_full, p1_f)
+            push!(phi2_full, p2_f)
         end
     end
 
@@ -856,6 +972,7 @@ function get_solver_erk2_magnetic_toroidal_cache!(
         config::SHTnsConfigType,
         domain::RadialDomainType,
         dt::Float64;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -880,6 +997,7 @@ function get_solver_erk2_magnetic_toroidal_cache!(
             domain,
             diffusivity,
             dt;
+            bc_spec,
             use_krylov,
             m,
             tol
@@ -901,6 +1019,7 @@ function get_solver_erk2_magnetic_poloidal_cache!(
         config::SHTnsConfigType,
         domain::RadialDomainType,
         dt::Float64;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -925,6 +1044,7 @@ function get_solver_erk2_magnetic_poloidal_cache!(
             domain,
             diffusivity,
             dt;
+            bc_spec,
             use_krylov,
             m,
             tol

@@ -214,9 +214,11 @@ function build_gpu_erk2_state(st)
         mag_pol_spec = _get_or_build_erk2_boundary_spec!(
             caches, :magnetic_pol, 0, () -> build_solver_erk2_magnetic_pol_bc(T, domain))
         mag_tor_cache = get_solver_erk2_magnetic_toroidal_cache!(
-            caches, 1.0, T, cfg, domain, dt; use_krylov = false)
+            caches, 1.0, T, cfg, domain, dt;
+            bc_spec = mag_tor_spec, use_krylov = false)
         mag_pol_cache = get_solver_erk2_magnetic_poloidal_cache!(
-            caches, 1.0, T, cfg, domain, dt; use_krylov = false)
+            caches, 1.0, T, cfg, domain, dt;
+            bc_spec = mag_pol_spec, use_krylov = false)
         magnetic_tor = (;
             _pack_erk2_cache(mag_tor_cache, nl, nr)...,
             bc = _pack_erk2_bc(mag_tor_spec, cfg, nl, nm, nr, T))

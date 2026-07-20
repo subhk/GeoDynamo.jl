@@ -584,6 +584,17 @@ function integrate_solver_erk2_step!(state::SolverState{
     temperature_bc_code = _thermal_bc_code(params.temperature_bcs)
     composition_bc_code = _composition_bc_code(params.composition_bcs)
     theta = _timestepper_implicit_theta(params.timestepper, params)
+    # A conducting inner core replaces the magnetic inner rows with the Robin
+    # admittance rows and feeds them the φ0 history flux. The ERK2 endpoint
+    # descriptors below are insulating only, and nothing on this path reads
+    # `state.magnetic_ic_admittance` — so accepting the config here would
+    # silently simulate a perfect insulator with a frozen inner core. Refuse it,
+    # as RungeKutta3 (src/timestep/cb3.jl) and the GPU path already do.
+    if params.include_magnetic && params.magnetic_inner_bc === :conducting_inner_core
+        throw(ArgumentError(
+            "ExponentialRungeKutta2() does not support " *
+            "magnetic_inner_bc=:conducting_inner_core; use CNAB2()"))
+    end
     # Ball (full-sphere) geometry replaces every inner wall row with the
     # center-regularity Robin row; outer rows are unchanged.
     inner_regularity = params.geometry === :ball
@@ -741,6 +752,7 @@ function integrate_solver_erk2_step!(state::SolverState{
             runtime.shtns_config,
             runtime.outer_core_domain,
             params.timestep;
+            bc_spec = mag_tor_bc,
             use_krylov = false
         )
         mag_tor_buffers = get_solver_erk2_field_buffers!(
@@ -767,6 +779,7 @@ function integrate_solver_erk2_step!(state::SolverState{
             runtime.shtns_config,
             runtime.outer_core_domain,
             params.timestep;
+            bc_spec = mag_pol_bc,
             use_krylov = false
         )
         mag_pol_buffers = get_solver_erk2_field_buffers!(
