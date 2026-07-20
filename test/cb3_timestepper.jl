@@ -44,6 +44,43 @@ function build_small_cb3_state(; gpu = false)
     return st
 end
 
+function build_ball_cb3_state()
+    params = GeoDynamo.SolverParameters(
+        architecture = :cpu,
+        geometry = :ball,
+        radius_ratio = 0.0,
+        nr = 16,
+        nr_inner = 0,
+        lmax = 4,
+        mmax = 4,
+        nlat = 10,
+        nlon = 20,
+        Ek = 1e-2,
+        Ra = 1e4,
+        Pr = 1.0,
+        timestep = 1e-5,
+        include_magnetic = false,
+        include_composition = false,
+        timestepper = GeoDynamo.RungeKutta3(),
+    )
+    st = GeoDynamo.initialize_simulation(Float64, params)
+    GeoDynamo.initialize_solver_fields!(st)
+
+    cfg = st.fields.temperature.spectral.config
+    lm = findfirst(i -> cfg.l_values[i] == 2 && cfg.m_values[i] == 2, 1:cfg.nlm)
+    slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+    dom = st.runtime.outer_core_domain
+    ri = dom.r[1, 4]
+    ro = dom.r[dom.N, 4]
+    for r_idx in 1:dom.N
+        x = (dom.r[r_idx, 4] - ri) / (ro - ri)
+        GeoDynamo.set_local_spectral_value!(
+            parent(st.fields.temperature.spectral.data_real), slot, r_idx,
+            1e-3 * sinpi(x)^2)
+    end
+    return st, lm, slot
+end
+
 @testset "Cavaglieri-Bewley 2N-storage IMEX RK3 timestepper" begin
     @test GeoDynamo._timestepper_scheme(GeoDynamo.RungeKutta3()) === :cb3
     @test GeoDynamo._timestepper_from_scheme(:cb3, nothing, nothing, nothing) isa GeoDynamo.RungeKutta3
@@ -88,4 +125,23 @@ end
         ok &= isapprox(ci, gi; atol = 1e-8, rtol = 1e-6)
     end
     @test ok
+end
+
+@testset "CB3 ball poloidal split preserves origin regularity" begin
+    st, lm, slot = build_ball_cb3_state()
+    GeoDynamo.solver_step!(st)
+
+    splits = st.timestep_caches.cb3_poloidal_split
+    @test all(split -> !isnothing(split) && split.ball, splits)
+
+    dom = st.runtime.outer_core_domain
+    nr = dom.N
+    P = [GeoDynamo.local_spectral_value(
+             parent(st.fields.velocity.poloidal.data_real), slot, r_idx)
+         for r_idx in 1:nr]
+    d1 = GeoDynamo.create_derivative_matrix(Float64, 1, dom)
+    dP = d1 * P
+    regularity_residual = dP[1] - 3 * dom.r[1, 3] * P[1]
+    @test abs(P[1]) > 1e-14
+    @test abs(regularity_residual) < 1e-8 * max(abs(dP[1]), abs(3 * dom.r[1, 3] * P[1]), 1e-20)
 end

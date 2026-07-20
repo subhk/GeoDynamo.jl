@@ -158,7 +158,7 @@ For complete documentation of all boundary condition types and their physical in
 
 | Field | Available Options |
 |:------|:------------------|
-| **Velocity** | No-slip (T=0, ∂P/∂r=0), Stress-free (∂T/∂r=T/r, ∂²P/∂r²=0) |
+| **Velocity** | No-slip (T=0, P=0, ∂P/∂r=0), Stress-free (∂T/∂r=T/r, P=0, P″−2P′/r=0) |
 | **Magnetic** | Insulating (default, automatic); Conducting inner core via `magnetic_inner_bc=:conducting_inner_core` (shell + CNAB2; equal σ, no inner-core rotation). Perfect conductor not yet implemented. |
 | **Temperature** | Fixed temperature (Dirichlet), Fixed flux (Neumann) |
 | **Composition** | Fixed composition (Dirichlet), Fixed flux (Neumann) |

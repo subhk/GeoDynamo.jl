@@ -60,7 +60,7 @@
 #    - Toroidal: T = 0 (Dirichlet)
 #
 # 2. STRESS-FREE (free-slip): No tangential stress at boundary
-#    - Poloidal: P = 0 (v_r = 0, impermeable)
+#    - Poloidal: P = 0, P″ - (2/r)P′ = 0
 #    - Toroidal: ∂T/∂r = T/r (NOT simple Neumann!)
 #
 #    The stress-free condition on toroidal component comes from:

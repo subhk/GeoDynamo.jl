@@ -614,6 +614,14 @@ function integrate_solver_erk2_step!(state::SolverState{
             inner_regularity
         )
     )
+    vel_tor_bc_values = get_bc_vectors(state.fields.velocity.toroidal)
+    vel_tor_bc = with_boundary_mode_values(
+        vel_tor_bc,
+        vel_tor_bc_values.inner_real,
+        vel_tor_bc_values.outer_real,
+        vel_tor_bc_values.inner_imag,
+        vel_tor_bc_values.outer_imag
+    )
     # Stage-4B W-split (ERK2 port): the stage machinery advances V := Ek·D_pol·P
     # (∂t V = D_pol·V + N_W; cache on D_pol with diffusivity 1, nl unscaled).
     # P is recovered from V with Dirichlet walls + φ1-column influence

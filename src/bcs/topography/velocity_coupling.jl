@@ -86,6 +86,8 @@ function apply_velocity_topography_correction!(velocity_field, topography::Topog
     # corrections so they do not compound across timesteps. See reset_boundary_to_base!.
     reset_boundary_to_base!(poloidal.boundary_values)
     reset_boundary_to_base!(toroidal.boundary_values)
+    reset_boundary_to_base!(poloidal.boundary_values_imag)
+    reset_boundary_to_base!(toroidal.boundary_values_imag)
 
     # The expensive radial traces are staged once per field, then reused for
     # both boundaries and every coupled (l,m) mode. That keeps the topography
@@ -147,7 +149,9 @@ function apply_velocity_correction_at_boundary!(poloidal,
 
     # Get poloidal/toroidal boundary values
     P_bv = poloidal.boundary_values
+    P_bv_imag = poloidal.boundary_values_imag
     T_bv = toroidal.boundary_values
+    T_bv_imag = toroidal.boundary_values_imag
 
     # Boundary values are updated mode-by-mode. Each target mode gathers all
     # topography and field couplings that project back onto that same (l,m).
@@ -169,6 +173,8 @@ function apply_velocity_correction_at_boundary!(poloidal,
             lm_idx = lm_to_spectral_index(l, m, poloidal.config)
             if lm_idx > 0 && lm_idx <= size(P_bv, 2)
                 P_bv[bc_row, lm_idx] -= ε * real(imp_corr) * rb^2 / (l * (l + 1))
+                P_bv_imag[bc_row, lm_idx] -=
+                    ε * imag(imp_corr) * rb^2 / (l * (l + 1))
             end
 
             # Apply toroidal correction if stress-free
@@ -178,6 +184,7 @@ function apply_velocity_correction_at_boundary!(poloidal,
                 )
                 if lm_idx > 0 && lm_idx <= size(T_bv, 2)
                     T_bv[bc_row, lm_idx] += ε * real(sf_corr)
+                    T_bv_imag[bc_row, lm_idx] += ε * imag(sf_corr)
                 end
             end
 
@@ -188,6 +195,7 @@ function apply_velocity_correction_at_boundary!(poloidal,
                 )
                 if lm_idx > 0 && lm_idx <= size(T_bv, 2)
                     T_bv[bc_row, lm_idx] -= ε * real(ns_t)
+                    T_bv_imag[bc_row, lm_idx] -= ε * imag(ns_t)
                 end
             end
         end

@@ -194,6 +194,8 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{
             domain = runtime.outer_core_domain,
             bc_inner = view(velocity.toroidal.boundary_values, 1, :),
             bc_outer = view(velocity.toroidal.boundary_values, 2, :),
+            bc_inner_imag = view(velocity.toroidal.boundary_values_imag, 1, :),
+            bc_outer_imag = view(velocity.toroidal.boundary_values_imag, 2, :),
             work = radial_work
         )
     elseif timestepper isa ExponentialAdamsBashforth2
@@ -242,6 +244,8 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{
             domain = runtime.outer_core_domain,
             bc_inner = view(velocity.toroidal.boundary_values, 1, :),
             bc_outer = view(velocity.toroidal.boundary_values, 2, :),
+            bc_inner_imag = view(velocity.toroidal.boundary_values_imag, 1, :),
+            bc_outer_imag = view(velocity.toroidal.boundary_values_imag, 2, :),
             work = radial_work
         )
     end
@@ -345,17 +349,18 @@ function _apply_poloidal_wsplit_cnab2!(velocity, split::PoloidalSplitMatrices{T}
 
     P, W, LW, rhs, Wp, Pp = split.work   # cached per-step radial scratch
 
-    # Topography impermeability correction modifies the P wall VALUE (real-only,
-    # stored in poloidal.boundary_values). Injected as the Dirichlet RHS of the
+    # Topography impermeability correction modifies the complex P wall VALUE.
+    # Injected as the Dirichlet RHS of the
     # P-recovery (Wp[1]/Wp[nr]); zero when topography is disabled ⇒ unchanged.
-    pol_bv = velocity.poloidal.boundary_values
+    pol_bv_real = velocity.poloidal.boundary_values
+    pol_bv_imag = velocity.poloidal.boundary_values_imag
 
-    for (is_real, p_arr, n_arr, pn_arr) in (
-        (true,
+    for (pol_bv, p_arr, n_arr, pn_arr) in (
+        (pol_bv_real,
          parent(velocity.poloidal.data_real),
          parent(velocity.nl_poloidal.data_real),
          parent(velocity.prev_nl_poloidal.data_real)),
-        (false,
+        (pol_bv_imag,
          parent(velocity.poloidal.data_imag),
          parent(velocity.nl_poloidal.data_imag),
          parent(velocity.prev_nl_poloidal.data_imag)),
@@ -394,11 +399,11 @@ function _apply_poloidal_wsplit_cnab2!(velocity, split::PoloidalSplitMatrices{T}
                     T((l + 1) * split.reg_r_inv) * Wp[1] : zero(T)
 
             # Dirichlet P-recovery: the wall RHS entries are the imposed P values.
-            # Base impermeability is P=0; the topography correction (real part of
-            # poloidal.boundary_values) shifts the wall value. Ball: row 1 is the
+            # Base impermeability is P=0; the topography correction shifts the
+            # wall value. Ball: row 1 is the
             # regularity Robin (homogeneous RHS) — never inject there.
-            Wp[1] = (is_real && !split.ball) ? pol_bv[1, lm] : zero(T)
-            Wp[nr] = is_real ? pol_bv[2, lm] : zero(T)
+            Wp[1] = !split.ball ? pol_bv[1, lm] : zero(T)
+            Wp[nr] = pol_bv[2, lm]
             solve_banded!(Pp, split.p_factor[idx], Wp)
 
             # Influence correction: zero the remaining endpoint residuals via
@@ -564,9 +569,13 @@ function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
     dets = half ? green.det_half : green.det_full
     Wv, Pt = split.work[1], split.work[2]
     invEk = 1.0 / Ek
-    for (p_arr, v_arr) in (
-        (parent(velocity.poloidal.data_real), parent(velocity.work_pol.data_real)),
-        (parent(velocity.poloidal.data_imag), parent(velocity.work_pol.data_imag)),
+    pol_bv_real = velocity.poloidal.boundary_values
+    pol_bv_imag = velocity.poloidal.boundary_values_imag
+    for (pol_bv, p_arr, v_arr) in (
+        (pol_bv_real, parent(velocity.poloidal.data_real),
+            parent(velocity.work_pol.data_real)),
+        (pol_bv_imag, parent(velocity.poloidal.data_imag),
+            parent(velocity.work_pol.data_imag)),
     )
         @inbounds for lm in 1:cfg.nlm
             slot = local_spectral_storage_slot(cfg, lm)
@@ -589,7 +598,8 @@ function _erk2_poloidal_recover!(velocity, split::PoloidalSplitMatrices{T},
             rho1w = split.ball ?
                     dot(split.d1_row_inner, Wv) -
                     T((l + 1) * split.reg_r_inv) * Wv[1] : zero(T)
-            Wv[1] = zero(T); Wv[nr] = zero(T)
+            Wv[1] = !split.ball ? pol_bv[1, lm] : zero(T)
+            Wv[nr] = pol_bv[2, lm]
             solve_banded!(Pt, split.p_factor[idx], Wv)
 
             h1 = h1s[cidx]; h2 = h2s[cidx]; M = Ms[cidx]
