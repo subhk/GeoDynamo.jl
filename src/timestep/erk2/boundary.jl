@@ -194,15 +194,16 @@ function GeoDynamo.create_noslip_pol_bc(::Type{T}, d1_row::Vector{T}) where {T}
 end
 
 """
-    solver_create_stress_free_pol_bc(T, d2_row)
+    solver_create_stress_free_pol_bc(T, stress_free_row)
 
-Create the poloidal velocity stress-free endpoint descriptor.
+Create the poloidal velocity stress-free endpoint descriptor from a fully
+assembled `P″ - (2/r)P′` stencil row.
 """
-function solver_create_stress_free_pol_bc(::Type{T}, d2_row::Vector{T}) where {T}
+function solver_create_stress_free_pol_bc(::Type{T}, stress_free_row::Vector{T}) where {T}
     return SolverERK2BoundarySide{T}(
         :stress_free_pol,
         zero(T),
-        copy(d2_row),
+        copy(stress_free_row),
         zero(T),
         zero(T),
         false,
@@ -211,13 +212,25 @@ function solver_create_stress_free_pol_bc(::Type{T}, d2_row::Vector{T}) where {T
     )
 end
 
-"""
-    GeoDynamo.create_stress_free_pol_bc(T, d2_row)
+function solver_create_stress_free_pol_bc(::Type{T}, d1_row::Vector{T},
+        d2_row::Vector{T}, r_inv::T) where {T}
+    stress_free_row = d2_row .- T(2) * r_inv .* d1_row
+    return solver_create_stress_free_pol_bc(T, stress_free_row)
+end
 
-Create a public poloidal-velocity stress-free endpoint descriptor.
 """
-function GeoDynamo.create_stress_free_pol_bc(::Type{T}, d2_row::Vector{T}) where {T}
-    solver_create_stress_free_pol_bc(T, d2_row)
+    GeoDynamo.create_stress_free_pol_bc(T, stress_free_row)
+
+Create a public poloidal-velocity stress-free endpoint descriptor from a fully
+assembled `P″ - (2/r)P′` stencil row.
+"""
+function GeoDynamo.create_stress_free_pol_bc(::Type{T}, stress_free_row::Vector{T}) where {T}
+    solver_create_stress_free_pol_bc(T, stress_free_row)
+end
+
+function GeoDynamo.create_stress_free_pol_bc(::Type{T}, d1_row::Vector{T},
+        d2_row::Vector{T}, r_inv::T) where {T}
+    solver_create_stress_free_pol_bc(T, d1_row, d2_row, r_inv)
 end
 
 """
@@ -411,11 +424,13 @@ function build_solver_erk2_velocity_pol_bc(::Type{T}, domain::RadialDomainType, 
 
     inner = velocity_bc_code == 1 || velocity_bc_code == 2 ?
             solver_create_noslip_pol_bc(T, d1_inner) :
-            solver_create_stress_free_pol_bc(T, d2_inner)
+            solver_create_stress_free_pol_bc(
+                T, d1_inner, d2_inner, T(domain.r[1, 3]))
 
     outer = velocity_bc_code == 1 || velocity_bc_code == 3 ?
             solver_create_noslip_pol_bc(T, d1_outer) :
-            solver_create_stress_free_pol_bc(T, d2_outer)
+            solver_create_stress_free_pol_bc(
+                T, d1_outer, d2_outer, T(domain.r[nr, 3]))
 
     return SolverERK2BoundarySpec{T}(inner, outer)
 end

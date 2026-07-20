@@ -84,8 +84,8 @@ Velocity fields use toroidal-poloidal decomposition: **u** = ∇×(T**r**) + ∇
 
 | BC Type | Symbol | Toroidal (T) | Poloidal (P) | Physical Meaning |
 |:--------|:-------|:-------------|:-------------|:-----------------|
-| **No-slip** | `:no_slip` | T = 0 (Dirichlet) | ∂P/∂r = 0 | All velocity components vanish at boundary |
-| **Stress-free** | `:stress_free` | ∂T/∂r = T/r (Neumann) | ∂²P/∂r² = 0 | Zero tangential stress, v_r = 0 |
+| **No-slip** | `:no_slip` | T = 0 (Dirichlet) | P = 0, ∂P/∂r = 0 | All velocity components vanish at boundary |
+| **Stress-free** | `:stress_free` | ∂T/∂r = T/r (Neumann) | P = 0, ∂²P/∂r² − (2/r)∂P/∂r = 0 | Zero tangential stress, v_r = 0 |
 | **Impermeable** | `:impermeable` | Unconstrained | P = 0 (Dirichlet) | Only radial velocity vanishes |
 
 ### Physical Interpretation
@@ -98,7 +98,7 @@ u_r = u_θ = u_φ = 0
 - Appropriate for solid boundaries (e.g., rigid inner core, solid mantle)
 - Most common choice for geodynamo simulations
 - Toroidal: T = 0 directly sets tangential velocity to zero
-- Poloidal: ∂P/∂r = 0 ensures radial velocity gradient vanishes
+- Poloidal: P = 0 enforces impermeability and ∂P/∂r = 0 removes tangential velocity
 
 #### Stress-Free (Free-Slip)
 ```
@@ -107,7 +107,7 @@ Zero tangential stress at boundary
 ```
 - Appropriate for fluid-fluid interfaces or idealized boundaries
 - Toroidal condition derived from: σ_rθ = η·r·∂(v_θ/r)/∂r = 0 → ∂T/∂r = T/r
-- Poloidal condition: ∂²P/∂r² = 0 ensures stress-free radial component
+- Poloidal conditions: P = 0 enforces impermeability and ∂²P/∂r² − (2/r)∂P/∂r = 0 removes tangential stress
 
 ### Usage
 
@@ -305,8 +305,8 @@ model = GeodynamoModel(grid; include_composition = true, composition_bcs)
 
 | Field | BC Type | Inner Boundary | Outer Boundary |
 |:------|:--------|:---------------|:---------------|
-| **Velocity** | No-slip | T=0, ∂P/∂r=0 | T=0, ∂P/∂r=0 |
-| | Stress-free | ∂T/∂r=T/r, ∂²P/∂r²=0 | ∂T/∂r=T/r, ∂²P/∂r²=0 |
+| **Velocity** | No-slip | T=0, P=0, ∂P/∂r=0 | T=0, P=0, ∂P/∂r=0 |
+| | Stress-free | ∂T/∂r=T/r, P=0, P″−2P′/r=0 | ∂T/∂r=T/r, P=0, P″−2P′/r=0 |
 | **Magnetic** | Insulating | T=0, (∂/∂r-(l+1)/r)P=0 | T=0, (∂/∂r+l/r)P=0 |
 | | Conducting IC | ∂T/∂r continuous | T=0, (∂/∂r+l/r)P=0 |
 | **Temperature** | Fixed T | T = T₀ | T = T₀ |

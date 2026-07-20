@@ -280,6 +280,38 @@ const topocpl = GeoDynamo.bcs.topography
         @test nonzero_seen
     end
 
+    @testset "complex velocity modes preserve imaginary topography corrections" begin
+        vel = state.fields.velocity
+        pol = vel.poloidal
+        tor = vel.toroidal
+        cfg = pol.config
+
+        fill!(parent(pol.data_real), 0.0)
+        fill!(parent(pol.data_imag), 0.0)
+        fill!(parent(tor.data_real), 0.0)
+        fill!(parent(tor.data_imag), 0.0)
+        src = topocpl.get_mode_index(cfg, 2, 1)
+        sslot = topocpl.local_spectral_storage_slot(cfg, src)
+        @test sslot !== nothing
+        parent(pol.data_imag)[sslot[1], sslot[2], :] .= 0.7
+
+        p_cache = topocpl.compute_boundary_derivative_cache(
+            pol, vel.∂r, vel.∂²r, vel.domain)
+        t_cache = topocpl.compute_boundary_derivative_cache(
+            tor, vel.∂r, vel.∂²r, vel.domain)
+        rb = topodata.cmb.radius
+        correction = topocpl.compute_impermeability_correction(
+            2, 1, p_cache, t_cache, topodata.cmb, topodata.gaunt_cache,
+            rb, GeoDynamo.OUTER_BOUNDARY, config)
+        expected = -config.epsilon * correction * rb^2 / (2 * 3)
+        @test abs(imag(expected)) > 1e-10
+
+        @test topocpl.apply_velocity_topography_correction!(
+            vel, topodata, config) === nothing
+        @test pol.boundary_values[2, src] ≈ real(expected) atol=1e-12 rtol=1e-9
+        @test pol.boundary_values_imag[2, src] ≈ imag(expected) atol=1e-12 rtol=1e-9
+    end
+
     if MPI.Initialized()
         MPI.Barrier(GeoDynamo.get_comm())
         if FINALIZE_MPI_TOPO_COUPLING && !MPI.Finalized()

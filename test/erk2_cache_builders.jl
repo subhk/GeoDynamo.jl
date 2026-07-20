@@ -134,11 +134,15 @@ using LinearAlgebra
     end
 
     @testset "solver_create_stress_free_pol_bc" begin
+        d1 = GeoDynamo.build_radial_derivative_matrix(Float64, 1, dom)
         d2 = GeoDynamo.build_radial_derivative_matrix(Float64, 2, dom)
+        d1_inner = GeoDynamo.extract_dense_row(d1.data, d1.bandwidth, nr, 1)
         d2_inner = GeoDynamo.extract_dense_row(d2.data, d2.bandwidth, nr, 1)
-        bc = GeoDynamo.solver_create_stress_free_pol_bc(Float64, d2_inner)
+        r_inv = Float64(dom.r[1, 3])
+        bc = GeoDynamo.solver_create_stress_free_pol_bc(
+            Float64, d1_inner, d2_inner, r_inv)
         @test bc.type == :stress_free_pol
-        @test bc.stencil == d2_inner
+        @test bc.stencil ≈ d2_inner .- 2 * r_inv .* d1_inner
         @test bc.use_l_correction == false
         @test all(isfinite, bc.stencil)
     end
@@ -230,5 +234,16 @@ using LinearAlgebra
         # stencil lengths match nr
         @test length(spec1.inner.stencil) == nr
         @test length(spec4.outer.stencil) == nr
+
+        d1 = GeoDynamo.build_radial_derivative_matrix(Float64, 1, dom)
+        d2 = GeoDynamo.build_radial_derivative_matrix(Float64, 2, dom)
+        d1_inner = GeoDynamo.extract_dense_row(d1.data, d1.bandwidth, nr, 1)
+        d1_outer = GeoDynamo.extract_dense_row(d1.data, d1.bandwidth, nr, nr)
+        d2_inner = GeoDynamo.extract_dense_row(d2.data, d2.bandwidth, nr, 1)
+        d2_outer = GeoDynamo.extract_dense_row(d2.data, d2.bandwidth, nr, nr)
+        expected_inner = d2_inner .- 2 * Float64(dom.r[1, 3]) .* d1_inner
+        expected_outer = d2_outer .- 2 * Float64(dom.r[nr, 3]) .* d1_outer
+        @test spec4.inner.stencil ≈ expected_inner
+        @test spec4.outer.stencil ≈ expected_outer
     end
 end

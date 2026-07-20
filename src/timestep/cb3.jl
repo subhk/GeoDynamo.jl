@@ -163,6 +163,7 @@ function _get_or_build_cb3_poloidal_split!(state::SolverState{T, <:AbstractArchi
         velocity_bc_code = velocity_bc,
         theta = beta,
         T = T,
+        ball = state.parameters.geometry === :ball,
     )
     caches.cb3_poloidal_split[stage] = split
     return split
@@ -234,6 +235,8 @@ function _cb3_apply_velocity_toroidal_stage!(state::SolverState{T, <:AbstractArc
         domain = state.runtime.outer_core_domain,
         bc_inner = view(velocity.toroidal.boundary_values, 1, :),
         bc_outer = view(velocity.toroidal.boundary_values, 2, :),
+        bc_inner_imag = view(velocity.toroidal.boundary_values_imag, 1, :),
+        bc_outer_imag = view(velocity.toroidal.boundary_values_imag, 2, :),
         work = radial_work,
     )
     return state
@@ -259,15 +262,16 @@ function _cb3_apply_poloidal_wsplit_stage!(state::SolverState{T, <:AbstractArchi
 
     P, W, LW, rhs, Wp, Pp = split.work   # cached per-step radial scratch
 
-    # Topography impermeability correction modifies the P wall value (real-only).
-    pol_bv = velocity.poloidal.boundary_values
+    # Topography impermeability correction modifies the complex P wall value.
+    pol_bv_real = velocity.poloidal.boundary_values
+    pol_bv_imag = velocity.poloidal.boundary_values_imag
 
-    for (is_real, p_arr, n_arr, pn_arr) in (
-        (true,
+    for (pol_bv, p_arr, n_arr, pn_arr) in (
+        (pol_bv_real,
          parent(velocity.poloidal.data_real),
          parent(velocity.nl_poloidal.data_real),
          parent(velocity.prev_nl_poloidal.data_real)),
-        (false,
+        (pol_bv_imag,
          parent(velocity.poloidal.data_imag),
          parent(velocity.nl_poloidal.data_imag),
          parent(velocity.prev_nl_poloidal.data_imag)),
@@ -294,13 +298,16 @@ function _cb3_apply_poloidal_wsplit_stage!(state::SolverState{T, <:AbstractArchi
                              ζT * local_spectral_value(pn_arr, slot, r_idx)
             end
             solve_banded!(Wp, split.w_factor[idx], rhs)
+            rho1w = split.ball ?
+                    dot(split.d1_row_inner, Wp) -
+                    T((l + 1) * split.reg_r_inv) * Wp[1] : zero(T)
             # Dirichlet P-recovery wall RHS = imposed P value (base 0 + topography
-            # real correction). Ball inner row is regularity ⇒ never inject there.
-            Wp[1] = (is_real && !split.ball) ? pol_bv[1, lm] : zero(T)
-            Wp[nr] = is_real ? pol_bv[2, lm] : zero(T)
+            # complex correction). Ball inner row is regularity ⇒ never inject there.
+            Wp[1] = !split.ball ? pol_bv[1, lm] : zero(T)
+            Wp[nr] = pol_bv[2, lm]
             solve_banded!(Pp, split.p_factor[idx], Wp)
 
-            rho1 = dot(split.d1_row_inner, Pp)
+            rho1 = split.ball ? rho1w : dot(split.d1_row_inner, Pp)
             rho2 = dot(split.d1_row_outer, Pp)
             M = split.influence[idx]
             det = M[1, 1] * M[2, 2] - M[1, 2] * M[2, 1]

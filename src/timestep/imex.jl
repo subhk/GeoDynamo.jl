@@ -463,6 +463,8 @@ function solver_solve_velocity_implicit_step!(
         current_field::Union{SpectralFieldType{T}, Nothing} = nothing,
         bc_inner::Union{AbstractVector{T}, Nothing} = nothing,
         bc_outer::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_inner_imag::Union{AbstractVector{T}, Nothing} = nothing,
+        bc_outer_imag::Union{AbstractVector{T}, Nothing} = nothing,
         work::Union{SolverRadialWork{T}, Nothing} = nothing
 ) where {T}
     sol_real = parent(solution.data_real)
@@ -490,7 +492,9 @@ function solver_solve_velocity_implicit_step!(
 
         if component === :toroidal
             inner_real = zero(T)
+            inner_imag = zero(T)
             outer_real = zero(T)
+            outer_imag = zero(T)
 
             if (velocity_bc_code == 1 || velocity_bc_code == 2) && l == 1 && m == 0 &&
                domain !== nothing
@@ -501,7 +505,7 @@ function solver_solve_velocity_implicit_step!(
                 end
             end
 
-            # Topography boundary correction (real-only) added to the endpoint RHS
+            # Complex topography boundary correction added to the endpoint RHS
             # rows. Zero when topography is disabled ⇒ identical to the base solve.
             if bc_inner !== nothing && lm_idx <= length(bc_inner)
                 inner_real += bc_inner[lm_idx]
@@ -509,11 +513,17 @@ function solver_solve_velocity_implicit_step!(
             if bc_outer !== nothing && lm_idx <= length(bc_outer)
                 outer_real += bc_outer[lm_idx]
             end
+            if bc_inner_imag !== nothing && lm_idx <= length(bc_inner_imag)
+                inner_imag += bc_inner_imag[lm_idx]
+            end
+            if bc_outer_imag !== nothing && lm_idx <= length(bc_outer_imag)
+                outer_imag += bc_outer_imag[lm_idx]
+            end
 
             tmp_real[1] = inner_real
-            tmp_imag[1] = zero(T)
+            tmp_imag[1] = inner_imag
             tmp_real[nr] = outer_real
-            tmp_imag[nr] = zero(T)
+            tmp_imag[nr] = outer_imag
         else
             tmp_real[1] = zero(T)
             tmp_imag[1] = zero(T)

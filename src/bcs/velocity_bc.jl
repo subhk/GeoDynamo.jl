@@ -18,8 +18,9 @@
 #   Stress-free: ∂T/∂r - T/r = 0   (derivative row minus 1/r)
 #
 # Poloidal BCs:
-#   No-slip:     ∂P/∂r = 0          (first derivative row)
-#   Stress-free: ∂²P/∂r² = 0        (second derivative row)
+#   No-slip:     P = 0, ∂P/∂r = 0
+#   Stress-free: P = 0, ∂²P/∂r² - (2/r)∂P/∂r = 0
+#   (P = 0 is imposed by the poloidal influence correction.)
 #
 # Included by: src/physics/velocity/field.jl (after VelocityWorkspace is defined)
 #
@@ -36,7 +37,8 @@
 #      - Toroidal no-slip:     identity row → T[boundary] = rhs
 #      - Toroidal stress-free: ∂/∂r - 1/r row → (∂T/∂r - T/r)[boundary] = rhs
 #      - Poloidal no-slip:     ∂/∂r row → (∂P/∂r)[boundary] = rhs
-#      - Poloidal stress-free: ∂²/∂r² row → (∂²P/∂r²)[boundary] = rhs
+#      - Poloidal stress-free: ∂²/∂r² - (2/r)∂/∂r row
+#        → (P″ - 2P′/r)[boundary] = rhs
 #
 #   4. LU factorize the modified matrix
 #
@@ -179,7 +181,10 @@ boundary conditions embedded in the matrix rows.
 
 The boundary rows of the system matrix are replaced with the BC equations:
 - No-slip: first derivative row (∂P/∂r = value)
-- Stress-free: second derivative row (∂²P/∂r² = value)
+- Stress-free: spherical stress row (∂²P/∂r² - (2/r)∂P/∂r = value)
+
+The accompanying impermeability condition `P = 0` is imposed by the
+poloidal influence correction.
 """
 function create_velocity_poloidal_matrices(config::SHTnsKitConfig,
         domain::RadialDomain,
@@ -383,7 +388,7 @@ Set boundary values in the RHS vector for the poloidal velocity solve.
 Matches Fortran: sets RHS boundary rows to zero for homogeneous BCs.
 
 For no-slip: RHS boundary = 0 (∂P/∂r = 0)
-For stress-free: RHS boundary = 0 (∂²P/∂r² = 0)
+For stress-free: RHS boundary = 0 (P″ - 2P′/r = 0)
 """
 function set_velocity_rhs_bc_poloidal!(
         rhs_real::AbstractArray{T}, rhs_imag::AbstractArray{T},
@@ -481,7 +486,7 @@ function solve_velocity_implicit_step!(solution::SHTnsSpecField{T},
             tmp_r[nr] = outer_val
             tmp_i[nr] = zero(T)
         else  # :poloidal
-            # Poloidal BCs: zero at both boundaries (∂P/∂r = 0 or ∂²P/∂r² = 0)
+            # Poloidal BCs: zero at both boundaries (P′ = 0 or P″ - 2P′/r = 0)
             tmp_r[1] = zero(T)
             tmp_i[1] = zero(T)
             tmp_r[nr] = zero(T)

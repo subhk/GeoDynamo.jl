@@ -21,13 +21,19 @@ _inner_val(spec, cfg, idx) = begin
     GeoDynamo.local_spectral_value(parent(spec.data_real), slot, 1)
 end
 
-function _make_state()
+_inner_val_imag(spec, cfg, idx) = begin
+    slot = GeoDynamo.local_spectral_storage_slot(cfg, idx)
+    GeoDynamo.local_spectral_value(parent(spec.data_imag), slot, 1)
+end
+
+function _make_state(; timestepper = GeoDynamo.CNAB2(),
+        include_magnetic = true, include_composition = true)
     params = GeoDynamo.SolverParameters(
         geometry = :shell, lmax = 4, mmax = 4, nlat = 10, nlon = 20, nr = 12,
         nr_inner = 4, radial_bandwidth = 3, radius_ratio = 0.35,
         Ek = 1e-3, Ra = 1e4, Pm = 1.0, Pr = 1.0, timestep = 1e-4,
-        include_magnetic = true, include_composition = true,
-        timestepper = GeoDynamo.CNAB2(),
+        include_magnetic = include_magnetic, include_composition = include_composition,
+        timestepper = timestepper,
     )
     st = GeoDynamo.initialize_solver_state(Float64; params)
     GeoDynamo.initialize_solver_fields!(st)
@@ -40,7 +46,7 @@ end
         v = st.fields.velocity
         cfg = v.toroidal.config
         idx = _mode_idx(cfg, 2, 1)          # not the l=1,m=0 rotation mode
-        V = 0.137
+        V, Vi = 0.137, -0.053
 
         for f in (v.toroidal, v.poloidal, v.nl_toroidal, v.prev_nl_toroidal,
             v.nl_poloidal, v.prev_nl_poloidal)
@@ -48,19 +54,21 @@ end
             parent(f.data_imag) .= 0.0
         end
         v.toroidal.boundary_values[1, idx] = V   # inner-boundary value for this mode
+        v.toroidal.boundary_values_imag[1, idx] = Vi
 
         GeoDynamo.apply_velocity_toroidal_implicit_update!(st)
 
         # No-slip toroidal inner row is identity ⇒ T[inner] == imposed value.
         @test _inner_val(v.toroidal, cfg, idx) ≈ V
+        @test _inner_val_imag(v.toroidal, cfg, idx) ≈ Vi
     end
 
     @testset "velocity poloidal (W-split impermeability)" begin
         st = _make_state()
         v = st.fields.velocity
         cfg = v.poloidal.config
-        idx = _mode_idx(cfg, 2, 0)
-        V = 0.091
+        idx = _mode_idx(cfg, 2, 1)
+        V, Vi = 0.091, 0.047
 
         for f in (v.toroidal, v.poloidal, v.nl_toroidal, v.prev_nl_toroidal,
             v.nl_poloidal, v.prev_nl_poloidal)
@@ -68,11 +76,71 @@ end
             parent(f.data_imag) .= 0.0
         end
         v.poloidal.boundary_values[1, idx] = V   # inner P wall value
+        v.poloidal.boundary_values_imag[1, idx] = Vi
 
         GeoDynamo.apply_velocity_poloidal_implicit_update!(st)
 
         # P-recovery inner row is Dirichlet ⇒ P[inner] == imposed value.
         @test _inner_val(v.poloidal, cfg, idx) ≈ V
+        @test _inner_val_imag(v.poloidal, cfg, idx) ≈ Vi
+    end
+
+    @testset "ERK2 velocity toroidal + poloidal" begin
+        st = _make_state(; timestepper = GeoDynamo.ERK2(),
+            include_magnetic = false, include_composition = false)
+        v = st.fields.velocity
+        cfg = v.toroidal.config
+        tor_idx = _mode_idx(cfg, 2, 1)
+        pol_idx = _mode_idx(cfg, 2, 1)
+        Vtor, Vtor_i = 0.137, -0.053
+        Vpol, Vpol_i = 0.091, 0.047
+
+        for f in (st.fields.temperature.spectral, st.fields.temperature.nonlinear,
+                v.toroidal, v.poloidal, v.nl_toroidal, v.prev_nl_toroidal,
+                v.nl_poloidal, v.prev_nl_poloidal)
+            parent(f.data_real) .= 0.0
+            parent(f.data_imag) .= 0.0
+        end
+        v.toroidal.boundary_values[1, tor_idx] = Vtor
+        v.toroidal.boundary_values_imag[1, tor_idx] = Vtor_i
+        v.poloidal.boundary_values[1, pol_idx] = Vpol
+        v.poloidal.boundary_values_imag[1, pol_idx] = Vpol_i
+
+        GeoDynamo.integrate_solver_erk2_step!(st)
+
+        @test _inner_val(v.toroidal, cfg, tor_idx) ≈ Vtor
+        @test _inner_val_imag(v.toroidal, cfg, tor_idx) ≈ Vtor_i
+        @test _inner_val(v.poloidal, cfg, pol_idx) ≈ Vpol
+        @test _inner_val_imag(v.poloidal, cfg, pol_idx) ≈ Vpol_i
+    end
+
+
+    @testset "CB3 velocity toroidal + poloidal (real + imaginary)" begin
+        st = _make_state(; timestepper = GeoDynamo.RungeKutta3(),
+            include_magnetic = false, include_composition = false)
+        v = st.fields.velocity
+        cfg = v.toroidal.config
+        idx = _mode_idx(cfg, 2, 1)
+        Vtor, Vtor_i = 0.137, -0.053
+        Vpol, Vpol_i = 0.091, 0.047
+
+        for f in (st.fields.temperature.spectral, st.fields.temperature.nonlinear,
+                v.toroidal, v.poloidal, v.nl_toroidal, v.prev_nl_toroidal,
+                v.nl_poloidal, v.prev_nl_poloidal)
+            parent(f.data_real) .= 0.0
+            parent(f.data_imag) .= 0.0
+        end
+        v.toroidal.boundary_values[1, idx] = Vtor
+        v.toroidal.boundary_values_imag[1, idx] = Vtor_i
+        v.poloidal.boundary_values[1, idx] = Vpol
+        v.poloidal.boundary_values_imag[1, idx] = Vpol_i
+
+        GeoDynamo.integrate_solver_cb3_step!(st)
+
+        @test _inner_val(v.toroidal, cfg, idx) ≈ Vtor
+        @test _inner_val_imag(v.toroidal, cfg, idx) ≈ Vtor_i
+        @test _inner_val(v.poloidal, cfg, idx) ≈ Vpol
+        @test _inner_val_imag(v.poloidal, cfg, idx) ≈ Vpol_i
     end
 
     @testset "magnetic toroidal (real + imaginary)" begin

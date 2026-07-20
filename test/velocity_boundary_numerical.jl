@@ -13,7 +13,7 @@ using MPI
 #   Poloidal  no-slip      : P = 0  (no-penetration, via influence matrix)
 #                            ∂P/∂r = 0
 #   Poloidal  stress-free  : P = 0  (no-penetration, via influence matrix)
-#                            ∂²P/∂r² = 0
+#                            ∂²P/∂r² - (2/r)∂P/∂r = 0
 #
 # Unlike the magnetic case (whose insulating BC annihilates a known potential
 # field r^l / r^{-(l+1)}), the velocity conditions have no simple analytic

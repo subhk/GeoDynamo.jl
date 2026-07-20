@@ -154,13 +154,14 @@ Return mode-indexed scalar boundary vectors for timestep solves.
 
 When a spectral BC file has been loaded, the interpolation cache supplies real
 and imaginary values for each mode. Otherwise the solver falls back to the
-field's parameter-derived `boundary_values`, which contains real values only.
+field's parameter-derived real and imaginary boundary-value arrays when present.
 
 Always returns a `_BCVectors` with the four keys `inner_real`, `outer_real`,
 `inner_imag`, `outer_imag`; absent slots are `nothing`.
 """
 function get_bc_vectors(field)
-    cache = field.boundary_interpolation_cache
+    cache = hasfield(typeof(field), :boundary_interpolation_cache) ?
+            field.boundary_interpolation_cache : nothing
     if cache isa bcs.BoundaryInterpolationCache
         bc_real = cache.bc_real
         bc_imag = cache.bc_imag
@@ -175,11 +176,15 @@ function get_bc_vectors(field)
     end
 
     if hasfield(typeof(field), :boundary_values)
+        inner_imag = hasfield(typeof(field), :boundary_values_imag) ?
+                     view(field.boundary_values_imag, 1, :) : nothing
+        outer_imag = hasfield(typeof(field), :boundary_values_imag) ?
+                     view(field.boundary_values_imag, 2, :) : nothing
         return _BCVectors((
             view(field.boundary_values, 1, :),
             view(field.boundary_values, 2, :),
-            nothing,
-            nothing
+            inner_imag,
+            outer_imag
         ))
     end
 
