@@ -136,13 +136,25 @@ function solver_erk2_constrained_propagators(
 end
 
 """
-    create_solver_erk2_scalar_cache(T, config, domain, diffusivity, dt, boundary_condition; ...)
+    create_solver_erk2_scalar_cache(T, config, domain, diffusivity, dt, boundary_condition;
+                                     bc_spec, inner_regularity, ...)
 
-Precompute ERK2 propagators for scalar fields with embedded boundary rows.
+Precompute ERK2 propagators for scalar fields with the endpoint constraints
+eliminated from the generator.
 
 The cache stores one set of matrices per unique spherical-harmonic degree in
 `config`. Dense matrices are precomputed unless `use_krylov=true`, in which
 case operator matrices are stored for Krylov actions.
+
+`bc_spec` supplies the endpoint descriptors; it defaults to the pair implied by
+`boundary_condition` (DD/DN/ND/NN for codes 1–4) via `build_solver_erk2_scalar_bc`,
+honouring `inner_regularity` for the ball center row. Neumann and regularity ends
+are derivative rows — stamping them into the generator and exponentiating would
+only lag-enforce them (the interior would see a spurious frozen-endpoint / Dirichlet
+condition each sub-step, with the true derivative row applied one step late by the
+endpoint projection), so they are eliminated instead — see
+`solver_erk2_constrained_propagators`. Pass the SAME spec the staged integrator
+enforces so the generator and the projection cannot drift.
 """
 function create_solver_erk2_scalar_cache(
         ::Type{T},
@@ -151,6 +163,8 @@ function create_solver_erk2_scalar_cache(
         diffusivity::Float64,
         dt::Float64,
         boundary_condition::Int;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
+        inner_regularity::Bool = false,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -160,6 +174,9 @@ function create_solver_erk2_scalar_cache(
     bandwidth = laplacian.bandwidth
     r_inv_sq = @views domain.r[1:nr, 2]
     l_values = unique(config.l_values)
+    spec = bc_spec === nothing ?
+           build_solver_erk2_scalar_bc(T, domain, boundary_condition; inner_regularity) :
+           bc_spec
 
     E_half = Matrix{T}[]
     E_full = Matrix{T}[]
@@ -169,7 +186,7 @@ function create_solver_erk2_scalar_cache(
 
     bc_desc = ["DD", "DN", "ND", "NN"][clamp(boundary_condition, 1, 4)]
     if mpi_rank() == 0
-        @info "Creating solver ERK2 scalar cache (type=$bc_desc, ν=$diffusivity)"
+        @info "Creating solver ERK2 scalar cache (type=$bc_desc, ν=$diffusivity, eliminated BC rows)"
     end
 
     for l in l_values
@@ -181,31 +198,24 @@ function create_solver_erk2_scalar_cache(
             operator_dense[n, n] -= diffusivity * l_factor * r_inv_sq[n]
         end
 
-        operator_dense[1, :] .= zero(T)
-        operator_dense[nr, :] .= zero(T)
-
         if use_krylov
+            operator_dense[1, :] .= zero(T)
+            operator_dense[nr, :] .= zero(T)
             push!(E_half, operator_dense)
             push!(E_full, operator_dense)
             push!(phi1_half, operator_dense)
             push!(phi1_full, operator_dense)
             push!(phi2_full, operator_dense)
         else
-            operator_half = (dt / 2) .* operator_dense
-            operator_full = dt .* operator_dense
-
-            E_half_l = exp(operator_half)
-            E_full_l = exp(operator_full)
-            push!(E_half, Matrix{T}(E_half_l))
-            push!(E_full, Matrix{T}(E_full_l))
-
-            phi1_half_l = solver_compute_phi1_function(operator_half, E_half_l)
-            phi1_full_l = solver_compute_phi1_function(operator_full, E_full_l)
-            push!(phi1_half, Matrix{T}(phi1_half_l))
-            push!(phi1_full, Matrix{T}(phi1_full_l))
-
-            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l = l)
-            push!(phi2_full, Matrix{T}(phi2_full_l))
+            row_inner = solver_erk2_constraint_row(T, spec.inner, 1, l, nr)
+            row_outer = solver_erk2_constraint_row(T, spec.outer, nr, l, nr)
+            E_h, E_f, p1_h, p1_f, p2_f = solver_erk2_constrained_propagators(
+                operator_dense, row_inner, row_outer, dt, l)
+            push!(E_half, E_h)
+            push!(E_full, E_f)
+            push!(phi1_half, p1_h)
+            push!(phi1_full, p1_f)
+            push!(phi2_full, p2_f)
         end
     end
 
@@ -749,6 +759,8 @@ function _get_or_build_erk2_scalar_cache(
         domain::RadialDomainType,
         dt::Float64,
         boundary_condition::Int;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
+        inner_regularity::Bool = false,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -774,6 +786,8 @@ function _get_or_build_erk2_scalar_cache(
             diffusivity,
             dt,
             boundary_condition;
+            bc_spec,
+            inner_regularity,
             use_krylov,
             m,
             tol
@@ -797,6 +811,8 @@ function get_solver_erk2_temperature_cache!(
         domain::RadialDomainType,
         dt::Float64,
         temperature_bc_code::Int;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
+        inner_regularity::Bool = false,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -810,6 +826,8 @@ function get_solver_erk2_temperature_cache!(
         domain,
         dt,
         temperature_bc_code;
+        bc_spec = bc_spec,
+        inner_regularity = inner_regularity,
         use_krylov = use_krylov,
         m = m,
         tol = tol
@@ -831,6 +849,8 @@ function get_solver_erk2_composition_cache!(
         domain::RadialDomainType,
         dt::Float64,
         composition_bc_code::Int;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
+        inner_regularity::Bool = false,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -844,6 +864,8 @@ function get_solver_erk2_composition_cache!(
         domain,
         dt,
         composition_bc_code;
+        bc_spec = bc_spec,
+        inner_regularity = inner_regularity,
         use_krylov = use_krylov,
         m = m,
         tol = tol
