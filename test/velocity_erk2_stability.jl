@@ -6,19 +6,18 @@ using MPI
 # Velocity ERK2 boundary-condition behaviour at PRODUCTION parameters
 # ================================================================================
 #
-# The generic velocity ERK2 cache (create_solver_erk2_cache) does not eliminate
-# its endpoint constraints from the generator — the toroidal wall is imposed by
-# the trailing endpoint projection and the poloidal wall by the influence-matrix
-# W-split recovery (see the create_solver_erk2_cache docstring). That treatment
-# is correct and stable at the small ν·dt of production runs, but imposes a
-# stability ceiling that CNAB2 (matrix-embedded) does not have.
+# The velocity TOROIDAL ERK2 cache eliminates its endpoint constraints from the
+# generator (create_solver_erk2_cache), so its wall is embedded in the propagated
+# operator and it is unconditionally stable — including the stress-free l = 1
+# rigid-rotation marginal mode, via the homogeneous (forcing-dropped) path. The
+# first testset pins that at ν = 1, where the pre-fix generic cache blew up.
 #
-# These tests pin the behaviour that MUST hold — exact toroidal free-decay at a
-# physical Ekman number, and ERK2/CNAB2 agreement over many steps from a natural
-# initial condition — so a future change to the cache cannot silently regress the
-# regime that real simulations use. The known large-ν / large-dt instability and
-# the l=1 stress-free rigid-rotation obstruction are documented on the builder,
-# not asserted here (no supported fix preserves the marginal mode).
+# The velocity POLOIDAL ERK2 path uses a different mechanism — the influence-
+# matrix W-split recovery, whose V-propagation runs on natural (un-embedded) rows
+# at diffusivity 1. It is correct and stable at the small dt/h² of production runs
+# but retains a dt/h² stability ceiling (documented on the builder). The second
+# testset pins ERK2/CNAB2 agreement over many steps from a natural IC at
+# production dt, so the regime real simulations use cannot silently regress.
 # ================================================================================
 
 _sph_j0(x) = sin(x) / x
@@ -63,13 +62,20 @@ function _first_root(f, kmin, kmax; nscan = 30000)
     error("no root in [$kmin, $kmax]")
 end
 
-@testset "velocity toroidal ERK2 free decay at physical Ek" begin
+@testset "velocity toroidal ERK2 free decay (unconditional)" begin
+    # The toroidal cache eliminates its endpoint constraints (homogeneous walls
+    # drop the forcing term), so the propagator embeds the wall and is stable at
+    # ANY diffusive step size — not just the small ν·dt of production. ν = 1 is a
+    # deliberately hard stress: before the fix the un-embedded generator's
+    # projected step had spectral radius up to 84 (no-slip) and the stress-free
+    # l = 1 rigid-rotation mode blew up to ~1e14. It must now reproduce the
+    # analytic shell free-decay rate exactly, l = 1 included.
     if !MPI.Initialized(); MPI.Init(); end
     nr = 48
-    dt = 1e-4
-    nsteps = 4000          # long horizon: exposes any slow rate error at small ν·dt
+    dt = 2e-4
+    nsteps = 400
     ratio = 0.35
-    nu = 1e-2              # ν = Ek, the production regime
+    nu = 1.0
     cfg = GeoDynamo.create_shtnskit_config(lmax = 4, mmax = 4, nlat = 12, nlon = 24, nr = nr)
     dom = GeoDynamo.create_radial_domain(nr; radius_ratio = ratio)
     rr = dom.r[1:nr, 4]; ri, ro = rr[1], rr[nr]
@@ -93,7 +99,7 @@ end
         for l in 1:3
             k = _first_root(kk -> _vt_disc(code, kk, l, ri, ro), 0.3, 12.0)
             rate = erk2_rate(cache, spec, l, _vt_profile(code, k, l, ro, rr))
-            @test isapprox(rate, nu * k^2; rtol = 5e-3)
+            @test isapprox(rate, nu * k^2; rtol = 1e-3)
         end
     end
 end

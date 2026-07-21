@@ -59,6 +59,11 @@ to the caller. The results are embedded back into `nr × nr` matrices so the
 staged integrator is untouched, and the trailing endpoint projection becomes a
 no-op rather than the sole enforcement.
 
+`homogeneous = true` drops the `A_Ib·g0` forcing (valid when the boundary data
+is identically zero); this keeps the propagator's entries at O(1) instead of the
+O(1/h⁴) that the forcing otherwise injects, which is what keeps a marginal
+(σ = 0) mode stable at fine grids — see the note at the `propagators` closure.
+
 Returns `(E_half, E_full, phi1_half, phi1_full, phi2_full)`.
 """
 function solver_erk2_constrained_propagators(
@@ -66,7 +71,8 @@ function solver_erk2_constrained_propagators(
         row_inner::Vector{T},
         row_outer::Vector{T},
         dt::Float64,
-        l::Int
+        l::Int;
+        homogeneous::Bool = false
 ) where {T}
     nr = size(operator, 1)
     nr >= 5 || throw(ArgumentError(
@@ -118,11 +124,27 @@ function solver_erk2_constrained_propagators(
 
     # Scale s: x_I(s) = e^{sÃ}x_I + s·φ1(sÃ)·(A_Ib·g0 + N_I), and
     # g0 = x_b − G·x_I is linear in the incoming full vector.
+    #
+    # `homogeneous`: when the boundary data is identically zero (g0 ≡ 0 — e.g.
+    # insulating magnetic, stress-free velocity, zero-flux scalar), the forcing
+    # term contributes nothing, so it is dropped. This is not just an
+    # optimisation: `forcing = s·φ1·A_Ib` carries A_Ib ~ 1/h² entries, and the
+    # combined `Es − forcing·G` has O(1/h⁴) entries that must cancel on-manifold
+    # to recover `Es·x_I`. For strictly-decaying modes the lost digits decay
+    # away, but a MARGINAL mode (σ = 0, e.g. the velocity stress-free l=1
+    # rigid-rotation mode) accumulates them and the projected step goes unstable
+    # at fine grids (the spectral radius tracks 1/h⁴). Dropping the forcing when
+    # it is provably zero keeps the interior propagator `M·Es` at O(1) entries,
+    # so the marginal mode stays neutral (radius = 1) at every resolution. The
+    # inhomogeneous path keeps the forcing (its fields have no marginal mode).
     function propagators(s::Float64)
         sT = T(s)
         sA = sT .* A_tilde
         Es = exp(sA)
         phi1s = solver_compute_phi1_function(sA, Es)
+        if homogeneous
+            return (embed(Es, nothing), embed(phi1s, nothing), sA, Es)
+        end
         forcing = (sT .* phi1s) * A_Ib         # multiplies g0
         return (embed(Es - forcing * G, forcing), embed(phi1s, nothing), sA, Es)
     end
@@ -133,6 +155,27 @@ function solver_erk2_constrained_propagators(
         solver_compute_phi2_function(sA_full, Es_full; l = l), nothing)
 
     return (E_half, E_full, phi1_half, phi1_full, phi2_full)
+end
+
+# A boundary side carries no inhomogeneous datum when its scalar endpoint value
+# is zero and it holds no per-mode value vector (or an all-zero one).
+_erk2_side_homogeneous(v::Nothing) = true
+_erk2_side_homogeneous(v::AbstractVector) = all(iszero, v)
+
+"""
+    solver_erk2_spec_homogeneous(spec) -> Bool
+
+True when the ERK2 boundary spec imposes only zero endpoint data on both walls
+(real and imaginary, scalar value and every per-mode value vector). Such a spec
+has `g0 ≡ 0`, so `solver_erk2_constrained_propagators` may drop the forcing term
+— see the note there on why that matters for marginal modes.
+"""
+function solver_erk2_spec_homogeneous(spec::SolverERK2BoundarySpec{T}) where {T}
+    return iszero(spec.inner.value) && iszero(spec.outer.value) &&
+           _erk2_side_homogeneous(spec.inner_mode_values) &&
+           _erk2_side_homogeneous(spec.outer_mode_values) &&
+           _erk2_side_homogeneous(spec.inner_mode_values_imag) &&
+           _erk2_side_homogeneous(spec.outer_mode_values_imag)
 end
 
 """
@@ -243,28 +286,26 @@ end
 
 Precompute generic ERK2 propagators for velocity-like spectral fields.
 
-Unlike the scalar and magnetic caches, this builder does NOT eliminate the
-endpoint constraints from the generator: for `l ≥ 1` the natural (un-constrained)
-boundary rows of the operator are exponentiated directly, and the velocity wall
-conditions are imposed afterwards — toroidal by the trailing `solver_enforce_erk2_bc!`
-projection, poloidal by the influence-matrix (Green's-function) W-split recovery
-(`src/timestep/erk2/influence.jl`, `_erk2_poloidal_recover!`).
+Two cases share this builder:
 
-Consequence — a `ν·dt/h²` stability ceiling. Because the wall is not embedded in
-the propagated operator, the projected/recovered step is only stable while the
-diffusive step size stays small: with `ν = Ek` and production `dt` (e.g. Ek=1e-2,
-dt=1e-5) it is stable and matches CNAB2 (and reproduces the analytic toroidal
-free-decay rate exactly); at `dt ≳ 2e-4` or `ν ≳ 0.1` the weakly-growing
-boundary mode blows up. CNAB2 embeds the rows in the implicit matrix and has no
-such ceiling.
+- **Toroidal** (`bc_spec !== nothing`, `dpol_operator = false`): the endpoint
+  constraints are eliminated from the generator via
+  `solver_erk2_constrained_propagators`, exactly like the magnetic/scalar caches,
+  so the wall is embedded in the propagated operator and there is no stability
+  ceiling. Homogeneous walls (stress-free, plain no-slip) drop the forcing term
+  (`solver_erk2_spec_homogeneous`), which keeps the marginal velocity stress-free
+  `l = 1` rigid-rotation mode (σ = 0: `Δ₁r = 0`, `(∂ᵣ − 1/r)r = 0` at both walls)
+  neutral at every resolution; inhomogeneous walls (rotating inner core) keep the
+  forcing (a Dirichlet row, no marginal mode).
 
-Why the boundary-DOF elimination used elsewhere is NOT applied here: (1) the
-poloidal path needs the natural-row exponential for its influence recovery; and
-(2) the toroidal stress-free `l = 1` rigid-rotation mode is marginal (σ = 0:
-`Δ₁r = 0` and `(∂ᵣ − 1/r)r = 0` at both walls), and elimination-plus-projection
-is only stable when the reduced interior operator is strictly contractive, so it
-destabilises that one mode. Verified correct at production parameters; see
-`test/velocity_erk2_stability.jl`.
+- **Poloidal** (`dpol_operator = true`, `bc_spec === nothing`): the natural
+  (un-constrained) boundary rows are exponentiated directly and the P = 0 /
+  P′ = 0 (or stress-free) walls are imposed afterwards by the influence-matrix
+  (Green's-function) W-split recovery (`src/timestep/erk2/influence.jl`,
+  `_erk2_poloidal_recover!`). Elimination does not apply — the recovery needs the
+  natural-row exponential.
+
+Verified in `test/velocity_erk2_stability.jl`.
 """
 function create_solver_erk2_cache(
         ::Type{T},
@@ -287,6 +328,12 @@ function create_solver_erk2_cache(
     r_inv_sq = @views domain.r[1:nr, 2]
     l_values = unique(config.l_values)
 
+    # Toroidal path: eliminate the endpoint constraints (see the docstring). The
+    # poloidal W-split (dpol_operator) keeps the natural-row exp for its influence
+    # recovery, and the Krylov path stores the raw operator, so both opt out.
+    eliminate_bc = (!use_krylov) && (bc_spec !== nothing) && (!dpol_operator)
+    bc_homogeneous = eliminate_bc && solver_erk2_spec_homogeneous(bc_spec)
+
     E_half = Matrix{T}[]
     E_full = Matrix{T}[]
     phi1_half = Matrix{T}[]
@@ -294,7 +341,8 @@ function create_solver_erk2_cache(
     phi2_full = Matrix{T}[]
 
     if mpi_rank() == 0
-        method_name = use_krylov ? "Krylov" : "dense"
+        method_name = use_krylov ? "Krylov" :
+                      (eliminate_bc ? "dense, eliminated BC rows" : "dense")
         @info "Creating solver ERK2 cache for $(length(l_values)) l-modes with $method_name methods"
     end
 
@@ -307,6 +355,20 @@ function create_solver_erk2_cache(
 
         @inbounds for n in 1:nr
             operator_dense[n, n] -= diffusivity * l_factor * r_inv_sq[n]
+        end
+
+        if eliminate_bc
+            row_inner = solver_erk2_constraint_row(T, bc_spec.inner, 1, l, nr)
+            row_outer = solver_erk2_constraint_row(T, bc_spec.outer, nr, l, nr)
+            E_h, E_f, p1_h, p1_f, p2_f = solver_erk2_constrained_propagators(
+                operator_dense, row_inner, row_outer, dt, l;
+                homogeneous = bc_homogeneous)
+            push!(E_half, E_h)
+            push!(E_full, E_f)
+            push!(phi1_half, p1_h)
+            push!(phi1_full, p1_f)
+            push!(phi2_full, p2_f)
+            continue
         end
 
         if l == 0
