@@ -20,6 +20,27 @@ const FINALIZE_MPI_CONDIC = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
     @test all(==(Int(GeoDynamo.CONTINUITY_MAG)), mag.poloidal.bc_type_inner)
 end
 
+# Only CNAB2 implements the ICB-coupled solve. ExponentialRungeKutta2 builds its
+# own insulating endpoint descriptors and never reads state.magnetic_ic_admittance,
+# so before this guard it accepted the config and quietly simulated a perfect
+# insulator with an identically-zero inner core. RungeKutta3 (cb3.jl) and the GPU
+# device builder already refused it; this pins ERK2 to the same contract.
+@testset "ExponentialRungeKutta2 refuses a conducting inner core" begin
+    if !MPI.Initialized()
+        MPI.Init()
+    end
+    params = GeoDynamo.SolverParameters(
+        architecture = :cpu, geometry = :shell, nr = 16, nr_inner = 8,
+        lmax = 4, mmax = 4, nlat = 12, nlon = 16,
+        include_magnetic = true, include_composition = false,
+        timestepper = GeoDynamo.ExponentialRungeKutta2(),
+        magnetic_inner_bc = :conducting_inner_core
+    )
+    state = GeoDynamo.initialize_simulation(Float64, params)
+    GeoDynamo.initialize_fields!(state)
+    @test_throws ArgumentError GeoDynamo.solver_step!(state)
+end
+
 # Acceptance test for a CONDUCTING INNER CORE (magnetic).
 #
 # Physics contract: when the inner core is electrically conducting, the
@@ -97,6 +118,22 @@ end
     # A conducting inner core must develop a nonzero internal field.
     @test maximum(abs, ic_tor) > 1e-12
     @test maximum(abs, ic_pol) > 1e-12
+
+    # ...and it must be CONTINUOUS with the outer core at the ICB — the physics
+    # contract stated at the top of this testset, which was never asserted. The
+    # nonzero-ness checks above pass even if the reconstruction is mis-scaled.
+    # Inner-core radial index end == ICB; outer-core radial index 1 == ICB.
+    oc_tor = parent(mag.toroidal.data_real)
+    oc_pol = parent(mag.poloidal.data_real)
+    ic_tor_i = parent(mag.toroidal_ic.data_imag)
+    ic_pol_i = parent(mag.poloidal_ic.data_imag)
+    oc_tor_i = parent(mag.toroidal.data_imag)
+    oc_pol_i = parent(mag.poloidal.data_imag)
+    icb_scale = max(maximum(abs, oc_tor), maximum(abs, oc_pol), 1.0)
+    @test maximum(abs, ic_tor[:, :, end] .- oc_tor[:, :, 1]) < 1e-10 * icb_scale
+    @test maximum(abs, ic_pol[:, :, end] .- oc_pol[:, :, 1]) < 1e-10 * icb_scale
+    @test maximum(abs, ic_tor_i[:, :, end] .- oc_tor_i[:, :, 1]) < 1e-10 * icb_scale
+    @test maximum(abs, ic_pol_i[:, :, end] .- oc_pol_i[:, :, 1]) < 1e-10 * icb_scale
 
     if MPI.Initialized()
         MPI.Barrier(GeoDynamo.get_comm())

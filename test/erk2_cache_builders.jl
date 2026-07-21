@@ -71,27 +71,56 @@ using LinearAlgebra
         @test all(cache.E_full[1][nr, :] .== 0.0)
     end
 
+    # Both magnetic caches eliminate their endpoint constraints from the
+    # generator, so the defining property of every propagator is that its OUTPUT
+    # satisfies the constraint rows — for any input, without help from the
+    # trailing endpoint projection. That is the invariant to pin; the boundary
+    # rows of E themselves are overwritten by the projection in
+    # prepare_/finalize_solver_erk2_field! and carry no meaning.
+    function check_constraint_preserved(cache, spec, l)
+        idx = findfirst(==(l), cache.l_values)
+        row_in = GeoDynamo.Solver.solver_erk2_constraint_row(
+            Float64, spec.inner, 1, l, nr)
+        row_out = GeoDynamo.Solver.solver_erk2_constraint_row(
+            Float64, spec.outer, nr, l, nr)
+        v = [sin(3.1 * i / nr) + 0.4 * cos(7.7 * i / nr) for i in 1:nr]
+        for M in (cache.E_half[idx], cache.E_full[idx],
+            cache.phi1_half[idx], cache.phi1_full[idx], cache.phi2_full[idx])
+            y = M * v
+            scale = max(maximum(abs, y), 1e-300)
+            @test abs(dot(row_in, y)) < 1e-8 * scale * maximum(abs, row_in)
+            @test abs(dot(row_out, y)) < 1e-8 * scale * maximum(abs, row_out)
+        end
+    end
+
     @testset "create_solver_erk2_magnetic_toroidal_cache" begin
+        spec = GeoDynamo.Solver.build_solver_erk2_magnetic_tor_bc(Float64, dom)
         cache = GeoDynamo.create_solver_erk2_magnetic_toroidal_cache(
             Float64, cfg, dom, diffusivity, dt; use_krylov = false)
         check_stage_cache(cache; expect_krylov = false)
-        # embedded homogeneous Dirichlet rows -> identity boundary rows in E_full
+        # Homogeneous Dirichlet: the constraint pins the endpoints to exactly
+        # zero, so the eliminated propagators carry zero boundary rows.
         E = cache.E_full[1]
-        @test E[1, 1] ≈ 1.0 atol = 1e-12
-        @test E[nr, nr] ≈ 1.0 atol = 1e-12
+        @test all(E[1, :] .== 0.0)
+        @test all(E[nr, :] .== 0.0)
+        for l in cache.l_values
+            check_constraint_preserved(cache, spec, l)
+        end
     end
 
     @testset "create_solver_erk2_magnetic_poloidal_cache" begin
+        spec = GeoDynamo.Solver.build_solver_erk2_magnetic_pol_bc(Float64, dom)
         cache = GeoDynamo.create_solver_erk2_magnetic_poloidal_cache(
             Float64, cfg, dom, diffusivity, dt; use_krylov = false)
         check_stage_cache(cache; expect_krylov = false)
-        # The insulating poloidal builder overwrites boundary rows with
-        # first-derivative stencils (NOT zero rows), so the boundary rows of the
-        # operator are generally non-trivial -> E_full boundary rows differ from
-        # the pure-Dirichlet identity. Just assert finiteness (covered above) and
-        # that the matrices are genuinely non-identity in the interior.
         E = cache.E_full[1]
         @test !(E ≈ Matrix{Float64}(I, nr, nr))
+        # Robin rows on both walls: unlike Dirichlet, these are only satisfied
+        # because the boundary DOFs were eliminated. Exponentiating the stamped
+        # rows instead leaves residuals of the same order as the field.
+        for l in cache.l_values
+            check_constraint_preserved(cache, spec, l)
+        end
     end
 
     @testset "solver_create_dirichlet_bc" begin

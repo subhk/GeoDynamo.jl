@@ -75,11 +75,24 @@ end
         erk2,
         "function create_solver_erk2_magnetic_poloidal_cache("
     )
-    # Corrected ERK2 dense-operator insulating rows (same B_r = λP/r²
-    # convention as the CNAB2 banded rows above):
-    # inner (∂r − (l+1)/r)P = 0, outer (∂r + l/r)P = 0.
-    @test _sc_occ("operator_dense[1, 1] -= T(l + 1) * r_inv[1]", erk2_pol_cache)
-    @test _sc_occ("operator_dense[nr, nr] += T(l) * r_inv[nr]", erk2_pol_cache)
+    erk2_tor_cache = _magnetic_bc_static_function_body(
+        erk2,
+        "function create_solver_erk2_magnetic_toroidal_cache("
+    )
+    # The ERK2 caches no longer hand-stamp their boundary rows. They take the
+    # rows from the same endpoint descriptors the integrator enforces
+    # (solver_erk2_constraint_row) and eliminate them from the generator
+    # (solver_erk2_constrained_propagators) instead of exponentiating them —
+    # exponentiating a Robin row does not impose it. Pin both halves so a
+    # revert to hand-stamped rows cannot pass silently; the numerical guard is
+    # test/magnetic_shell_freedecay.jl.
+    for body in (erk2_pol_cache, erk2_tor_cache)
+        @test _sc_occ("solver_erk2_constraint_row(T, spec.inner, 1, l, nr)", body)
+        @test _sc_occ("solver_erk2_constraint_row(T, spec.outer, nr, l, nr)", body)
+        @test _sc_occ("solver_erk2_constrained_propagators(", body)
+        @test !_sc_occ("operator_dense[1, 1] -=", body)
+        @test !_sc_occ("operator_dense[nr, nr] +=", body)
+    end
 
     magnetic_tor_update = _magnetic_bc_static_function_body(
         magnetic_solver,
