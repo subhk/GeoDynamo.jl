@@ -183,7 +183,7 @@ function build_gpu_erk2_state(st)
     # --- propagator caches (memoized; identical getter calls to the CPU step) ---
     temp_cache = get_solver_erk2_temperature_cache!(
         caches, params.Pm / params.Pr, T, cfg, domain, dt, temperature_bc_code;
-        use_krylov = false)
+        bc_spec = temp_spec, use_krylov = false)
     vel_tor_cache = get_solver_erk2_cache!(
         caches, :velocity_toroidal, params.Ek, T, cfg, domain, dt;
         use_krylov = false, bc_spec = vel_tor_spec)
@@ -237,7 +237,7 @@ function build_gpu_erk2_state(st)
             cv.inner_real, cv.outer_real, cv.inner_imag, cv.outer_imag)
         comp_cache = get_solver_erk2_composition_cache!(
             caches, params.Pm / params.Sc, T, cfg, domain, dt, composition_bc_code;
-            use_krylov = false)
+            bc_spec = comp_spec, use_krylov = false)
         composition = (;
             _pack_erk2_cache(comp_cache, nl, nr)...,
             bc = _pack_erk2_bc(comp_spec, cfg, nl, nm, nr, T))
