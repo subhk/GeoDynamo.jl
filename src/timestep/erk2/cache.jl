@@ -242,6 +242,29 @@ end
     create_solver_erk2_cache(T, config, domain, diffusivity, dt; bc_spec=nothing, ...)
 
 Precompute generic ERK2 propagators for velocity-like spectral fields.
+
+Unlike the scalar and magnetic caches, this builder does NOT eliminate the
+endpoint constraints from the generator: for `l ≥ 1` the natural (un-constrained)
+boundary rows of the operator are exponentiated directly, and the velocity wall
+conditions are imposed afterwards — toroidal by the trailing `solver_enforce_erk2_bc!`
+projection, poloidal by the influence-matrix (Green's-function) W-split recovery
+(`src/timestep/erk2/influence.jl`, `_erk2_poloidal_recover!`).
+
+Consequence — a `ν·dt/h²` stability ceiling. Because the wall is not embedded in
+the propagated operator, the projected/recovered step is only stable while the
+diffusive step size stays small: with `ν = Ek` and production `dt` (e.g. Ek=1e-2,
+dt=1e-5) it is stable and matches CNAB2 (and reproduces the analytic toroidal
+free-decay rate exactly); at `dt ≳ 2e-4` or `ν ≳ 0.1` the weakly-growing
+boundary mode blows up. CNAB2 embeds the rows in the implicit matrix and has no
+such ceiling.
+
+Why the boundary-DOF elimination used elsewhere is NOT applied here: (1) the
+poloidal path needs the natural-row exponential for its influence recovery; and
+(2) the toroidal stress-free `l = 1` rigid-rotation mode is marginal (σ = 0:
+`Δ₁r = 0` and `(∂ᵣ − 1/r)r = 0` at both walls), and elimination-plus-projection
+is only stable when the reduced interior operator is strictly contractive, so it
+destabilises that one mode. Verified correct at production parameters; see
+`test/velocity_erk2_stability.jl`.
 """
 function create_solver_erk2_cache(
         ::Type{T},
