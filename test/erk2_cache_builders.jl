@@ -39,40 +39,8 @@ using LinearAlgebra
         end
     end
 
-    @testset "create_solver_erk2_scalar_cache (dense, all 4 BC codes)" begin
-        for bc_code in 1:4
-            cache = GeoDynamo.create_solver_erk2_scalar_cache(
-                Float64, cfg, dom, diffusivity, dt, bc_code; use_krylov = false)
-            check_stage_cache(cache; expect_krylov = false)
-            # Dirichlet rows (index 1 and nr) are zeroed in the operator, so the
-            # dense exponential E_full has identity-like boundary rows: row 1 of
-            # exp(0-row operator) == e_1, row nr == e_nr. Verify for first mode.
-            E = cache.E_full[1]
-            @test E[1, 1] ≈ 1.0 atol = 1e-12
-            @test E[nr, nr] ≈ 1.0 atol = 1e-12
-            @test all(abs.(E[1, 2:nr]) .< 1e-12)
-            @test all(abs.(E[nr, 1:(nr - 1)]) .< 1e-12)
-        end
-    end
-
-    @testset "create_solver_erk2_scalar_cache (krylov path)" begin
-        cache = GeoDynamo.create_solver_erk2_scalar_cache(
-            Float64, cfg, dom, diffusivity, dt, 1; use_krylov = true, m = 12, tol = 1e-9)
-        check_stage_cache(cache; expect_krylov = true)
-        @test cache.krylov_m == 12
-        @test cache.krylov_tol == 1e-9
-        # In the krylov path the five matrix lists all alias the same raw
-        # operator (operator_dense), not exponentials — so they are equal.
-        @test cache.E_half[1] == cache.E_full[1]
-        @test cache.E_full[1] == cache.phi1_full[1]
-        @test cache.phi1_full[1] == cache.phi2_full[1]
-        # boundary rows of the raw operator were zeroed
-        @test all(cache.E_full[1][1, :] .== 0.0)
-        @test all(cache.E_full[1][nr, :] .== 0.0)
-    end
-
-    # Both magnetic caches eliminate their endpoint constraints from the
-    # generator, so the defining property of every propagator is that its OUTPUT
+    # Every dense ERK2 cache eliminates its endpoint constraints from the
+    # generator, so the defining property of a propagator is that its OUTPUT
     # satisfies the constraint rows — for any input, without help from the
     # trailing endpoint projection. That is the invariant to pin; the boundary
     # rows of E themselves are overwritten by the projection in
@@ -91,6 +59,45 @@ using LinearAlgebra
             @test abs(dot(row_in, y)) < 1e-8 * scale * maximum(abs, row_in)
             @test abs(dot(row_out, y)) < 1e-8 * scale * maximum(abs, row_out)
         end
+    end
+
+    @testset "create_solver_erk2_scalar_cache (dense, all 4 BC codes)" begin
+        for bc_code in 1:4
+            spec = GeoDynamo.Solver.build_solver_erk2_scalar_bc(Float64, dom, bc_code)
+            cache = GeoDynamo.create_solver_erk2_scalar_cache(
+                Float64, cfg, dom, diffusivity, dt, bc_code; use_krylov = false)
+            check_stage_cache(cache; expect_krylov = false)
+            # Neumann ends are derivative rows: the propagator only satisfies them
+            # because the boundary DOFs were eliminated, not because the trailing
+            # projection patched them up one step late.
+            for l in cache.l_values
+                check_constraint_preserved(cache, spec, l)
+            end
+            # Pure Dirichlet-Dirichlet (code 1) pins both endpoints to their given
+            # values, so the eliminated propagator carries exactly-zero boundary
+            # rows (endpoints do not feed back into the interior evolution).
+            if bc_code == 1
+                E = cache.E_full[1]
+                @test all(E[1, :] .== 0.0)
+                @test all(E[nr, :] .== 0.0)
+            end
+        end
+    end
+
+    @testset "create_solver_erk2_scalar_cache (krylov path)" begin
+        cache = GeoDynamo.create_solver_erk2_scalar_cache(
+            Float64, cfg, dom, diffusivity, dt, 1; use_krylov = true, m = 12, tol = 1e-9)
+        check_stage_cache(cache; expect_krylov = true)
+        @test cache.krylov_m == 12
+        @test cache.krylov_tol == 1e-9
+        # In the krylov path the five matrix lists all alias the same raw
+        # operator (operator_dense), not exponentials — so they are equal.
+        @test cache.E_half[1] == cache.E_full[1]
+        @test cache.E_full[1] == cache.phi1_full[1]
+        @test cache.phi1_full[1] == cache.phi2_full[1]
+        # boundary rows of the raw operator were zeroed
+        @test all(cache.E_full[1][1, :] .== 0.0)
+        @test all(cache.E_full[1][nr, :] .== 0.0)
     end
 
     @testset "create_solver_erk2_magnetic_toroidal_cache" begin

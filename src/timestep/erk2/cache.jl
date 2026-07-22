@@ -59,6 +59,11 @@ to the caller. The results are embedded back into `nr × nr` matrices so the
 staged integrator is untouched, and the trailing endpoint projection becomes a
 no-op rather than the sole enforcement.
 
+`homogeneous = true` drops the `A_Ib·g0` forcing (valid when the boundary data
+is identically zero); this keeps the propagator's entries at O(1) instead of the
+O(1/h⁴) that the forcing otherwise injects, which is what keeps a marginal
+(σ = 0) mode stable at fine grids — see the note at the `propagators` closure.
+
 Returns `(E_half, E_full, phi1_half, phi1_full, phi2_full)`.
 """
 function solver_erk2_constrained_propagators(
@@ -66,7 +71,8 @@ function solver_erk2_constrained_propagators(
         row_inner::Vector{T},
         row_outer::Vector{T},
         dt::Float64,
-        l::Int
+        l::Int;
+        homogeneous::Bool = false
 ) where {T}
     nr = size(operator, 1)
     nr >= 5 || throw(ArgumentError(
@@ -118,11 +124,27 @@ function solver_erk2_constrained_propagators(
 
     # Scale s: x_I(s) = e^{sÃ}x_I + s·φ1(sÃ)·(A_Ib·g0 + N_I), and
     # g0 = x_b − G·x_I is linear in the incoming full vector.
+    #
+    # `homogeneous`: when the boundary data is identically zero (g0 ≡ 0 — e.g.
+    # insulating magnetic, stress-free velocity, zero-flux scalar), the forcing
+    # term contributes nothing, so it is dropped. This is not just an
+    # optimisation: `forcing = s·φ1·A_Ib` carries A_Ib ~ 1/h² entries, and the
+    # combined `Es − forcing·G` has O(1/h⁴) entries that must cancel on-manifold
+    # to recover `Es·x_I`. For strictly-decaying modes the lost digits decay
+    # away, but a MARGINAL mode (σ = 0, e.g. the velocity stress-free l=1
+    # rigid-rotation mode) accumulates them and the projected step goes unstable
+    # at fine grids (the spectral radius tracks 1/h⁴). Dropping the forcing when
+    # it is provably zero keeps the interior propagator `M·Es` at O(1) entries,
+    # so the marginal mode stays neutral (radius = 1) at every resolution. The
+    # inhomogeneous path keeps the forcing (its fields have no marginal mode).
     function propagators(s::Float64)
         sT = T(s)
         sA = sT .* A_tilde
         Es = exp(sA)
         phi1s = solver_compute_phi1_function(sA, Es)
+        if homogeneous
+            return (embed(Es, nothing), embed(phi1s, nothing), sA, Es)
+        end
         forcing = (sT .* phi1s) * A_Ib         # multiplies g0
         return (embed(Es - forcing * G, forcing), embed(phi1s, nothing), sA, Es)
     end
@@ -135,14 +157,47 @@ function solver_erk2_constrained_propagators(
     return (E_half, E_full, phi1_half, phi1_full, phi2_full)
 end
 
-"""
-    create_solver_erk2_scalar_cache(T, config, domain, diffusivity, dt, boundary_condition; ...)
+# A boundary side carries no inhomogeneous datum when its scalar endpoint value
+# is zero and it holds no per-mode value vector (or an all-zero one).
+_erk2_side_homogeneous(v::Nothing) = true
+_erk2_side_homogeneous(v::AbstractVector) = all(iszero, v)
 
-Precompute ERK2 propagators for scalar fields with embedded boundary rows.
+"""
+    solver_erk2_spec_homogeneous(spec) -> Bool
+
+True when the ERK2 boundary spec imposes only zero endpoint data on both walls
+(real and imaginary, scalar value and every per-mode value vector). Such a spec
+has `g0 ≡ 0`, so `solver_erk2_constrained_propagators` may drop the forcing term
+— see the note there on why that matters for marginal modes.
+"""
+function solver_erk2_spec_homogeneous(spec::SolverERK2BoundarySpec{T}) where {T}
+    return iszero(spec.inner.value) && iszero(spec.outer.value) &&
+           _erk2_side_homogeneous(spec.inner_mode_values) &&
+           _erk2_side_homogeneous(spec.outer_mode_values) &&
+           _erk2_side_homogeneous(spec.inner_mode_values_imag) &&
+           _erk2_side_homogeneous(spec.outer_mode_values_imag)
+end
+
+"""
+    create_solver_erk2_scalar_cache(T, config, domain, diffusivity, dt, boundary_condition;
+                                     bc_spec, inner_regularity, ...)
+
+Precompute ERK2 propagators for scalar fields with the endpoint constraints
+eliminated from the generator.
 
 The cache stores one set of matrices per unique spherical-harmonic degree in
 `config`. Dense matrices are precomputed unless `use_krylov=true`, in which
 case operator matrices are stored for Krylov actions.
+
+`bc_spec` supplies the endpoint descriptors; it defaults to the pair implied by
+`boundary_condition` (DD/DN/ND/NN for codes 1–4) via `build_solver_erk2_scalar_bc`,
+honouring `inner_regularity` for the ball center row. Neumann and regularity ends
+are derivative rows — stamping them into the generator and exponentiating would
+only lag-enforce them (the interior would see a spurious frozen-endpoint / Dirichlet
+condition each sub-step, with the true derivative row applied one step late by the
+endpoint projection), so they are eliminated instead — see
+`solver_erk2_constrained_propagators`. Pass the SAME spec the staged integrator
+enforces so the generator and the projection cannot drift.
 """
 function create_solver_erk2_scalar_cache(
         ::Type{T},
@@ -151,6 +206,8 @@ function create_solver_erk2_scalar_cache(
         diffusivity::Float64,
         dt::Float64,
         boundary_condition::Int;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
+        inner_regularity::Bool = false,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -160,6 +217,9 @@ function create_solver_erk2_scalar_cache(
     bandwidth = laplacian.bandwidth
     r_inv_sq = @views domain.r[1:nr, 2]
     l_values = unique(config.l_values)
+    spec = bc_spec === nothing ?
+           build_solver_erk2_scalar_bc(T, domain, boundary_condition; inner_regularity) :
+           bc_spec
 
     E_half = Matrix{T}[]
     E_full = Matrix{T}[]
@@ -169,7 +229,7 @@ function create_solver_erk2_scalar_cache(
 
     bc_desc = ["DD", "DN", "ND", "NN"][clamp(boundary_condition, 1, 4)]
     if mpi_rank() == 0
-        @info "Creating solver ERK2 scalar cache (type=$bc_desc, ν=$diffusivity)"
+        @info "Creating solver ERK2 scalar cache (type=$bc_desc, ν=$diffusivity, eliminated BC rows)"
     end
 
     for l in l_values
@@ -181,31 +241,24 @@ function create_solver_erk2_scalar_cache(
             operator_dense[n, n] -= diffusivity * l_factor * r_inv_sq[n]
         end
 
-        operator_dense[1, :] .= zero(T)
-        operator_dense[nr, :] .= zero(T)
-
         if use_krylov
+            operator_dense[1, :] .= zero(T)
+            operator_dense[nr, :] .= zero(T)
             push!(E_half, operator_dense)
             push!(E_full, operator_dense)
             push!(phi1_half, operator_dense)
             push!(phi1_full, operator_dense)
             push!(phi2_full, operator_dense)
         else
-            operator_half = (dt / 2) .* operator_dense
-            operator_full = dt .* operator_dense
-
-            E_half_l = exp(operator_half)
-            E_full_l = exp(operator_full)
-            push!(E_half, Matrix{T}(E_half_l))
-            push!(E_full, Matrix{T}(E_full_l))
-
-            phi1_half_l = solver_compute_phi1_function(operator_half, E_half_l)
-            phi1_full_l = solver_compute_phi1_function(operator_full, E_full_l)
-            push!(phi1_half, Matrix{T}(phi1_half_l))
-            push!(phi1_full, Matrix{T}(phi1_full_l))
-
-            phi2_full_l = solver_compute_phi2_function(operator_full, E_full_l; l = l)
-            push!(phi2_full, Matrix{T}(phi2_full_l))
+            row_inner = solver_erk2_constraint_row(T, spec.inner, 1, l, nr)
+            row_outer = solver_erk2_constraint_row(T, spec.outer, nr, l, nr)
+            E_h, E_f, p1_h, p1_f, p2_f = solver_erk2_constrained_propagators(
+                operator_dense, row_inner, row_outer, dt, l)
+            push!(E_half, E_h)
+            push!(E_full, E_f)
+            push!(phi1_half, p1_h)
+            push!(phi1_full, p1_f)
+            push!(phi2_full, p2_f)
         end
     end
 
@@ -232,6 +285,27 @@ end
     create_solver_erk2_cache(T, config, domain, diffusivity, dt; bc_spec=nothing, ...)
 
 Precompute generic ERK2 propagators for velocity-like spectral fields.
+
+Two cases share this builder:
+
+- **Toroidal** (`bc_spec !== nothing`, `dpol_operator = false`): the endpoint
+  constraints are eliminated from the generator via
+  `solver_erk2_constrained_propagators`, exactly like the magnetic/scalar caches,
+  so the wall is embedded in the propagated operator and there is no stability
+  ceiling. Homogeneous walls (stress-free, plain no-slip) drop the forcing term
+  (`solver_erk2_spec_homogeneous`), which keeps the marginal velocity stress-free
+  `l = 1` rigid-rotation mode (σ = 0: `Δ₁r = 0`, `(∂ᵣ − 1/r)r = 0` at both walls)
+  neutral at every resolution; inhomogeneous walls (rotating inner core) keep the
+  forcing (a Dirichlet row, no marginal mode).
+
+- **Poloidal** (`dpol_operator = true`, `bc_spec === nothing`): the natural
+  (un-constrained) boundary rows are exponentiated directly and the P = 0 /
+  P′ = 0 (or stress-free) walls are imposed afterwards by the influence-matrix
+  (Green's-function) W-split recovery (`src/timestep/erk2/influence.jl`,
+  `_erk2_poloidal_recover!`). Elimination does not apply — the recovery needs the
+  natural-row exponential.
+
+Verified in `test/velocity_erk2_stability.jl`.
 """
 function create_solver_erk2_cache(
         ::Type{T},
@@ -254,6 +328,12 @@ function create_solver_erk2_cache(
     r_inv_sq = @views domain.r[1:nr, 2]
     l_values = unique(config.l_values)
 
+    # Toroidal path: eliminate the endpoint constraints (see the docstring). The
+    # poloidal W-split (dpol_operator) keeps the natural-row exp for its influence
+    # recovery, and the Krylov path stores the raw operator, so both opt out.
+    eliminate_bc = (!use_krylov) && (bc_spec !== nothing) && (!dpol_operator)
+    bc_homogeneous = eliminate_bc && solver_erk2_spec_homogeneous(bc_spec)
+
     E_half = Matrix{T}[]
     E_full = Matrix{T}[]
     phi1_half = Matrix{T}[]
@@ -261,7 +341,8 @@ function create_solver_erk2_cache(
     phi2_full = Matrix{T}[]
 
     if mpi_rank() == 0
-        method_name = use_krylov ? "Krylov" : "dense"
+        method_name = use_krylov ? "Krylov" :
+                      (eliminate_bc ? "dense, eliminated BC rows" : "dense")
         @info "Creating solver ERK2 cache for $(length(l_values)) l-modes with $method_name methods"
     end
 
@@ -274,6 +355,20 @@ function create_solver_erk2_cache(
 
         @inbounds for n in 1:nr
             operator_dense[n, n] -= diffusivity * l_factor * r_inv_sq[n]
+        end
+
+        if eliminate_bc
+            row_inner = solver_erk2_constraint_row(T, bc_spec.inner, 1, l, nr)
+            row_outer = solver_erk2_constraint_row(T, bc_spec.outer, nr, l, nr)
+            E_h, E_f, p1_h, p1_f, p2_f = solver_erk2_constrained_propagators(
+                operator_dense, row_inner, row_outer, dt, l;
+                homogeneous = bc_homogeneous)
+            push!(E_half, E_h)
+            push!(E_full, E_f)
+            push!(phi1_half, p1_h)
+            push!(phi1_full, p1_f)
+            push!(phi2_full, p2_f)
+            continue
         end
 
         if l == 0
@@ -749,6 +844,8 @@ function _get_or_build_erk2_scalar_cache(
         domain::RadialDomainType,
         dt::Float64,
         boundary_condition::Int;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
+        inner_regularity::Bool = false,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -774,6 +871,8 @@ function _get_or_build_erk2_scalar_cache(
             diffusivity,
             dt,
             boundary_condition;
+            bc_spec,
+            inner_regularity,
             use_krylov,
             m,
             tol
@@ -797,6 +896,8 @@ function get_solver_erk2_temperature_cache!(
         domain::RadialDomainType,
         dt::Float64,
         temperature_bc_code::Int;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
+        inner_regularity::Bool = false,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -810,6 +911,8 @@ function get_solver_erk2_temperature_cache!(
         domain,
         dt,
         temperature_bc_code;
+        bc_spec = bc_spec,
+        inner_regularity = inner_regularity,
         use_krylov = use_krylov,
         m = m,
         tol = tol
@@ -831,6 +934,8 @@ function get_solver_erk2_composition_cache!(
         domain::RadialDomainType,
         dt::Float64,
         composition_bc_code::Int;
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
+        inner_regularity::Bool = false,
         use_krylov::Bool = false,
         m::Int = 20,
         tol::Float64 = 1e-8
@@ -844,6 +949,8 @@ function get_solver_erk2_composition_cache!(
         domain,
         dt,
         composition_bc_code;
+        bc_spec = bc_spec,
+        inner_regularity = inner_regularity,
         use_krylov = use_krylov,
         m = m,
         tol = tol

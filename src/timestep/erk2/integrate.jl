@@ -648,6 +648,8 @@ function integrate_solver_erk2_step!(state::SolverState{
         runtime.outer_core_domain,
         params.timestep,
         temperature_bc_code;
+        bc_spec = temp_bc,
+        inner_regularity = inner_regularity,
         use_krylov = false
     )
     temp_buffers = get_solver_erk2_field_buffers!(
@@ -825,6 +827,8 @@ function integrate_solver_erk2_step!(state::SolverState{
             runtime.outer_core_domain,
             params.timestep,
             composition_bc_code;
+            bc_spec = comp_bc,
+            inner_regularity = inner_regularity,
             use_krylov = false
         )
         comp_buffers = get_solver_erk2_field_buffers!(
