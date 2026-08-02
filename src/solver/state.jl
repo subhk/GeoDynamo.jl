@@ -199,7 +199,6 @@ struct SolverERK2BoundarySide{T}
     l_sign::T
     use_l_correction::Bool
     fixed_correction::T
-    l0_dirichlet::Bool
 end
 
 """

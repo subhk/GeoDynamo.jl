@@ -20,11 +20,6 @@ function solver_enforce_erk2_bc!(
     b = boundary_idx
     effective_value = value_override !== nothing ? value_override : bc_side.value
 
-    if bc_side.l0_dirichlet && l == 0
-        result[b] = effective_value
-        return result
-    end
-
     if bc_side.type === :dirichlet
         result[b] = effective_value
         return result
@@ -88,8 +83,7 @@ function solver_create_dirichlet_bc(::Type{T}, nr::Int, value::T = zero(T)) wher
         zero(T),
         zero(T),
         false,
-        zero(T),
-        false
+        zero(T)
     )
 end
 
@@ -103,15 +97,18 @@ function GeoDynamo.create_dirichlet_bc(::Type{T}, nr::Int, value::T = zero(T)) w
 end
 
 """
-    solver_create_neumann_bc(T, d1_row, value=zero(T); l0_dirichlet=false)
+    solver_create_neumann_bc(T, d1_row, value=zero(T))
 
 Create a first-derivative endpoint descriptor.
+
+Applies at every degree including `l = 0`: the NN gauge pin belongs to the
+singular steady conductive solve, not to the time-stepping operator (see
+`build_solver_erk2_scalar_bc`).
 """
 function solver_create_neumann_bc(
         ::Type{T},
         d1_row::Vector{T},
-        value::T = zero(T);
-        l0_dirichlet::Bool = false
+        value::T = zero(T)
 ) where {T}
     return SolverERK2BoundarySide{T}(
         :neumann,
@@ -120,23 +117,21 @@ function solver_create_neumann_bc(
         zero(T),
         zero(T),
         false,
-        zero(T),
-        l0_dirichlet
+        zero(T)
     )
 end
 
 """
-    GeoDynamo.create_neumann_bc(T, d1_row, value=zero(T); l0_dirichlet=false)
+    GeoDynamo.create_neumann_bc(T, d1_row, value=zero(T))
 
 Create a public first-derivative ERK2 endpoint descriptor.
 """
 function GeoDynamo.create_neumann_bc(
         ::Type{T},
         d1_row::Vector{T},
-        value::T = zero(T);
-        l0_dirichlet::Bool = false
+        value::T = zero(T)
 ) where {T}
-    return solver_create_neumann_bc(T, d1_row, value; l0_dirichlet)
+    return solver_create_neumann_bc(T, d1_row, value)
 end
 
 """
@@ -152,8 +147,7 @@ function solver_create_stress_free_tor_bc(::Type{T}, d1_row::Vector{T}, r_inv::T
         r_inv,
         zero(T),
         false,
-        -r_inv,
-        false
+        -r_inv
     )
 end
 
@@ -179,8 +173,7 @@ function solver_create_noslip_pol_bc(::Type{T}, d1_row::Vector{T}) where {T}
         zero(T),
         zero(T),
         false,
-        zero(T),
-        false
+        zero(T)
     )
 end
 
@@ -207,8 +200,7 @@ function solver_create_stress_free_pol_bc(::Type{T}, stress_free_row::Vector{T})
         zero(T),
         zero(T),
         false,
-        zero(T),
-        false
+        zero(T)
     )
 end
 
@@ -251,8 +243,7 @@ function solver_create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::
         r_inv,
         -one(T),
         true,
-        -r_inv,
-        false
+        -r_inv
     )
 end
 
@@ -283,8 +274,7 @@ function solver_create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::
         r_inv,
         one(T),
         true,
-        zero(T),
-        false
+        zero(T)
     )
 end
 
@@ -314,8 +304,7 @@ function solver_create_regularity_bc(
         r_inv,
         -one(T),                 # l_sign: self_coeff −= l/r₁
         true,                    # use_l_correction
-        -T(l_offset) * r_inv,    # fixed_correction: −l_offset/r₁
-        false
+        -T(l_offset) * r_inv     # fixed_correction: −l_offset/r₁
     )
 end
 
@@ -341,7 +330,15 @@ function build_solver_erk2_scalar_bc(::Type{T}, domain::RadialDomainType, bounda
     elseif boundary_condition == 1 || boundary_condition == 2
         solver_create_dirichlet_bc(T, nr)
     else
-        solver_create_neumann_bc(T, d1_inner; l0_dirichlet = (boundary_condition == 4))
+        # NO l=0 Dirichlet pin under NN. The pin belongs to the SINGULAR STEADY
+        # conductive solve (scalar_field_solver_common.jl: the bare Laplacian has
+        # a constant null space when both walls are Neumann); the time-stepping
+        # operator (mass/dt)I − θκL is already non-singular under pure-Neumann
+        # rows, so this builder must leave l=0 Neumann like every other degree —
+        # matching the CNAB2/RK3 matrix path. Pinning here also wrote the
+        # prescribed FLUX into the field VALUE, since `value` on a Neumann side
+        # holds a flux, not a temperature.
+        solver_create_neumann_bc(T, d1_inner)
     end
 
     outer = boundary_condition == 1 || boundary_condition == 3 ?
