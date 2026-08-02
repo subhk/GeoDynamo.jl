@@ -43,8 +43,10 @@ ON THE GPU PATH.  Builds the device state via [`build_gpu_solver_state`](@ref) (
 moved to `arch` with [`gpu_to_device`](@ref) — pass `arch = GPU()` on a CUDA box), runs the
 device loop, then ALWAYS syncs the evolved state back into `cpu_state` via
 [`sync_gpu_state_to_cpu!`](@ref) (spectral fields, CNAB2 `prev_nl` histories, and the lagged
-physical buffers) and advances `cpu_state.step`/`.time`, so CPU-side stepping / diagnostics /
-output / restart can continue coherently from the GPU-evolved state.  (To run the device loop without
+physical buffers) and advances both clocks — `cpu_state.step`/`.time` and the
+`runtime.timestep_state` pair the boundary-condition and diagnostic layers read — so
+CPU-side stepping / diagnostics / output / restart can continue coherently from the
+GPU-evolved state.  (To run the device loop without
 syncing back — keeping a handle to the device state — call `build_gpu_solver_state` +
 `gpu_run!(gst, …)` directly instead.)
 
@@ -59,7 +61,11 @@ function gpu_run!(cpu_state::SolverState, nsteps::Int; arch::AbstractArchitectur
     arch isa CPU || (gst = gpu_to_device(gst, arch))
     gpu_run!(gst, nsteps; output_every = output_every, output_fn = output_fn)
     sync_gpu_state_to_cpu!(cpu_state, gst)
-    cpu_state.step += nsteps
-    cpu_state.time += nsteps * cpu_state.parameters.timestep
+    # Advance the runtime clock alongside the public one; downstream readers
+    # (get_current_simulation_time, ERK2 diagnostics) go through
+    # `runtime.timestep_state`, not `cpu_state.step`/`.time`.
+    reset_solver_clock!(cpu_state;
+        time = cpu_state.time + nsteps * cpu_state.parameters.timestep,
+        step = cpu_state.step + nsteps)
     return cpu_state
 end

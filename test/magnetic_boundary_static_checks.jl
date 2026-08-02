@@ -67,9 +67,11 @@ end
     @test _sc_occ("one(T)", insulating_outer)
     @test _sc_occ("r_inv", insulating_outer)
     # fixed_correction slots of the corrected insulating descriptors:
-    # inner −r_inv (∂r − (l+1)/r), outer 0 (∂r + l/r).
-    @test _sc_occ("true, -r_inv, false", insulating_inner)
-    @test _sc_occ("true, zero(T), false", insulating_outer)
+    # inner −r_inv (∂r − (l+1)/r), outer 0 (∂r + l/r). The closing paren pins
+    # fixed_correction as the FINAL descriptor slot (it used to be followed by
+    # the l0_dirichlet flag, removed with the ERK2 l=0 NN pin).
+    @test _sc_occ("true, -r_inv)", insulating_inner)
+    @test _sc_occ("true, zero(T))", insulating_outer)
 
     erk2_pol_cache = _magnetic_bc_static_function_body(
         erk2,

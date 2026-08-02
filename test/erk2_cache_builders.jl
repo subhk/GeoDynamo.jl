@@ -137,10 +137,26 @@ using LinearAlgebra
         @test length(bc.stencil) == nr
         @test all(bc.stencil .== 0.0)
         @test bc.use_l_correction == false
-        @test bc.l0_dirichlet == false
         # with a nonzero endpoint value
         bc2 = GeoDynamo.solver_create_dirichlet_bc(Float64, nr, 1.25)
         @test bc2.value == 1.25
+    end
+
+    @testset "no l=0 Dirichlet pin on ERK2 boundary sides" begin
+        # The NN gauge pin belongs to the SINGULAR STEADY conductive solve
+        # (scalar_field_solver_common.jl), not to the time-stepping operator.
+        # ERK2 used to carry an `l0_dirichlet` flag that pinned l=0 under NN: it
+        # enforced the prescribed FLUX as a field VALUE and diverged from the
+        # CNAB2/RK3 matrix path. The flag is gone — this guards its return.
+        @test !(:l0_dirichlet in fieldnames(GeoDynamo.SolverERK2BoundarySide))
+
+        # Behavioural half: under NN the inner constraint row at l=0 must be the
+        # SAME Neumann stencil as any other degree, not an identity pin.
+        spec = GeoDynamo.build_solver_erk2_scalar_bc(Float64, dom, 4)
+        row0 = GeoDynamo.solver_erk2_constraint_row(Float64, spec.inner, 1, 0, nr)
+        row1 = GeoDynamo.solver_erk2_constraint_row(Float64, spec.inner, 1, 1, nr)
+        @test row0 == row1                    # no l=0 special case
+        @test count(!iszero, row0) > 1        # a stencil row, not an identity pin
     end
 
     @testset "solver_create_stress_free_tor_bc" begin

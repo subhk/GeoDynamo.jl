@@ -66,13 +66,18 @@ function _scalar_parity(st; nsteps = 2)
     return worst, finite
 end
 
+# Measured absolute agreement floor for these two configs (Pr=2 mass coefficient,
+# nonzero internal heating): worst = 2.5e-13. 1e-11 keeps ~40x headroom and is
+# 100x tighter than the 1e-9 it replaced. Re-measure before lowering.
+const SCALAR_PHYS_ATOL = 1e-11
+
 @testset "GPU≈CPU scalar physics parity (Pm/Pr≠1, internal heating)" begin
     @testset "Pm/Pr ≠ 1 (Pr = 2): scalar mass coefficient" begin
         st = _scalar_phys_state(; Pr = 2.0)
         @test st.parameters.Pm / st.parameters.Pr != 1.0    # the regime the old (Pm/Pr)/dt bug corrupted
         GeoDynamo.solver_step!(st)                           # warm-up
         worst, finite = _scalar_parity(st)
-        @test worst < 1e-9
+        @test worst < SCALAR_PHYS_ATOL
         @test finite
     end
 
@@ -85,7 +90,7 @@ end
         fill!(st.fields.temperature.internal_sources, 2.0)
         @test !all(iszero, st.fields.temperature.internal_sources)
         worst, finite = _scalar_parity(st)
-        @test worst < 1e-9
+        @test worst < SCALAR_PHYS_ATOL
         @test finite
     end
 end

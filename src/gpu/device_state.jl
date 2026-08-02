@@ -237,6 +237,47 @@ function _build_cb3_stage_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {
 end
 
 """
+    _gpu_field_has_time_dependent_bc(field) -> Bool
+
+Whether `field` carries a loaded `BoundaryConditionSet` whose inner or outer data
+varies in time. `nothing` (disabled field) and fields without boundary-file support
+are both `false`.
+"""
+function _gpu_field_has_time_dependent_bc(field)
+    field === nothing && return false
+    hasproperty(field, :boundary_condition_set) || return false
+    set = field.boundary_condition_set
+    set === nothing && return false
+    return set.inner_boundary.is_time_dependent || set.outer_boundary.is_time_dependent
+end
+
+"""
+    _gpu_assert_static_bcs(st)
+
+Reject time-dependent boundary data on the GPU path.
+
+The device bundles bake boundary endpoint VALUES at pack time, whereas the CPU
+refreshes them every step (`apply_boundary_conditions!`, bcs/integration.jl). Running
+a moving boundary on the device would silently freeze it at its t=0 values, so this
+errors the same way the conducting-inner-core, `:ball`, and topography scope limits do.
+"""
+function _gpu_assert_static_bcs(st)
+    offenders = String[]
+    for (name, field) in (("temperature", st.fields.temperature),
+                          ("velocity", st.fields.velocity),
+                          ("magnetic", st.fields.magnetic),
+                          ("composition", st.fields.composition))
+        _gpu_field_has_time_dependent_bc(field) && push!(offenders, name)
+    end
+    isempty(offenders) || error(
+        "GPU solver path does not support time-dependent boundary conditions " *
+        "($(join(offenders, ", "))); the device bundle bakes boundary endpoint values " *
+        "at pack time, so the boundary would be silently frozen at its initial values. " *
+        "Use the CPU path for time-dependent boundary data.")
+    return nothing
+end
+
+"""
     build_gpu_solver_state(cpu_state) -> NamedTuple
 
 Assemble the `gpu_solver_step!` device-state bundle from a CPU `SolverState`
@@ -252,6 +293,10 @@ The CPU spectral storage is slot-packed; [`cpu_spectral_to_dense`](@ref) scatter
 it to the dense `(lmax+1, mmax+1, nr)` layout the GPU kernels use.  The physical
 lag buffers are read from the CPU physical fields AS THEY STAND — to reproduce the
 one-step velocity lag, build the device state AFTER one warm-up `solver_step!`.
+
+Scope limits, each rejected loudly rather than silently approximated: a conducting
+inner core, `:ball` geometry, enabled topography coupling, and time-dependent
+boundary data (endpoint VALUES are baked into the packs at build time).
 """
 function build_gpu_solver_state(st)
     T = Float64
@@ -280,6 +325,9 @@ function build_gpu_solver_state(st)
     st.topography.config.enabled && error(
         "build_gpu_solver_state: topography coupling is enabled but the GPU step path " *
         "does not apply it (no GPU port of apply_solver_topography!).")
+    # Boundary endpoint values are baked into the packs below — reject anything that
+    # would move underneath them.
+    _gpu_assert_static_bcs(st)
 
     # --- shared operators (host-side) ---
     d1 = Array{T}(vel.∂r.data)

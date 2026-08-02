@@ -25,6 +25,11 @@ mutable struct Simulation{M, C, O}
     _gpu_dt::Float64        # dt baked into _gpu_state (rebuild on change)
     _gpu_sync::Symbol       # :every (host state synced per step) or :output (lazy)
     _gpu_dirty::Bool        # device state ahead of the host mirror
+    # Host-side copies of the internal-source profiles baked into `_gpu_state`.
+    # Kept here, not read back from the bundle: `gpu_to_device` moves every array
+    # in the bundle, so on CUDA the baked vector lives on the device and diffing
+    # it against the host field would mean scalar indexing.
+    _gpu_src::NTuple{2, Union{Vector{Float64}, Nothing}}
 end
 
 _to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol, Any}()
@@ -114,8 +119,21 @@ disables it. The path supports CNAB2, ExponentialRungeKutta2, and RungeKutta3
 (insulating magnetic) — other
 configurations warn once and use the standard CPU stepping. The first step
 (and the first after a `Δt` change) runs on the CPU to bootstrap the CNAB2
-history; the host state is re-synced after every device step so callbacks,
-output writers, and the clock stay live.
+history — the device state is mirrored back to the host first, so a `Δt` change
+never discards device progress.
+
+`gpu_sync` controls how often the host `SolverState` mirror is refreshed:
+`:every` (default) syncs after every device step; `:output` syncs lazily, only on
+iterations where an output writer or a field-reading callback actually fires (and
+unconditionally at the end of `run!`). Both give identical results; `:output` just
+skips device→host copies nothing would have read.
+
+Schedules that can be evaluated without side effects — `IterationInterval` — are
+pre-queried exactly, so a writer on `IterationInterval(500)` costs one sync per 500
+steps rather than one per step. `TimeInterval`, `WallTimeInterval`, and
+`SpecifiedTimes` advance internal bookkeeping when queried, so they cannot be tested
+in advance and conservatively force a sync every step; use `IterationInterval`
+schedules to get the benefit of `:output`.
 
 If `restart_from` is a non-empty string it is treated as a restart directory
 passed to `read_restart!` (via the legacy `TimeTracker`-based interface).
@@ -235,7 +253,8 @@ function Simulation(model::GeodynamoModel;
         nothing,
         0.0,
         gpu_sync,
-        false
+        false,
+        (nothing, nothing)
     )
 end
 
@@ -322,6 +341,11 @@ function _gpu_time_step!(sim::Simulation)
     model = sim.model
     state = model.state
     if sim._gpu_state === nothing || sim._gpu_dt != sim.dt
+        # The bootstrap step below runs on the HOST state, so under
+        # gpu_sync = :output the device must be mirrored back first — otherwise
+        # every step since the last sync is overwritten and the fields silently
+        # rewind while the clock keeps counting.
+        _gpu_sync_host!(sim)
         time_step!(model, sim.dt)               # CPU bootstrap step
         gst = build_gpu_solver_state(state)
         erk = state.parameters.timestepper isa ExponentialRungeKutta2 ? build_gpu_erk2_state(state) : nothing
@@ -333,8 +357,21 @@ function _gpu_time_step!(sim::Simulation)
         sim._gpu_state = gst
         sim._gpu_erk2 = erk
         sim._gpu_dt = sim.dt
+        sim._gpu_src = _gpu_source_snapshot(state)
         return sim
     end
+    # The bundle bakes boundary endpoint values and the internal-source profiles
+    # at BUILD time and is only rebuilt on a Δt change, so the scope limits have
+    # to be re-checked here too — otherwise attaching time-dependent boundary data
+    # (or calling set_internal_heating!) mid-run is silently ignored while the
+    # builder docstring promises a loud rejection.
+    _gpu_assert_bundle_current(sim)
+    # Match the CPU convention: solver_step! (solver/mainloop.jl) bumps
+    # timestep_state.step BEFORE the physics, so anything reading it during a step
+    # sees the step being computed. Nothing on the device path reads it today —
+    # this keeps a future CPU-side hook inside the device loop from inheriting an
+    # off-by-one. `reset_solver_clock!` below sets the authoritative pair.
+    state.runtime.timestep_state.step = state.step + 1
     # Three-way device-step dispatch; each gpu_*_solver_step! call is itself a
     # dispatch barrier over the ::Any bundle. The host re-sync is deferred to
     # the gpu_sync block below (PR #77 lazy mirror) — no unconditional sync here.
@@ -345,8 +382,10 @@ function _gpu_time_step!(sim::Simulation)
     else
         gpu_solver_step!(sim._gpu_state)
     end
-    state.step += 1
-    state.time += sim.dt
+    # Advance BOTH clocks. `runtime.timestep_state` is what get_current_simulation_time
+    # (bcs/integration.jl) and the ERK2 diagnostics read; leaving it at the bootstrap
+    # value makes them see a frozen time for the whole device run.
+    reset_solver_clock!(state; time = state.time + sim.dt, step = state.step + 1)
     sync_clock!(model.clock, state)        # counters are host-side — no device read
     model.clock.last_dt = sim.dt
     if sim._gpu_sync === :every || _gpu_host_read_pending(sim)
@@ -358,21 +397,44 @@ function _gpu_time_step!(sim::Simulation)
     return sim
 end
 
-# Under gpu_sync = :output the host mirror is refreshed only when something
-# will actually read it this iteration: any output writer, any callback other
-# than the three clock-only stop defaults, or the nan_checker's interval.
-# (Schedule state mutates on should_fire, so firing cannot be pre-queried —
-# this is a conservative over-approximation.)
+# Whether `schedule` fires at `iteration`, answered WITHOUT consuming the firing.
+# `IterationInterval` is the only pure `should_fire` (schedules.jl: `step % interval`);
+# TimeInterval / WallTimeInterval / SpecifiedTimes all mutate their fire bookkeeping,
+# so pre-querying them would swallow the real firing. Those answer "yes" and the
+# caller stays conservative.
+_gpu_schedule_may_fire(s::IterationInterval, iteration::Int) =
+    s.interval > 0 && iteration % s.interval == 0
+_gpu_schedule_may_fire(::Any, ::Int) = true             # stateful/unrecognised: assume it reads
+
+# Under gpu_sync = :output the host mirror is refreshed only when something will
+# actually read it this iteration: an output writer or a callback that FIRES now.
+# Attachment alone is not a read — a writer on IterationInterval(1000) must not
+# force a device→host copy on the other 999 steps, or `:output` would collapse
+# into `:every` for every run that writes output at all.
+#
+# The three stop conditions read the clock, never the fields, so they are skipped
+# whatever their schedule. Everything else (including nan_checker, which does read
+# the fields via _health_check) is judged by its own registered schedule — never by
+# function identity, so re-registering nan_checker at a different interval keeps
+# working.
 function _gpu_host_read_pending(sim::Simulation)
-    isempty(sim.output_writers) || return true
-    sim.model.clock.iteration % 100 == 0 && return true     # default nan_checker
+    iteration = sim.model.clock.iteration
+    for ow in values(sim.output_writers)
+        sched = hasproperty(ow, :schedule) ? ow.schedule : nothing
+        _gpu_schedule_may_fire(sched, iteration) && return true
+    end
     for cb in values(sim.callbacks)
-        if !(cb isa Callback && (cb.func === stop_time_exceeded ||
-             cb.func === stop_iteration_exceeded ||
-             cb.func === wall_time_limit_exceeded ||
-             cb.func === nan_checker))
-            return true
+        if cb isa Callback && (cb.func === stop_time_exceeded ||
+                               cb.func === stop_iteration_exceeded ||
+                               cb.func === wall_time_limit_exceeded)
+            continue
         end
+        # Every registered callback type (Callback, EnergyDiagnostics,
+        # SolenoidalMonitor, SimulationProgress, HealthCheck) carries `.schedule`;
+        # anything else falls back to the conservative answer rather than throwing
+        # here — _run_callbacks! reports the unknown type with a better message.
+        sched = hasproperty(cb, :schedule) ? cb.schedule : nothing
+        _gpu_schedule_may_fire(sched, iteration) && return true
     end
     return false
 end
@@ -385,6 +447,69 @@ function _gpu_sync_host!(sim::Simulation)
         sim._gpu_dirty = false
     end
     return sim
+end
+
+"""
+    sync_gpu_host!(sim::Simulation) -> sim
+
+Bring the host `SolverState` up to date with the device bundle.
+
+Only does work under `gpu_sync = :output`, which deliberately leaves the host
+mirror behind the device on steps where nothing reads it. `run!` flushes the
+mirror when it returns, so this is for code driving [`time_step!`](@ref)
+directly and wanting to read fields, energies, or diagnostics mid-run.
+
+A no-op — not an error — when the mirror is already current, when no device
+bundle has been built yet, or on the CPU path.
+"""
+sync_gpu_host!(sim::Simulation) = _gpu_sync_host!(sim)
+
+# Host-side copies of the internal-source profiles baked into the device bundle,
+# in the order (temperature, composition). `nothing` for a disabled field or one
+# with no source configured (which is what `sbundle` packs as `internal_source`).
+function _gpu_source_snapshot(st)
+    snap(field) = begin
+        field === nothing && return nothing
+        hasproperty(field, :internal_sources) || return nothing
+        src = field.internal_sources
+        all(iszero, src) ? nothing : collect(Float64, src)
+    end
+    return (snap(st.fields.temperature), snap(st.fields.composition))
+end
+
+# Whether a field's internal-source profile still matches what was baked. `baked
+# === nothing` means the bundle packed no source, so the field must still be all
+# zero for the device step to reproduce the CPU one.
+function _gpu_source_current(field, baked)
+    field === nothing && return true
+    hasproperty(field, :internal_sources) || return true
+    cur = field.internal_sources
+    baked === nothing && return all(iszero, cur)
+    length(cur) == length(baked) || return false
+    @inbounds for i in eachindex(baked)
+        cur[i] == baked[i] || return false
+    end
+    return true
+end
+
+# Re-assert the build-time scope limits against the CURRENT host state. Cheap:
+# four property lookups plus at most two nr-length scans per step.
+function _gpu_assert_bundle_current(sim::Simulation)
+    state = sim.model.state
+    _gpu_assert_static_bcs(state)
+    baked_t, baked_c = sim._gpu_src
+    _gpu_source_current(state.fields.temperature, baked_t) || error(
+        "GPU solver path: the temperature internal-source profile changed after the " *
+        "device bundle was built (e.g. set_internal_heating!). The bundle bakes the " *
+        "profile at pack time and is only rebuilt on a Δt change, so the device would " *
+        "keep integrating the old source. Rebuild the Simulation, or change the source " *
+        "before the first step.")
+    _gpu_source_current(state.fields.composition, baked_c) || error(
+        "GPU solver path: the composition internal-source profile changed after the " *
+        "device bundle was built. The bundle bakes the profile at pack time and is only " *
+        "rebuilt on a Δt change, so the device would keep integrating the old source. " *
+        "Rebuild the Simulation, or change the source before the first step.")
+    return nothing
 end
 
 # ================================================================================

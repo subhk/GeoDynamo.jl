@@ -50,11 +50,12 @@ end
 
 # ERK2 endpoint enforcement for one side (mirrors solver_enforce_erk2_bc!).
 # kind 0: endpoint ← 0. kind 1 (Dirichlet): endpoint ← val. kind 2 (stencil):
-# solve the boundary stencil row for the endpoint, with optional l-correction
-# and the l0-Dirichlet special case. Empty (l < m) modes are skipped.
+# solve the boundary stencil row for the endpoint, with optional l-correction.
+# Empty (l < m) modes are skipped. No degree is special-cased: the l=0 NN gauge
+# pin belongs to the steady conductive solve, not to the time-stepping operator.
 @kernel function _erk2_bc_kernel!(X, b::Int, kind::Int32, @Const(stencil),
         r_inv::Float64, l_sign::Float64, use_l_corr::Bool, fixed_corr::Float64,
-        l0_dir::Bool, @Const(val), ptol::Float64, nr::Int)
+        @Const(val), ptol::Float64, nr::Int)
     li, mi = @index(Global, NTuple)
     T = eltype(X)
     l = li - 1
@@ -63,7 +64,7 @@ end
         v = val[li, mi]
         if kind == Int32(0)
             X[li, mi, b] = zero(T)
-        elseif kind == Int32(1) || (l0_dir && l == 0)
+        elseif kind == Int32(1)
             X[li, mi, b] = v
         else
             self = stencil[b] + fixed_corr
@@ -86,7 +87,7 @@ function gpu_erk2_enforce_bcs!(X, bc, nr::Int; imag::Bool = false)
     for (side, b) in ((bc.inner, 1), (bc.outer, nr))
         _erk2_bc_kernel!(backend)(X, b, side.kind, side.stencil,
             side.r_inv, side.l_sign, side.use_l_correction, side.fixed_correction,
-            side.l0_dirichlet, imag ? side.val_i : side.val_r,
+            imag ? side.val_i : side.val_r,
             pivot_tol(eltype(X)), nr; ndrange = (nl, nm))
     end
     KernelAbstractions.synchronize(backend)

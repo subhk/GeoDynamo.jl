@@ -203,6 +203,7 @@ additional_tests = (
     "velocity_boundary_numerical.jl",
     "temperature_boundary_numerical.jl",
     "composition_boundary_numerical.jl",
+    "scalar_bc_timestepper_parity.jl",
     "mpi_parallel_invariants.jl",
     "mpi_threaded_step_smoke.jl",
     "mpi_distributed_write_roundtrip.jl",

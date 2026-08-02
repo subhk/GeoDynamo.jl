@@ -45,7 +45,6 @@ function _pack_erk2_bc_side(side::SolverERK2BoundarySide{T}, mode_vals, mode_val
         r_inv = side.r_inv, l_sign = side.l_sign,
         use_l_correction = side.use_l_correction,
         fixed_correction = side.fixed_correction,
-        l0_dirichlet = side.l0_dirichlet,
         val_r, val_i)
 end
 
@@ -53,7 +52,7 @@ end
 function _pack_erk2_bc(::Nothing, config, nl::Int, nm::Int, nr::Int, ::Type{T}) where {T}
     z = (; kind = Int32(0), stencil = zeros(T, nr),
         r_inv = zero(T), l_sign = zero(T), use_l_correction = false,
-        fixed_correction = zero(T), l0_dirichlet = false,
+        fixed_correction = zero(T),
         val_r = zeros(T, nl, nm), val_i = zeros(T, nl, nm))
     return (; inner = z, outer = z)
 end
@@ -154,6 +153,9 @@ function build_gpu_erk2_state(st)
     params.geometry === :shell || error(
         "build_gpu_erk2_state: GPU ERK2 supports only :shell geometry, got $(params.geometry) " *
         "(the velocity-poloidal recovery + boundary packs hard-code the shell layout)")
+    # The boundary packs below bake endpoint values at pack time; a time-dependent
+    # boundary would be frozen at t=0. Same scope limit as build_gpu_solver_state.
+    _gpu_assert_static_bcs(st)
     runtime = st.runtime
     cfg = runtime.shtns_config
     domain = runtime.outer_core_domain

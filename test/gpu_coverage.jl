@@ -45,6 +45,30 @@ MPI.Initialized() || MPI.Init()
         @test_throws ErrorException GeoDynamo.build_gpu_solver_state(st)
     end
 
+    @testset "build_gpu_solver_state rejects time-dependent boundary data [LOCAL]" begin
+        # The device bundle bakes boundary endpoint VALUES at pack time, while the
+        # CPU refreshes them every step (bcs/integration.jl). A moving boundary must
+        # be rejected loudly, like the conducting-IC / :ball / topography limits.
+        function td_data(::Type{T}) where {T}
+            GeoDynamo.bcs.BoundaryData{T}(
+                nothing, nothing, T[0.0, 1.0], zeros(T, 4, 8, 2),
+                "K", "synthetic time-dependent boundary", "", "temperature",
+                true, 4, 8, 2, 1)
+        end
+        params = GeoDynamo.SolverParameters(
+            geometry = :shell, lmax = 4, mmax = 4, nlat = 12, nlon = 24, nr = 8, nr_inner = 4,
+            radial_bandwidth = 3, radius_ratio = 0.35,
+            include_magnetic = false, include_composition = false)
+        st = GeoDynamo.initialize_solver_state(Float64; params = params)
+        GeoDynamo.solver_step!(st)
+        @test GeoDynamo.build_gpu_solver_state(st) !== nothing      # static BCs: accepted
+        st.fields.temperature.boundary_condition_set =
+            GeoDynamo.bcs.BoundaryConditionSet{Float64}(
+                td_data(Float64), td_data(Float64), "temperature",
+                GeoDynamo.bcs.TEMPERATURE, 0.0)
+        @test_throws ErrorException GeoDynamo.build_gpu_solver_state(st)
+    end
+
     @testset "gpu_run!(::SolverState) rejects negative nsteps [LOCAL]" begin
         params = GeoDynamo.SolverParameters(
             geometry = :shell, lmax = 4, mmax = 4, nlat = 12, nlon = 24, nr = 8, nr_inner = 4,

@@ -18,7 +18,7 @@ function solver_erk2_constraint_row(
         nr::Int
 ) where {T}
     row = zeros(T, nr)
-    if side.type === :dirichlet || (side.l0_dirichlet && l == 0)
+    if side.type === :dirichlet
         row[boundary_idx] = one(T)
         return row
     end

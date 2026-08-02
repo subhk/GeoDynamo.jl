@@ -14,3 +14,19 @@ try
 catch err
     @info "CUDA not loaded; GPU-gated tests will skip" exception = (err, catch_backtrace())
 end
+
+# Tolerances for the [LOCAL] GPU≈CPU full-step parity gates.
+#
+# These compare the dense device path running on `Array` against the CPU solver:
+# same machine, same arithmetic, deterministic seeds, so the only slack needed is
+# for reduction reordering (the suite runs at 1 and 4 threads). Measured worst
+# disagreement across every [LOCAL] gate — phase5n2 single step, phase6 4-step
+# trajectory and gpu_run!(::SolverState) sync-back, phase5n all three gated
+# configs — is max|diff| = 1.06e-15, max relative = 1.22e-15. These bounds leave
+# ~5 orders of headroom on the largest field while still being ~3 orders tighter
+# than the 1e-9/1e-7 they replaced, which passed anything down to 1e-7 relative.
+#
+# Do NOT reuse these for [GPU-BOX] gates: real CUDA reorders reductions and uses
+# FMA, so those legitimately need the looser 1e-7/1e-5.
+const GPU_LOCAL_ATOL = 1e-12
+const GPU_LOCAL_RTOL = 1e-10
