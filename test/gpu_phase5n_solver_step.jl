@@ -6,91 +6,104 @@ using Random
 
 MPI.Initialized() || MPI.Init()
 
-@testset "GPU Phase 5n — Full gpu_solver_step! orchestration" begin
-    cfg = GeoDynamo.create_shtnskit_config(lmax = 6, mmax = 6, nlat = 20, nlon = 40, nr = 4)
-    nl, nm, nr = cfg.lmax + 1, cfg.mmax + 1, 4
-    nlat, nlon = cfg.nlat, cfg.nlon
-    bw = 2
-    rng = MersenneTwister(29)
+# =============================================================================
+# GPU Phase 5n — gpu_solver_step! orchestration.
+#
+# Numeric GPU≈CPU parity for the full step is gated elsewhere and is NOT
+# duplicated here:
+#   * gpu_phase5n2_device_state.jl — single step, full MHD, real SolverState
+#   * gpu_phase6_run.jl            — N-step trajectory + gpu_run! decomposition
+#   * gpu_bc_combo_parity.jl       — velocity codes 1–4 × scalar DD/DN/ND/NN
+#   * gpu_erk2_step.jl             — ERK2 staged step
+#
+# What is left to this file is the ORCHESTRATION contract: the step must run,
+# and stay correct, with the optional subsystems switched off — the branches the
+# always-on fixtures above never take.
+# =============================================================================
 
-    function band(N, b; seed)
-        r = MersenneTwister(seed); d = zeros(2b+1, N)
-        for j in 1:N, i in max(1,j-b):min(N,j+b); d[b+1+i-j,j] = rand(r) - 0.5; end
-        d
+function build_gated_cpu_state(; magnetic::Bool, composition::Bool)
+    params = GeoDynamo.SolverParameters(
+        geometry = :shell, lmax = 6, mmax = 6, nlat = 14, nlon = 28, nr = 8, nr_inner = 4,
+        radial_bandwidth = 3, radius_ratio = 0.35,
+        Ek = 1e-3, Ra = 1e5, Pm = 1.0, Pr = 1.0, timestep = 1e-4,
+        include_magnetic = magnetic, include_composition = composition,
+        temperature_bcs = GeoDynamo.BoundaryConditions(
+            inner = GeoDynamo.FixedTemperature(0.0), outer = GeoDynamo.FixedTemperature(0.0)),
+        composition_bcs = GeoDynamo.BoundaryConditions(
+            inner = GeoDynamo.FixedTemperature(0.0), outer = GeoDynamo.FixedTemperature(0.0)))
+    st = GeoDynamo.initialize_solver_state(Float64; params = params)
+    rng = MersenneTwister(7)
+    specs = Any[st.fields.temperature.spectral,
+                st.fields.velocity.toroidal, st.fields.velocity.poloidal]
+    composition && push!(specs, st.fields.composition.spectral)
+    magnetic && append!(specs, (st.fields.magnetic.toroidal, st.fields.magnetic.poloidal))
+    for f in specs
+        dr = parent(f.data_real); di = parent(f.data_imag)
+        dr .+= 1e-3 .* (rand(rng, size(dr)...) .- 0.5)
+        di .+= 1e-3 .* (rand(rng, size(di)...) .- 0.5)
     end
-    d1 = band(nr, bw; seed = 1); d2 = band(nr, bw; seed = 2)
-    lfac = Float64[l*(l+1) for l in 0:cfg.lmax]
-    rinv = [1.0/(0.5+0.1k) for k in 1:nr]; rinv2 = rinv .^ 2; rscale = copy(rinv)
-    sinθ = sin.(range(0.1, π-0.1; length = nlat)); cosθ = cos.(range(0.1, π-0.1; length = nlat))
-    mvals = Float64[m for m in 0:cfg.mmax]
-    r_vec = [0.5 + 0.1k for k in 1:nr]
-    E = 1.3e-3; thermal_factor = 0.7; comp_factor = 0.4; lorentz_coeff = 1.0/0.3
-    inv_dt_v = E/5e-4; inv_dt_m = 1.0/5e-4; inv_dt_t = (1.0/0.7)/5e-4; inv_dt_c = (1.0/0.9)/5e-4
-    linw = 0.5
+    return st
+end
 
-    function batched(seed)
-        a = zeros(2bw+1, nr, nl); r = MersenneTwister(seed)
-        for li in 1:nl, j in 1:nr, i in max(1,j-bw):min(nr,j+bw); a[bw+1+i-j,j,li] = rand(r)-0.5; end
-        for li in 1:nl, j in 1:nr; a[bw+1,j,li] += 5.0; end
-        a
-    end
-    influence = Dict{Int, GeoDynamo.ERK2InfluenceOp{Float64}}()
-    for l in 1:cfg.lmax; influence[l] = GeoDynamo.ERK2InfluenceOp{Float64}(rand(rng,nr,2).-0.5, rand(rng,2,2).-0.5, l); end
-    Gre_b, invG_b = GeoDynamo.gpu_pack_influence(influence, nl, nr, CPU())
-
-    mk() = (a = zeros(nl,nm,nr); for mi in 1:nm, li in mi:nl, r in 1:nr; a[li,mi,r] = rand(rng)-0.5; end; a)
-    phys() = rand(rng, nlat, nlon, nr) .- 0.5
-
-    # build a fresh `state` NamedTuple (deep copies of all mutable arrays)
-    function build_state()
-        velocity = (;
-            tor = (; spec_r=mk(), spec_i=mk(), prev_nl_r=mk(), prev_nl_i=mk(),
-                     lin=batched(10), lu=batched(11),
-                     bc_in_r=zeros(nl,nm), bc_in_i=zeros(nl,nm), bc_out_r=zeros(nl,nm), bc_out_i=zeros(nl,nm)),
-            pol = (; spec_r=mk(), spec_i=mk(), prev_nl_r=mk(), prev_nl_i=mk(),
-                     lin=batched(12), lu=batched(13),
-                     bc_in_r=zeros(nl,nm), bc_in_i=zeros(nl,nm), bc_out_r=zeros(nl,nm), bc_out_i=zeros(nl,nm)))
-        magnetic = (;
-            tor = (; spec_r=mk(), spec_i=mk(), prev_nl_r=mk(), prev_nl_i=mk(), lin=batched(20), lu=batched(21)),
-            pol = (; spec_r=mk(), spec_i=mk(), prev_nl_r=mk(), prev_nl_i=mk(), lin=batched(22), lu=batched(23)))
-        temperature = (; spec_r=mk(), spec_i=mk(), prev_nl_r=mk(), prev_nl_i=mk(),
-                         lin=batched(30), lu=batched(31),
-                         bc_in_r=zeros(nl,nm), bc_in_i=zeros(nl,nm), bc_out_r=zeros(nl,nm), bc_out_i=zeros(nl,nm))
-        composition = (; spec_r=mk(), spec_i=mk(), prev_nl_r=mk(), prev_nl_i=mk(),
-                         lin=batched(40), lu=batched(41),
-                         bc_in_r=zeros(nl,nm), bc_in_i=zeros(nl,nm), bc_out_r=zeros(nl,nm), bc_out_i=zeros(nl,nm))
-        (;
-            config = cfg, lmax = cfg.lmax, bw = bw, linear_weight = linw,
-            nlops_vel = (; d1, d2, lfac, rinv, rinv2, rscale, r = r_vec, sinθ, cosθ, E),
-            nlops_mag = (; d1, d2, lfac, rinv, rinv2, rscale, r = r_vec),
-            influence = (; Gre_b, invG_b),
-            d1 = d1, mvals = mvals, rinv = rinv, rscale = rscale, lfac = lfac, d2 = d2, rinv2 = rinv2,
-            r_vec = r_vec, thermal_factor = thermal_factor, comp_factor = comp_factor, lorentz_coeff = lorentz_coeff,
-            inv_dt_vel = inv_dt_v, inv_dt_mag = inv_dt_m, inv_dt_temp = inv_dt_t, inv_dt_comp = inv_dt_c,
-            velocity = velocity, magnetic = magnetic, temperature = temperature, composition = composition,
-            # persistent LAGGED physical buffers (previous step's synthesis)
-            T_phys = phys(), C_phys = phys(),
-            B_r = phys(), B_θ = phys(), B_φ = phys(), J_r = phys(), J_θ = phys(), J_φ = phys())
-    end
-
-    # The Stage-2 vector transforms are un-gated (Task 1), so the full step runs
-    # again — but the velocity/magnetic nonlinear projections are still the
-    # legacy pre-Stage-4 ones and the poloidal half is the legacy influence
-    # correction (results WRONG until Tasks 4–6); the full-step equivalence
-    # gates return with the device-state wiring.
-    @testset "full step == manual chain (exact) [LOCAL]" begin
-        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
-    end
+@testset "GPU Phase 5n — gpu_solver_step! orchestration" begin
+    NSTEPS = 3
 
     @testset "gating: no magnetic / no composition [LOCAL]" begin
-        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
+        for (magnetic, composition) in ((false, true), (true, false), (false, false))
+            label = "magnetic=$magnetic composition=$composition"
+            @testset "$label" begin
+                st = build_gated_cpu_state(; magnetic = magnetic, composition = composition)
+                cfg = st.backend.shtns_config
+                nr = st.runtime.outer_core_domain.N
+                GeoDynamo.solver_step!(st)                      # warm-up
+                gst = GeoDynamo.build_gpu_solver_state(st)
+
+                # the disabled subsystem is absent from the bundle, not zero-filled
+                @test (gst.magnetic === nothing) == !magnetic
+                @test (gst.composition === nothing) == !composition
+
+                for _ in 1:NSTEPS
+                    GeoDynamo.gpu_solver_step!(gst)
+                    GeoDynamo.solver_step!(st)
+                end
+
+                pairs = Any[(st.fields.temperature.spectral,
+                             gst.temperature.spec_r, gst.temperature.spec_i),
+                            (st.fields.velocity.toroidal,
+                             gst.velocity.tor.spec_r, gst.velocity.tor.spec_i),
+                            (st.fields.velocity.poloidal,
+                             gst.velocity.pol.spec_r, gst.velocity.pol.spec_i)]
+                magnetic && push!(pairs,
+                    (st.fields.magnetic.toroidal, gst.magnetic.tor.spec_r, gst.magnetic.tor.spec_i))
+                composition && push!(pairs,
+                    (st.fields.composition.spectral, gst.composition.spec_r, gst.composition.spec_i))
+                for (cpu_spec, gr, gi) in pairs
+                    cr, ci = GeoDynamo.cpu_spectral_to_dense(cpu_spec, cfg, nr, Float64)
+                    @test isapprox(gr, cr; atol = GPU_LOCAL_ATOL, rtol = GPU_LOCAL_RTOL)
+                    @test isapprox(gi, ci; atol = GPU_LOCAL_ATOL, rtol = GPU_LOCAL_RTOL)
+                end
+            end
+        end
     end
 
     @testset "GPU execution + GPU≈CPU parity (Phase-5n gate) [GPU-BOX]" begin
         if !GeoDynamo.gpu_functional()
             @test_skip "requires a functional CUDA GPU"
         else
-            @test true   # full device-state parity is exercised by Phase 5n2 (real SolverState)
+            # Device execution of the gated (velocity + temperature only) step:
+            # the always-on device gates live in Phase 5n2 / Phase 6.
+            st = build_gated_cpu_state(; magnetic = false, composition = false)
+            cfg = st.backend.shtns_config
+            nr = st.runtime.outer_core_domain.N
+            GeoDynamo.solver_step!(st)
+            gst = GeoDynamo.gpu_to_device(GeoDynamo.build_gpu_solver_state(st), GPU())
+            GeoDynamo.gpu_solver_step!(gst)
+            GeoDynamo.solver_step!(st)
+            @test gst.temperature.spec_r isa CUDA.CuArray
+            @test gst.magnetic === nothing
+            cr, ci = GeoDynamo.cpu_spectral_to_dense(st.fields.temperature.spectral, cfg, nr, Float64)
+            @test isapprox(Array(gst.temperature.spec_r), cr; atol = 1e-7, rtol = 1e-5)
+            @test isapprox(Array(gst.temperature.spec_i), ci; atol = 1e-7, rtol = 1e-5)
         end
     end
 end

@@ -125,12 +125,27 @@ end
     end
 
     @testset "GPU≈CPU full step (insulating) [LOCAL]" begin
-        # The Stage-2 vector transforms are un-gated (Task 1), so the full step
-        # runs again — but the nonlinear projections and the velocity poloidal
-        # half are still the legacy pre-Stage-4/W-split ones (results WRONG
-        # until Tasks 4-6); the GPU≈CPU full-step parity gate returns with the
-        # device-state wiring.
-        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
+        # Single-step parity from a warmed state, full MHD. Multi-step trajectories
+        # are gated by gpu_phase6_run.jl; BC-combination coverage by
+        # gpu_bc_combo_parity.jl; ERK2 by gpu_erk2_step.jl.
+        sts = build_small_cpu_state()
+        GeoDynamo.solver_step!(sts)                      # warm-up
+        gst1 = GeoDynamo.build_gpu_solver_state(sts)
+        GeoDynamo.gpu_solver_step!(gst1)
+        GeoDynamo.solver_step!(sts)
+        cfgs = sts.backend.shtns_config
+        nrs = sts.runtime.outer_core_domain.N
+        for (cpu_spec, gr, gi) in [
+                (sts.fields.temperature.spectral, gst1.temperature.spec_r, gst1.temperature.spec_i),
+                (sts.fields.velocity.toroidal,    gst1.velocity.tor.spec_r, gst1.velocity.tor.spec_i),
+                (sts.fields.velocity.poloidal,    gst1.velocity.pol.spec_r, gst1.velocity.pol.spec_i),
+                (sts.fields.magnetic.toroidal,    gst1.magnetic.tor.spec_r, gst1.magnetic.tor.spec_i),
+                (sts.fields.magnetic.poloidal,    gst1.magnetic.pol.spec_r, gst1.magnetic.pol.spec_i),
+                (sts.fields.composition.spectral, gst1.composition.spec_r, gst1.composition.spec_i)]
+            cr, ci = GeoDynamo.cpu_spectral_to_dense(cpu_spec, cfgs, nrs, Float64)
+            @test isapprox(gr, cr; atol = GPU_LOCAL_ATOL, rtol = GPU_LOCAL_RTOL)
+            @test isapprox(gi, ci; atol = GPU_LOCAL_ATOL, rtol = GPU_LOCAL_RTOL)
+        end
     end
 
     @testset "GPU≈CPU full step on GPU [GPU-BOX]" begin
@@ -138,7 +153,7 @@ end
             @test_skip "requires a functional CUDA GPU"
         else
             # Compare the CUDA device execution against the same dense GPU path
-            # on Array; full CPU solver parity is tracked by the broken local gate.
+            # on Array; CPU-solver parity is gated by the [LOCAL] testset above.
             stb = build_small_cpu_state()
             GeoDynamo.solver_step!(stb)                          # warm-up
             gst_box = GeoDynamo.build_gpu_solver_state(stb)      # Array bundle from warmed state

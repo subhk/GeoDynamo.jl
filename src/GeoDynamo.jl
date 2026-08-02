@@ -511,7 +511,7 @@ export InsulatingMagnetic, ConductingMagnetic, BoundaryConditions
 export Clock
 export GeodynamoModel
 export fields, prognostic_fields
-export Simulation, run!, time_step!, add_callback!
+export Simulation, run!, time_step!, add_callback!, sync_gpu_host!
 export AbstractTimestepper, CNAB2,
        ExponentialAdamsBashforth2, EAB2,
        ExponentialRungeKutta2, ERK2,

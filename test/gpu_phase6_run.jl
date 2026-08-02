@@ -33,21 +33,61 @@ end
 @testset "GPU Phase 6 — gpu_run! loop + IO host-gather" begin
     NSTEPS = 4
 
-    # The Stage-2 vector transforms are un-gated (Task 1), so gpu_run!/
-    # gpu_solver_step! run again — but the nonlinear projections and the
-    # velocity poloidal half are still the legacy pre-Stage-4/W-split ones
-    # (results WRONG until Tasks 4-6); the trajectory/decomposition/output_fn
-    # parity gates return with the device-state wiring.
+    # Full-MHD trajectory parity on the Array backend. This is the [LOCAL] twin of
+    # the [GPU-BOX] gate at the bottom of this file: identical math, no device
+    # transfer, so it runs everywhere and pins the loop + history rollover.
     @testset "N-step GPU trajectory == N-step CPU (insulating) [LOCAL]" begin
-        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
+        st = build_small_cpu_state()
+        cfg = st.backend.shtns_config
+        nr = st.runtime.outer_core_domain.N
+        GeoDynamo.solver_step!(st)                       # warm-up (history + lag buffers)
+        gst = GeoDynamo.build_gpu_solver_state(st)
+        GeoDynamo.gpu_run!(gst, NSTEPS)
+        for _ in 1:NSTEPS; GeoDynamo.solver_step!(st); end
+        for (cpu_spec, gr, gi) in [
+                (st.fields.temperature.spectral, gst.temperature.spec_r, gst.temperature.spec_i),
+                (st.fields.velocity.toroidal,    gst.velocity.tor.spec_r, gst.velocity.tor.spec_i),
+                (st.fields.velocity.poloidal,    gst.velocity.pol.spec_r, gst.velocity.pol.spec_i),
+                (st.fields.magnetic.toroidal,    gst.magnetic.tor.spec_r, gst.magnetic.tor.spec_i),
+                (st.fields.magnetic.poloidal,    gst.magnetic.pol.spec_r, gst.magnetic.pol.spec_i),
+                (st.fields.composition.spectral, gst.composition.spec_r, gst.composition.spec_i)]
+            cr, ci = GeoDynamo.cpu_spectral_to_dense(cpu_spec, cfg, nr, Float64)
+            @test isapprox(gr, cr; atol = GPU_LOCAL_ATOL, rtol = GPU_LOCAL_RTOL)
+            @test isapprox(gi, ci; atol = GPU_LOCAL_ATOL, rtol = GPU_LOCAL_RTOL)
+        end
     end
 
     @testset "step decomposition: gpu_run!(N) == N × gpu_solver_step! [LOCAL]" begin
-        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
+        st = build_small_cpu_state(); GeoDynamo.solver_step!(st)
+        looped = GeoDynamo.build_gpu_solver_state(st)
+        manual = GeoDynamo.build_gpu_solver_state(st)     # independent bundle, same state
+        GeoDynamo.gpu_run!(looped, NSTEPS)
+        for _ in 1:NSTEPS; GeoDynamo.gpu_solver_step!(manual); end
+        # gpu_run! is a plain repeat of gpu_solver_step! — bit-identical, not just close.
+        @test looped.temperature.spec_r == manual.temperature.spec_r
+        @test looped.velocity.pol.spec_r == manual.velocity.pol.spec_r
+        @test looped.magnetic.tor.spec_i == manual.magnetic.tor.spec_i
+        @test looped.composition.spec_r == manual.composition.spec_r
     end
 
     @testset "output_fn host-gather hook [LOCAL]" begin
-        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
+        st = build_small_cpu_state(); GeoDynamo.solver_step!(st)
+        gst = GeoDynamo.build_gpu_solver_state(st)
+        seen = Tuple{Int, Array{Float64, 3}}[]
+        GeoDynamo.gpu_run!(gst, 4; output_every = 2,
+            output_fn = (host, step) -> push!(seen, (step, copy(host.temperature.spec_r))))
+        @test [s for (s, _) in seen] == [2, 4]            # fires on multiples only
+        @test seen[1][2] != seen[2][2]                    # snapshots are distinct steps
+        # the gather is a host-side deep copy: mutating the live bundle must not
+        # touch an already-handed-out snapshot
+        snap = seen[end][2]
+        before = copy(snap)
+        gst.temperature.spec_r[2, 1, 1] += 11.0
+        @test snap == before
+        # ...and no output_fn without output_every
+        empty!(seen)
+        GeoDynamo.gpu_run!(gst, 2; output_fn = (host, step) -> push!(seen, (step, copy(host.temperature.spec_r))))
+        @test isempty(seen)
     end
 
     @testset "nsteps=0 no-op + arg guard [LOCAL]" begin
@@ -60,8 +100,30 @@ end
     end
 
     @testset "gpu_run!(::SolverState) runs GPU + syncs back == CPU [LOCAL]" begin
-        # See above: the SolverState convenience entry shares the legacy physics.
-        @test_skip "un-gated in Task 7 (device-state wiring + step gates; physics in Tasks 4-6)"
+        gpu_st = build_small_cpu_state(); GeoDynamo.solver_step!(gpu_st)
+        ref_st = build_small_cpu_state(); GeoDynamo.solver_step!(ref_st)
+        cfg = ref_st.backend.shtns_config
+        nr = ref_st.runtime.outer_core_domain.N
+        step0, time0 = gpu_st.step, gpu_st.time
+
+        GeoDynamo.gpu_run!(gpu_st, NSTEPS)                # device loop + sync back
+        for _ in 1:NSTEPS; GeoDynamo.solver_step!(ref_st); end
+
+        for (a, b) in [
+                (ref_st.fields.temperature.spectral, gpu_st.fields.temperature.spectral),
+                (ref_st.fields.velocity.poloidal,    gpu_st.fields.velocity.poloidal),
+                (ref_st.fields.magnetic.toroidal,    gpu_st.fields.magnetic.toroidal)]
+            ar, ai = GeoDynamo.cpu_spectral_to_dense(a, cfg, nr, Float64)
+            br, bi = GeoDynamo.cpu_spectral_to_dense(b, cfg, nr, Float64)
+            @test isapprox(br, ar; atol = GPU_LOCAL_ATOL, rtol = GPU_LOCAL_RTOL)
+            @test isapprox(bi, ai; atol = GPU_LOCAL_ATOL, rtol = GPU_LOCAL_RTOL)
+        end
+        # Both clocks advance: the public pair AND the runtime timestep_state that
+        # get_current_simulation_time / the ERK2 diagnostics read.
+        @test gpu_st.step == step0 + NSTEPS
+        @test gpu_st.time ≈ time0 + NSTEPS * gpu_st.parameters.timestep
+        @test gpu_st.runtime.timestep_state.step == gpu_st.step
+        @test gpu_st.runtime.timestep_state.time ≈ gpu_st.time
     end
 
     @testset "dense_to_cpu_spectral! roundtrip + sync_gpu_state_to_cpu! [LOCAL]" begin

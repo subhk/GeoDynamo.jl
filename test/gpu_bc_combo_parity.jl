@@ -66,6 +66,14 @@ function _combo_parity(vel_bcs, temp_bcs, timestepper; nsteps = 2)
     return worst, finite
 end
 
+# Absolute agreement floor for these combos, measured across all 16 of them
+# (velocity codes 1-4 x DD/DN/ND/NN, CNAB2 and ERK2): worst = 3.7e-12, ~3 orders
+# above the plain full-step gates in gpu_test_preamble.jl (GPU_LOCAL_ATOL) because
+# ERK2 and the inhomogeneous BC values are less well conditioned. 1e-10 keeps ~27x
+# headroom while being 10x tighter than the 1e-9 it replaced. Do not lower without
+# re-measuring: a shared constant across gate families does NOT hold here.
+const COMBO_PARITY_ATOL = 1e-10
+
 @testset "GPU≈CPU parity across BC combinations" begin
     dd = GeoDynamo.BoundaryConditions(inner = _VAL(1.0), outer = _VAL(0.0))
 
@@ -78,7 +86,7 @@ end
             for ts in (GeoDynamo.CNAB2(), GeoDynamo.ExponentialRungeKutta2())
                 worst, finite = _combo_parity(bcs, dd, ts)
                 @testset "$label $(nameof(typeof(ts)))" begin
-                    @test worst < 1e-9
+                    @test worst < COMBO_PARITY_ATOL
                     @test finite
                 end
             end
@@ -94,7 +102,7 @@ end
             for ts in (GeoDynamo.CNAB2(), GeoDynamo.ExponentialRungeKutta2())
                 worst, finite = _combo_parity(ns, bcs, ts)
                 @testset "$label $(nameof(typeof(ts)))" begin
-                    @test worst < 1e-9
+                    @test worst < COMBO_PARITY_ATOL
                     @test finite
                 end
             end
