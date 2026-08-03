@@ -191,15 +191,51 @@ Boundary condition descriptor for one radial endpoint in an ERK2 solve.
 Neumann-like constraints, and the correction fields encode the `l`-dependent
 terms used by stress-free and insulating boundary formulas.
 """
-struct SolverERK2BoundarySide{T}
-    type::Symbol
+abstract type SolverERK2BoundarySide{T} end
+
+"""
+    SolverERK2DirichletSide{T} <: SolverERK2BoundarySide{T}
+
+Fixed-value endpoint: `u(r_b) = value`. `value` is a FIELD value (a temperature,
+a composition, a velocity/field component) — the same quantity the solution
+carries.
+"""
+struct SolverERK2DirichletSide{T} <: SolverERK2BoundarySide{T}
     value::T
+end
+
+"""
+    SolverERK2StencilSide{T} <: SolverERK2BoundarySide{T}
+
+Derivative-row endpoint: `(stencil ⋅ u) + fixed_correction·u[b] + l_sign·l·r_inv·u[b]
+= target`, covering Neumann, stress-free, insulating (Robin) and center-regularity
+rows.
+
+`target` is deliberately NOT called `value`: it is the right-hand side of a
+DERIVATIVE equation — a flux, not a field value. Reading it as a field value is
+what the l=0 Neumann-Neumann bug did, and separating the two types is what makes
+that unrepresentable rather than merely unlikely. `kind` is provenance only
+(diagnostics and the GPU tag); nothing dispatches on it.
+"""
+struct SolverERK2StencilSide{T} <: SolverERK2BoundarySide{T}
+    kind::Symbol
+    target::T
     stencil::Vector{T}
     r_inv::T
     l_sign::T
     use_l_correction::Bool
     fixed_correction::T
 end
+
+"""
+    erk2_endpoint_target(side) -> T
+
+The endpoint's prescribed right-hand side, for code that must treat both endpoint
+kinds uniformly (e.g. the homogeneity check). Prefer dispatching on the concrete
+type when the distinction matters — which is most of the time.
+"""
+erk2_endpoint_target(side::SolverERK2DirichletSide) = side.value
+erk2_endpoint_target(side::SolverERK2StencilSide) = side.target
 
 """
     SolverERK2BoundarySpec{T}
@@ -211,12 +247,18 @@ Mode values are used for cases such as rotating inner-core toroidal velocity,
 where only selected `(l,m)` modes carry a nonzero endpoint value.
 """
 struct SolverERK2BoundarySpec{T,
+        I <: SolverERK2BoundarySide{T},
+        O <: SolverERK2BoundarySide{T},
         VR1 <: Union{Nothing, AbstractVector{T}},
         VR2 <: Union{Nothing, AbstractVector{T}},
         VI1 <: Union{Nothing, AbstractVector{T}},
         VI2 <: Union{Nothing, AbstractVector{T}}}
-    inner::SolverERK2BoundarySide{T}
-    outer::SolverERK2BoundarySide{T}
+    # Endpoint slots carry their CONCRETE type for the same reason the mode-value
+    # slots below do: prepare/finalize_solver_erk2_field! reads spec.inner and
+    # spec.outer once per mode per step, and an abstractly-typed field here would
+    # turn every solver_enforce_erk2_bc! call into a dynamic dispatch.
+    inner::I
+    outer::O
     # Mode-value slots carry their concrete type (a vector/view, or Nothing) so
     # per-mode reads in prepare/finalize_solver_erk2_field! infer — an abstract
     # Union{Nothing, AbstractVector{T}} field here boxed every value_override.
@@ -240,9 +282,9 @@ function SolverERK2BoundarySpec{T}(
         inner_mode_values_imag::Union{Nothing, AbstractVector{T}},
         outer_mode_values_imag::Union{Nothing, AbstractVector{T}}
 ) where {T}
-    return SolverERK2BoundarySpec{T, typeof(inner_mode_values),
-        typeof(outer_mode_values), typeof(inner_mode_values_imag),
-        typeof(outer_mode_values_imag)}(
+    return SolverERK2BoundarySpec{T, typeof(inner), typeof(outer),
+        typeof(inner_mode_values), typeof(outer_mode_values),
+        typeof(inner_mode_values_imag), typeof(outer_mode_values_imag)}(
         inner, outer, inner_mode_values, outer_mode_values,
         inner_mode_values_imag, outer_mode_values_imag)
 end

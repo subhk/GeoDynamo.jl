@@ -135,10 +135,15 @@ end
         @test !rebuilt[]           # builder was not invoked again
 
         fresh = GeoDynamo.build_solver_erk2_scalar_bc(Float64, domain, 1)
-        @test s1.inner.type == fresh.inner.type
-        @test s1.outer.type == fresh.outer.type
-        @test s1.inner.stencil == fresh.inner.stencil
-        @test s1.outer.stencil == fresh.outer.stencil
+        # BC code 1 is Dirichlet-Dirichlet, so both ends are value descriptors with
+        # no stencil; comparing the endpoint kind and its prescribed RHS is the
+        # meaningful "cached == freshly built" check for either endpoint type.
+        @test typeof(s1.inner) === typeof(fresh.inner)
+        @test typeof(s1.outer) === typeof(fresh.outer)
+        @test GeoDynamo.erk2_endpoint_target(s1.inner) ==
+              GeoDynamo.erk2_endpoint_target(fresh.inner)
+        @test GeoDynamo.erk2_endpoint_target(s1.outer) ==
+              GeoDynamo.erk2_endpoint_target(fresh.outer)
 
         # A different BC code keys a distinct entry.
         s3 = GeoDynamo._get_or_build_erk2_boundary_spec!(

@@ -18,12 +18,27 @@
 
 # One boundary side → NamedTuple of plain arrays/scalars.
 # kind: 0 = zero-endpoint (bc_spec === nothing), 1 = Dirichlet, 2 = stencil row.
-function _pack_erk2_bc_side(side::SolverERK2BoundarySide{T}, mode_vals, mode_vals_im,
+function _pack_erk2_bc_side(side::SolverERK2DirichletSide{T}, mode_vals, mode_vals_im,
         config, nl::Int, nm::Int, nr::Int) where {T}
-    kind = side.type === :dirichlet ? Int32(1) : Int32(2)
+    return _pack_erk2_bc_side_common(Int32(1), zeros(T, nr), side.value,
+        zero(T), zero(T), false, zero(T), mode_vals, mode_vals_im, config, nl, nm)
+end
+
+function _pack_erk2_bc_side(side::SolverERK2StencilSide{T}, mode_vals, mode_vals_im,
+        config, nl::Int, nm::Int, nr::Int) where {T}
     stencil = zeros(T, nr)
     length(side.stencil) == nr && (stencil .= side.stencil)
-    val_r = fill(side.value, nl, nm)
+    return _pack_erk2_bc_side_common(Int32(2), stencil, side.target,
+        side.r_inv, side.l_sign, side.use_l_correction, side.fixed_correction,
+        mode_vals, mode_vals_im, config, nl, nm)
+end
+
+# Shared tail: scatter the scalar endpoint target over (l, m) and overlay any
+# per-mode overrides. `kind` is the device tag (1 = assign, 2 = solve the row).
+function _pack_erk2_bc_side_common(kind::Int32, stencil::Vector{T}, target::T,
+        r_inv::T, l_sign::T, use_l_correction::Bool, fixed_correction::T,
+        mode_vals, mode_vals_im, config, nl::Int, nm::Int) where {T}
+    val_r = fill(target, nl, nm)
     val_i = fill(zero(T), nl, nm)
     if mode_vals !== nothing
         @inbounds for lm in 1:config.nlm
@@ -41,10 +56,7 @@ function _pack_erk2_bc_side(side::SolverERK2BoundarySide{T}, mode_vals, mode_val
             val_i[l + 1, m + 1] = mode_vals_im[lm]
         end
     end
-    return (; kind, stencil,
-        r_inv = side.r_inv, l_sign = side.l_sign,
-        use_l_correction = side.use_l_correction,
-        fixed_correction = side.fixed_correction,
+    return (; kind, stencil, r_inv, l_sign, use_l_correction, fixed_correction,
         val_r, val_i)
 end
 
