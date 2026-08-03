@@ -29,29 +29,20 @@ const _VM_TS = [
 
 # velocity_bc_code: 1 = NS/NS, 2 = NS inner / SF outer, 3 = SF inner / NS outer, 4 = SF/SF
 #
-# ⚠️ THIS FILE IS BUDGET-CONSTRAINED, NOT SCOPE-CONSTRAINED.
+# All four wall codes x three timesteppers, with the magnetic assertions folded
+# into the same states.
 #
-# It exercises ONE wall configuration and folds the magnetic assertions into the
-# same states, so it builds 3 SolverStates — one per timestepper — instead of the
-# 15 the full matrix wants. The reason is an infrastructure limit, not a judgement
-# about what is worth testing:
-#
-#   Every SolverState allocates MPI Cartesian communicators (create_pencil_
-#   decomposition_shtnskit -> MPITopology -> MPI_Cart_create) and NOTHING ever
-#   frees them — there is no Comm_free anywhere in src/. The suite already sits
-#   near the 2048-communicator ceiling: a 15-state version of this file exhausted
-#   it and took 21 unrelated downstream files down with it, and a 6-state version
-#   still cost 5. Measured headroom is under ~19 new states for the whole suite.
-#
-# The fix is to memoize the decomposition per (nlat, nlon, nr, lmax, mmax, comm)
-# in src/transforms/spectral.jl, which would collapse the suite's hundreds of
-# Cart_creates into a handful and let this file cover the full matrix. Until then,
-# stress-free walls and the mixed codes 2/3 are covered by
-# velocity_boundary_numerical.jl (matrix rows) and gpu_bc_combo_parity.jl (all
-# four codes); what is kept here is the part those cannot see — that every
-# timestepper enforces the same condition on the EVOLVED field.
+# This file was briefly cut to a single wall code: every SolverState used to
+# allocate four MPI communicators that were never freed, and the suite sat near
+# MPICH's 2048 ceiling, so a full-matrix version exhausted it and took 21
+# unrelated downstream files down with it. That is fixed at the source —
+# create_pencil_decomposition_shtnskit now memoizes per grid — so all twelve
+# states here share one decomposition and the full matrix fits.
 const _VM_WALLS = [
-    (1, "code1 NS/NS", GeoDynamo.NoSlip(), GeoDynamo.NoSlip()),
+    (1, "code1 NS/NS", GeoDynamo.NoSlip(),     GeoDynamo.NoSlip()),
+    (2, "code2 NS/SF", GeoDynamo.NoSlip(),     GeoDynamo.StressFree()),
+    (3, "code3 SF/NS", GeoDynamo.StressFree(), GeoDynamo.NoSlip()),
+    (4, "code4 SF/SF", GeoDynamo.StressFree(), GeoDynamo.StressFree()),
 ]
 
 function _vm_state(timestepper; vel_bcs = nothing, magnetic = false, seed = 11)

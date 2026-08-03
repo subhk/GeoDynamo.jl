@@ -1,6 +1,31 @@
 using Test
 using GeoDynamo
 
+@testset "Pencil decomposition is memoized per grid" begin
+    # Every decomposition allocates MPI communicators (MPITopology -> MPI_Cart_create,
+    # plus make_subcomms) and nothing frees them, so rebuilding it for each config
+    # walks the suite into MPICH's 2048-communicator ceiling. Identical grids must
+    # therefore share one decomposition; distinct grids must not.
+    kw = (; lmax = 4, mmax = 4, nlat = 10, nlon = 20, nr = 8, optimize_decomp = false)
+    a = GeoDynamo.create_shtnskit_config(; kw...)
+    b = GeoDynamo.create_shtnskit_config(; kw...)
+    for k in (:theta, :phi, :r, :spec, :theta_phys)
+        @test getproperty(a.pencils, k) === getproperty(b.pencils, k)
+    end
+    @test a.pencils.θ_comm == b.pencils.θ_comm
+    @test a.pencils.r_comm == b.pencils.r_comm
+
+    # a different grid is a different decomposition
+    c = GeoDynamo.create_shtnskit_config(; lmax = 4, mmax = 4, nlat = 12, nlon = 24,
+        nr = 8, optimize_decomp = false)
+    @test c.pencils.r !== a.pencils.r
+
+    # ...and the cache is clearable, so a test that needs a fresh topology can get one
+    @test GeoDynamo.clear_pencil_decomposition_cache!() isa Int
+    d = GeoDynamo.create_shtnskit_config(; kw...)
+    @test d.pencils.r !== a.pencils.r
+end
+
 @testset "Grid constructor validation" begin
     SS = GeoDynamo.SphericalShellGrid
     SB = GeoDynamo.SphericalBallGrid
