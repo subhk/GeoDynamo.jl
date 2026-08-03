@@ -278,6 +278,26 @@ function _gpu_assert_static_bcs(st)
 end
 
 """
+    _gpu_assert_single_rank(caller)
+
+Reject the dense device-state path under MPI with more than one rank.
+
+The bundle is a whole-domain copy; nothing in `src/gpu/` is pencil- or
+rank-aware. Without this the failure surfaces as an opaque `DimensionMismatch`
+part-way through a step rather than as a scope limit.
+"""
+function _gpu_assert_single_rank(caller::AbstractString)
+    nprocs = get_nprocs()
+    nprocs == 1 || error(
+        "$caller: the GPU solver path is single-rank only (got $nprocs MPI ranks). " *
+        "The device bundle is a whole-domain dense copy — it has no pencil/halo " *
+        "awareness, so a distributed state would be silently truncated to the modes " *
+        "and radial slices owned by each rank. Run the GPU path on one rank, or use " *
+        "the CPU path for distributed runs.")
+    return nothing
+end
+
+"""
     build_gpu_solver_state(cpu_state) -> NamedTuple
 
 Assemble the `gpu_solver_step!` device-state bundle from a CPU `SolverState`
@@ -328,6 +348,13 @@ function build_gpu_solver_state(st)
     # Boundary endpoint values are baked into the packs below — reject anything that
     # would move underneath them.
     _gpu_assert_static_bcs(st)
+    # The device bundle is a WHOLE-DOMAIN dense copy (see src/gpu/fields.jl: "single
+    # GPU, no MPI/pencils"). Under >1 rank `cpu_spectral_to_dense` silently drops the
+    # modes this rank does not own and fills radius by min(nr, nr_local), and the
+    # lagged physical buffers below are sized from the rank-LOCAL field — which
+    # surfaces much later as a bare DimensionMismatch inside gpu_solver_step!
+    # (`state.T_phys .= Tn.data`). Fail here instead, like the other scope limits.
+    _gpu_assert_single_rank("build_gpu_solver_state")
 
     # --- shared operators (host-side) ---
     d1 = Array{T}(vel.∂r.data)

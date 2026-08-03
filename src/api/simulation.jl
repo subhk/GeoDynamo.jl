@@ -277,6 +277,12 @@ function _resolve_gpu_stepping(gpu, model, timestepper)
               "using the CPU path" timestepper
         return false
     end
+    nprocs = get_nprocs()
+    if nprocs > 1
+        @warn "Simulation: the GPU stepping path is single-rank only (the device bundle " *
+              "is a whole-domain dense copy with no pencil awareness); using the CPU path" nprocs
+        return false
+    end
     p = model.state.parameters
     if p.include_magnetic && p.magnetic_inner_bc !== :insulating
         @warn "Simulation: the GPU stepping path supports only an insulating magnetic " *
