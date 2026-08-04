@@ -111,4 +111,61 @@ MPI.Initialized() || MPI.Init()
             @test isapprox(Array(gic.pol_ic_i), cic.pol_ic_i; atol = 1e-9, rtol = 1e-8)
         end
     end
+    @testset "conducting inner core is wired into gpu_solver_step! [LOCAL]" begin
+        # The kernels above are unit-tested, but for a long time nothing passed an
+        # `ic` bundle from the orchestrator: build_gpu_solver_state rejected a
+        # conducting inner core outright, so this whole file exercised code the
+        # solver could never reach. This is the end-to-end gate.
+        params = GeoDynamo.SolverParameters(
+            geometry = :shell, lmax = 6, mmax = 6, nlat = 14, nlon = 28, nr = 8,
+            nr_inner = 4, radial_bandwidth = 3, radius_ratio = 0.35,
+            Ek = 1e-3, Ra = 1e3, Pm = 1.0, Pr = 1.0, timestep = 1e-5,
+            include_magnetic = true, include_composition = false,
+            magnetic_inner_bc = :conducting_inner_core,
+            temperature_bcs = GeoDynamo.BoundaryConditions(
+                inner = GeoDynamo.FixedTemperature(0.0),
+                outer = GeoDynamo.FixedTemperature(0.0)))
+        st = GeoDynamo.initialize_solver_state(Float64; params = params)
+        rng = MersenneTwister(19)
+        for f in (st.fields.temperature.spectral,
+                  st.fields.velocity.toroidal, st.fields.velocity.poloidal,
+                  st.fields.magnetic.toroidal, st.fields.magnetic.poloidal,
+                  st.fields.magnetic.toroidal_ic, st.fields.magnetic.poloidal_ic)
+            dr = parent(f.data_real); di = parent(f.data_imag)
+            dr .+= 1e-3 .* (rand(rng, size(dr)...) .- 0.5)
+            di .+= 1e-3 .* (rand(rng, size(di)...) .- 0.5)
+        end
+        @test st.magnetic_ic_admittance !== nothing        # fixture really is conducting
+        GeoDynamo.solver_step!(st)                         # warm-up
+
+        gst = GeoDynamo.build_gpu_solver_state(st)
+        @test gst.ic !== nothing                           # the bundle is actually built
+
+        GeoDynamo.gpu_solver_step!(gst)
+        GeoDynamo.solver_step!(st)
+
+        cfg_s = st.backend.shtns_config
+        nr_s = st.runtime.outer_core_domain.N
+        Nic_s = st.runtime.inner_core_domain.N
+        for (name, spec, gr, gi, nrad) in [
+                ("mag.tor", st.fields.magnetic.toroidal,
+                 gst.magnetic.tor.spec_r, gst.magnetic.tor.spec_i, nr_s),
+                ("mag.pol", st.fields.magnetic.poloidal,
+                 gst.magnetic.pol.spec_r, gst.magnetic.pol.spec_i, nr_s),
+                ("ic.tor", st.fields.magnetic.toroidal_ic,
+                 gst.ic.tor_ic_r, gst.ic.tor_ic_i, Nic_s),
+                ("ic.pol", st.fields.magnetic.poloidal_ic,
+                 gst.ic.pol_ic_r, gst.ic.pol_ic_i, Nic_s)]
+            cr, ci = GeoDynamo.cpu_spectral_to_dense(spec, cfg_s, nrad, Float64)
+            @test isapprox(gr, cr; atol = 1e-11, rtol = 1e-9)
+            @test isapprox(gi, ci; atol = 1e-11, rtol = 1e-9)
+        end
+
+        # ...and the evolved inner-core state must survive the sync back to the host
+        GeoDynamo.sync_gpu_state_to_cpu!(st, gst)
+        icr, ici = GeoDynamo.cpu_spectral_to_dense(
+            st.fields.magnetic.toroidal_ic, cfg_s, Nic_s, Float64)
+        @test isapprox(icr, gst.ic.tor_ic_r; atol = 1e-12, rtol = 1e-10)
+        @test isapprox(ici, gst.ic.tor_ic_i; atol = 1e-12, rtol = 1e-10)
+    end
 end

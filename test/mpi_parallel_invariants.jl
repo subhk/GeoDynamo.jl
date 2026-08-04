@@ -203,6 +203,25 @@ end
                 uneven_cfg.pencils; warn_uneven = false, strict = false)
             @test GeoDynamo.check_transform_synchronization(uneven_cfg; strict = false)
         end
+
+        @testset "GPU device path rejects multi-rank instead of crashing" begin
+            # The dense device bundle is a whole-domain copy (src/gpu/fields.jl:
+            # "single GPU, no MPI/pencils"): cpu_spectral_to_dense skips modes this
+            # rank does not own and fills radius by min(nr, nr_local), and the lagged
+            # physical buffers are sized from the rank-LOCAL field. Stepping that at
+            # nprocs > 1 used to die with a bare DimensionMismatch inside
+            # gpu_solver_step! (state.T_phys .= Tn.data). It must fail at build time
+            # with a scope-limit error, like the :ball / topography / conducting-IC
+            # limits do.
+            params = GeoDynamo.SolverParameters(
+                geometry = :shell, lmax = 6, mmax = 6, nlat = 14, nlon = 28,
+                nr = 8, nr_inner = 4, radial_bandwidth = 3, radius_ratio = 0.35,
+                Ek = 1e-3, Ra = 1e3, Pm = 1.0, Pr = 1.0, timestep = 1e-5,
+                include_magnetic = false, include_composition = false)
+            st = GeoDynamo.initialize_solver_state(Float64; params = params)
+            GeoDynamo.solver_step!(st)
+            @test_throws ErrorException GeoDynamo.build_gpu_solver_state(st)
+        end
     end
 
     if MPI.Initialized()

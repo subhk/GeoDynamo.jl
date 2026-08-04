@@ -132,14 +132,41 @@ using LinearAlgebra
 
     @testset "solver_create_dirichlet_bc" begin
         bc = GeoDynamo.solver_create_dirichlet_bc(Float64, nr)
-        @test bc.type == :dirichlet
+        @test bc isa GeoDynamo.SolverERK2DirichletSide{Float64}
         @test bc.value == 0.0
-        @test length(bc.stencil) == nr
-        @test all(bc.stencil .== 0.0)
-        @test bc.use_l_correction == false
+        # a fixed-value end has no stencil / correction machinery at all — those
+        # belong to SolverERK2StencilSide, which is a different type
+        @test !hasproperty(bc, :stencil)
+        @test !hasproperty(bc, :use_l_correction)
         # with a nonzero endpoint value
         bc2 = GeoDynamo.solver_create_dirichlet_bc(Float64, nr, 1.25)
         @test bc2.value == 1.25
+    end
+
+    @testset "endpoint descriptors are typed: a flux is never named `value`" begin
+        # `value::T` used to mean a temperature for Dirichlet ends and a FLUX for
+        # derivative ends, discriminated only by a `type::Symbol` tag. That
+        # conflation is exactly what the l=0 NN bug exploited: it took the
+        # Dirichlet branch on a Neumann side and assigned the prescribed flux as
+        # the field value. Distinct types make that unrepresentable.
+        d1 = GeoDynamo.build_radial_derivative_matrix(Float64, 1, dom)
+        d1_inner = GeoDynamo.extract_dense_row(d1.data, d1.bandwidth, nr, 1)
+        dir = GeoDynamo.solver_create_dirichlet_bc(Float64, nr, 1.25)
+        neu = GeoDynamo.solver_create_neumann_bc(Float64, d1_inner, 0.5)
+
+        @test dir isa GeoDynamo.SolverERK2BoundarySide{Float64}
+        @test neu isa GeoDynamo.SolverERK2BoundarySide{Float64}
+        @test typeof(dir) !== typeof(neu)
+
+        # a Dirichlet end carries a field VALUE
+        @test dir.value == 1.25
+        # a derivative end carries a TARGET (flux-like), and has no `.value` at all,
+        # so the old misread cannot even be written
+        @test !hasproperty(neu, :value)
+        @test neu.target == 0.5
+        # the shared accessor is how generic code reads either
+        @test GeoDynamo.erk2_endpoint_target(dir) == 1.25
+        @test GeoDynamo.erk2_endpoint_target(neu) == 0.5
     end
 
     @testset "no l=0 Dirichlet pin on ERK2 boundary sides" begin
@@ -148,7 +175,8 @@ using LinearAlgebra
         # ERK2 used to carry an `l0_dirichlet` flag that pinned l=0 under NN: it
         # enforced the prescribed FLUX as a field VALUE and diverged from the
         # CNAB2/RK3 matrix path. The flag is gone — this guards its return.
-        @test !(:l0_dirichlet in fieldnames(GeoDynamo.SolverERK2BoundarySide))
+        @test !(:l0_dirichlet in fieldnames(GeoDynamo.SolverERK2DirichletSide))
+        @test !(:l0_dirichlet in fieldnames(GeoDynamo.SolverERK2StencilSide))
 
         # Behavioural half: under NN the inner constraint row at l=0 must be the
         # SAME Neumann stencil as any other degree, not an identity pin.
@@ -164,8 +192,9 @@ using LinearAlgebra
         d1_inner = GeoDynamo.extract_dense_row(d1.data, d1.bandwidth, nr, 1)
         r_inv = Float64(dom.r[1, 3])
         bc = GeoDynamo.solver_create_stress_free_tor_bc(Float64, d1_inner, r_inv)
-        @test bc.type == :stress_free_tor
-        @test bc.value == 0.0
+        @test bc isa GeoDynamo.SolverERK2StencilSide{Float64}
+        @test bc.kind == :stress_free_tor
+        @test bc.target == 0.0
         @test bc.stencil == d1_inner           # copy of the d1 row
         @test bc.stencil !== d1_inner          # but a distinct array (copied)
         @test bc.r_inv == r_inv
@@ -178,7 +207,8 @@ using LinearAlgebra
         d1 = GeoDynamo.build_radial_derivative_matrix(Float64, 1, dom)
         d1_inner = GeoDynamo.extract_dense_row(d1.data, d1.bandwidth, nr, 1)
         bc = GeoDynamo.solver_create_noslip_pol_bc(Float64, d1_inner)
-        @test bc.type == :noslip_pol
+        @test bc isa GeoDynamo.SolverERK2StencilSide{Float64}
+        @test bc.kind == :noslip_pol
         @test bc.stencil == d1_inner
         @test bc.r_inv == 0.0
         @test bc.fixed_correction == 0.0
@@ -193,7 +223,8 @@ using LinearAlgebra
         r_inv = Float64(dom.r[1, 3])
         bc = GeoDynamo.solver_create_stress_free_pol_bc(
             Float64, d1_inner, d2_inner, r_inv)
-        @test bc.type == :stress_free_pol
+        @test bc isa GeoDynamo.SolverERK2StencilSide{Float64}
+        @test bc.kind == :stress_free_pol
         @test bc.stencil ≈ d2_inner .- 2 * r_inv .* d1_inner
         @test bc.use_l_correction == false
         @test all(isfinite, bc.stencil)
@@ -204,7 +235,8 @@ using LinearAlgebra
         d1_inner = GeoDynamo.extract_dense_row(d1.data, d1.bandwidth, nr, 1)
         r_inv = Float64(dom.r[1, 3])
         bc = GeoDynamo.solver_create_insulating_inner_bc(Float64, d1_inner, r_inv)
-        @test bc.type == :insulating_inner
+        @test bc isa GeoDynamo.SolverERK2StencilSide{Float64}
+        @test bc.kind == :insulating_inner
         @test bc.stencil == d1_inner
         @test bc.r_inv == r_inv
         @test bc.l_sign == -1.0
@@ -219,7 +251,8 @@ using LinearAlgebra
         d1_outer = GeoDynamo.extract_dense_row(d1.data, d1.bandwidth, nr, nr)
         r_inv = Float64(dom.r[nr, 3])
         bc = GeoDynamo.solver_create_insulating_outer_bc(Float64, d1_outer, r_inv)
-        @test bc.type == :insulating_outer
+        @test bc isa GeoDynamo.SolverERK2StencilSide{Float64}
+        @test bc.kind == :insulating_outer
         @test bc.stencil == d1_outer
         @test bc.r_inv == r_inv
         @test bc.l_sign == 1.0
@@ -234,8 +267,8 @@ using LinearAlgebra
         spec = GeoDynamo.build_solver_erk2_velocity_tor_bc(
             Float64, dom, 1; config = cfg, rot_omega = 0.0)
         # bc_code 1 -> Dirichlet on both endpoints
-        @test spec.inner.type == :dirichlet
-        @test spec.outer.type == :dirichlet
+        @test spec.inner isa GeoDynamo.SolverERK2DirichletSide{Float64}
+        @test spec.outer isa GeoDynamo.SolverERK2DirichletSide{Float64}
         # rot_omega == 0 -> no mode-dependent endpoint values
         @test spec.inner_mode_values === nothing
         @test spec.outer_mode_values === nothing
@@ -245,8 +278,8 @@ using LinearAlgebra
         spec = GeoDynamo.build_solver_erk2_velocity_tor_bc(
             Float64, dom, 4; config = cfg, rot_omega = 0.0)
         # bc_code 4 -> stress-free on both endpoints
-        @test spec.inner.type == :stress_free_tor
-        @test spec.outer.type == :stress_free_tor
+        @test spec.inner.kind == :stress_free_tor
+        @test spec.outer.kind == :stress_free_tor
         @test spec.inner.r_inv == Float64(dom.r[1, 3])
         @test spec.outer.r_inv == Float64(dom.r[nr, 3])
         @test spec.inner_mode_values === nothing
@@ -256,7 +289,7 @@ using LinearAlgebra
         rot_omega = 2.5
         spec = GeoDynamo.build_solver_erk2_velocity_tor_bc(
             Float64, dom, 1; config = cfg, rot_omega = rot_omega)
-        @test spec.inner.type == :dirichlet
+        @test spec.inner isa GeoDynamo.SolverERK2DirichletSide{Float64}
         @test spec.inner_mode_values !== nothing
         @test length(spec.inner_mode_values) == length(cfg.l_values)
         # only the (l=1, m=0) mode carries a nonzero endpoint value
@@ -276,13 +309,13 @@ using LinearAlgebra
     @testset "build_solver_erk2_velocity_pol_bc (no-slip & stress-free)" begin
         # code 1 -> no-slip both endpoints
         spec1 = GeoDynamo.build_solver_erk2_velocity_pol_bc(Float64, dom, 1)
-        @test spec1.inner.type == :noslip_pol
-        @test spec1.outer.type == :noslip_pol
+        @test spec1.inner.kind == :noslip_pol
+        @test spec1.outer.kind == :noslip_pol
         @test spec1.inner_mode_values === nothing
         # code 4 -> stress-free both endpoints
         spec4 = GeoDynamo.build_solver_erk2_velocity_pol_bc(Float64, dom, 4)
-        @test spec4.inner.type == :stress_free_pol
-        @test spec4.outer.type == :stress_free_pol
+        @test spec4.inner.kind == :stress_free_pol
+        @test spec4.outer.kind == :stress_free_pol
         # stencil lengths match nr
         @test length(spec1.inner.stencil) == nr
         @test length(spec4.outer.stencil) == nr

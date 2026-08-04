@@ -12,16 +12,24 @@ re-stamped the rows by hand and only source-text matching tied them together.
 """
 function solver_erk2_constraint_row(
         ::Type{T},
-        side::SolverERK2BoundarySide{T},
+        side::SolverERK2DirichletSide{T},
         boundary_idx::Int,
         l::Int,
         nr::Int
 ) where {T}
     row = zeros(T, nr)
-    if side.type === :dirichlet
-        row[boundary_idx] = one(T)
-        return row
-    end
+    row[boundary_idx] = one(T)
+    return row
+end
+
+function solver_erk2_constraint_row(
+        ::Type{T},
+        side::SolverERK2StencilSide{T},
+        boundary_idx::Int,
+        l::Int,
+        nr::Int
+) where {T}
+    row = zeros(T, nr)
     copyto!(row, side.stencil)
     self_correction = side.fixed_correction
     if side.use_l_correction
@@ -171,7 +179,8 @@ has `g0 ≡ 0`, so `solver_erk2_constrained_propagators` may drop the forcing te
 — see the note there on why that matters for marginal modes.
 """
 function solver_erk2_spec_homogeneous(spec::SolverERK2BoundarySpec{T}) where {T}
-    return iszero(spec.inner.value) && iszero(spec.outer.value) &&
+    return iszero(erk2_endpoint_target(spec.inner)) &&
+           iszero(erk2_endpoint_target(spec.outer)) &&
            _erk2_side_homogeneous(spec.inner_mode_values) &&
            _erk2_side_homogeneous(spec.outer_mode_values) &&
            _erk2_side_homogeneous(spec.inner_mode_values_imag) &&

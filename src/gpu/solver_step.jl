@@ -85,8 +85,12 @@ function gpu_solver_step!(state)
     # --- (4) magnetic step (if present) with the shared u ---
     if state.magnetic !== nothing
         m = state.magnetic
+        # `ic` is nothing for an insulating inner core (the default) and the packed
+        # admittance + inner-core spectra when conducting, in which case
+        # gpu_magnetic_field_step! runs the φ0 history-flux inner boundary and
+        # advances the inner-core field in place.
         gpu_magnetic_field_step!(m.tor, m.pol, u.data, uθ.data, uφ.data, cfg, state.nlops_mag,
-            state.inv_dt_mag, linw, lmax, bw; ws = ws)
+            state.inv_dt_mag, linw, lmax, bw; ic = state.ic, ws = ws)
     end
 
     # --- (5) temperature step with the shared u ---

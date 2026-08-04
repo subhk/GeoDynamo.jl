@@ -277,10 +277,23 @@ function _resolve_gpu_stepping(gpu, model, timestepper)
               "using the CPU path" timestepper
         return false
     end
+    nprocs = get_nprocs()
+    if nprocs > 1
+        @warn "Simulation: the GPU stepping path is single-rank only (the device bundle " *
+              "is a whole-domain dense copy with no pencil awareness); using the CPU path" nprocs
+        return false
+    end
     p = model.state.parameters
     if p.include_magnetic && p.magnetic_inner_bc !== :insulating
-        @warn "Simulation: the GPU stepping path supports only an insulating magnetic " *
-              "inner core; using the CPU path" magnetic_inner_bc = p.magnetic_inner_bc
+        # A conducting inner core IS supported on the device, but only under CNAB2:
+        # gpu_magnetic_field_step! takes the packed admittance via its `ic` argument,
+        # whereas the ERK2 and RungeKutta3 device steps run their own magnetic update
+        # with no inner-core hook.
+        if p.magnetic_inner_bc === :conducting_inner_core && timestepper isa CNAB2
+            return true
+        end
+        @warn "Simulation: the GPU stepping path supports an insulating magnetic inner " *
+              "core, or a conducting one under CNAB2; using the CPU path" magnetic_inner_bc = p.magnetic_inner_bc timestepper
         return false
     end
     return true

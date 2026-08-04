@@ -278,6 +278,50 @@ function _gpu_assert_static_bcs(st)
 end
 
 """
+    _build_inner_core_pack(st, mag, nl, T) -> NamedTuple or nothing
+
+Pack the conducting-inner-core state for [`gpu_magnetic_field_step!`](@ref)'s
+`ic` branch: the two packed ICB admittances plus the dense inner-core toroidal and
+poloidal spectra, on the inner-core radial grid (`Nic` points, NOT `nr`).
+
+`nothing` when the magnetic field is absent or the inner core is insulating, which
+is what `gpu_magnetic_field_step!` expects for the insulating path.
+"""
+function _build_inner_core_pack(st, mag, nl::Int, ::Type{T}) where {T}
+    (mag === nothing || st.magnetic_ic_admittance === nothing) && return nothing
+    adm = st.magnetic_ic_admittance
+    cfg = st.backend.shtns_config
+    Nic = adm.tor.Nic
+    tor_ic_r, tor_ic_i = cpu_spectral_to_dense(mag.toroidal_ic, cfg, Nic, T)
+    pol_ic_r, pol_ic_i = cpu_spectral_to_dense(mag.poloidal_ic, cfg, Nic, T)
+    return (;
+        tor_adm = gpu_pack_inner_core(adm.tor, nl, CPU()),
+        pol_adm = gpu_pack_inner_core(adm.pol, nl, CPU()),
+        tor_ic_r = tor_ic_r, tor_ic_i = tor_ic_i,
+        pol_ic_r = pol_ic_r, pol_ic_i = pol_ic_i)
+end
+
+"""
+    _gpu_assert_single_rank(caller)
+
+Reject the dense device-state path under MPI with more than one rank.
+
+The bundle is a whole-domain copy; nothing in `src/gpu/` is pencil- or
+rank-aware. Without this the failure surfaces as an opaque `DimensionMismatch`
+part-way through a step rather than as a scope limit.
+"""
+function _gpu_assert_single_rank(caller::AbstractString)
+    nprocs = get_nprocs()
+    nprocs == 1 || error(
+        "$caller: the GPU solver path is single-rank only (got $nprocs MPI ranks). " *
+        "The device bundle is a whole-domain dense copy — it has no pencil/halo " *
+        "awareness, so a distributed state would be silently truncated to the modes " *
+        "and radial slices owned by each rank. Run the GPU path on one rank, or use " *
+        "the CPU path for distributed runs.")
+    return nothing
+end
+
+"""
     build_gpu_solver_state(cpu_state) -> NamedTuple
 
 Assemble the `gpu_solver_step!` device-state bundle from a CPU `SolverState`
@@ -308,12 +352,17 @@ function build_gpu_solver_state(st)
     p = st.parameters
     vel = st.fields.velocity
 
-    # Builder scope: insulating magnetic + CNAB2 only. A conducting inner core sets
-    # `magnetic_ic_admittance`; `gpu_solver_step!` always runs the insulating magnetic
-    # path (ic=nothing), so error loudly rather than silently drop the φ0 history-flux BC.
-    if st.fields.magnetic !== nothing && st.magnetic_ic_admittance !== nothing
-        error("build_gpu_solver_state: only insulating magnetic is supported; " *
-              "magnetic_ic_admittance is set (conducting inner core not yet wired into gpu_solver_step!)")
+    # A conducting inner core sets `magnetic_ic_admittance`. It IS supported on the
+    # CNAB2 device path (the `ic` bundle built below feeds gpu_magnetic_field_step!'s
+    # conducting branch), but the ERK2 and RungeKutta3 device steps run their own
+    # magnetic update with no `ic` hook, so reject it for those rather than silently
+    # dropping the φ0 history-flux boundary condition.
+    if st.fields.magnetic !== nothing && st.magnetic_ic_admittance !== nothing &&
+       !(st.parameters.timestepper isa CNAB2)
+        error("build_gpu_solver_state: a conducting inner core is supported on the GPU " *
+              "path for CNAB2 only; got $(typeof(st.parameters.timestepper)). The ERK2 " *
+              "and RungeKutta3 device steps have no inner-core hook and would silently " *
+              "drop the φ0 history-flux inner boundary condition.")
     end
     # The GPU kernels hard-code the spherical-shell layout (shell poloidal recovery,
     # shell BC rows); a :ball config would silently integrate the wrong operators.
@@ -328,6 +377,13 @@ function build_gpu_solver_state(st)
     # Boundary endpoint values are baked into the packs below — reject anything that
     # would move underneath them.
     _gpu_assert_static_bcs(st)
+    # The device bundle is a WHOLE-DOMAIN dense copy (see src/gpu/fields.jl: "single
+    # GPU, no MPI/pencils"). Under >1 rank `cpu_spectral_to_dense` silently drops the
+    # modes this rank does not own and fills radius by min(nr, nr_local), and the
+    # lagged physical buffers below are sized from the rank-LOCAL field — which
+    # surfaces much later as a bare DimensionMismatch inside gpu_solver_step!
+    # (`state.T_phys .= Tn.data`). Fail here instead, like the other scope limits.
+    _gpu_assert_single_rank("build_gpu_solver_state")
 
     # --- shared operators (host-side) ---
     d1 = Array{T}(vel.∂r.data)
@@ -398,6 +454,7 @@ function build_gpu_solver_state(st)
     influence = _build_influence_pack(st, nl, nr, T)
     wsplit = _build_wsplit_pack(st, nl, nr, bw, T)
     cb3 = st.parameters.timestepper isa RungeKutta3 ? _build_cb3_stage_pack(st, nl, nr, bw, T) : nothing
+    ic = _build_inner_core_pack(st, mag, nl, T)
 
     # NOTE: d1/d2/lfac/rinv/rinv2/rscale/r/r2 are SHARED (same backing array)
     # across nlops_vel, nlops_mag, and the top-level d1/rinv/r_vec fields — safe
@@ -425,7 +482,7 @@ function build_gpu_solver_state(st)
         # mass_coeff=1). The GPU reuses those CPU LUs, so the RHS mass term MUST match.
         inv_dt_temp = T(1.0 / p.timestep),
         inv_dt_comp = T(1.0 / p.timestep),
-        cb3 = cb3,
+        cb3 = cb3, ic = ic,
         velocity = velocity, magnetic = magnetic,
         temperature = temperature, composition = composition,
         work = GPUWorkspace(),
@@ -541,6 +598,15 @@ function sync_gpu_state_to_cpu!(st, gst)
         _sync_phys!(mag.current.r_component, gst.J_r)
         _sync_phys!(mag.current.θ_component, gst.J_θ)
         _sync_phys!(mag.current.φ_component, gst.J_φ)
+        # Conducting inner core: the device step advances the inner-core spectra in
+        # place, so they have to come back too or a later CPU step would restart the
+        # inner core from its pre-device state.
+        if hasproperty(gst, :ic) && gst.ic !== nothing
+            dense_to_cpu_spectral!(mag.toroidal_ic, gst.ic.tor_ic_r, gst.ic.tor_ic_i,
+                cfg, size(gst.ic.tor_ic_r, 3))
+            dense_to_cpu_spectral!(mag.poloidal_ic, gst.ic.pol_ic_r, gst.ic.pol_ic_i,
+                cfg, size(gst.ic.pol_ic_r, 3))
+        end
     end
     cmp_ = st.fields.composition
     if cmp_ !== nothing && gst.composition !== nothing

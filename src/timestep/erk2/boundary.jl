@@ -11,19 +11,30 @@ correction while leaving interior values unchanged.
 """
 function solver_enforce_erk2_bc!(
         result::AbstractVector{T},
-        bc_side::SolverERK2BoundarySide{T},
+        bc_side::SolverERK2DirichletSide{T},
+        boundary_idx::Int,
+        l::Int,
+        nr::Int;
+        value_override::Union{T, Nothing} = nothing
+) where {T}
+    # Fixed-value end: assign the field value directly. This is the ONLY branch
+    # allowed to do that, and it is now reachable only with a Dirichlet descriptor.
+    result[boundary_idx] = value_override !== nothing ? value_override : bc_side.value
+    return result
+end
+
+function solver_enforce_erk2_bc!(
+        result::AbstractVector{T},
+        bc_side::SolverERK2StencilSide{T},
         boundary_idx::Int,
         l::Int,
         nr::Int;
         value_override::Union{T, Nothing} = nothing
 ) where {T}
     b = boundary_idx
-    effective_value = value_override !== nothing ? value_override : bc_side.value
-
-    if bc_side.type === :dirichlet
-        result[b] = effective_value
-        return result
-    end
+    # `target` is the RHS of the derivative equation, not a field value — solve the
+    # boundary row for the endpoint instead of assigning it.
+    target = value_override !== nothing ? value_override : bc_side.target
 
     self_coeff = bc_side.stencil[b] + bc_side.fixed_correction
     if bc_side.use_l_correction
@@ -38,9 +49,9 @@ function solver_enforce_erk2_bc!(
     end
 
     if abs(self_coeff) > pivot_tol(T)
-        result[b] = (effective_value - off_diag_sum) / self_coeff
+        result[b] = (target - off_diag_sum) / self_coeff
     else
-        result[b] = effective_value
+        result[b] = target
     end
 
     return result
@@ -75,16 +86,7 @@ end
 Create a fixed-value endpoint descriptor for ERK2 radial profiles.
 """
 function solver_create_dirichlet_bc(::Type{T}, nr::Int, value::T = zero(T)) where {T}
-    stencil = zeros(T, nr)
-    return SolverERK2BoundarySide{T}(
-        :dirichlet,
-        value,
-        stencil,
-        zero(T),
-        zero(T),
-        false,
-        zero(T)
-    )
+    return SolverERK2DirichletSide{T}(value)   # `nr` kept for call-site compatibility
 end
 
 """
@@ -110,7 +112,7 @@ function solver_create_neumann_bc(
         d1_row::Vector{T},
         value::T = zero(T)
 ) where {T}
-    return SolverERK2BoundarySide{T}(
+    return SolverERK2StencilSide{T}(
         :neumann,
         value,
         copy(d1_row),
@@ -140,7 +142,7 @@ end
 Create the toroidal velocity stress-free endpoint descriptor.
 """
 function solver_create_stress_free_tor_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
-    return SolverERK2BoundarySide{T}(
+    return SolverERK2StencilSide{T}(
         :stress_free_tor,
         zero(T),
         copy(d1_row),
@@ -166,7 +168,7 @@ end
 Create the poloidal velocity no-slip endpoint descriptor.
 """
 function solver_create_noslip_pol_bc(::Type{T}, d1_row::Vector{T}) where {T}
-    return SolverERK2BoundarySide{T}(
+    return SolverERK2StencilSide{T}(
         :noslip_pol,
         zero(T),
         copy(d1_row),
@@ -193,7 +195,7 @@ Create the poloidal velocity stress-free endpoint descriptor from a fully
 assembled `P″ - (2/r)P′` stencil row.
 """
 function solver_create_stress_free_pol_bc(::Type{T}, stress_free_row::Vector{T}) where {T}
-    return SolverERK2BoundarySide{T}(
+    return SolverERK2StencilSide{T}(
         :stress_free_pol,
         zero(T),
         copy(stress_free_row),
@@ -236,7 +238,7 @@ d1 − l·r_inv − r_inv). Matches the banded row in
 `create_magnetic_poloidal_matrices`.
 """
 function solver_create_insulating_inner_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
-    return SolverERK2BoundarySide{T}(
+    return SolverERK2StencilSide{T}(
         :insulating_inner,
         zero(T),
         copy(d1_row),
@@ -267,7 +269,7 @@ full-sphere dipole free-decay rate σ = π² (test/ball_bessel_decay.jl); matche
 the banded row in `create_magnetic_poloidal_matrices`.
 """
 function solver_create_insulating_outer_bc(::Type{T}, d1_row::Vector{T}, r_inv::T) where {T}
-    return SolverERK2BoundarySide{T}(
+    return SolverERK2StencilSide{T}(
         :insulating_outer,
         zero(T),
         copy(d1_row),
@@ -297,7 +299,7 @@ f′(r₁)=0).
 """
 function solver_create_regularity_bc(
         ::Type{T}, d1_row::Vector{T}, r_inv::T; l_offset::Int = 1) where {T}
-    return SolverERK2BoundarySide{T}(
+    return SolverERK2StencilSide{T}(
         :regularity,
         zero(T),
         copy(d1_row),

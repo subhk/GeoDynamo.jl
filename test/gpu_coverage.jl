@@ -34,15 +34,29 @@ MPI.Initialized() || MPI.Init()
         @test_throws ArgumentError GeoDynamo.gpu_pack_inner_core(adm_bad, 4, CPU())
     end
 
-    @testset "build_gpu_solver_state rejects conducting inner core [LOCAL]" begin
-        params = GeoDynamo.SolverParameters(
-            geometry = :shell, lmax = 4, mmax = 4, nlat = 12, nlon = 24, nr = 8, nr_inner = 4,
-            radial_bandwidth = 3, radius_ratio = 0.35,
-            include_magnetic = true, include_composition = false,
-            magnetic_inner_bc = :conducting_inner_core)
-        st = GeoDynamo.initialize_solver_state(Float64; params = params)
+    @testset "conducting inner core: CNAB2 packs it, ERK2/RK3 reject it [LOCAL]" begin
+        # gpu_magnetic_field_step! takes the packed admittance via its `ic` argument,
+        # so CNAB2 supports a conducting inner core end-to-end (parity gated in
+        # gpu_phase5m2_magnetic_conducting.jl). The ERK2 and RungeKutta3 device steps
+        # run their own magnetic update with no inner-core hook, so they must refuse
+        # rather than silently drop the φ0 history-flux boundary condition.
+        mk(ts) = GeoDynamo.initialize_solver_state(Float64;
+            params = GeoDynamo.SolverParameters(
+                geometry = :shell, lmax = 4, mmax = 4, nlat = 12, nlon = 24, nr = 8,
+                nr_inner = 4, radial_bandwidth = 3, radius_ratio = 0.35,
+                include_magnetic = true, include_composition = false,
+                magnetic_inner_bc = :conducting_inner_core, timestepper = ts))
+
+        st = mk(GeoDynamo.CNAB2())
         @test st.magnetic_ic_admittance !== nothing            # conducting → admittance set
-        @test_throws ErrorException GeoDynamo.build_gpu_solver_state(st)
+        gst = GeoDynamo.build_gpu_solver_state(st)
+        @test gst.ic !== nothing                               # ...and it reaches the bundle
+        @test size(gst.ic.tor_ic_r, 3) == st.magnetic_ic_admittance.tor.Nic
+
+        @test_throws ErrorException GeoDynamo.build_gpu_solver_state(
+            mk(GeoDynamo.ExponentialRungeKutta2()))
+        @test_throws ErrorException GeoDynamo.build_gpu_solver_state(
+            mk(GeoDynamo.RungeKutta3()))
     end
 
     @testset "build_gpu_solver_state rejects time-dependent boundary data [LOCAL]" begin

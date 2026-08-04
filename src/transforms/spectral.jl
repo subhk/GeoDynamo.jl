@@ -646,6 +646,41 @@ function create_shtnskit_config(; lmax::Int, mmax::Int = lmax,
 end
 
 """
+Memo table for [`create_pencil_decomposition_shtnskit`](@ref), keyed by every input
+the decomposition actually depends on.
+
+Each decomposition allocates FOUR MPI communicators that are never freed — two
+`MPITopology` Cartesian comms (the r×θ grid and the 1D θ prototype) plus the two
+`make_subcomms` splits — and MPICH's default ceiling is 2048 per process. Rebuilding
+one per `SolverState` walked the test suite into that ceiling, where it surfaced as
+`MPI_Cart_create failed … Too many communicators` in whichever unrelated file
+happened to run next.
+
+Sharing is safe: `Pencil` and `MPITopology` are immutable descriptors, and
+`PencilArray`s allocate their own data buffers, so two configs on the same grid can
+hold the same decomposition without aliasing any mutable state.
+"""
+const _PENCIL_DECOMP_CACHE = Dict{Any, Any}()
+const _PENCIL_DECOMP_LOCK = ReentrantLock()
+
+"""
+    clear_pencil_decomposition_cache!() -> Int
+
+Drop every memoized pencil decomposition and return how many were dropped.
+
+The communicators they hold are NOT freed — `MPI_Comm_free` is collective and
+cannot be called safely from here — so this only forces subsequent configs to build
+fresh topologies. Intended for tests that need a distinct decomposition object.
+"""
+function clear_pencil_decomposition_cache!()
+    lock(_PENCIL_DECOMP_LOCK) do
+        n = length(_PENCIL_DECOMP_CACHE)
+        empty!(_PENCIL_DECOMP_CACHE)
+        return n
+    end
+end
+
+"""
     create_pencil_decomposition_shtnskit(nlat, nlon, nr, sht_config, comm, optimize; lmax, mmax)
 
 Create PencilArrays decomposition optimized for spherical harmonic transforms.
@@ -692,6 +727,17 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
         comm, optimize::Bool = true;
         lmax::Int,
         mmax::Int)
+    # The body below reads ONLY these inputs (plus read_proc_grid, which is a pure
+    # function of nprocs and GEODYNAMO_PROC_GRID), so they fully determine the result.
+    # `comm` is part of the key by identity: a duplicated communicator is a genuinely
+    # different topology and must not share.
+    cache_key = (objectid(comm), MPI.Comm_size(comm), nlat, nlon, nr, lmax, mmax,
+        optimize, get(ENV, "GEODYNAMO_PROC_GRID", ""))
+    cached = lock(_PENCIL_DECOMP_LOCK) do
+        get(_PENCIL_DECOMP_CACHE, cache_key, nothing)
+    end
+    cached === nothing || return cached
+
     nprocs = MPI.Comm_size(comm)
 
     # Phase 2 (r×θ 2D topology): read the process grid from GEODYNAMO_PROC_GRID.
@@ -769,7 +815,7 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     # θ_comm and r_comm are included so callers can form sub-collective operations
     # (e.g. per-r-group Allreduce on the θ-subcomm) without passing comm+grid dims
     # separately.
-    return (; theta = pencil_theta,
+    decomposition = (; theta = pencil_theta,
         θ = pencil_theta,      # Unicode alias
         phi = pencil_phi,
         φ = pencil_phi,        # Unicode alias
@@ -779,6 +825,14 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
         theta_phys = pencil_theta_phys,
         θ_comm = θ_comm,
         r_comm = r_comm)
+
+    # Memoize so an identical grid reuses these communicators instead of allocating
+    # four more. Every rank computes the same key from the same inputs, so the hit/miss
+    # decision stays collectively consistent — important, because a miss runs
+    # MPI_Cart_create and Comm_split, which are collective.
+    lock(_PENCIL_DECOMP_LOCK) do
+        get!(_PENCIL_DECOMP_CACHE, cache_key, decomposition)
+    end
 end
 
 """
