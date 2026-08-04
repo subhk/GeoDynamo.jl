@@ -17,6 +17,11 @@ function _ctl_digest(values::Vector{Float64}; name = "a.b", dims = [length(value
         ParityDigest._hash_fields([fb]))
 end
 
+# A fieldless struct with no arrays of its own and no fields to recurse
+# into: previously fell through every branch of `_walk!` and vanished with
+# zero signal. `struct` must be defined at top level, not inside a testset.
+struct _CtlUnclassifiedLeaf end
+
 @testset "digest comparator negative controls" begin
     base = [1.0, 2.0, 3.0]
 
@@ -40,6 +45,12 @@ end
         nz = [0.0, -0.0]
         ok, msg = ParityDigest.digests_equal(_ctl_digest(z), _ctl_digest(nz))
         @test !ok
+        @test occursin("index 2", msg)
+        # Regression: a naive reinterpret(Int64,·)-subtract wraps to
+        # typemin(Int64) for exactly this pair (0.0 reinterprets as 0,
+        # -0.0 as typemin(Int64)), so this pins the *correct* signed
+        # distance, not just that a difference was reported.
+        @test occursin("(1 ULP)", msg)
     end
 
     @testset "matching NaNs in the same slot compare equal" begin
@@ -82,5 +93,61 @@ end
         forged = ParityDigest.StateDigest(b.env, b.info, b.fields, a.hash)
         ok, _ = ParityDigest.digests_equal(a, forged)
         @test !ok
+    end
+
+    @testset "unclassified shapes fail loud instead of vanishing" begin
+        @testset "array with an unclassifiable eltype throws" begin
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "x.badarray", Any[1.0, "two"])
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("x.badarray", err.msg)
+            @test occursin("Any", err.msg)
+        end
+
+        @testset "fieldless leaf type throws" begin
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "x.badleaf", _CtlUnclassifiedLeaf())
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("x.badleaf", err.msg)
+            @test occursin("_CtlUnclassifiedLeaf", err.msg)
+        end
+
+        @testset "Dict is walked by value, not silently skipped nor thrown" begin
+            # Documents the classification decision for the metadata::Dict
+            # case: values are walked (a float payload is captured), keys
+            # are not separately digested.
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            ParityDigest._walk!(out, seen, "x.meta",
+                Dict{String, Any}("weight" => [1.0, 2.0]))
+            @test length(out) == 1
+            @test out[1].name == "x.meta[weight]"
+            @test out[1].values == [1.0, 2.0]
+        end
+
+        @testset "Dict holding an unclassifiable value still throws, not swallows" begin
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "x.meta", Dict{String, Any}("odd" => Any[1, 2]))
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("x.meta[odd]", err.msg)
+        end
     end
 end

@@ -59,29 +59,70 @@ function _walk!(out::Vector{FieldBits}, seen::Base.IdSet{Any}, name::String, x)
         _push_array!(out, name, parent(x))
         return nothing
     elseif x isa AbstractArray
-        # Integer arrays are BC type codes and mode tables: static, not evolved.
-        eltype(x) <: AbstractFloat && _push_array!(out, name, x)
+        if eltype(x) <: AbstractFloat
+            _push_array!(out, name, x)
+        elseif eltype(x) <: Integer
+            # Integer arrays are BC type codes and mode tables: static, not
+            # evolved. Known, deliberately-classified case — stays silent.
+        else
+            error("ParityDigest._walk!: unclassified array at $(name) — " *
+                  "eltype $(eltype(x)) of $(typeof(x)) is neither a float " *
+                  "nor an integer, so the digest cannot tell whether this " *
+                  "holds evolved physics state. Classify it explicitly " *
+                  "instead of letting it vanish from the digest silently.")
+        end
         return nothing
     elseif x isa GeoDynamo.SHTnsKitConfig
+        return nothing
+    elseif x isa AbstractDict
+        # Dicts appear as free-form metadata containers reachable from field
+        # structs (e.g. BoundaryInterpolationCache.metadata::Dict{String,Any},
+        # a generic escape hatch for keys the struct has no dedicated field
+        # for). Do NOT let this fall through to the generic struct walk
+        # below: that would descend into Dict's internal hash-table storage
+        # (slots/keys/vals buffers), which is an implementation detail, not
+        # logical content, and is not stable across insertion order. Instead
+        # walk each *value* explicitly by key, so any float payload smuggled
+        # into a Dict is still captured by the array/struct cases above and
+        # below — or throws, exactly as it would anywhere else in the tree,
+        # if the value itself turns out to be unclassified (e.g. a raw
+        # Vector{Any} entry). Keys are treated as identifying strings, not
+        # physics data, and are not separately digested.
+        for (k, v) in x
+            _walk!(out, seen, string(name, "[", k, "]"), v)
+        end
         return nothing
     end
 
     T = typeof(x)
-    isstructtype(T) || return nothing
-    # Numbers, Symbols, Strings are structs by isstructtype but carry no arrays.
+    # Numbers, Symbols, Strings are common leaf values (thresholds, labels,
+    # format tags) and carry no arrays — a known, deliberately-skipped case.
     (x isa Number || x isa Symbol || x isa AbstractString) && return nothing
 
-    if ismutable(x)
-        x in seen && return nothing
-        push!(seen, x)
+    if isstructtype(T) && fieldcount(T) > 0
+        if ismutable(x)
+            x in seen && return nothing
+            push!(seen, x)
+        end
+
+        for f in fieldnames(T)
+            f in SKIP_FIELDS && continue
+            isdefined(x, f) || continue
+            _walk!(out, seen, string(name, ".", f), getfield(x, f))
+        end
+        return nothing
     end
 
-    for f in fieldnames(T)
-        f in SKIP_FIELDS && continue
-        isdefined(x, f) || continue
-        _walk!(out, seen, string(name, ".", f), getfield(x, f))
-    end
-    return nothing
+    # Anything else — a non-struct type (Function, Module, ...) or a
+    # fieldless struct/singleton — has fallen through every known case
+    # without being captured or deliberately classified. Silently returning
+    # here is exactly the bug this fix closes: fail loud instead.
+    error("ParityDigest._walk!: unclassified value of type $(T) at $(name) " *
+          "— it is not a Number/Symbol/AbstractString/SHTnsKitConfig/" *
+          "PencilArray/AbstractArray/AbstractDict, and has no fields to " *
+          "recurse into. Classify it explicitly (capture, recurse, add to " *
+          "SKIP_FIELDS, or handle it as a container) instead of letting it " *
+          "vanish from the digest silently.")
 end
 
 function _hash_fields(fields::Vector{FieldBits})
@@ -123,6 +164,23 @@ function digest_state(state)
     return StateDigest(env, info, out, _hash_fields(out))
 end
 
+# IEEE-754 bit patterns are not a monotonic integer encoding across the
+# positive/negative boundary: 0.0 (0x0...0) and -0.0 (0x8...0) sit at
+# opposite ends of the UInt64 range even though they are numerically equal,
+# and more generally negative values' bit patterns run in the OPPOSITE
+# direction to their numeric order. A naive `reinterpret(Int64, va) -
+# reinterpret(Int64, vb)` can therefore subtract two values that are
+# genuinely 1 ULP apart (e.g. 0.0 and -0.0, one reinterpreting as
+# `typemin(Int64)`) and silently wrap under Julia's checked-off default
+# integer overflow, producing a nonsense diagnostic.
+#
+# Standard fix: apply the order-preserving bias transform (flip the sign bit
+# for non-negative patterns, complement the whole word for negative ones) so
+# the transformed key is monotonic with the float's numeric value, then widen
+# to Int128 before subtracting so the distance itself cannot overflow either.
+_ulp_order_key(u::UInt64) =
+    (u & (UInt64(1) << 63)) == 0 ? (u | (UInt64(1) << 63)) : ~u
+
 function _first_difference(a::FieldBits, b::FieldBits)
     ba = reinterpret(UInt64, a.values)
     bb = reinterpret(UInt64, b.values)
@@ -130,7 +188,8 @@ function _first_difference(a::FieldBits, b::FieldBits)
         if ba[i] != bb[i]
             va, vb = a.values[i], b.values[i]
             ulps = (isfinite(va) && isfinite(vb)) ?
-                   string(abs(reinterpret(Int64, va) - reinterpret(Int64, vb))) :
+                   string(abs(Int128(_ulp_order_key(ba[i])) -
+                              Int128(_ulp_order_key(bb[i])))) :
                    "n/a"
             return "$(a.name): differs at index $i of $(a.dims) — " *
                    "$(repr(va)) vs $(repr(vb)) ($ulps ULP)"
