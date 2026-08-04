@@ -104,6 +104,10 @@ const MPI_FINALIZE_KEY = "GEODYNAMO_TEST_MPI_FINALIZE"
         @test !Base.isexported(GeoDynamo, :set_parameters!)
         @test !Base.isexported(GeoDynamo, :initialize_parameters)
     end
+
+    @testset "Parity digest negative controls" begin
+        include(joinpath(TEST_DIR, "parity", "digest_negative_controls.jl"))
+    end
 end
 
 additional_tests = (
