@@ -72,12 +72,34 @@ function _walk!(out::Vector{FieldBits}, seen::Base.IdSet{Any}, name::String, x)
         elseif eltype(x) <: Integer
             # Integer arrays are BC type codes and mode tables: static, not
             # evolved. Known, deliberately-classified case — stays silent.
+        elseif eltype(x) <: AbstractArray
+            # Array-of-arrays — e.g. VelocityWorkspace's per-thread scratch
+            # buffers, `Vector{Vector{T}}` (src/physics/velocity/field.jl:121),
+            # reachable at fields.velocity.velocity_workspace once a state has
+            # been through solver_step! at least once. This is a CONTAINER,
+            # not a leaf: recurse into each element by deterministic linear
+            # index instead of capturing or skipping the whole thing.
+            # Skipping this by field name would be inconsistent with the fact
+            # that this walker already captures other scratch arrays
+            # (work_spectral, work_physical, advection_physical) — an
+            # array-of-arrays should not be invisible merely because of its
+            # nesting shape. `eachindex` on a Vector is 1:length(x), so this
+            # ordering is stable across runs; it does not rely on any
+            # unordered iteration. An unclassifiable element type inside the
+            # container (e.g. Vector{Vector{SomeStruct}}) still recurses into
+            # this same elseif chain for the inner array and falls through to
+            # the `error` branch below exactly as it would at top level —
+            # nesting does not launder an unknown element type into silence.
+            for i in eachindex(x)
+                _walk!(out, seen, string(name, "[", i, "]"), x[i])
+            end
         else
             error("ParityDigest._walk!: unclassified array at $(name) — " *
-                  "eltype $(eltype(x)) of $(typeof(x)) is neither a float " *
-                  "nor an integer, so the digest cannot tell whether this " *
-                  "holds evolved physics state. Classify it explicitly " *
-                  "instead of letting it vanish from the digest silently.")
+                  "eltype $(eltype(x)) of $(typeof(x)) is neither a float, " *
+                  "an integer, nor itself an array, so the digest cannot " *
+                  "tell whether this holds evolved physics state. Classify " *
+                  "it explicitly instead of letting it vanish from the " *
+                  "digest silently.")
         end
         return nothing
     elseif x isa GeoDynamo.SHTnsKitConfig

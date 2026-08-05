@@ -214,6 +214,61 @@ end
             @test isempty(out)
         end
 
+        @testset "a raw Module throws" begin
+            # Module is isstructtype but fieldcount(Module) == 0, so it
+            # cannot recurse via the fieldful-struct branch, is not a
+            # Number/Symbol/AbstractString/Base.Enum/Missing/Function/Type/
+            # empty-Tuple leaf, and is not a BC marker singleton — it must
+            # fall through to the final fail-loud branch, not vanish.
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "x.module", Base)
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("x.module", err.msg)
+        end
+
+        @testset "nested array-of-arrays recurses with distinct indexed names" begin
+            # Mirrors the real regression: VelocityWorkspace's per-thread
+            # scratch buffers are Vector{Vector{T}}
+            # (src/physics/velocity/field.jl:121), reachable at
+            # fields.velocity.velocity_workspace once a state has been
+            # stepped. This must recurse into each inner Vector, not vanish
+            # or throw.
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            nested = Vector{Float64}[[1.0, 2.0], [3.0, 4.0, 5.0]]
+            ParityDigest._walk!(out, seen, "x.workspace", nested)
+            @test length(out) == 2
+            @test out[1].name == "x.workspace[1]"
+            @test out[1].values == [1.0, 2.0]
+            @test out[2].name == "x.workspace[2]"
+            @test out[2].values == [3.0, 4.0, 5.0]
+        end
+
+        @testset "an unknown element type inside a container still throws" begin
+            # A Vector{Vector{T}} whose innermost element type is neither a
+            # float nor an integer nor itself an array must still fail loud
+            # — nesting an unclassifiable type inside a container must not
+            # launder it into silence.
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            bad = Vector{_CtlUnclassifiedLeaf}[[_CtlUnclassifiedLeaf()]]
+            err = try
+                ParityDigest._walk!(out, seen, "x.badnested", bad)
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("x.badnested[1]", err.msg)
+            @test occursin("_CtlUnclassifiedLeaf", err.msg)
+        end
+
         @testset "AbstractDict walk order is canonical, not insertion/deletion dependent" begin
             d1 = Dict{String, Any}("alpha" => [1.0], "beta" => [2.0], "gamma" => [3.0])
 
