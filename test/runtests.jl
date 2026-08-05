@@ -108,6 +108,10 @@ const MPI_FINALIZE_KEY = "GEODYNAMO_TEST_MPI_FINALIZE"
     @testset "Parity digest negative controls" begin
         include(joinpath(TEST_DIR, "parity", "digest_negative_controls.jl"))
     end
+
+    @testset "Parity fixtures" begin
+        include(joinpath(TEST_DIR, "parity", "fixtures_test.jl"))
+    end
 end
 
 additional_tests = (
