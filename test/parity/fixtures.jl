@@ -140,21 +140,55 @@ const PARITY_MATRIX_FULL = [
     for comp in (false, true)
 ]
 
-# Pairwise-covering subset: every level of every factor appears, and every pair of
-# factors is exercised at least once. 12 cases against the full matrix's 192.
+# Pairwise-covering subset: every level of every factor appears, AND every
+# combination of every pair of factors' levels appears at least once — a real
+# strength-2 covering array, not just marginal per-factor coverage. 16 cases
+# against the full matrix's 192.
+#
+# The tight constraint is scalar_code x wall_code, which alone has 4x4 = 16
+# combinations, so this array uses exactly one row per (scalar_code,
+# wall_code) pair and distributes timestepper/magnetic/composition across
+# those 16 rows so no other pair regresses:
+#   magnetic    = (scalar_code - 1 bit0) XOR (wall_code - 1 bit0)
+#   composition = (scalar_code - 1 bit1) XOR (wall_code - 1 bit1)
+#   timestepper = (scalar_code + wall_code) mod 3
+# All 10 unordered factor pairs (timestepper x scalar_code, timestepper x
+# wall_code, timestepper x magnetic, timestepper x composition, scalar_code x
+# wall_code, scalar_code x magnetic, scalar_code x composition, wall_code x
+# magnetic, wall_code x composition, magnetic x composition) are fully
+# covered — verified by hand and pinned by the "matrices are well formed"
+# testset in fixtures_test.jl, which asserts this property directly instead
+# of only the marginal per-factor coverage that let a prior 12-case version
+# of this array silently miss the scalar/wall anti-diagonal (1/4, 2/3, 3/2,
+# 4/1) — exactly the BC-interaction space this grid exists to exercise (see
+# module docstring above).
+#
+# Row order below intentionally puts a CNAB2 case first (matching what
+# PARITY_MATRIX_DEFAULT[1] always was before this array was widened):
+# ExponentialRungeKutta2/RungeKutta3 are fieldless marker structs
+# (fieldcount(RungeKutta3) == 0) that ParityDigest._walk! cannot currently
+# classify, while CNAB2 has 1 field and walks cleanly — see
+# fixtures_test.jl's testsets that key off PARITY_MATRIX_DEFAULT[1]. The
+# array's SET of 16 (scalar_code, wall_code) combinations, and the pairwise
+# coverage proven for it above, are unaffected by row order; this is a
+# placement choice, not a content change.
 const PARITY_MATRIX_DEFAULT = [
-    ParityCase("CNAB2", TIMESTEPPERS[1][2], 1, 1, false, false),
-    ParityCase("CNAB2", TIMESTEPPERS[1][2], 2, 2, true, true),
-    ParityCase("CNAB2", TIMESTEPPERS[1][2], 3, 3, true, false),
-    ParityCase("CNAB2", TIMESTEPPERS[1][2], 4, 4, false, true),
-    ParityCase("ERK2", TIMESTEPPERS[2][2], 1, 2, true, false),
-    ParityCase("ERK2", TIMESTEPPERS[2][2], 2, 1, false, true),
-    ParityCase("ERK2", TIMESTEPPERS[2][2], 3, 4, false, false),
-    ParityCase("ERK2", TIMESTEPPERS[2][2], 4, 3, true, true),
-    ParityCase("RK3", TIMESTEPPERS[3][2], 1, 3, false, true),
-    ParityCase("RK3", TIMESTEPPERS[3][2], 2, 4, true, false),
-    ParityCase("RK3", TIMESTEPPERS[3][2], 3, 1, true, true),
-    ParityCase("RK3", TIMESTEPPERS[3][2], 4, 2, false, false),
+    ParityCase("CNAB2", TIMESTEPPERS[1][2], 1, 2, true, false),
+    ParityCase("RK3", TIMESTEPPERS[3][2], 1, 1, false, false),
+    ParityCase("ERK2", TIMESTEPPERS[2][2], 1, 3, false, true),
+    ParityCase("RK3", TIMESTEPPERS[3][2], 1, 4, true, true),
+    ParityCase("CNAB2", TIMESTEPPERS[1][2], 2, 1, true, false),
+    ParityCase("ERK2", TIMESTEPPERS[2][2], 2, 2, false, false),
+    ParityCase("RK3", TIMESTEPPERS[3][2], 2, 3, true, true),
+    ParityCase("CNAB2", TIMESTEPPERS[1][2], 2, 4, false, true),
+    ParityCase("ERK2", TIMESTEPPERS[2][2], 3, 1, false, true),
+    ParityCase("RK3", TIMESTEPPERS[3][2], 3, 2, true, true),
+    ParityCase("CNAB2", TIMESTEPPERS[1][2], 3, 3, false, false),
+    ParityCase("ERK2", TIMESTEPPERS[2][2], 3, 4, true, false),
+    ParityCase("RK3", TIMESTEPPERS[3][2], 4, 1, true, true),
+    ParityCase("CNAB2", TIMESTEPPERS[1][2], 4, 2, false, true),
+    ParityCase("ERK2", TIMESTEPPERS[2][2], 4, 3, true, false),
+    ParityCase("RK3", TIMESTEPPERS[3][2], 4, 4, false, false),
 ]
 
 """

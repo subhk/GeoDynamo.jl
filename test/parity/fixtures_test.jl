@@ -67,11 +67,37 @@ using .ParityFixtures
         @test length(ParityFixtures.PARITY_MATRIX_FULL) == 192
         d = ParityFixtures.PARITY_MATRIX_DEFAULT
         @test 8 <= length(d) <= 24
-        # every level of every factor appears at least once
+        # Every level of every factor appears at least once. Necessary but NOT
+        # sufficient for the pairwise claim below — marginal coverage like
+        # this is exactly what let a prior 12-case version of
+        # PARITY_MATRIX_DEFAULT silently miss the scalar_code x wall_code
+        # anti-diagonal (1/4, 2/3, 3/2, 4/1) while still passing every one of
+        # these five assertions.
         @test sort(unique(c.timestepper_name for c in d)) == ["CNAB2", "ERK2", "RK3"]
         @test sort(unique(c.scalar_code for c in d)) == [1, 2, 3, 4]
         @test sort(unique(c.wall_code for c in d)) == [1, 2, 3, 4]
         @test sort(unique(c.magnetic for c in d)) == [false, true]
         @test sort(unique(c.composition for c in d)) == [false, true]
+
+        # Real pairwise coverage: for EVERY one of the 10 unordered factor
+        # pairs, every combination of their levels must appear at least once
+        # in PARITY_MATRIX_DEFAULT. This is the actual covering-array
+        # property fixtures.jl's PARITY_MATRIX_DEFAULT docstring claims, and
+        # is what the marginal checks above cannot catch.
+        factor_levels = (
+            timestepper_name = ["CNAB2", "ERK2", "RK3"],
+            scalar_code = [1, 2, 3, 4],
+            wall_code = [1, 2, 3, 4],
+            magnetic = [false, true],
+            composition = [false, true],
+        )
+        fnames = collect(keys(factor_levels))
+        for i in 1:length(fnames), j in (i + 1):length(fnames)
+            fi, fj = fnames[i], fnames[j]
+            observed = Set((getfield(c, fi), getfield(c, fj)) for c in d)
+            expected = Set(
+                (li, lj) for li in factor_levels[fi], lj in factor_levels[fj])
+            @test expected ⊆ observed
+        end
     end
 end
