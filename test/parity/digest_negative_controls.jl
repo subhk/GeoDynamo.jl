@@ -22,6 +22,24 @@ end
 # zero signal. `struct` must be defined at top level, not inside a testset.
 struct _CtlUnclassifiedLeaf end
 
+# Mirrors the real regression: bcs.BoundaryConditionSet.field_type::FieldType
+# is an @enum reachable from state.fields.*.boundary_condition_set whenever
+# file-based boundary conditions are loaded. `@enum`/`struct` must be defined
+# at top level, not inside a testset.
+@enum _CtlFieldType _CtlVelocityField _CtlTemperatureField
+struct _CtlEnumHolder
+    field_type::_CtlFieldType
+end
+
+# Mirrors the real regression: SHTnsMagneticFields.outer_domain::RadialDomain
+# (src/physics/magnetic/field.jl:189) holds a RadialDomain whose
+# dr_matrices::Vector{Matrix{Float64}} field is a float array of float
+# arrays — an unclassified array shape that must never be reached because
+# :outer_domain is skipped by name, exactly like :domain.
+struct _CtlOuterDomainHolder
+    outer_domain::Vector{Matrix{Float64}}
+end
+
 @testset "digest comparator negative controls" begin
     base = [1.0, 2.0, 3.0]
 
@@ -148,6 +166,80 @@ struct _CtlUnclassifiedLeaf end
             end
             @test err isa ErrorException
             @test occursin("x.meta[odd]", err.msg)
+        end
+
+        @testset "@enum leaf does not throw (regression: real states reach FieldType)" begin
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "root", _CtlEnumHolder(_CtlVelocityField))
+                nothing
+            catch e
+                e
+            end
+            @test err === nothing
+            # The enum itself carries no float payload, so nothing is captured —
+            # but critically, it must not have thrown getting here.
+            @test isempty(out)
+        end
+
+        @testset "BC marker singleton (NoSlip) does not throw" begin
+            # Regression: GeoDynamo.NoSlip/StressFree/InsulatingMagnetic/
+            # ConductingMagnetic are fieldless <: AbstractVelocityBC /
+            # AbstractThermalBC / AbstractMagneticBC singletons reachable
+            # from every field's parameters.velocity_bcs.{inner,outer} etc.
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "root", GeoDynamo.NoSlip())
+                nothing
+            catch e
+                e
+            end
+            @test err === nothing
+            @test isempty(out)
+        end
+
+        @testset ":outer_domain is skipped like :domain" begin
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            holder = _CtlOuterDomainHolder([[1.0 2.0; 3.0 4.0]])
+            err = try
+                ParityDigest._walk!(out, seen, "root", holder)
+                nothing
+            catch e
+                e
+            end
+            @test err === nothing
+            @test isempty(out)
+        end
+
+        @testset "AbstractDict walk order is canonical, not insertion/deletion dependent" begin
+            d1 = Dict{String, Any}("alpha" => [1.0], "beta" => [2.0], "gamma" => [3.0])
+
+            # Same logical content as d1, but built via a very different
+            # insertion/deletion history (200 keys inserted then deleted).
+            # Dict's own iteration order is not guaranteed equal to d1's even
+            # though the final key/value sets are identical.
+            d2 = Dict{String, Any}()
+            for i in 1:200
+                d2["junk$i"] = i
+            end
+            d2["alpha"] = [1.0]
+            d2["beta"] = [2.0]
+            d2["gamma"] = [3.0]
+            for i in 1:200
+                delete!(d2, "junk$i")
+            end
+            @test Set(keys(d1)) == Set(keys(d2))
+
+            out1 = ParityDigest.FieldBits[]
+            ParityDigest._walk!(out1, Base.IdSet{Any}(), "root", d1)
+            out2 = ParityDigest.FieldBits[]
+            ParityDigest._walk!(out2, Base.IdSet{Any}(), "root", d2)
+
+            @test [fb.name for fb in out1] == [fb.name for fb in out2]
+            @test [fb.values for fb in out1] == [fb.values for fb in out2]
         end
     end
 end

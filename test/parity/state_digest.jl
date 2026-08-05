@@ -25,11 +25,19 @@ export FieldBits, StateDigest, digest_state, digests_equal
 #
 # :config and :pencil are back-references into SHTnsKitConfig / Pencil, which are
 # cyclic and hold C transform plans.
-# :domain is the static radial grid; it is already pinned by the recorded params.
+# :domain and :outer_domain are the static radial grid (RadialDomain — see
+# src/fields/containers.jl:194): N, r, dr_matrices, radial_laplacian,
+# integration_weights. It is already pinned by the recorded params. Most field
+# structs hold this under the name `domain`; SHTnsMagneticFields
+# (src/physics/magnetic/field.jl:189) holds the identical RadialDomain type
+# under `outer_domain` instead — same static-grid rationale, different name.
+# Without this, dr_matrices::Vector{Matrix{Float64}} — a float array of float
+# arrays — hits the fail-loud "unclassified array" branch below and crashes
+# digest_state on any real magnetic-field state.
 # The four *_time fields are Ref{Float64} wall-clock counters — digesting them
 # guarantees a spurious failure on every single run.
 const SKIP_FIELDS = Set{Symbol}((
-    :config, :pencil, :domain,
+    :config, :pencil, :domain, :outer_domain,
     :computation_time, :transform_time, :comm_time, :spectral_time,
 ))
 
@@ -88,16 +96,53 @@ function _walk!(out::Vector{FieldBits}, seen::Base.IdSet{Any}, name::String, x)
         # if the value itself turns out to be unclassified (e.g. a raw
         # Vector{Any} entry). Keys are treated as identifying strings, not
         # physics data, and are not separately digested.
-        for (k, v) in x
-            _walk!(out, seen, string(name, "[", k, "]"), v)
+        #
+        # Dict's OWN iteration order depends on insertion/deletion history,
+        # not logical content: two Dicts with an identical key set and
+        # identical values can walk their entries in different orders.
+        # digests_equal zips fields POSITIONALLY, so a nondeterministic
+        # order would produce a spurious "field name differs" failure under
+        # compare_names=true — or, worse, under compare_names=false (the
+        # mechanism-B / in-tree-A/B default this harness exists to serve),
+        # silently compare bits from UNRELATED entries at the same
+        # position, which can manufacture a false pass. A false pass is the
+        # one outcome this module must never produce. Iterate in a
+        # canonical, content-determined order instead of Dict's own order.
+        ks = collect(keys(x))
+        sorted_keys = try
+            sort(ks)
+        catch
+            # Heterogeneous / non-<-comparable key types: fall back to
+            # sorting by string representation, which is still canonical
+            # and content-determined, not insertion-order-dependent.
+            sort(ks; by = string)
+        end
+        for k in sorted_keys
+            _walk!(out, seen, string(name, "[", k, "]"), x[k])
         end
         return nothing
     end
 
     T = typeof(x)
-    # Numbers, Symbols, Strings are common leaf values (thresholds, labels,
-    # format tags) and carry no arrays — a known, deliberately-skipped case.
-    (x isa Number || x isa Symbol || x isa AbstractString) && return nothing
+    # Common scalar/sentinel leaf values that carry no arrays and are known,
+    # deliberately-skipped cases:
+    #   - Number, Symbol, AbstractString: thresholds, labels, format tags.
+    #   - Base.Enum: e.g. bcs.BoundaryConditionSet.field_type::FieldType is
+    #     reachable from state.fields.*.boundary_condition_set whenever
+    #     file-based boundary conditions are loaded. @enum instances are
+    #     neither isa Number/Symbol nor isstructtype, so without this they
+    #     would hit the fail-loud branch below and crash digest_state on a
+    #     legitimate, reachable configuration.
+    #   - Missing, Function, Type: fieldless-but-legitimate leaves (a
+    #     `Function` field, a `DataType`/type-parameter field, `missing`).
+    #     Recursing into a `Type`'s own internal fields in particular would
+    #     walk raw layout pointers, not physics data.
+    #   - empty Tuple (`()`): a common no-payload sentinel/default value;
+    #     non-empty tuples are unaffected and still recurse through the
+    #     struct-fallthrough below exactly as before.
+    (x isa Number || x isa Symbol || x isa AbstractString || x isa Base.Enum ||
+        x isa Missing || x isa Function || x isa Type ||
+        (x isa Tuple && isempty(x))) && return nothing
 
     if isstructtype(T) && fieldcount(T) > 0
         if ismutable(x)
@@ -113,16 +158,37 @@ function _walk!(out::Vector{FieldBits}, seen::Base.IdSet{Any}, name::String, x)
         return nothing
     end
 
-    # Anything else — a non-struct type (Function, Module, ...) or a
-    # fieldless struct/singleton — has fallen through every known case
-    # without being captured or deliberately classified. Silently returning
-    # here is exactly the bug this fix closes: fail loud instead.
+    if isstructtype(T) &&
+       (x isa GeoDynamo.AbstractVelocityBC || x isa GeoDynamo.AbstractThermalBC ||
+        x isa GeoDynamo.AbstractMagneticBC)
+        # BC marker singletons (NoSlip, StressFree, InsulatingMagnetic,
+        # ConductingMagnetic — src/api/boundary_conditions.jl) are reachable
+        # from every field's parameters (e.g.
+        # fields.velocity.parameters.velocity_bcs.{inner,outer}). They are
+        # fieldless by construction (fieldcount(T)==0, so this branch is only
+        # reached at all because the fieldcount>0 recursion above already
+        # returned for their fieldful siblings, e.g. ValueBoundaryCondition{T}
+        # — those still recurse normally and any array payload in `.value` is
+        # still captured, not skipped here). A marker singleton carries no
+        # data beyond its type identity, so — unlike a genuinely unknown
+        # fieldless struct, which still falls through to the error below —
+        # it is safe to classify and skip silently.
+        return nothing
+    end
+
+    # Anything else — a non-struct type not covered by the classified leaves
+    # above, or a fieldless struct/singleton outside the known BC-marker
+    # family — has fallen through every known case without being captured or
+    # deliberately classified. Silently returning here is exactly the bug
+    # this fix closes: fail loud instead.
     error("ParityDigest._walk!: unclassified value of type $(T) at $(name) " *
-          "— it is not a Number/Symbol/AbstractString/SHTnsKitConfig/" *
-          "PencilArray/AbstractArray/AbstractDict, and has no fields to " *
-          "recurse into. Classify it explicitly (capture, recurse, add to " *
-          "SKIP_FIELDS, or handle it as a container) instead of letting it " *
-          "vanish from the digest silently.")
+          "— it is not a Number/Symbol/AbstractString/Base.Enum/Missing/" *
+          "Function/Type/empty-Tuple/SHTnsKitConfig/PencilArray/" *
+          "AbstractArray/AbstractDict/AbstractVelocityBC/AbstractThermalBC/" *
+          "AbstractMagneticBC marker, and has no fields to recurse into. " *
+          "Classify it explicitly (capture, recurse, add to SKIP_FIELDS, " *
+          "or handle it as a container) instead of letting it vanish from " *
+          "the digest silently.")
 end
 
 function _hash_fields(fields::Vector{FieldBits})
