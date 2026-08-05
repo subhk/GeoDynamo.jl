@@ -100,4 +100,26 @@ using .ParityFixtures
             @test expected ⊆ observed
         end
     end
+
+    @testset "every default-matrix case digests without throwing" begin
+        # Digesting index 1 alone is not sufficient coverage for a harness
+        # whose whole job is to digest arbitrary configurations: it was
+        # previously pinned to a CNAB2 case, so no test here ever exercised
+        # digest_state on an ERK2 or RK3 case, and digest_state crashed for
+        # BOTH of them (SolverParameters.timestepper reachable at
+        # fields.velocity.parameters.timestepper, and
+        # ExponentialRungeKutta2/RungeKutta3 are fieldless marker structs
+        # the walker could not classify) — two-thirds of this very matrix.
+        # Fixed by skipping :parameters entirely (state_digest.jl) rather
+        # than allow-listing the timestepper marker types, since
+        # SolverParameters is configuration, not evolved state. Build,
+        # evolve, and digest EVERY case here so this class of gap cannot
+        # hide behind a single index again. Slow (16 builds x 4 steps) is
+        # accepted — that is the point.
+        for case in ParityFixtures.PARITY_MATRIX_DEFAULT
+            st = ParityFixtures.evolve!(ParityFixtures.build_state(case))
+            digest = ParityDigest.digest_state(st)
+            @test !isempty(digest.fields)
+        end
+    end
 end

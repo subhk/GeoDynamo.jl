@@ -162,19 +162,9 @@ const PARITY_MATRIX_FULL = [
 # of this array silently miss the scalar/wall anti-diagonal (1/4, 2/3, 3/2,
 # 4/1) — exactly the BC-interaction space this grid exists to exercise (see
 # module docstring above).
-#
-# Row order below intentionally puts a CNAB2 case first (matching what
-# PARITY_MATRIX_DEFAULT[1] always was before this array was widened):
-# ExponentialRungeKutta2/RungeKutta3 are fieldless marker structs
-# (fieldcount(RungeKutta3) == 0) that ParityDigest._walk! cannot currently
-# classify, while CNAB2 has 1 field and walks cleanly — see
-# fixtures_test.jl's testsets that key off PARITY_MATRIX_DEFAULT[1]. The
-# array's SET of 16 (scalar_code, wall_code) combinations, and the pairwise
-# coverage proven for it above, are unaffected by row order; this is a
-# placement choice, not a content change.
 const PARITY_MATRIX_DEFAULT = [
-    ParityCase("CNAB2", TIMESTEPPERS[1][2], 1, 2, true, false),
     ParityCase("RK3", TIMESTEPPERS[3][2], 1, 1, false, false),
+    ParityCase("CNAB2", TIMESTEPPERS[1][2], 1, 2, true, false),
     ParityCase("ERK2", TIMESTEPPERS[2][2], 1, 3, false, true),
     ParityCase("RK3", TIMESTEPPERS[3][2], 1, 4, true, true),
     ParityCase("CNAB2", TIMESTEPPERS[1][2], 2, 1, true, false),

@@ -36,8 +36,22 @@ export FieldBits, StateDigest, digest_state, digests_equal
 # digest_state on any real magnetic-field state.
 # The four *_time fields are Ref{Float64} wall-clock counters — digesting them
 # guarantees a spurious failure on every single run.
+# :parameters (e.g. fields.velocity.parameters::SolverParameters, reachable
+# from every field container) is configuration, not evolved state. It is
+# identical by construction on both sides of any comparison this harness
+# runs, it is already recorded — for reference, never compared — in
+# StateDigest.info (see digest_state below: "params" => string(state.parameters)),
+# and in a clean-break sub-project (mechanism B) the two implementations may
+# legitimately carry different parameter representations, so walking and
+# comparing it would produce false failures. Same rationale as :config and
+# :domain: configuration should not be walked at all. This also transitively
+# skips SolverParameters.timestepper (CNAB2/ExponentialRungeKutta2/
+# RungeKutta3), whose ExponentialRungeKutta2/RungeKutta3 variants are
+# fieldless marker structs the walker cannot classify as a leaf — but the
+# fix is that configuration is out of scope for the walk in the first place,
+# not an allow-list entry for those marker types.
 const SKIP_FIELDS = Set{Symbol}((
-    :config, :pencil, :domain, :outer_domain,
+    :config, :pencil, :domain, :outer_domain, :parameters,
     :computation_time, :transform_time, :comm_time, :spectral_time,
 ))
 
