@@ -24,6 +24,12 @@ break. If a collapsed struct reorders its field declarations relative to the
 legacy struct, this harness will report a spurious difference, or worse, will
 silently compare two unrelated fields that happen to share an index. Preserve
 field declaration order across the break.
+
+A `"field count differs: N vs M"` (or shape-mismatch) message from `digests_equal`
+is STRUCTURAL, not a numerical finding: it means the two implementations expose
+different field trees (e.g. SP-2's scalar-field collapse removing a field
+outright). Resolve it by aligning the trees to match, not by chasing it as a
+physics bug.
 """
 module ParityAB
 
@@ -45,11 +51,18 @@ end
 Build, evolve, and digest both sides of every case. Returns results without
 asserting, so a caller can inspect them — used by the harness's own self-test to
 prove it can report a difference.
+
+Throws if `cases` is empty: an empty case list runs zero comparisons and cannot
+demonstrate parity, but a caller-supplied `cases` that is accidentally emptied
+(e.g. by an over-eager filter while debugging) would otherwise pass through
+silently.
 """
 function compare_ab(legacy_build, new_build;
         cases = ParityFixtures.select_matrix(),
         compare_names::Bool = false,
         nsteps::Int = 4)
+    isempty(cases) &&
+        error("compare_ab: `cases` is empty — an empty case list cannot demonstrate parity")
     results = ABResult[]
     for case in cases
         a = ParityFixtures.evolve!(legacy_build(case); nsteps = nsteps)
@@ -76,11 +89,16 @@ REMINDER: comparison is POSITIONAL (see the module docstring). Both builders
 must walk their field trees in identical relative order, or this can report a
 spurious mismatch — or compare unrelated fields at the same index — even when
 the two sides are otherwise equivalent.
+
+Throws if `cases` is empty: an empty case list would otherwise emit zero
+`@test`s and report a green, zero-comparison testset — see `compare_ab`.
 """
 function assert_ab_parity(legacy_build, new_build;
         cases = ParityFixtures.select_matrix(),
         compare_names::Bool = false,
         nsteps::Int = 4)
+    isempty(cases) &&
+        error("assert_ab_parity: `cases` is empty — an empty case list cannot demonstrate parity")
     for r in compare_ab(legacy_build, new_build;
         cases = cases, compare_names = compare_names, nsteps = nsteps)
         @testset "$(r.case)" begin
