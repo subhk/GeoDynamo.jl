@@ -19,7 +19,7 @@ module ParityDigest
 using GeoDynamo
 using MPI
 
-export FieldBits, StateDigest, digest_state, digests_equal
+export FieldBits, StateDigest, digest_state, digests_equal, DIGEST_SCHEMA_VERSION
 
 # Field names that must never be walked.
 #
@@ -54,6 +54,29 @@ const SKIP_FIELDS = Set{Symbol}((
     :config, :pencil, :domain, :outer_domain, :parameters,
     :computation_time, :transform_time, :comm_time, :spectral_time,
 ))
+
+"""
+    DIGEST_SCHEMA_VERSION
+
+Version of the `FieldBits`/`StateDigest` LAYOUT itself (field names, field
+types, field order) — not of the physics or of this file's other logic.
+
+Any change to either struct's fields MUST increment this constant. It exists
+for mechanism C (`scripts/parity_crosscommit.jl`), which deserializes digest
+dumps produced by TWO different refs' copies of this file, using only the
+CALLING checkout's struct definitions to decode both. `Base.Serialization`
+does not reliably raise on a struct-layout mismatch between the writer and
+the reader — it can silently deserialize into a mismatched object instead of
+throwing — so a layout change with no version bump is exactly the kind of
+seam a false PASS could come from, and it would look like a physics finding,
+not a plumbing one. `digest_state` stamps this into `env` (already compared
+for comparability, never for physics, by `digests_equal`), and the
+cross-commit script separately checks both dumps' stamped version against
+ITS OWN `DIGEST_SCHEMA_VERSION` before comparing anything else, so a mismatch
+is reported explicitly as "digests not comparable: schema version", never as
+a silent pass and never as a bogus field-level diff.
+"""
+const DIGEST_SCHEMA_VERSION = 1
 
 struct FieldBits
     name::String
@@ -255,6 +278,7 @@ function digest_state(state)
         "nranks" => MPI.Initialized() ? MPI.Comm_size(MPI.COMM_WORLD) : 1,
         "word_size" => Sys.WORD_SIZE,
         "julia" => string(VERSION),
+        "schema_version" => DIGEST_SCHEMA_VERSION,
     )
     # Recorded but NOT compared: a clean-break sub-project legitimately changes
     # how parameters print, and that must not read as a physics difference.

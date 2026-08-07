@@ -44,6 +44,18 @@ committed.
 Single-threaded by design (`--threads=1` is hard-coded for the worktree
 runs): bit-exactness is only well-defined at a fixed thread count, and this
 script exists to assert bit-exactness.
+
+SCHEMA GUARD: both `.jls` dumps are decoded using only THIS process's
+`StateDigest`/`FieldBits` struct definitions, even though they were written
+by (potentially) two different refs' own copies of `state_digest.jl`.
+`Base.Serialization` does not reliably raise on a struct-layout mismatch
+between writer and reader — it can silently decode into a mismatched object
+rather than throwing. Before comparing anything else, this script checks
+that every digest in both dumps was stamped with the SAME
+`DIGEST_SCHEMA_VERSION` this process itself defines; a mismatch fails with
+an explicit "digests not comparable: schema version" message and `exit(1)`,
+never a silent pass. See `test/parity/state_digest.jl`'s
+`DIGEST_SCHEMA_VERSION` docstring for when to bump it.
 """
 
 using Serialization
@@ -212,6 +224,22 @@ one shared output file. `git worktree add` accepts an existing EMPTY
 directory as its target, so handing it one from `mktempdir` (rather than
 creating that path first and then removing it, as originally drafted) is
 both simpler and race-free.
+
+`git worktree add` runs INSIDE the protected region, not before it. A flatly
+invalid `ref` fails fast with nothing registered (verified: exit 128, no
+admin state left behind) — but that is not the only way `add` can fail. A
+checkout hook aborting, or disk exhaustion partway through, can fail the
+command AFTER git has already written its worktree admin state, in which
+case a leak is possible if cleanup only runs for the julia subprocess call
+that follows. `_remove_worktree` is unconditional and tolerant of "nothing
+was actually registered" (see its own docstring), so covering `add` as well
+costs nothing on the common path and closes that gap on the uncommon one.
+
+No `finally` here — nor anywhere else in this process — can survive the
+outer `julia` process itself being SIGKILLed (or SIGTERM with no handler):
+the OS reclaims the process before any Julia-level cleanup code gets to run.
+That failure mode has no purely in-process fix; the only mitigation is
+external (checking `git worktree list` after an externally-interrupted run).
 """
 function dump_ref(ref::String, scratch::String, driver_path::String)
     # cleanup=false: `_remove_worktree` below is the sole, deterministic
@@ -225,13 +253,49 @@ function dump_ref(ref::String, scratch::String, driver_path::String)
     # reason to run at all once cleanup is handled explicitly.
     wt = mktempdir(scratch; prefix = "wt-", cleanup = false)
     out = joinpath(scratch, "digest-" * basename(wt) * ".jls")
-    run(`git -C $REPO worktree add --detach $wt $ref`)
     try
+        run(`git -C $REPO worktree add --detach $wt $ref`)
         run(`$JULIA --project=$wt --threads=1 $driver_path $wt $out`)
     finally
         _remove_worktree(wt)
     end
     return out
+end
+
+"""
+    _check_schema_version(ref, dump) -> Union{Nothing, String}
+
+Returns `nothing` if every digest in `dump` was stamped with the SAME
+`DIGEST_SCHEMA_VERSION` this calling process just loaded (from
+`test/parity/state_digest.jl` at `REPO`, via the top-level `include` above);
+otherwise an error message naming `ref`, the offending case, and both
+version numbers.
+
+This guards a seam serialization itself does not: `deserialize` decodes
+BOTH refs' `.jls` dumps using only the CALLING checkout's `StateDigest`/
+`FieldBits` struct definitions (by design — the comparator must not be part
+of what is under test), but `Base.Serialization` does not reliably raise on
+a struct-LAYOUT mismatch between whatever wrote the bytes and whatever reads
+them back; it can decode into a mismatched object instead of throwing. Two
+refs whose `state_digest.jl` copies disagree on `DIGEST_SCHEMA_VERSION` are
+comparing structurally incomparable dumps, and that is a plumbing problem
+inherent to mechanism C, not a physics finding — it must fail loud as
+exactly that, with `exit(1)`, and never silently pass.
+"""
+function _check_schema_version(ref::String, dump)
+    for (k, digest) in dump
+        v = get(digest.env, "schema_version", nothing)
+        if v != ParityDigest.DIGEST_SCHEMA_VERSION
+            return "digests not comparable: schema version — $ref case \"$k\" " *
+                   "was stamped schema_version=$(repr(v)), but this checkout's " *
+                   "comparator is DIGEST_SCHEMA_VERSION=" *
+                   "$(ParityDigest.DIGEST_SCHEMA_VERSION). The two refs' " *
+                   "test/parity/state_digest.jl disagree on the digest LAYOUT, " *
+                   "not necessarily on the physics — resolve by comparing refs " *
+                   "that share a schema version."
+        end
+    end
+    return nothing
 end
 
 function main()
@@ -248,6 +312,14 @@ function main()
 
     da = deserialize(dump_ref(refa, scratch, driver_path))
     db = deserialize(dump_ref(refb, scratch, driver_path))
+
+    for (ref, dump) in ((refa, da), (refb, db))
+        msg = _check_schema_version(ref, dump)
+        if msg !== nothing
+            println("FAIL: $msg")
+            exit(1)
+        end
+    end
 
     keys_a, keys_b = sort(collect(keys(da))), sort(collect(keys(db)))
     if keys_a != keys_b
