@@ -23,7 +23,7 @@ The v3.0.0 program has six sub-projects. Each gets its own spec, branch, and PR.
 | SP-1 | Split `integrate_solver_erk2_step!` (388 lines) | yes | mechanism C |
 | SP-2 | Collapse temperature/composition field containers | **no** | mechanism B |
 | SP-3 | Geometry as a dispatched type | **no** | mechanism B |
-| SP-4 | Deduplicate `src/gpu/` against CPU physics | yes | mechanism C |
+| SP-4 | Deduplicate `src/gpu/` against CPU physics | yes | mechanism C — **NOT VALID AS BUILT, see below** |
 | SP-5 | Split `numerics.jl` / `transforms.jl` / `scalar_operators.jl` | yes | mechanism C |
 
 Sequencing is dependency-driven, not preference:
@@ -38,6 +38,35 @@ Sequencing is dependency-driven, not preference:
 
 Version bump to v3.0.0 happens once, at the end, not per sub-project. SP-2 and SP-3 are
 the breaking changes.
+
+### CORRECTION (2026-08-07): SP-4 cannot use mechanism C as this harness was built
+
+The table above assigns SP-4 to mechanism C. **That assignment is wrong**, found by the
+final whole-branch review of SP-0.
+
+`ParityFixtures.build_state` constructs a CPU `SolverState` through
+`initialize_solver_state` with no architecture argument, and `evolve!` calls
+`GeoDynamo.solver_step!`. The GPU device path — `src/gpu/*.jl`, entered only via
+`Simulation(...; gpu = ...)` and `gpu_solver_step!` (`src/api/simulation.jl:396`) — is
+**never executed by any fixture**. `gpu_solver_step!` has no caller reachable from
+`solver_step!`.
+
+The consequence is the exact failure this harness exists to prevent: running
+`parity_crosscommit.jl main sp4-branch` after deduplicating 3462 LOC of GPU physics would
+print `PASS: N cases bit-identical` **regardless of what was changed or broken in
+`src/gpu/`**. A green gate that proves nothing is worse than no gate.
+
+Before SP-4 starts, one of the following must happen:
+
+- extend `ParityCase` with an architecture dimension and add `build_gpu_state` /
+  `gpu_evolve!` to `ParityFixtures`, so the device path is actually exercised; or
+- SP-4 declares a different gate and does not claim this harness.
+
+Note that the existing GPU parity tests (`gpu_bc_combo_parity.jl`,
+`gpu_scalar_physics_parity.jl`, `gpu_phase5n_solver_step.jl`) run the device path on
+`Array` against the CPU solver at `atol=1e-12`. They are tolerance-based rather than
+bit-exact, but they do reach the code SP-4 would change — so they, not mechanism C, are
+the closest existing starting point.
 
 ### Scope corrections carried in from exploration
 
