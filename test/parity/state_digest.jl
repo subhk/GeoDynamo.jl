@@ -50,18 +50,53 @@ export FieldBits, StateDigest, digest_state, digests_equal, DIGEST_SCHEMA_VERSIO
 # fieldless marker structs the walker cannot classify as a leaf — but the
 # fix is that configuration is out of scope for the walk in the first place,
 # not an allow-list entry for those marker types.
+# :velocity_workspace (VelocityWorkspace, src/physics/velocity/field.jl:121) is
+# PER-THREAD scratch: 15 `Vector{Vector{T}}` fields whose OUTER length is sized
+# from Threads.nthreads(). It is lazily allocated on the first solver_step! via
+# finish_velocity_nonlinear! -> _poloidal_force_projection!, and recomputed every
+# step from state that IS digested, so it carries no information the real fields
+# do not already carry. Two reasons it must not be walked:
+#   1. The captured field COUNT would scale with thread count — measured 15
+#      entries at 1 thread, 60 at 2, 120 at 4, against a stable 176 for the rest
+#      of the walk. That made the fixtures' exact-count tripwire hold only at
+#      one thread and fail on any multi-threaded CI runner.
+#   2. At nthreads > 1 the CONTENTS depend on which thread handled which mode,
+#      so two runs of identical code could report a spurious difference. That is
+#      the one thing a differential gate must never do.
+# Same rationale as the *_time counters: transient scratch, not evolved state.
+# Note this is a deliberate NARROWING of the general "recurse into arrays of
+# arrays" policy below — recursion remains correct for genuine nested data; this
+# entry excludes one known scratch buffer by name, it does not re-open silent
+# skipping of unclassified shapes.
 const SKIP_FIELDS = Set{Symbol}((
     :config, :pencil, :domain, :outer_domain, :parameters,
     :computation_time, :transform_time, :comm_time, :spectral_time,
+    :velocity_workspace,
 ))
 
 """
     DIGEST_SCHEMA_VERSION
 
-Version of the `FieldBits`/`StateDigest` LAYOUT itself (field names, field
-types, field order) — not of the physics or of this file's other logic.
+Version of the digest CONTRACT: the `FieldBits`/`StateDigest` layout (field
+names, types, order) AND which state the walk captures — not the physics, and
+not this file's other logic.
 
-Any change to either struct's fields MUST increment this constant. It exists
+Any change to either struct's fields MUST increment this constant, and so must
+any change to `SKIP_FIELDS` or to what `_walk!` captures, because two refs that
+disagree on the walk produce digests that are not comparable even though both
+structs decode cleanly. Without a bump, such a comparison surfaces as a
+`"field count differs: N vs M"` message that reads like a structural physics
+finding rather than the plumbing mismatch it actually is.
+
+Version history:
+  1 — initial contract.
+  2 — `:velocity_workspace` added to `SKIP_FIELDS`. Per-thread scratch made the
+      captured field count scale with `Threads.nthreads()` (15 entries at 1
+      thread, 60 at 2, 120 at 4, against a stable 176 for the rest of the walk),
+      so digests were not comparable across thread counts and the count was 191
+      single-threaded but 206 on CI.
+
+It exists
 for mechanism C (`scripts/parity_crosscommit.jl`), which deserializes digest
 dumps produced by TWO different refs' copies of this file, using only the
 CALLING checkout's struct definitions to decode both. `Base.Serialization`
@@ -76,7 +111,7 @@ ITS OWN `DIGEST_SCHEMA_VERSION` before comparing anything else, so a mismatch
 is reported explicitly as "digests not comparable: schema version", never as
 a silent pass and never as a bogus field-level diff.
 """
-const DIGEST_SCHEMA_VERSION = 1
+const DIGEST_SCHEMA_VERSION = 2
 
 struct FieldBits
     name::String

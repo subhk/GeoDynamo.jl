@@ -47,6 +47,11 @@ using .ParityFixtures
         # Wall-clock timers must NOT be captured or every run fails spuriously.
         @test !any(n -> occursin("computation_time", n), names)
         @test !any(n -> occursin("transform_time", n), names)
+        # Per-thread scratch must NOT be captured either. VelocityWorkspace is
+        # sized from Threads.nthreads(), so capturing it makes both the count
+        # below and the digest itself thread-dependent. Re-including it would
+        # reintroduce a spurious-difference path at nthreads > 1.
+        @test !any(n -> occursin("velocity_workspace", n), names)
 
         # Exact field count for this canonical case (CNAB2/scalar1/wall1/mag/comp),
         # AFTER build_state's initialize_solver_fields!+perturb and evolve!'s
@@ -54,13 +59,17 @@ using .ParityFixtures
         # changed shape and must be explained, not silently updated: the
         # walker can silently drop fields it classifies as known-skipped
         # leaves, and an exact count is the cheapest tripwire for that
-        # regressing unnoticed. Measured stable at 191 across two
-        # independent runs of this exact case (see task-2-report.md). This
-        # is NOT the 176 Task 1 measured on a built-but-not-stepped state —
-        # a stepped state additionally reaches lazily-built scratch such as
-        # VelocityWorkspace (fields.velocity.velocity_workspace), which the
-        # walker now recurses into element-by-element instead of skipping.
-        @test length(names) == 191
+        # regressing unnoticed.
+        #
+        # 176 is THREAD-INDEPENDENT — verified at 1, 2 and 4 threads on both
+        # Julia 1.11.1 and 1.12.6. It was briefly 191, which held only at one
+        # thread: the walk then included fields.velocity.velocity_workspace,
+        # 15 per-thread scratch buffers that grew to 60 entries at 2 threads
+        # and 120 at 4, so CI (which does not run single-threaded) measured 206
+        # and this assertion failed. velocity_workspace is now in SKIP_FIELDS —
+        # see the rationale there. If this number moves again, find out WHY
+        # before touching it.
+        @test length(names) == 176
     end
 
     @testset "matrices are well formed" begin
