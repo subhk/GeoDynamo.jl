@@ -5,6 +5,9 @@ using Random
 
 MPI.Initialized() || MPI.Init()
 
+include(joinpath(@__DIR__, "parity", "fixtures.jl"))
+using .ParityFixtures
+
 # =============================================================================
 # End-to-end scalar boundary-condition enforcement, per timestepper.
 #
@@ -40,26 +43,25 @@ const _SBP_TS = [
     ("RK3",   GeoDynamo.RungeKutta3()),
 ]
 
-function _sbp_state(timestepper, temp_bcs; composition_bcs = nothing, seed = 11)
-    kw = Dict{Symbol, Any}(
-        :geometry => :shell, :lmax => 4, :mmax => 4, :nlat => 12, :nlon => 24,
-        :nr => 16, :nr_inner => 4, :radial_bandwidth => 3, :radius_ratio => 0.35,
-        :Ek => 1e-3, :Ra => 1e3, :Pm => 1.0, :Pr => 1.0, :timestep => 1e-5,
-        :include_magnetic => false, :timestepper => timestepper,
-        :temperature_bcs => temp_bcs,
-        :include_composition => composition_bcs !== nothing)
-    composition_bcs === nothing || (kw[:composition_bcs] = composition_bcs)
-    st = GeoDynamo.initialize_solver_state(Float64; params = GeoDynamo.SolverParameters(; kw...))
-    rng = MersenneTwister(seed)
-    fs = Any[st.fields.temperature.spectral,
-             st.fields.velocity.toroidal, st.fields.velocity.poloidal]
-    composition_bcs === nothing || push!(fs, st.fields.composition.spectral)
-    for f in fs
-        dr = parent(f.data_real); di = parent(f.data_imag)
-        dr .+= 1e-3 .* (rand(rng, size(dr)...) .- 0.5)
-        di .+= 1e-3 .* (rand(rng, size(di)...) .- 0.5)
-    end
-    return st
+# State construction now comes from the shared parity fixture. The previous local
+# builder perturbed the fields BEFORE is_initialized was set, so solver_step!
+# regenerated the IC on its first call and discarded the perturbation entirely —
+# every seed produced the same trajectory. ParityFixtures.build_state calls
+# initialize_solver_fields! first, so the perturbation now survives and these
+# assertions run against a genuinely richer state.
+#
+# `code` is the scalar BC code (1=DD, 2=DN, 3=ND, 4=NN), taken directly from the
+# caller's loop variable rather than recovered by identity comparison against
+# ParityFixtures.SCALAR_BCS values — a fresh `BoundaryConditions` at each call
+# site would never `===`-match, so that lookup would silently fall back to a
+# default and narrow coverage without failing anything.
+# wall_code is fixed at 1 (NoSlip/NoSlip), matching this file's previous
+# omission of velocity_bcs (SolverParameters' own default, parameters.jl:54).
+function _sbp_state(timestepper, code::Int; composition_bcs_code = nothing, seed = 11)
+    case = ParityFixtures.ParityCase(
+        string(typeof(timestepper).name.name), timestepper,
+        code, 1, false, composition_bcs_code !== nothing)
+    return ParityFixtures.build_state(case; seed = seed)
 end
 
 # Worst relative boundary residual over every l ≥ 1 mode carrying amplitude,
@@ -115,7 +117,7 @@ end
 
     @testset "$tsname" for (tsname, ts) in _SBP_TS
         @testset "$cname (code $code)" for (code, cname, bcs_, din, dout) in _SBP_CODES
-            st = _sbp_state(ts, bcs_)
+            st = _sbp_state(ts, code)
             for _ in 1:NSTEPS
                 GeoDynamo.solver_step!(st)
             end
@@ -155,8 +157,8 @@ end
     @testset "composition shares the scalar builder (ERK2, NN)" begin
         # temperature and composition go through the same
         # build_solver_erk2_scalar_bc, so the l = 0 NN path must hold for both.
-        nn = GeoDynamo.BoundaryConditions(inner = _SBP_FLX(1.0), outer = _SBP_FLX(0.0))
-        st = _sbp_state(GeoDynamo.ExponentialRungeKutta2(), nn; composition_bcs = nn)
+        # code 4 = NN (see _SBP_CODES above).
+        st = _sbp_state(GeoDynamo.ExponentialRungeKutta2(), 4; composition_bcs_code = 4)
         for _ in 1:NSTEPS
             GeoDynamo.solver_step!(st)
         end
