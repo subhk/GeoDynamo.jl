@@ -61,8 +61,21 @@ never a silent pass. See `test/parity/state_digest.jl`'s
 using Serialization
 
 const REPO = normpath(joinpath(@__DIR__, ".."))
-const JULIA = joinpath(homedir(),
-    ".julia/juliaup/julia-1.11.1+0.aarch64.apple.darwin14/bin/julia")
+
+# GEODYNAMO_PARITY_JULIA lets a second machine (different juliaup version
+# string, different OS, no juliaup at all) point this at its own binary.
+# Falling back to `Base.julia_cmd()[1]` — the binary running THIS script —
+# rather than one machine's hard-coded juliaup path means the default also
+# works out of the box anywhere Julia was invoked from at all. Checked for
+# existence up front (not deferred to the first failed `run` inside a
+# worktree) so a bad override fails loud, immediately, with a clear message
+# instead of surfacing as an opaque "no such file or directory" deep inside
+# `dump_ref`.
+const JULIA = get(ENV, "GEODYNAMO_PARITY_JULIA", string(Base.julia_cmd()[1]))
+isfile(JULIA) || error(
+    "parity_crosscommit.jl: Julia binary not found at \"$JULIA\" — set " *
+    "GEODYNAMO_PARITY_JULIA to the correct path, or run this script with " *
+    "the julia binary you want worktrees built under.")
 
 # Both digest dumps hold `ParityDigest.StateDigest`/`FieldBits` values, so the
 # module that defines those types must be loaded into THIS process before
@@ -281,8 +294,18 @@ refs whose `state_digest.jl` copies disagree on `DIGEST_SCHEMA_VERSION` are
 comparing structurally incomparable dumps, and that is a plumbing problem
 inherent to mechanism C, not a physics finding — it must fail loud as
 exactly that, with `exit(1)`, and never silently pass.
+
+Also guards the same "vacuously true on nothing" class the zero-case checks
+in `main` guard against: an empty `dump` (e.g. a driver run whose case
+selection resolved to zero cases) would otherwise fall straight through the
+loop below and return `nothing` — "no mismatch found" — without having
+checked a single digest, which reads exactly like a genuine pass.
 """
 function _check_schema_version(ref::String, dump)
+    isempty(dump) && return "digests not comparable: schema version — $ref " *
+        "produced an EMPTY digest dump, so there is nothing to check the " *
+        "schema version of; this indicates the driver's case selection " *
+        "resolved to zero cases, not that the schema matched"
     for (k, digest) in dump
         v = get(digest.env, "schema_version", nothing)
         if v != ParityDigest.DIGEST_SCHEMA_VERSION
@@ -326,6 +349,41 @@ function main()
         println("FAIL: case sets differ")
         println("  only in $refa: ", setdiff(keys_a, keys_b))
         println("  only in $refb: ", setdiff(keys_b, keys_a))
+        exit(1)
+    end
+
+    # Zero-case guard: an EMPTY case set makes keys_a == keys_b == [] trivially
+    # true, `failures` below stays at its initial 0, and the tail of this
+    # function would print "PASS: 0 cases bit-identical" and exit 0 — a
+    # genuine-looking PASS for a run that checked nothing. Same "vacuously
+    # true on nothing" class that _check_schema_version and ParityAB's
+    # empty-cases guard both close; close it here too.
+    if isempty(keys_a)
+        println("FAIL: zero cases were compared — both digest dumps are " *
+                 "empty. This is not a pass: it means nothing was checked. " *
+                 "Verify the driver's case selection " *
+                 "(ParityFixtures.select_matrix()) actually produced cases.")
+        exit(1)
+    end
+
+    # Case-count floor: unless GEODYNAMO_PARITY_FULL=1 requests the full
+    # 192-case matrix, require at least the default matrix's 16 cases. A
+    # silently-shrunk matrix (e.g. an accidental edit to
+    # ParityFixtures.PARITY_MATRIX_DEFAULT, or a filter bug in
+    # select_matrix()) would otherwise still print a clean PASS over whatever
+    # smaller set survived, with nothing to say the gate covers less than it
+    # is supposed to.
+    default_matrix_floor = 16
+    full_matrix = get(ENV, "GEODYNAMO_PARITY_FULL", "0") == "1"
+    if !full_matrix && length(keys_a) < default_matrix_floor &&
+       get(ENV, "GEODYNAMO_PARITY_ALLOW_FEWER_CASES", "0") != "1"
+        println("FAIL: only $(length(keys_a)) case(s) were compared — below " *
+                 "the default matrix's floor of $default_matrix_floor. A " *
+                 "silently-shrunk matrix is a silently-weakened gate. If " *
+                 "this is deliberate (e.g. debugging a single case), set " *
+                 "GEODYNAMO_PARITY_ALLOW_FEWER_CASES=1 to override this " *
+                 "floor explicitly, or set GEODYNAMO_PARITY_FULL=1 to run " *
+                 "the full 192-case matrix instead.")
         exit(1)
     end
 

@@ -86,7 +86,7 @@ end
 
 struct StateDigest
     env::Dict{String, Any}     # compared for comparability
-    info::Dict{String, Any}    # recorded only, never compared
+    info::Dict{String, Any}    # "time"/"step" ARE compared (see digests_equal); other keys (e.g. "params") are not
     fields::Vector{FieldBits}
     hash::UInt64
 end
@@ -268,6 +268,19 @@ Walk `state.fields` and capture every floating-point array reachable from it.
 `prev_nonlinear` / `prev_nl_*` are captured deliberately. They are not derived
 state: they carry the CNAB2 history, and a refactor that corrupts them produces a
 state that looks correct for exactly one step and diverges afterward.
+
+Two exclusions are deliberate, and — per the whole-branch final review — now
+VERIFIED rather than assumed. `state.caches` is never walked at all (this
+function only walks `state.fields`, above): `TimestepCaches` holds only
+dt-keyed operator caches and scratch, not history — the real cross-step
+history is `prev_nl_*`, which lives inside `state.fields` and IS digested, as
+noted above. Non-array scalar leaves reachable from `state.fields` are also
+not captured as digest entries (they are classified and deliberately skipped
+by `_walk!`, not silently dropped — see its Number/Symbol/... leaf case):
+all 130 such leaves reachable from `state.fields` were enumerated and are
+`Int64`/`Bool` structural metadata, with exactly one exception,
+`boundary_time_index.x` (a `Ref{Int}`'s own field), which only evolves under
+file-based boundary conditions.
 """
 function digest_state(state)
     out = FieldBits[]
@@ -280,8 +293,14 @@ function digest_state(state)
         "julia" => string(VERSION),
         "schema_version" => DIGEST_SCHEMA_VERSION,
     )
-    # Recorded but NOT compared: a clean-break sub-project legitimately changes
-    # how parameters print, and that must not read as a physics difference.
+    # "params" is recorded but NOT compared: a clean-break sub-project
+    # legitimately changes how parameters print, and that must not read as a
+    # physics difference. "time" and "step" ARE compared — see
+    # digests_equal — because they are the solver's clock and step counter,
+    # evolved physics state rather than configuration; a refactor that splits
+    # the step function (as the next sub-project does) owns exactly these two
+    # values, so a divergence here must fail the gate, not silently pass
+    # because it happens to live in a dict named "info".
     info = Dict{String, Any}(
         "params" => string(state.parameters),
         "time" => state.time,
@@ -333,13 +352,37 @@ Bit-compare two digests.
 where the two implementations legitimately expose different field names for the
 same physical quantity. Order, shape, and bits must still match exactly.
 
-The stored hash is a fast-rejection convenience only. Equality is always
-confirmed against the raw values before this returns `true`, so a hash collision
-cannot produce a false green.
+`a.info["time"]` and `a.info["step"]` ARE compared, despite living in the
+`info` dict alongside `"params"` (which is not — see `digest_state`'s
+docstring): they are the solver's clock and step counter, evolved physics
+state rather than configuration. A divergence there is reported with a
+distinct `"state.time differs"` / `"state.step differs"` message rather than
+the `env`-mismatch "not comparable" wording, so a genuine clock/step split
+reads as the physics finding it is. A missing key on either side (e.g. the
+hand-built control digests in `test/parity/digest_negative_controls.jl`,
+which do not set these keys) is tolerated: both sides default to `nothing`
+and compare equal, since only real `digest_state` output is guaranteed to
+stamp them. `time` is compared with `isequal`, not `==`, for the same reason
+the field-bit comparison below reinterprets bits rather than using `==`:
+`isequal` distinguishes `-0.0` from `0.0` and treats matching `NaN`s as
+equal, consistent with the rest of this module's semantics.
+
+The stored hash is computed and exported for downstream use, but is
+deliberately NOT consulted by this comparison: `digests_equal` always
+confirms equality against the raw field values below, so a hash collision
+between two genuinely different digests cannot produce a false green.
 """
 function digests_equal(a::StateDigest, b::StateDigest; compare_names::Bool = true)
     if a.env != b.env
         return (false, "digests not comparable: env differs — $(a.env) vs $(b.env)")
+    end
+    at, bt = get(a.info, "time", nothing), get(b.info, "time", nothing)
+    if !isequal(at, bt)
+        return (false, "state.time differs: $(repr(at)) vs $(repr(bt))")
+    end
+    as, bs = get(a.info, "step", nothing), get(b.info, "step", nothing)
+    if as != bs
+        return (false, "state.step differs: $(repr(as)) vs $(repr(bs))")
     end
     if length(a.fields) != length(b.fields)
         return (false, "field count differs: $(length(a.fields)) vs $(length(b.fields))")

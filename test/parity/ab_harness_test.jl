@@ -72,6 +72,41 @@ end
         @test nfail > 0
     end
 
+    @testset "a custom step function is actually used, not silently ignored" begin
+        # Mechanism B's brief promises "two constructor functions and two step
+        # functions". Both `legacy_step` and `new_step` default to
+        # ParityFixtures.evolve!, so a regression could silently keep calling
+        # the default on both sides regardless of what a caller passes.
+        build(case) = ParityFixtures.build_state(case; seed = 11)
+
+        @testset "each side's custom step is invoked once per case" begin
+            legacy_calls = Ref(0)
+            new_calls = Ref(0)
+            legacy_step(state; nsteps) = (legacy_calls[] += 1; ParityFixtures.evolve!(state; nsteps = nsteps))
+            new_step(state; nsteps) = (new_calls[] += 1; ParityFixtures.evolve!(state; nsteps = nsteps))
+            ParityAB.assert_ab_parity(build, build; cases = cases,
+                legacy_step = legacy_step, new_step = new_step)
+            @test legacy_calls[] == length(cases)
+            @test new_calls[] == length(cases)
+        end
+
+        @testset "a custom new_step that skips evolution is caught, not defaulted away" begin
+            # If legacy_step/new_step were silently ignored in favor of the
+            # ParityFixtures.evolve! default, both sides would evolve
+            # identically from the same seed and this would wrongly pass.
+            noop_step(state; nsteps) = state
+            results = ParityAB.compare_ab(build, build; cases = cases,
+                legacy_step = ParityFixtures.evolve!, new_step = noop_step)
+            @test all(r -> !r.ok, results)
+            # Confirms it is the step counter/clock that diverged (thanks to
+            # the state.time/state.step check), not merely "some field or
+            # other" — direct evidence new_step actually ran instead of
+            # evolve!.
+            @test all(r -> occursin("state.step differs", r.message) ||
+                    occursin("state.time differs", r.message), results)
+        end
+    end
+
     @testset "empty cases is rejected, not silently green" begin
         # A caller-supplied `cases` filtered down to nothing must not report a
         # green, zero-comparison testset — that "proves" parity while checking

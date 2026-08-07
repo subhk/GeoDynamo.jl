@@ -1,7 +1,6 @@
 using Test
 using GeoDynamo
 using MPI
-using Random
 
 MPI.Initialized() || MPI.Init()
 

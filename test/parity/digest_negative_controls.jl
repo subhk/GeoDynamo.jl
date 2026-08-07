@@ -104,6 +104,53 @@ end
         @test ok_loose
     end
 
+    @testset "state.time / state.step divergence is detected" begin
+        # Regression for the whole-branch final review: `time` and `step` were
+        # stashed in the `info` dict, which digests_equal never read, so two
+        # digests with different clocks/step counters compared EQUAL. The next
+        # sub-project splits the ERK2 step function, which owns exactly these
+        # two values, so this must be caught, not silently pass.
+        info_a = Dict{String, Any}("params" => "p", "time" => 0.1, "step" => 4)
+        info_b = Dict{String, Any}("params" => "p", "time" => 0.2, "step" => 4)
+        fb = ParityDigest.FieldBits("a.b", [3], copy(base))
+        env = Dict{String, Any}("nthreads" => 1, "nranks" => 1,
+            "word_size" => 64, "julia" => "1.11.1")
+        a = ParityDigest.StateDigest(env, info_a, [fb], ParityDigest._hash_fields([fb]))
+        b = ParityDigest.StateDigest(env, info_b, [fb], ParityDigest._hash_fields([fb]))
+
+        ok, msg = ParityDigest.digests_equal(a, b)
+        @test !ok
+        @test occursin("state.time differs", msg)
+        @test occursin("0.1", msg)
+        @test occursin("0.2", msg)
+
+        info_c = Dict{String, Any}("params" => "p", "time" => 0.1, "step" => 5)
+        c = ParityDigest.StateDigest(env, info_c, [fb], ParityDigest._hash_fields([fb]))
+        ok2, msg2 = ParityDigest.digests_equal(a, c)
+        @test !ok2
+        @test occursin("state.step differs", msg2)
+        @test occursin("4", msg2)
+        @test occursin("5", msg2)
+
+        # Matching time/step must not, by itself, block a genuine field-bit
+        # comparison from proceeding — this control must not become a
+        # blanket rejection.
+        d = ParityDigest.StateDigest(env, copy(info_a), [fb], ParityDigest._hash_fields([fb]))
+        ok3, msg3 = ParityDigest.digests_equal(a, d)
+        @test ok3
+        @test isempty(msg3)
+
+        # A digest missing the time/step keys entirely (e.g. the hand-built
+        # `_ctl_digest` controls above, whose `info` dict is empty) must still
+        # compare equal to another such digest instead of erroring or
+        # spuriously failing.
+        e = _ctl_digest(base)
+        f = _ctl_digest(base)
+        ok4, msg4 = ParityDigest.digests_equal(e, f)
+        @test ok4
+        @test isempty(msg4)
+    end
+
     @testset "hash agreeing does not alone produce a pass" begin
         # Raw values are always confirmed, so a forged matching hash must still fail.
         a = _ctl_digest([1.0, 2.0])

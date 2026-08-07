@@ -46,11 +46,21 @@ struct ABResult
 end
 
 """
-    compare_ab(legacy_build, new_build; cases, compare_names, nsteps) -> Vector{ABResult}
+    compare_ab(legacy_build, new_build;
+        cases, compare_names, nsteps, legacy_step, new_step) -> Vector{ABResult}
 
 Build, evolve, and digest both sides of every case. Returns results without
 asserting, so a caller can inspect them — used by the harness's own self-test to
 prove it can report a difference.
+
+`legacy_step` / `new_step` are the two step functions the module docstring
+promises ("two constructor functions and two step functions"). Each has
+signature `(state; nsteps) -> state` and both default to
+`ParityFixtures.evolve!`, so existing call sites are unaffected. Mechanism B
+exists for clean-break sub-projects where one symbol cannot serve both sides
+of the change — a sub-project needing a different step entry point on its new
+side (e.g. because the refactor renames or splits the step function itself)
+supplies `new_step` instead of patching this harness mid-flight.
 
 Throws if `cases` is empty: an empty case list runs zero comparisons and cannot
 demonstrate parity, but a caller-supplied `cases` that is accidentally emptied
@@ -60,13 +70,15 @@ silently.
 function compare_ab(legacy_build, new_build;
         cases = ParityFixtures.select_matrix(),
         compare_names::Bool = false,
-        nsteps::Int = 4)
+        nsteps::Int = 4,
+        legacy_step = ParityFixtures.evolve!,
+        new_step = ParityFixtures.evolve!)
     isempty(cases) &&
         error("compare_ab: `cases` is empty — an empty case list cannot demonstrate parity")
     results = ABResult[]
     for case in cases
-        a = ParityFixtures.evolve!(legacy_build(case); nsteps = nsteps)
-        b = ParityFixtures.evolve!(new_build(case); nsteps = nsteps)
+        a = legacy_step(legacy_build(case); nsteps = nsteps)
+        b = new_step(new_build(case); nsteps = nsteps)
         ok, msg = ParityDigest.digests_equal(
             ParityDigest.digest_state(a), ParityDigest.digest_state(b);
             compare_names = compare_names)
@@ -76,7 +88,8 @@ function compare_ab(legacy_build, new_build;
 end
 
 """
-    assert_ab_parity(legacy_build, new_build; cases, compare_names, nsteps)
+    assert_ab_parity(legacy_build, new_build;
+        cases, compare_names, nsteps, legacy_step, new_step)
 
 Assert every case agrees bit-for-bit, one `@test` per case so a failure names the
 configuration that diverged.
@@ -84,6 +97,10 @@ configuration that diverged.
 `compare_names` defaults to `false` because this mechanism exists for clean
 breaks, where the two implementations legitimately expose different field names
 for the same quantity. Order, shape, and bits must still match exactly.
+
+`legacy_step` / `new_step` are the two step functions, `(state; nsteps) ->
+state`, each defaulting to `ParityFixtures.evolve!` — see `compare_ab`'s
+docstring for why this exists and when to override one side.
 
 REMINDER: comparison is POSITIONAL (see the module docstring). Both builders
 must walk their field trees in identical relative order, or this can report a
@@ -96,11 +113,14 @@ Throws if `cases` is empty: an empty case list would otherwise emit zero
 function assert_ab_parity(legacy_build, new_build;
         cases = ParityFixtures.select_matrix(),
         compare_names::Bool = false,
-        nsteps::Int = 4)
+        nsteps::Int = 4,
+        legacy_step = ParityFixtures.evolve!,
+        new_step = ParityFixtures.evolve!)
     isempty(cases) &&
         error("assert_ab_parity: `cases` is empty — an empty case list cannot demonstrate parity")
     for r in compare_ab(legacy_build, new_build;
-        cases = cases, compare_names = compare_names, nsteps = nsteps)
+        cases = cases, compare_names = compare_names, nsteps = nsteps,
+        legacy_step = legacy_step, new_step = new_step)
         @testset "$(r.case)" begin
             @test r.ok
             r.ok || @info "A/B parity failure" case = r.case detail = r.message
