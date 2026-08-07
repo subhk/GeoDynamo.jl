@@ -1,0 +1,347 @@
+using Test
+using GeoDynamo
+using MPI
+
+MPI.Initialized() || MPI.Init()
+
+include(joinpath(@__DIR__, "state_digest.jl"))
+using .ParityDigest
+
+# A digest built by hand, so these controls test the COMPARATOR in isolation
+# from the walker. The walker is exercised by fixtures_test.jl in Task 2.
+function _ctl_digest(values::Vector{Float64}; name = "a.b", dims = [length(values)])
+    env = Dict{String, Any}("nthreads" => 1, "nranks" => 1,
+        "word_size" => 64, "julia" => "1.11.1")
+    fb = ParityDigest.FieldBits(name, dims, copy(values))
+    return ParityDigest.StateDigest(env, Dict{String, Any}(), [fb],
+        ParityDigest._hash_fields([fb]))
+end
+
+# A fieldless struct with no arrays of its own and no fields to recurse
+# into: previously fell through every branch of `_walk!` and vanished with
+# zero signal. `struct` must be defined at top level, not inside a testset.
+struct _CtlUnclassifiedLeaf end
+
+# Mirrors the real regression: bcs.BoundaryConditionSet.field_type::FieldType
+# is an @enum reachable from state.fields.*.boundary_condition_set whenever
+# file-based boundary conditions are loaded. `@enum`/`struct` must be defined
+# at top level, not inside a testset.
+@enum _CtlFieldType _CtlVelocityField _CtlTemperatureField
+struct _CtlEnumHolder
+    field_type::_CtlFieldType
+end
+
+# Mirrors the real regression: SHTnsMagneticFields.outer_domain::RadialDomain
+# (src/physics/magnetic/field.jl:189) holds a RadialDomain whose
+# dr_matrices::Vector{Matrix{Float64}} field is a float array of float
+# arrays — an unclassified array shape that must never be reached because
+# :outer_domain is skipped by name, exactly like :domain.
+struct _CtlOuterDomainHolder
+    outer_domain::Vector{Matrix{Float64}}
+end
+
+@testset "digest comparator negative controls" begin
+    base = [1.0, 2.0, 3.0]
+
+    @testset "identical digests compare equal" begin
+        ok, msg = ParityDigest.digests_equal(_ctl_digest(base), _ctl_digest(base))
+        @test ok
+        @test isempty(msg)
+    end
+
+    @testset "1 ULP difference is detected" begin
+        perturbed = copy(base)
+        perturbed[2] = nextfloat(perturbed[2])
+        ok, msg = ParityDigest.digests_equal(_ctl_digest(base), _ctl_digest(perturbed))
+        @test !ok
+        @test occursin("a.b", msg)
+        @test occursin("index 2", msg)
+    end
+
+    @testset "signed zero is detected" begin
+        z = [0.0, 0.0]
+        nz = [0.0, -0.0]
+        ok, msg = ParityDigest.digests_equal(_ctl_digest(z), _ctl_digest(nz))
+        @test !ok
+        @test occursin("index 2", msg)
+        # Regression: a naive reinterpret(Int64,·)-subtract wraps to
+        # typemin(Int64) for exactly this pair (0.0 reinterprets as 0,
+        # -0.0 as typemin(Int64)), so this pins the *correct* signed
+        # distance, not just that a difference was reported.
+        @test occursin("(1 ULP)", msg)
+    end
+
+    @testset "matching NaNs in the same slot compare equal" begin
+        n = [1.0, NaN, 3.0]
+        ok, _ = ParityDigest.digests_equal(_ctl_digest(n), _ctl_digest(n))
+        @test ok
+    end
+
+    @testset "environment mismatch reports non-comparable, not physics" begin
+        a = _ctl_digest(base)
+        b = _ctl_digest(base)
+        b.env["nthreads"] = 4
+        ok, msg = ParityDigest.digests_equal(a, b)
+        @test !ok
+        @test occursin("not comparable", msg)
+        @test !occursin("index", msg)
+    end
+
+    @testset "shape mismatch is detected" begin
+        a = _ctl_digest(base; dims = [3])
+        b = _ctl_digest(base; dims = [1, 3])
+        ok, msg = ParityDigest.digests_equal(a, b)
+        @test !ok
+        @test occursin("dims", msg)
+    end
+
+    @testset "name mismatch honours compare_names" begin
+        a = _ctl_digest(base; name = "old.temperature")
+        b = _ctl_digest(base; name = "new.payload")
+        ok_strict, _ = ParityDigest.digests_equal(a, b; compare_names = true)
+        @test !ok_strict
+        ok_loose, _ = ParityDigest.digests_equal(a, b; compare_names = false)
+        @test ok_loose
+    end
+
+    @testset "state.time / state.step divergence is detected" begin
+        # Regression for the whole-branch final review: `time` and `step` were
+        # stashed in the `info` dict, which digests_equal never read, so two
+        # digests with different clocks/step counters compared EQUAL. The next
+        # sub-project splits the ERK2 step function, which owns exactly these
+        # two values, so this must be caught, not silently pass.
+        info_a = Dict{String, Any}("params" => "p", "time" => 0.1, "step" => 4)
+        info_b = Dict{String, Any}("params" => "p", "time" => 0.2, "step" => 4)
+        fb = ParityDigest.FieldBits("a.b", [3], copy(base))
+        env = Dict{String, Any}("nthreads" => 1, "nranks" => 1,
+            "word_size" => 64, "julia" => "1.11.1")
+        a = ParityDigest.StateDigest(env, info_a, [fb], ParityDigest._hash_fields([fb]))
+        b = ParityDigest.StateDigest(env, info_b, [fb], ParityDigest._hash_fields([fb]))
+
+        ok, msg = ParityDigest.digests_equal(a, b)
+        @test !ok
+        @test occursin("state.time differs", msg)
+        @test occursin("0.1", msg)
+        @test occursin("0.2", msg)
+
+        info_c = Dict{String, Any}("params" => "p", "time" => 0.1, "step" => 5)
+        c = ParityDigest.StateDigest(env, info_c, [fb], ParityDigest._hash_fields([fb]))
+        ok2, msg2 = ParityDigest.digests_equal(a, c)
+        @test !ok2
+        @test occursin("state.step differs", msg2)
+        @test occursin("4", msg2)
+        @test occursin("5", msg2)
+
+        # Matching time/step must not, by itself, block a genuine field-bit
+        # comparison from proceeding — this control must not become a
+        # blanket rejection.
+        d = ParityDigest.StateDigest(env, copy(info_a), [fb], ParityDigest._hash_fields([fb]))
+        ok3, msg3 = ParityDigest.digests_equal(a, d)
+        @test ok3
+        @test isempty(msg3)
+
+        # A digest missing the time/step keys entirely (e.g. the hand-built
+        # `_ctl_digest` controls above, whose `info` dict is empty) must still
+        # compare equal to another such digest instead of erroring or
+        # spuriously failing.
+        e = _ctl_digest(base)
+        f = _ctl_digest(base)
+        ok4, msg4 = ParityDigest.digests_equal(e, f)
+        @test ok4
+        @test isempty(msg4)
+    end
+
+    @testset "hash agreeing does not alone produce a pass" begin
+        # Raw values are always confirmed, so a forged matching hash must still fail.
+        a = _ctl_digest([1.0, 2.0])
+        b = _ctl_digest([1.0, 3.0])
+        forged = ParityDigest.StateDigest(b.env, b.info, b.fields, a.hash)
+        ok, _ = ParityDigest.digests_equal(a, forged)
+        @test !ok
+    end
+
+    @testset "unclassified shapes fail loud instead of vanishing" begin
+        @testset "array with an unclassifiable eltype throws" begin
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "x.badarray", Any[1.0, "two"])
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("x.badarray", err.msg)
+            @test occursin("Any", err.msg)
+        end
+
+        @testset "fieldless leaf type throws" begin
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "x.badleaf", _CtlUnclassifiedLeaf())
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("x.badleaf", err.msg)
+            @test occursin("_CtlUnclassifiedLeaf", err.msg)
+        end
+
+        @testset "Dict is walked by value, not silently skipped nor thrown" begin
+            # Documents the classification decision for the metadata::Dict
+            # case: values are walked (a float payload is captured), keys
+            # are not separately digested.
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            ParityDigest._walk!(out, seen, "x.meta",
+                Dict{String, Any}("weight" => [1.0, 2.0]))
+            @test length(out) == 1
+            @test out[1].name == "x.meta[weight]"
+            @test out[1].values == [1.0, 2.0]
+        end
+
+        @testset "Dict holding an unclassifiable value still throws, not swallows" begin
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "x.meta", Dict{String, Any}("odd" => Any[1, 2]))
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("x.meta[odd]", err.msg)
+        end
+
+        @testset "@enum leaf does not throw (regression: real states reach FieldType)" begin
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "root", _CtlEnumHolder(_CtlVelocityField))
+                nothing
+            catch e
+                e
+            end
+            @test err === nothing
+            # The enum itself carries no float payload, so nothing is captured —
+            # but critically, it must not have thrown getting here.
+            @test isempty(out)
+        end
+
+        @testset "BC marker singleton (NoSlip) does not throw" begin
+            # Regression: GeoDynamo.NoSlip/StressFree/InsulatingMagnetic/
+            # ConductingMagnetic are fieldless <: AbstractVelocityBC /
+            # AbstractThermalBC / AbstractMagneticBC singletons reachable
+            # from every field's parameters.velocity_bcs.{inner,outer} etc.
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "root", GeoDynamo.NoSlip())
+                nothing
+            catch e
+                e
+            end
+            @test err === nothing
+            @test isempty(out)
+        end
+
+        @testset ":outer_domain is skipped like :domain" begin
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            holder = _CtlOuterDomainHolder([[1.0 2.0; 3.0 4.0]])
+            err = try
+                ParityDigest._walk!(out, seen, "root", holder)
+                nothing
+            catch e
+                e
+            end
+            @test err === nothing
+            @test isempty(out)
+        end
+
+        @testset "a raw Module throws" begin
+            # Module is isstructtype but fieldcount(Module) == 0, so it
+            # cannot recurse via the fieldful-struct branch, is not a
+            # Number/Symbol/AbstractString/Base.Enum/Missing/Function/Type/
+            # empty-Tuple leaf, and is not a BC marker singleton — it must
+            # fall through to the final fail-loud branch, not vanish.
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            err = try
+                ParityDigest._walk!(out, seen, "x.module", Base)
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("x.module", err.msg)
+        end
+
+        @testset "nested array-of-arrays recurses with distinct indexed names" begin
+            # Mirrors the real regression: VelocityWorkspace's per-thread
+            # scratch buffers are Vector{Vector{T}}
+            # (src/physics/velocity/field.jl:121), reachable at
+            # fields.velocity.velocity_workspace once a state has been
+            # stepped. This must recurse into each inner Vector, not vanish
+            # or throw.
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            nested = Vector{Float64}[[1.0, 2.0], [3.0, 4.0, 5.0]]
+            ParityDigest._walk!(out, seen, "x.workspace", nested)
+            @test length(out) == 2
+            @test out[1].name == "x.workspace[1]"
+            @test out[1].values == [1.0, 2.0]
+            @test out[2].name == "x.workspace[2]"
+            @test out[2].values == [3.0, 4.0, 5.0]
+        end
+
+        @testset "an unknown element type inside a container still throws" begin
+            # A Vector{Vector{T}} whose innermost element type is neither a
+            # float nor an integer nor itself an array must still fail loud
+            # — nesting an unclassifiable type inside a container must not
+            # launder it into silence.
+            out = ParityDigest.FieldBits[]
+            seen = Base.IdSet{Any}()
+            bad = Vector{_CtlUnclassifiedLeaf}[[_CtlUnclassifiedLeaf()]]
+            err = try
+                ParityDigest._walk!(out, seen, "x.badnested", bad)
+                nothing
+            catch e
+                e
+            end
+            @test err isa ErrorException
+            @test occursin("x.badnested[1]", err.msg)
+            @test occursin("_CtlUnclassifiedLeaf", err.msg)
+        end
+
+        @testset "AbstractDict walk order is canonical, not insertion/deletion dependent" begin
+            d1 = Dict{String, Any}("alpha" => [1.0], "beta" => [2.0], "gamma" => [3.0])
+
+            # Same logical content as d1, but built via a very different
+            # insertion/deletion history (200 keys inserted then deleted).
+            # Dict's own iteration order is not guaranteed equal to d1's even
+            # though the final key/value sets are identical.
+            d2 = Dict{String, Any}()
+            for i in 1:200
+                d2["junk$i"] = i
+            end
+            d2["alpha"] = [1.0]
+            d2["beta"] = [2.0]
+            d2["gamma"] = [3.0]
+            for i in 1:200
+                delete!(d2, "junk$i")
+            end
+            @test Set(keys(d1)) == Set(keys(d2))
+
+            out1 = ParityDigest.FieldBits[]
+            ParityDigest._walk!(out1, Base.IdSet{Any}(), "root", d1)
+            out2 = ParityDigest.FieldBits[]
+            ParityDigest._walk!(out2, Base.IdSet{Any}(), "root", d2)
+
+            @test [fb.name for fb in out1] == [fb.name for fb in out2]
+            @test [fb.values for fb in out1] == [fb.values for fb in out2]
+        end
+    end
+end

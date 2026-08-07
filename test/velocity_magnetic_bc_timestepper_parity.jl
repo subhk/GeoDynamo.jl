@@ -1,9 +1,11 @@
 using Test
 using GeoDynamo
 using MPI
-using Random
 
 MPI.Initialized() || MPI.Init()
+
+include(joinpath(@__DIR__, "parity", "fixtures.jl"))
+using .ParityFixtures
 
 # =============================================================================
 # End-to-end velocity and magnetic boundary-condition enforcement, per timestepper.
@@ -45,25 +47,25 @@ const _VM_WALLS = [
     (4, "code4 SF/SF", GeoDynamo.StressFree(), GeoDynamo.StressFree()),
 ]
 
-function _vm_state(timestepper; vel_bcs = nothing, magnetic = false, seed = 11)
-    kw = Dict{Symbol, Any}(
-        :geometry => :shell, :lmax => 4, :mmax => 4, :nlat => 12, :nlon => 24,
-        :nr => 16, :nr_inner => 4, :radial_bandwidth => 3, :radius_ratio => 0.35,
-        :Ek => 1e-3, :Ra => 1e3, :Pm => 1.0, :Pr => 1.0, :timestep => 1e-5,
-        :include_magnetic => magnetic, :include_composition => false,
-        :timestepper => timestepper)
-    vel_bcs === nothing || (kw[:velocity_bcs] = vel_bcs)
-    st = GeoDynamo.initialize_solver_state(Float64; params = GeoDynamo.SolverParameters(; kw...))
-    rng = MersenneTwister(seed)
-    fs = Any[st.fields.temperature.spectral,
-             st.fields.velocity.toroidal, st.fields.velocity.poloidal]
-    magnetic && append!(fs, (st.fields.magnetic.toroidal, st.fields.magnetic.poloidal))
-    for f in fs
-        dr = parent(f.data_real); di = parent(f.data_imag)
-        dr .+= 1e-3 .* (rand(rng, size(dr)...) .- 0.5)
-        di .+= 1e-3 .* (rand(rng, size(di)...) .- 0.5)
-    end
-    return st
+# State construction now comes from the shared parity fixture. The previous local
+# builder perturbed the fields BEFORE is_initialized was set, so solver_step!
+# regenerated the IC on its first call and discarded the perturbation entirely —
+# every seed produced the same trajectory. ParityFixtures.build_state calls
+# initialize_solver_fields! first, so the perturbation now survives and these
+# assertions run against a genuinely richer state.
+#
+# `wall_code` is taken directly from the caller's loop variable (see _VM_WALLS)
+# rather than recovered by identity comparison against ParityFixtures.WALL_BCS
+# values — a fresh `BoundaryConditions` at each call site would never
+# `===`-match, so that lookup would silently fall back to a default and narrow
+# coverage without failing anything. scalar_code is fixed at 1 (DD), matching
+# this file's previous omission of temperature_bcs (SolverParameters' own
+# default).
+function _vm_state(timestepper, wall_code::Int; magnetic = false, seed = 11)
+    case = ParityFixtures.ParityCase(
+        string(typeof(timestepper).name.name), timestepper,
+        1, wall_code, magnetic, false)
+    return ParityFixtures.build_state(case; seed = seed)
 end
 
 # Worst relative residual of `resid(p, dp, ddp, l, r)` over every l >= 1 mode
@@ -137,8 +139,7 @@ _vm_mag_tor(inner) = inner ? ((p, dp, ddp, l, r) -> p[1]) : ((p, dp, ddp, l, r) 
             # One state per (timestepper, wall type), magnetic enabled, reused for
             # both the velocity and the magnetic assertions — see _VM_WALLS on why
             # the state count is kept down.
-            st = _vm_state(ts; magnetic = true,
-                vel_bcs = GeoDynamo.BoundaryConditions(inner = inner_bc, outer = outer_bc))
+            st = _vm_state(ts, code; magnetic = true)
             for _ in 1:NSTEPS
                 GeoDynamo.solver_step!(st)
             end
