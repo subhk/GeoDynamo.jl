@@ -197,6 +197,10 @@ additional_tests = (
     "oceananigans_api.jl",
     "api_codex_fixes.jl",
     "codex_validation_fixes.jl",
+    "code_review_max_fixes.jl",
+    "code_review_batchA_fixes.jl",
+    "code_review_batchB_fixes.jl",
+    "code_review_batchC_fixes.jl",
     "grid_validation.jl",
     # MPI-aware tests
     "radial_domain.jl",

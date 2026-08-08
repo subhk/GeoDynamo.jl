@@ -304,6 +304,22 @@ function validate_parameters(params::SolverParameters; strict::Bool = false)
 end
 
 """
+    _parent_dir(dir) -> String or nothing
+
+The parent of `dir`, or `nothing` once `dir` is a filesystem root.
+
+A root is detected as a `dirname` FIXED POINT rather than by comparing against the
+POSIX-only literal root: on Windows a drive root and a UNC share root are both fixed
+points of `dirname` and neither equals that literal, so a walk that tests against it
+spins forever there instead of falling through to the fallback.
+"""
+function _parent_dir(dir::AbstractString)
+    parent = dirname(dir)
+    parent == dir && return nothing
+    return parent
+end
+
+"""
     find_package_root()
 
 Find the root directory of the GeoDynamo.jl package.
@@ -311,7 +327,7 @@ Find the root directory of the GeoDynamo.jl package.
 function find_package_root()
     current_dir = @__DIR__
 
-    while current_dir != "/"
+    while current_dir !== nothing
         project_file = joinpath(current_dir, "Project.toml")
         if isfile(project_file)
             try
@@ -323,7 +339,7 @@ function find_package_root()
             catch
             end
         end
-        current_dir = dirname(current_dir)
+        current_dir = _parent_dir(current_dir)
     end
 
     @warn "Could not find GeoDynamo.jl package root. Using current directory."
@@ -481,12 +497,26 @@ function load_parameters_from_file(config_file::String)
         return SolverParameters()
     end
 
+    # Fail loud: returning `SolverParameters()` here would discard the ENTIRE
+    # parsed file over one bad literal (e.g. `geometry = "shell"`, which cannot
+    # convert to a Symbol) and hand back a fully valid-looking all-defaults
+    # object. `validate_parameters(; strict=true)` in `load_parameters` then
+    # validates those defaults, so nothing downstream can notice — the run would
+    # execute at the default Ek/nr/include_magnetic instead of the requested
+    # physics. Per-VALUE parse failures are still tolerated (and warned about)
+    # inside `_parameter_assignments_from_file`; this only catches a file whose
+    # values cannot form a SolverParameters at all.
+    kwargs = _parameter_assignments_from_file(config_file)
     try
-        kwargs = _parameter_assignments_from_file(config_file)
         return SolverParameters(; kwargs...)
     catch e
-        @error "Error reading parameter file $config_file: $e"
-        return SolverParameters()
+        throw(ErrorException(
+            "load_parameters_from_file: could not build SolverParameters from " *
+            "\"$config_file\": " * sprint(showerror, e) *
+            ". Fix the offending assignment (a wrong literal type — e.g. " *
+            "geometry = \"shell\" instead of :shell — is the usual cause); " *
+            "silently falling back to default parameters would run different " *
+            "physics than the file requests."))
     end
 end
 

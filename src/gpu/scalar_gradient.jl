@@ -22,7 +22,8 @@ function gpu_phi_gradient!(gφ_r, gφ_i, s_r, s_i, mvals)
 end
 
 # One workitem per (l-slot li, m-slot mi). l=li-1, m=mi-1 (m≥0). Reads l±1 neighbors
-# at [li±1, mi, r]. Mirrors compute_theta_gradient_spectral!:84-114 exactly.
+# at [li±1, mi, r]. Mirrors compute_theta_gradient_spectral! (same A_±(l∓1)
+# source weighting).
 # Empty slots (l<m) → 0 (the A₊ sqrt would be NaN there; guard skips them).
 @kernel function _theta_grad_kernel!(gθr, gθi, @Const(sr), @Const(si), lmax::Int, nr::Int)
     li, mi = @index(Global, NTuple)
@@ -38,15 +39,20 @@ end
         for r in 1:nr
             dtr = zero(T)
             dti = zero(T)
+            # Source a_{l∓1} is weighted by A_±(l∓1), not A_±(l) — see the derivation
+            # in fields/scalar_operators.jl. The previous A_±(l) form was the wrong
+            # l-argument and produced a corrupted gradient.
             if l < lmax
-                ap = T(l) * sqrt(T((l + m + 1) * (l - m + 1)) / T((2l + 1) * (2l + 3)))
-                dtr += ap * sr[li + 1, mi, r]
-                dti += ap * si[li + 1, mi, r]
+                # A₋(l+1)
+                cp = -T(l + 2) * sqrt(T((l + m + 1) * (l - m + 1)) / T((2l + 1) * (2l + 3)))
+                dtr += cp * sr[li + 1, mi, r]
+                dti += cp * si[li + 1, mi, r]
             end
             if l > m
-                am = -T(l + 1) * sqrt(T((l + m) * (l - m)) / T((2l - 1) * (2l + 1)))
-                dtr += am * sr[li - 1, mi, r]
-                dti += am * si[li - 1, mi, r]
+                # A₊(l−1)
+                cm = T(l - 1) * sqrt(T((l + m) * (l - m)) / T((2l - 1) * (2l + 1)))
+                dtr += cm * sr[li - 1, mi, r]
+                dti += cm * si[li - 1, mi, r]
             end
             gθr[li, mi, r] = dtr
             gθi[li, mi, r] = dti

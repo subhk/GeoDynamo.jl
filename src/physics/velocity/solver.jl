@@ -319,15 +319,24 @@ const _VEL_POL_STAGE4B_MSG =
 function _get_or_build_poloidal_split!(state::SolverState{T, <:AbstractArchitecture},
         velocity_bc::Int) where {T}
     caches = state.timestep_caches
+    dt = state.parameters.timestep
+    theta = _timestepper_implicit_theta(state.parameters.timestepper, state.parameters)
     split = caches.poloidal_split
-    split === nothing || return split::PoloidalSplitMatrices{T}
+    # dt and theta are BAKED into w_factor's LU and the influence responses, so a
+    # build-once memo silently keeps solving the old system after a Δt change
+    # (`time_step!(model, new_dt)` / `sim.Δt = …` rebuild the implicit matrices but
+    # never touch this cache). Both siblings guard the same way:
+    # `cb3_poloidal_split` via `cb3_built_dt`, `erk2_poloidal_green` via `green.dt`.
+    if split !== nothing && split.dt == dt && split.theta == theta
+        return split::PoloidalSplitMatrices{T}
+    end
     split = create_velocity_poloidal_split_matrices(
         state.runtime.shtns_config,
         state.runtime.outer_core_domain,
         state.parameters.Ek,
-        state.parameters.timestep;
+        dt;
         velocity_bc_code = velocity_bc,
-        theta = _timestepper_implicit_theta(state.parameters.timestepper, state.parameters),
+        theta = theta,
         ball = state.parameters.geometry === :ball,
         T = T)
     caches.poloidal_split = split

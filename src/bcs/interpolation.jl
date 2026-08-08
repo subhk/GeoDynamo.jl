@@ -83,6 +83,41 @@ function interpolate_boundary_to_grid(boundary_data::BoundaryData, target_theta:
 end
 
 """
+    wrap_periodic_target(coords::Vector{T}, target::T) where T
+
+Fold `target` into the periodic window `[coords[1], coords[end] + Δ)` implied by
+a uniformly spaced coordinate vector (Δ = `coords[2] - coords[1]`).
+
+Both `find_grid_indices` and `get_interpolation_weights` must wrap identically:
+wrapping in only one of them lets the index pair describe the wrapped target
+while the weights are computed from the raw one, which turns a target exactly on
+the period (e.g. φ = 2π against a `0 … 2π-Δ` grid) into a large extrapolation
+instead of the value at φ = 0.
+"""
+function wrap_periodic_target(coords::Vector{T}, target::T) where {T}
+    n = length(coords)
+    n < 2 && return target
+
+    grid_spacing = coords[2] - coords[1]  # Assume uniform spacing
+    period = coords[end] - coords[1] + grid_spacing
+
+    # Safety check: period must be positive
+    if period <= zero(T)
+        throw(ArgumentError("Invalid period for periodic coordinate interpolation: " *
+                            "period=$period (coords[1]=$(coords[1]), coords[end]=$(coords[end]), " *
+                            "grid_spacing=$grid_spacing). Ensure coordinates are sorted and uniformly spaced."))
+    end
+
+    # Wrap target to coordinate range using modulo for safety (avoids infinite loop)
+    range_start = coords[1]
+    range_end = coords[end] + grid_spacing
+    if target < range_start || target >= range_end
+        return range_start + mod(target - range_start, period)
+    end
+    return target
+end
+
+"""
     find_grid_indices(coords::Vector{T}, target::T; is_periodic::Bool=false) where T
 
 Find the two surrounding indices in a coordinate array for interpolation.
@@ -97,22 +132,7 @@ function find_grid_indices(coords::Vector{T}, target::T; is_periodic::Bool = fal
 
     # Handle periodic coordinates (e.g., longitude)
     if is_periodic
-        grid_spacing = coords[2] - coords[1]  # Assume uniform spacing
-        period = coords[end] - coords[1] + grid_spacing
-
-        # Safety check: period must be positive
-        if period <= zero(T)
-            throw(ArgumentError("Invalid period for periodic coordinate interpolation: " *
-                                "period=$period (coords[1]=$(coords[1]), coords[end]=$(coords[end]), " *
-                                "grid_spacing=$grid_spacing). Ensure coordinates are sorted and uniformly spaced."))
-        end
-
-        # Wrap target to coordinate range using modulo for safety (avoids infinite loop)
-        range_start = coords[1]
-        range_end = coords[end] + grid_spacing
-        if target < range_start || target >= range_end
-            target = range_start + mod(target - range_start, period)
-        end
+        target = wrap_periodic_target(coords, target)
 
         # Check if target is beyond the last point but within one grid spacing
         if target > coords[end]
@@ -154,6 +174,12 @@ function get_interpolation_weights(coords::Vector{T}, target::T, indices::Tuple{
 
     if i1 == i2
         return (one(T), zero(T))
+    end
+
+    # `indices` came from `find_grid_indices`, which describes the WRAPPED
+    # target; the weights have to be measured against the same wrapped value.
+    if is_periodic
+        target = wrap_periodic_target(coords, target)
     end
 
     # Handle periodic boundary wrapping case (e.g., indices = (n, 1))
@@ -442,12 +468,12 @@ function get_interpolation_statistics(boundary_data::BoundaryData, interpolated_
 
     # Compute basic statistics
     src_min, src_max = extrema(src_data)
-    src_mean = _Statistics.mean(src_data)
-    src_std = _Statistics.std(src_data)
+    src_mean = _mean(src_data)
+    src_std = _std(src_data)
 
     interp_min, interp_max = extrema(interp_slice)
-    interp_mean = _Statistics.mean(interp_slice)
-    interp_std = _Statistics.std(interp_slice)
+    interp_mean = _mean(interp_slice)
+    interp_std = _std(interp_slice)
 
     return Dict(
         "source_range" => (src_min, src_max),

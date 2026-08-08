@@ -1069,9 +1069,18 @@ function extract_physical_slice_phi_local(phys_data, r_local, config;
         axes_local::Union{Nothing, Tuple} = nothing)
     nlat, nlon = config.nlat, config.nlon
     # Get or create cached buffer for phi slice (thread-safe)
-    slice_buffer = get_cached_buffer!(config, :phi_slice_buffer) do
+    # The cached slot is typed Matrix{Float64} (transforms/spectral.jl), so caching a
+    # Float32 buffer threw a TypeError from setfield! — a Float32 field could not take
+    # this path at all. Keep the type-stable cached fast path for Float64 and allocate
+    # for any other eltype rather than widening the cache slot (which would reintroduce
+    # boxing on the hot path).
+    slice_buffer = if eltype(phys_data) === Float64
+        get_cached_buffer!(config, :phi_slice_buffer) do
+            zeros(Float64, nlat, nlon)
+        end::Matrix{Float64}
+    else
         zeros(eltype(phys_data), nlat, nlon)
-    end::Matrix{Float64}
+    end
     return extract_physical_slice_phi_local!(slice_buffer, phys_data, r_local, config;
         axes_local = axes_local)
 end
@@ -1090,46 +1099,12 @@ Ensure even radial distribution or use global loop bounds.
 function extract_physical_slice_generic!(
         slice_buffer::Matrix{T}, phys_data, r_local, config;
         axes_local::Union{Nothing, Tuple} = nothing) where {T}
-    nlat, nlon = config.nlat, config.nlon
-    needs_collective = !physical_grid_is_local((size(phys_data, 1), size(phys_data, 2)), axes_local, nlat, nlon)
-
-    # Clear buffer for reuse
-    fill!(slice_buffer, zero(T))
-
-    # Check if this process has data at this radial level
-    has_local_data = r_local <= size(phys_data, 3)
-
-    if axes_local !== nothing
-        # Use global offsets: place local data at correct position in the full grid buffer
-        θ_range = axes_local[1]
-        φ_range = axes_local[2]
-        if has_local_data
-            for i_local in 1:size(phys_data, 1)
-                i_global = θ_range[i_local]
-                for j_local in 1:size(phys_data, 2)
-                    j_global = φ_range[j_local]
-                    slice_buffer[i_global, j_global] = phys_data[i_local, j_local, r_local]
-                end
-            end
-        end
-    else
-        # Legacy path: assumes local indices match global (serial or fully-local pencil)
-        common_i_range = 1:min(size(phys_data, 1), nlat, size(slice_buffer, 1))
-        common_j_range = 1:min(size(phys_data, 2), nlon, size(slice_buffer, 2))
-        if has_local_data
-            for i in common_i_range
-                for j in common_j_range
-                    slice_buffer[i, j] = phys_data[i, j, r_local]
-                end
-            end
-        end
-    end
-
-    # Gather complete grid across MPI processes only when the local rank does
-    # not already cover the entire angular slice.
-    maybe_allreduce_matrix!(slice_buffer, needs_collective, get_comm())
-
-    return slice_buffer
+    # This was a line-for-line copy of extract_physical_slice_phi_local! (the only
+    # difference was one comment), including its MPI collective. Delegate so the two
+    # cannot drift — in particular so a fix to the offset placement or the
+    # collective-avoidance predicate lands in both.
+    return extract_physical_slice_phi_local!(slice_buffer, phys_data, r_local, config;
+        axes_local = axes_local)
 end
 
 # Backward compatibility wrapper with thread-safe buffer access

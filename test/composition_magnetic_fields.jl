@@ -35,7 +35,12 @@ const FINALIZE_MPI_FIELD_BEHAVIOR = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "tru
         GeoDynamo.set_composition_boundary_conditions!(comp, :fixed, :no_flux, 2.5, -1.0)
         @test all(comp.bc_type_inner .== Int(GeoDynamo.DIRICHLET))
         @test all(comp.bc_type_outer .== Int(GeoDynamo.NEUMANN))
-        @test all(comp.boundary_values[1, :] .== 2.5)
+        # boundary_values is SPECTRAL: a uniform physical value is the (0,0)
+        # coefficient v*sqrt(4pi) and nothing else (see code_review_batchA_fixes.jl).
+        let m00 = GeoDynamo.get_mode_index(comp.config, 0, 0)
+            @test comp.boundary_values[1, m00] ≈ sqrt(4 * pi) * 2.5
+            @test all(comp.boundary_values[1, [i for i in 1:comp.config.nlm if i != m00]] .== 0.0)
+        end
 
         # :linear should overwrite any stale higher modes and imaginary part.
         fill!(parent(comp.spectral.data_real), 5.0)

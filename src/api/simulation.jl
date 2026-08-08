@@ -30,6 +30,11 @@ mutable struct Simulation{M, C, O}
     # in the bundle, so on CUDA the baked vector lives on the device and diffing
     # it against the host field would mean scalar indexing.
     _gpu_src::NTuple{2, Union{Vector{Float64}, Nothing}}
+    # Host-side copies of the scalar boundary ENDPOINT values baked into `_gpu_state`
+    # (temperature, composition), for the same reason as `_gpu_src`: the bundle copies
+    # them at pack time and is rebuilt only on a Δt change, so a programmatic BC write
+    # mid-run would otherwise keep being integrated against the old wall values.
+    _gpu_bc::NTuple{2, Union{Matrix{Float64}, Nothing}}
 end
 
 _to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol, Any}()
@@ -73,7 +78,12 @@ function stop_iteration_exceeded(sim)
 end
 
 function wall_time_limit_exceeded(sim)
-    if sim._wall_start > 0 && (time() - sim._wall_start) >= sim.wall_time_limit
+    # `_collective_wtime` (api/schedules.jl), not a bare local `time()`: ranks that
+    # straddle the limit at an iteration boundary would otherwise leave run! at
+    # different iterations and the survivors hang in the next collective — turning
+    # the clean wall-limited shutdown (which exists so the final state gets saved)
+    # into a scheduler SIGKILL.
+    if sim._wall_start > 0 && _collective_wtime(sim) >= sim.wall_time_limit
         @info "Simulation is stopping after exceeding the wall time limit ($(prettytime(sim.wall_time_limit)))."
         sim.running = false
     end
@@ -82,8 +92,16 @@ end
 
 function nan_checker(sim)
     r = _health_check(sim.model)
-    if r.has_issue
-        @warn "NaN/Inf found in fields $(r.fields) at iteration $(sim.model.clock.iteration); stopping simulation."
+    # `_health_check` scans only THIS rank's modes/radial slab, so the stop
+    # decision has to be reduced (as `check_simulation_state_for_nan` in
+    # core/simulation_health.jl already does). Without it, only the ranks that own
+    # the blown-up modes leave run! and the rest hang in the next collective.
+    if _any_rank_flag(r.has_issue)
+        if r.has_issue
+            @warn "NaN/Inf found in fields $(r.fields) at iteration $(sim.model.clock.iteration); stopping simulation."
+        else
+            @warn "NaN/Inf found on another rank at iteration $(sim.model.clock.iteration); stopping simulation."
+        end
         sim.running = false
     end
     return nothing
@@ -254,6 +272,7 @@ function Simulation(model::GeodynamoModel;
         0.0,
         gpu_sync,
         false,
+        (nothing, nothing),
         (nothing, nothing)
     )
 end
@@ -284,6 +303,38 @@ function _resolve_gpu_stepping(gpu, model, timestepper)
         return false
     end
     p = model.state.parameters
+    # The remaining `build_gpu_solver_state` scope limits (device_state.jl:368/373/378)
+    # are hard `error()`s, so they must be pre-screened here too. Under the default
+    # gpu = :auto on a CUDA machine the user never asked for the device path, and
+    # every one of these configurations runs fine on the CPU — so decline the GPU
+    # with a warning, exactly like the three limits below, instead of letting the
+    # run die at iteration 1 inside `_gpu_time_step!`.
+    if p.geometry !== :shell
+        @warn "Simulation: the GPU stepping path supports only :shell geometry " *
+              "(the device kernels hard-code the shell poloidal recovery and BC rows); " *
+              "using the CPU path" geometry = p.geometry
+        return false
+    end
+    if model.state.topography.config.enabled
+        @warn "Simulation: topography coupling is enabled but the GPU step path does " *
+              "not apply it (no GPU port of apply_solver_topography!); using the CPU path"
+        return false
+    end
+    let st = model.state
+        tdep = String[]
+        for (name, field) in (("temperature", st.fields.temperature),
+            ("velocity", st.fields.velocity),
+            ("magnetic", st.fields.magnetic),
+            ("composition", st.fields.composition))
+            _gpu_field_has_time_dependent_bc(field) && push!(tdep, name)
+        end
+        if !isempty(tdep)
+            @warn "Simulation: the GPU stepping path bakes boundary endpoint values at " *
+                  "pack time, so time-dependent boundary data would be silently frozen; " *
+                  "using the CPU path" fields = tdep
+            return false
+        end
+    end
     if p.include_magnetic && p.magnetic_inner_bc !== :insulating
         # A conducting inner core IS supported on the device, but only under CNAB2:
         # gpu_magnetic_field_step! takes the packed admittance via its `ic` argument,
@@ -371,6 +422,7 @@ function _gpu_time_step!(sim::Simulation)
         sim._gpu_erk2 = erk
         sim._gpu_dt = sim.dt
         sim._gpu_src = _gpu_source_snapshot(state)
+        sim._gpu_bc = _gpu_bc_snapshot(state)
         return sim
     end
     # The bundle bakes boundary endpoint values and the internal-source profiles
@@ -490,6 +542,34 @@ function _gpu_source_snapshot(st)
     return (snap(st.fields.temperature), snap(st.fields.composition))
 end
 
+# Host-side copies of the scalar boundary endpoint values baked into the device bundle,
+# in the order (temperature, composition). `sbundle` (gpu/device_state.jl) copies
+# `get_bc_vectors(field)` — i.e. `field.boundary_values` — at pack time, and
+# `gpu_implicit_solve_field!` re-plants those copies on every device step, whereas the
+# CPU path re-reads the live view each step. Only the scalar fields are snapshotted
+# because only `sbundle` bakes BC values; `vbundle` (velocity/magnetic) packs zeros.
+function _gpu_bc_snapshot(st)
+    snap(field) = begin
+        field === nothing && return nothing
+        hasproperty(field, :boundary_values) || return nothing
+        Matrix{Float64}(field.boundary_values)
+    end
+    return (snap(st.fields.temperature), snap(st.fields.composition))
+end
+
+# Whether a field's boundary endpoint values still match what was baked.
+function _gpu_bc_current(field, baked)
+    field === nothing && return true
+    hasproperty(field, :boundary_values) || return true
+    baked === nothing && return true
+    cur = field.boundary_values
+    size(cur) == size(baked) || return false
+    @inbounds for i in eachindex(baked)
+        cur[i] == baked[i] || return false
+    end
+    return true
+end
+
 # Whether a field's internal-source profile still matches what was baked. `baked
 # === nothing` means the bundle packed no source, so the field must still be all
 # zero for the device step to reproduce the CPU one.
@@ -522,6 +602,22 @@ function _gpu_assert_bundle_current(sim::Simulation)
         "device bundle was built. The bundle bakes the profile at pack time and is only " *
         "rebuilt on a Δt change, so the device would keep integrating the old source. " *
         "Rebuild the Simulation, or change the source before the first step.")
+    # `_gpu_assert_static_bcs` only rejects a time-dependent BoundaryConditionSet; a
+    # direct write to `boundary_values` (the programmatic BC surface, or set_*_bcs!)
+    # leaves the set static, so the endpoint VALUES have to be diffed as well. Without
+    # this the device kept re-planting the wall values baked at build time while the
+    # reported parameters and output metadata showed the new ones.
+    bc_t, bc_c = sim._gpu_bc
+    _gpu_bc_current(state.fields.temperature, bc_t) || error(
+        "GPU solver path: the temperature boundary endpoint values changed after the " *
+        "device bundle was built. The bundle bakes `boundary_values` at pack time and is " *
+        "only rebuilt on a Δt change, so the device would keep applying the old wall " *
+        "values. Rebuild the Simulation, or change the boundary values before the first step.")
+    _gpu_bc_current(state.fields.composition, bc_c) || error(
+        "GPU solver path: the composition boundary endpoint values changed after the " *
+        "device bundle was built. The bundle bakes `boundary_values` at pack time and is " *
+        "only rebuilt on a Δt change, so the device would keep applying the old wall " *
+        "values. Rebuild the Simulation, or change the boundary values before the first step.")
     return nothing
 end
 

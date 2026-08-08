@@ -338,12 +338,21 @@ function krylov_exp_action(
     V[:, 1] = v / beta
     w = similar(v)
     kmax = m
+    # Every failure path below used to answer with `kmax = j; break` and then fall
+    # through to the action computation, returning a truncated basis result that is
+    # perfectly FINITE but badly under-converged — and `nan_checker`/`HealthCheck` only
+    # test `isfinite`, so the run reported healthy while the trajectory drifted. Track
+    # WHY the loop stopped and refuse to return an unconverged action.
+    # Converged means either the residual estimate met `tol` or the Krylov space became
+    # invariant (happy breakdown); nothing else counts, including exhausting all `m`
+    # iterations with the residual still above `tol`.
+    converged = false
 
     for j in 1:m
         Aop!(w, view(V, :, j))
 
         if !all(isfinite, w)
-            @warn "Non-finite values from solver operator in Krylov iteration $j"
+            @warn "Non-finite values from solver operator in Krylov iteration $j" maxlog = 1
             kmax = max(1, j - 1)
             break
         end
@@ -356,10 +365,26 @@ function krylov_exp_action(
             @views @. w = w - H[i, j] * V[:, i]
         end
 
+        # The Krylov space cannot exceed the vector length, so at j = n the basis spans
+        # it exactly and the action is exact — independent of any threshold. Without
+        # this, a small but badly SCALED problem (n = 2 with |λ| ~ 1e9) leaves a
+        # rounding-level residual that the absolute `series_tol` test below cannot
+        # recognize as a breakdown, and the loop wanders into noise dimensions.
+        if j >= n
+            kmax = j
+            converged = true
+            break
+        end
+
         if j < m
             H[j + 1, j] = LA.norm(w)
-            if H[j + 1, j] < series_tol(T)
+            # Breakdown test relative to the Hessenberg scale as well as absolute: the
+            # residual of an exhausted subspace is O(eps·‖H‖), which for ‖H‖ ~ 1e9 is far
+            # above any fixed absolute tolerance.
+            if H[j + 1, j] < series_tol(T) ||
+               H[j + 1, j] <= sqrt(eps(real(T))) * LA.norm(view(H, 1:j, 1:j))
                 kmax = j
+                converged = true      # happy breakdown: the space is invariant
                 break
             end
             V[:, j + 1] = w / H[j + 1, j]
@@ -367,7 +392,7 @@ function krylov_exp_action(
             try
                 Hred_j = dt .* @view H[1:j, 1:j]
                 if j > 1 && LA.cond(Hred_j) > 1e12
-                    @warn "Ill-conditioned solver Hessenberg matrix, stopping Krylov at iteration $j"
+                    @warn "Ill-conditioned solver Hessenberg matrix, stopping Krylov at iteration $j" maxlog = 1
                     kmax = j
                     break
                 end
@@ -377,7 +402,7 @@ function krylov_exp_action(
                 y_small_j = exp(Hred_j) * (beta .* e1)
 
                 if !all(isfinite, y_small_j)
-                    @warn "Non-finite solver exponential result, stopping Krylov at iteration $j"
+                    @warn "Non-finite solver exponential result, stopping Krylov at iteration $j" maxlog = 1
                     kmax = j
                     break
                 end
@@ -385,15 +410,23 @@ function krylov_exp_action(
                 res_est = abs(H[j + 1, j]) * abs(j > 0 ? y_small_j[end] : beta)
                 if res_est <= tol * LA.norm(y_small_j)
                     kmax = j
+                    converged = true
                     break
                 end
             catch e
-                @warn "Error in solver Krylov convergence check: $e, stopping at iteration $j"
+                @warn "Error in solver Krylov convergence check: $e, stopping at iteration $j" maxlog = 1
                 kmax = j
                 break
             end
         end
     end
+
+    converged || error(
+        "Solver Krylov exponential action did not converge: stopped at dimension " *
+        "$kmax of m = $m with the residual estimate still above tol = $tol. " *
+        "Returning the truncated action would be a finite but quantitatively wrong " *
+        "exponential update that every isfinite-based health check accepts. " *
+        "Increase the Krylov dimension `m`, loosen `tol`, or reduce dt.")
 
     try
         Hred = dt .* H[1:kmax, 1:kmax]
@@ -484,10 +517,24 @@ function krylov_exp_action!(
             end
         end
 
+        # Same exhausted-subspace rules as the allocating twin above: the space cannot
+        # exceed n, and an exhausted subspace leaves an O(eps·‖H‖) residual that a fixed
+        # absolute threshold misses on badly scaled operators.
+        # NOTE (deferred, deliberate asymmetry): this variant computes no residual
+        # estimate at all, so unlike `krylov_exp_action` it cannot refuse an
+        # unconverged action. Adding that here means introducing convergence estimation
+        # on the per-step ERK2/EAB2 hot path, which is a numerics change in its own
+        # right — tracked, not silently assumed equivalent.
+        if j >= n
+            kmax = j
+            break
+        end
+
         if j < m
             hnext = LA.norm(w)
             H[j + 1, j] = hnext
-            if hnext < series_tol(T)
+            if hnext < series_tol(T) ||
+               hnext <= sqrt(eps(real(T))) * LA.norm(view(H, 1:j, 1:j))
                 kmax = j
                 break
             end

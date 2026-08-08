@@ -1,5 +1,29 @@
 # ERK2 cache lifecycle: cache builders, memoized accessors, and bundle persistence.
 
+# ── boundary-structure fingerprint for the memoized stage caches ────────────────
+# `solver_erk2_constrained_propagators` folds the two endpoint constraint rows into the
+# generator, so E/phi1/phi2 depend on the row STRUCTURE — the side kinds, their stencils
+# and l-corrections, plus which generator (dpol) and which inner row (regularity) was
+# used. `solver_erk2_constraint_row` never reads the endpoint VALUE/target, and the
+# mode-value slots are live views, so values are deliberately excluded: including them
+# would force a rebuild on every step without changing a single propagator entry.
+#
+# Computed from the RAW getter inputs (the `bc_spec` as passed, not the spec derived
+# inside a builder) so the getter and the builder always agree.
+_erk2_side_signature(side::SolverERK2DirichletSide) = (:dirichlet,)
+function _erk2_side_signature(side::SolverERK2StencilSide)
+    return (:stencil, side.stencil, side.r_inv, side.l_sign,
+        side.use_l_correction, side.fixed_correction)
+end
+
+function _erk2_bc_signature(bc_spec, boundary_condition::Int,
+        inner_regularity::Bool, dpol_operator::Bool)
+    bc_spec === nothing && return hash((:derived, boundary_condition,
+        inner_regularity, dpol_operator))
+    return hash((_erk2_side_signature(bc_spec.inner), _erk2_side_signature(bc_spec.outer),
+        boundary_condition, inner_regularity, dpol_operator))
+end
+
 """
     solver_erk2_constraint_row(T, side, boundary_idx, l, nr) -> Vector{T}
 
@@ -286,7 +310,8 @@ function create_solver_erk2_scalar_cache(
         use_krylov,
         m,
         tol,
-        true
+        true,
+        _erk2_bc_signature(bc_spec, boundary_condition, inner_regularity, false)
     )
 end
 
@@ -428,7 +453,8 @@ function create_solver_erk2_cache(
         use_krylov,
         m,
         tol,
-        true
+        true,
+        _erk2_bc_signature(bc_spec, 0, false, dpol_operator)
     )
 end
 
@@ -518,7 +544,8 @@ function create_solver_erk2_magnetic_toroidal_cache(
         use_krylov,
         m,
         tol,
-        true
+        true,
+        _erk2_bc_signature(bc_spec, 0, false, false)
     )
 end
 
@@ -612,7 +639,8 @@ function create_solver_erk2_magnetic_poloidal_cache(
         use_krylov,
         m,
         tol,
-        true
+        true,
+        _erk2_bc_signature(bc_spec, 0, false, false)
     )
 end
 
@@ -810,13 +838,15 @@ function _get_or_build_erk2_cache(
         dpol_operator::Bool = false
 )::ERK2StageCache{T} where {T}
     nr = domain.N
+    bc_signature = _erk2_bc_signature(bc_spec, 0, false, dpol_operator)
     needs_rebuild = existing === nothing ||
                     existing.diffusivity != diffusivity ||
                     existing.nr != nr ||
                     existing.dt != dt ||
                     existing.use_krylov != use_krylov ||
                     !existing.mpi_consistent ||
-                    existing.l_values != unique(config.l_values)
+                    existing.l_values != unique(config.l_values) ||
+                    existing.bc_signature != bc_signature
 
     if needs_rebuild
         if mpi_rank() == 0
@@ -860,13 +890,15 @@ function _get_or_build_erk2_scalar_cache(
         tol::Float64 = 1e-8
 )::ERK2StageCache{T} where {T}
     nr = domain.N
+    bc_signature = _erk2_bc_signature(bc_spec, boundary_condition, inner_regularity, false)
     needs_rebuild = existing === nothing ||
                     existing.diffusivity != diffusivity ||
                     existing.nr != nr ||
                     existing.dt != dt ||
                     existing.use_krylov != use_krylov ||
                     !existing.mpi_consistent ||
-                    existing.l_values != unique(config.l_values)
+                    existing.l_values != unique(config.l_values) ||
+                    existing.bc_signature != bc_signature
 
     if needs_rebuild
         bc_desc = ["DD", "DN", "ND", "NN"][clamp(boundary_condition, 1, 4)]

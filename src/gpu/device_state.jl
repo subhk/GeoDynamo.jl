@@ -134,29 +134,11 @@ end
 #   M:         2×2 endpoint-influence matrices, (2, 2, nl)
 #   d1_inner/d1_outer: endpoint first-derivative residual rows (length nr)
 function _build_wsplit_pack(st, nl::Int, nr::Int, bw::Int, ::Type{T}) where {T}
+    # Only the split lookup belongs here; the packing itself is _pack_wsplit, which this
+    # function used to duplicate line for line.
     velocity_bc = _velocity_bc_code(st.parameters.velocity_bcs)
     split = _get_or_build_poloidal_split!(st, velocity_bc)
-    split_bw = split.dpol_op[1].bandwidth
-    split_bw == bw || error(
-        "W-split bandwidth $split_bw ≠ velocity operator bandwidth $bw")
-    dpol = zeros(T, 2bw + 1, nr, nl); wlin = zeros(T, 2bw + 1, nr, nl)
-    wlu = zeros(T, 2bw + 1, nr, nl); plu = zeros(T, 2bw + 1, nr, nl)
-    h1 = zeros(T, nl, nr); h2 = zeros(T, nl, nr)
-    M = zeros(T, 2, 2, nl)
-    for (i, l) in enumerate(split.l_values)
-        s = l + 1
-        s <= nl || continue
-        dpol[:, :, s] .= split.dpol_op[i].data
-        wlin[:, :, s] .= split.w_linear[i].data
-        wlu[:, :, s] .= split.w_factor[i].lu
-        plu[:, :, s] .= split.p_factor[i].lu
-        h1[s, :] .= split.h1[i]
-        h2[s, :] .= split.h2[i]
-        M[:, :, s] .= split.influence[i]
-    end
-    return (; dpol, wlin, wlu, plu, h1, h2, M,
-        d1_inner = Vector{T}(split.d1_row_inner),
-        d1_outer = Vector{T}(split.d1_row_outer))
+    return _pack_wsplit(split, nl, nr, bw, T)
 end
 
 function _pack_wsplit(split, nl::Int, nr::Int, bw::Int, ::Type{T}) where {T}

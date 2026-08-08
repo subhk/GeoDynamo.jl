@@ -126,13 +126,21 @@ function rebuild_solver_implicit_matrices!(
         state::SolverState{
             T, <:AbstractArchitecture}, dt::Real) where {T}
     backend = state.backend
-    # NOTE: backend.parameters.timestep is frozen at construction and intentionally
-    # ignored here — `dt` is authoritative. Only non-timestep params are read.
-    # The conducting-inner-core ICB admittance also depends on dt, so refresh it too.
+    # Physical parameters come from the LIVE `state.parameters`, not
+    # `backend.parameters`: `SolverBackend` is immutable and its snapshot is frozen at
+    # construction, while `Simulation`/`time_step!` replace `state.parameters` (the only
+    # two `.parameters =` sites in src/ are both on the state). Reading the frozen copy
+    # silently reverted theta (from `p.timestepper`), Ek, Pm/Pr, Pm/Sc, the
+    # velocity/thermal/composition BC codes and `magnetic_inner_bc` to their
+    # construction-time values — so `Simulation(model; implicit_theta=1.0)` left the
+    # toroidal/scalar systems at Crank-Nicolson while the poloidal W-split (which reads
+    # `state.parameters`) used theta=1.0: two different implicit weights in one scheme.
+    # Only the grid/domain objects still come from the backend, and `dt` stays
+    # authoritative from the caller (backend.parameters.timestep is frozen too).
     matrices,
     magnetic_ic_admittance = _build_implicit_matrices_dict(
         T, backend.shtns_config, backend.outer_core_domain,
-        backend.inner_core_domain, backend.parameters, Float64(dt))
+        backend.inner_core_domain, state.parameters, Float64(dt))
     state.implicit_matrices = create_solver_implicit_matrix_store(matrices)
     state.magnetic_ic_admittance = magnetic_ic_admittance
     return state
