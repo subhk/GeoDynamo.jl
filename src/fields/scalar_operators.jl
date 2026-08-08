@@ -811,8 +811,13 @@ mutable struct _TauCache
     dtau2_outer::Float64
 end
 
-# Global tau cache dictionary
+# Global tau cache dictionary. Lock-guarded like _MODE_INDEX_CACHE above: the
+# read/insert pair below is reachable from the exported apply_scalar_flux_bc_spectral!,
+# and two threads (temperature + composition) missing simultaneously would rehash the
+# IdDict concurrently — the same class of corruption the get_radial_work! Dict race
+# produced (UndefRefError / heap corruption).
 const _TAU_CACHE = IdDict{RadialDomain, _TauCache}()
+const _TAU_CACHE_LOCK = ReentrantLock()
 
 # Influence matrix cache structure
 mutable struct _InfluenceCache
@@ -822,8 +827,9 @@ mutable struct _InfluenceCache
     influence_matrix::Matrix{Float64}
 end
 
-# Global influence cache dictionary
+# Global influence cache dictionary (lock-guarded — see _TAU_CACHE_LOCK).
 const _INFLUENCE_CACHE = IdDict{RadialDomain, _InfluenceCache}()
+const _INFLUENCE_CACHE_LOCK = ReentrantLock()
 
 """
     clear_mode_index_cache!()
@@ -845,8 +851,14 @@ Clear process-global scalar field caches that retain transform and boundary help
 """
 function clear_scalar_field_caches!()
     clear_mode_index_cache!()
-    empty!(_TAU_CACHE)
-    empty!(_INFLUENCE_CACHE)
+    # Under the same locks as the inserts: this function is exported, so a
+    # concurrent clear-vs-insert is a reachable combination too.
+    lock(_TAU_CACHE_LOCK) do
+        empty!(_TAU_CACHE)
+    end
+    lock(_INFLUENCE_CACHE_LOCK) do
+        empty!(_INFLUENCE_CACHE)
+    end
     return nothing
 end
 
@@ -917,17 +929,25 @@ Get or create cached tau polynomials and derivatives for given domain.
 """
 function _get_tau_cache(domain::RadialDomain)
     nr = domain.N
+    # Unlocked fast path (a hit needs no mutation), then re-check under the lock so a
+    # concurrent miss cannot double-insert or rehash while another thread reads.
     cache = get(_TAU_CACHE, domain, nothing)
     if cache === nothing || cache.nr != nr || length(cache.tau1) != nr
-        # Recompute cache for current domain
-        tau1 = compute_chebyshev_polynomial(nr-1, domain)
-        tau2 = compute_chebyshev_polynomial(nr, domain)
-        dt1i = evaluate_chebyshev_derivative(nr-1, domain.r[1, 4], domain)
-        dt1o = evaluate_chebyshev_derivative(nr-1, domain.r[nr, 4], domain)
-        dt2i = evaluate_chebyshev_derivative(nr, domain.r[1, 4], domain)
-        dt2o = evaluate_chebyshev_derivative(nr, domain.r[nr, 4], domain)
-        cache = _TauCache(nr, tau1, tau2, dt1i, dt1o, dt2i, dt2o)
-        _TAU_CACHE[domain] = cache
+        cache = lock(_TAU_CACHE_LOCK) do
+            existing = get(_TAU_CACHE, domain, nothing)
+            if existing !== nothing && existing.nr == nr && length(existing.tau1) == nr
+                return existing
+            end
+            tau1 = compute_chebyshev_polynomial(nr-1, domain)
+            tau2 = compute_chebyshev_polynomial(nr, domain)
+            dt1i = evaluate_chebyshev_derivative(nr-1, domain.r[1, 4], domain)
+            dt1o = evaluate_chebyshev_derivative(nr-1, domain.r[nr, 4], domain)
+            dt2i = evaluate_chebyshev_derivative(nr, domain.r[1, 4], domain)
+            dt2o = evaluate_chebyshev_derivative(nr, domain.r[nr, 4], domain)
+            fresh = _TauCache(nr, tau1, tau2, dt1i, dt1o, dt2i, dt2o)
+            _TAU_CACHE[domain] = fresh
+            return fresh
+        end
     end
     return cache
 end
@@ -1371,12 +1391,18 @@ Get or create cached influence functions and matrix for given domain.
 Note: `∂r` should be a `BandedMatrix` from `numerics/banded_operators.jl`.
 """
 function _get_influence_cache(domain::RadialDomain, ∂r)
+    # Same locked double-check as _get_tau_cache.
     cache = get(_INFLUENCE_CACHE, domain, nothing)
     if cache === nothing || cache.nr != domain.N
-        Gi, Go = compute_influence_functions_flux(domain)
-        M = build_influence_matrix(Gi, Go, ∂r, domain)
-        cache = _InfluenceCache(domain.N, Gi, Go, M)
-        _INFLUENCE_CACHE[domain] = cache
+        cache = lock(_INFLUENCE_CACHE_LOCK) do
+            existing = get(_INFLUENCE_CACHE, domain, nothing)
+            (existing !== nothing && existing.nr == domain.N) && return existing
+            Gi, Go = compute_influence_functions_flux(domain)
+            M = build_influence_matrix(Gi, Go, ∂r, domain)
+            fresh = _InfluenceCache(domain.N, Gi, Go, M)
+            _INFLUENCE_CACHE[domain] = fresh
+            return fresh
+        end
     end
     return cache
 end

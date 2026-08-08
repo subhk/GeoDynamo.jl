@@ -107,20 +107,14 @@ using LinearAlgebra
 using Base.Threads
 using Dates
 
-# For Julia 1.10 compatibility: Define simple statistics functions
-# to avoid module resolution issues with Statistics stdlib in submodules
-_mean(x) = sum(x) / length(x)
-_std(x) = begin
-    m = _mean(x)
-    n = length(x)
-    n <= 1 && return zero(eltype(x))
-    sqrt(sum((xi - m)^2 for xi in x) / (n - 1))
-end
+# Statistics is a declared dependency of the package, so use it directly instead of
+# hand-rolled reductions behind a fake `module _Statistics` shim. `_std` keeps the
+# single-element convention (0 rather than Statistics' NaN) that the diagnostics
+# printers here rely on.
+using Statistics: mean as _stats_mean, std as _stats_std
 
-# Create a module-like object for compatibility with existing code
-module _Statistics
-import ..bcs: _mean as mean, _std as std
-end
+_mean(x) = _stats_mean(x)
+_std(x) = length(x) <= 1 ? zero(eltype(x)) : _stats_std(x)
 
 # ================================================================================
 # Core Boundary Condition Types and Interfaces
@@ -559,11 +553,17 @@ function shtns_physical_to_spectral(physical_data::Matrix{T}, config; return_com
             coeffs = zeros(T, nlm)
         end
 
-        # Map from (l,m) matrix to linear index
-        # This follows the same indexing as used in the main transform code
+        # Map from (l,m) matrix to linear index using the solver's CANONICAL
+        # m-major ordering (m varies slowest, l fastest) — the same order
+        # `create_shtnskit_config` builds `l_values`/`m_values` with
+        # (transforms/spectral.jl) and the order every consumer of
+        # `boundary_values` indexes by (`_solver_solve_scalar_implicit_step!`
+        # reads `bc_inner[lm_idx]` with a canonical index). Writing l-major here
+        # made every non-axisymmetric boundary coefficient land on the wrong
+        # harmonic; only l=0 (index 1) agreed.
         idx = 0
-        for l in 0:lmax
-            for m in 0:min(l, mmax_val)
+        for m in 0:mmax_val
+            for l in m:lmax
                 idx += 1
                 if idx <= nlm && l < size(coeffs_matrix, 1) && m < size(coeffs_matrix, 2)
                     if return_complex
@@ -607,9 +607,11 @@ function shtns_spectral_to_physical(coeffs::Vector{T}, config, nlat::Int, nlon::
         lmax, mmax_val = config.lmax, config.mmax
         coeffs_matrix = zeros(ComplexF64, lmax+1, mmax_val+1)
 
+        # Canonical m-major ordering, matching shtns_physical_to_spectral and the
+        # solver's l_values/m_values (see the comment there).
         idx = 0
-        for l in 0:lmax
-            for m in 0:min(l, mmax_val)
+        for m in 0:mmax_val
+            for l in m:lmax
                 idx += 1
                 if idx <= length(coeffs)
                     coeffs_matrix[l + 1, m + 1] = complex(coeffs[idx])

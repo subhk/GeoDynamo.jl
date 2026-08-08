@@ -152,6 +152,57 @@ function _timestepper_from_scheme(
     end
 end
 
+# Fold an explicitly requested scalar into the resolved timestepper STRUCT.
+# `SolverParameters` stores only the struct, and every consumer derives theta /
+# krylov settings from it (`_timestepper_implicit_theta` & friends), so an
+# override that is not folded in here is silently dropped — e.g.
+# `Simulation(model; Δt, implicit_theta=1.0)` would keep running Crank-Nicolson
+# theta=0.5. Returning `nothing` means "this timestepper cannot carry it", which
+# the caller turns into a loud error rather than a silent no-op.
+_timestepper_with_theta(::Any, theta::Float64) = nothing
+_timestepper_with_theta(::CNAB2, theta::Float64) = CNAB2(implicit_theta = theta)
+_timestepper_with_theta(::ThetaMethod, theta::Float64) = ThetaMethod(theta = theta)
+
+_timestepper_with_krylov(::Any, dim, tol) = nothing
+function _timestepper_with_krylov(ts::ExponentialAdamsBashforth2, dim, tol)
+    ExponentialAdamsBashforth2(
+        krylov_dimension = something(dim, ts.krylov_dimension),
+        tolerance = Float64(something(tol, ts.tolerance)))
+end
+function _timestepper_with_krylov(ts::ETD, dim, tol)
+    ETD(krylov_dimension = something(dim, ts.krylov_dimension),
+        tolerance = Float64(something(tol, ts.tolerance)))
+end
+
+function _apply_timestepper_overrides(
+        effective,
+        implicit_theta::Union{Real, Nothing},
+        etd_krylov_dimension::Union{Int, Nothing},
+        krylov_tolerance::Union{Real, Nothing}
+)
+    ts = effective
+    if !isnothing(implicit_theta)
+        theta = Float64(implicit_theta)
+        updated = _timestepper_with_theta(ts, theta)
+        isnothing(updated) && throw(ArgumentError(
+            "implicit_theta=$theta cannot be applied to $(typeof(ts)): only CNAB2 " *
+            "and ThetaMethod carry an implicit weight. Drop implicit_theta, or pass " *
+            "a timestepper that uses it — silently ignoring it would run a different " *
+            "scheme than requested."))
+        ts = updated
+    end
+    if !isnothing(etd_krylov_dimension) || !isnothing(krylov_tolerance)
+        updated = _timestepper_with_krylov(ts, etd_krylov_dimension, krylov_tolerance)
+        isnothing(updated) && throw(ArgumentError(
+            "etd_krylov_dimension/krylov_tolerance cannot be applied to $(typeof(ts)): " *
+            "only ExponentialAdamsBashforth2 and ETD carry Krylov settings. Drop them, " *
+            "or pass an exponential timestepper — silently ignoring them would run " *
+            "with different accuracy than requested."))
+        ts = updated
+    end
+    return ts
+end
+
 function _resolve_timestepper(
         timestepper,
         timestep_scheme::Union{Symbol, Nothing},
@@ -179,6 +230,13 @@ function _resolve_timestepper(
     else
         params.timestepper
     end
+
+    # Apply the explicit scalar overrides to the resolved struct. Without this,
+    # anything that arrives as a struct (the default `params.timestepper`, or an
+    # explicit `timestepper=CNAB2()`) ignores implicit_theta / krylov kwargs
+    # entirely, because SolverParameters carries no such fields.
+    effective = _apply_timestepper_overrides(
+        effective, implicit_theta, etd_krylov_dimension, krylov_tolerance)
 
     scheme = _timestepper_scheme(effective)
     if !isnothing(timestep_scheme) && timestep_scheme !== scheme

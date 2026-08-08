@@ -568,17 +568,26 @@ const FINALIZE_MPI_TAIL_EXT = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") ==
         @test GeoDynamo.validate_composition_field(comp, shell) == true
 
         # ---- set_composition_boundary_conditions! (:fixed / :no_flux) ----
+        # boundary_values is SPECTRAL: a uniform physical value maps to the (0,0)
+        # coefficient v*sqrt(4pi), every other mode stays zero (a broadcast over all
+        # modes would drive the wall on every harmonic — see code_review_batchA_fixes.jl).
+        m00 = GeoDynamo.get_mode_index(comp.config, 0, 0)
+        rest = [i for i in 1:comp.config.nlm if i != m00]
         GeoDynamo.set_composition_boundary_conditions!(comp, :fixed, :no_flux, 2.5, -1.0)
         @test all(comp.bc_type_inner .== Int(GeoDynamo.DIRICHLET))
         @test all(comp.bc_type_outer .== Int(GeoDynamo.NEUMANN))
-        @test all(comp.boundary_values[1, :] .== 2.5)
-        # outer no_flux leaves outer boundary_values untouched (still zero)
+        @test comp.boundary_values[1, m00] ≈ sqrt(4 * pi) * 2.5
+        @test all(comp.boundary_values[1, rest] .== 0.0)
+        # outer no_flux means zero flux: the outer row stays zero
         @test all(comp.boundary_values[2, :] .== 0.0)
-        # the other direction: outer :fixed sets outer row, inner :no_flux only sets type
+        # the other direction: outer :fixed sets the outer (0,0) endpoint, inner
+        # :no_flux only sets the type and clears the stale inner row
         GeoDynamo.set_composition_boundary_conditions!(comp, :no_flux, :fixed, 0.0, 4.0)
         @test all(comp.bc_type_inner .== Int(GeoDynamo.NEUMANN))
         @test all(comp.bc_type_outer .== Int(GeoDynamo.DIRICHLET))
-        @test all(comp.boundary_values[2, :] .== 4.0)
+        @test comp.boundary_values[2, m00] ≈ sqrt(4 * pi) * 4.0
+        @test all(comp.boundary_values[2, rest] .== 0.0)
+        @test all(comp.boundary_values[1, :] .== 0.0)
 
         # ---- set_composition_ic! :uniform sets l=0 coefficient to 1 along radius ----
         comp_u = GeoDynamo.create_shtns_composition_field(Float64, cfg, shell)

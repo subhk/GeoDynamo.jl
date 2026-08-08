@@ -240,11 +240,15 @@ is true, throw to halt the simulation.
 """
 function _fire_callback!(cb::HealthCheck, sim)
     r = _health_check(sim.model)
-    if r.has_issue
+    # `_health_check` is rank-LOCAL, so `abort` has to be a collective decision:
+    # calling error() on only the offending ranks leaves the others in the next
+    # collective, which hangs instead of aborting.
+    if _any_rank_flag(r.has_issue)
         @warn "HealthCheck: non-finite values detected" step=sim.model.clock.iteration time=sim.model.clock.time fields=r.fields
         if cb.abort
             error("HealthCheck: non-finite values detected in fields $(r.fields) " *
-                  "at step $(sim.model.clock.iteration); aborting simulation")
+                  "at step $(sim.model.clock.iteration); aborting simulation" *
+                  (r.has_issue ? "" : " (detected on another rank)"))
         end
     else
         @info "HealthCheck: all fields finite" step=sim.model.clock.iteration time=sim.model.clock.time
@@ -264,7 +268,9 @@ simulation state, and fires each callback whose schedule returns `true` from
 `should_fire`.
 """
 function _run_callbacks!(sim)
-    wtime = sim._wall_start > 0.0 ? time() - sim._wall_start : 0.0
+    # Rank-consistent elapsed time: a WallTimeInterval callback must fire on the
+    # same iteration on every rank (see `_collective_wtime`).
+    wtime = _collective_wtime(sim)
     ctx = _ScheduleContext(sim.model.clock.time, sim.model.clock.iteration, wtime)
     for cb in values(sim.callbacks)
         if should_fire(_callback_schedule(cb), ctx)

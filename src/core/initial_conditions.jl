@@ -50,7 +50,6 @@ e.g. a `set!(:conductive)` mean gradient — is preserved.
 function randomize_scalar_field!(field; amplitude::Real, lmax::Int, domain = nothing)
     spectral = getproperty(field, :spectral)
     real3 = parent(spectral.data_real)
-    imag3 = parent(spectral.data_imag)
     cfg = spectral.config
     r_range = get_local_range(spectral.pencil, 3)
     T = eltype(real3)
@@ -88,11 +87,11 @@ content (no clearing first), so a prior base state is preserved.
 
 `domain` is accepted for API symmetry but currently unused.
 """
-function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain = nothing)
+function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain = nothing,
+        label::AbstractString = "vector field")
     amp = Float64(amplitude)
     for spectral in (field.toroidal, field.poloidal)
         real3 = parent(spectral.data_real)
-        imag3 = parent(spectral.data_imag)
         cfg = spectral.config
         T = eltype(real3)
         r_range = get_local_range(spectral.pencil, 3)
@@ -115,7 +114,7 @@ function randomize_vector_field!(field; amplitude::Real, lmax::Int, domain = not
     end
     for spectral in (field.toroidal, field.poloidal)
         if any(isnan, parent(spectral.data_real)) || any(isinf, parent(spectral.data_real))
-            error("Non-finite values in vector field initial conditions (real part)")
+            error("Non-finite values in $label initial conditions (real part)")
         end
     end
     return field
@@ -131,35 +130,9 @@ so a prior base state is preserved.
 `domain` is accepted for API symmetry but currently unused.
 """
 function randomize_magnetic_field!(field; amplitude::Real, lmax::Int, domain = nothing)
-    amp = Float64(amplitude)
-    for spectral in (field.toroidal, field.poloidal)
-        real3 = parent(spectral.data_real)
-        imag3 = parent(spectral.data_imag)
-        cfg = spectral.config
-        T = eltype(real3)
-        r_range = get_local_range(spectral.pencil, 3)
-        # SUPERIMPOSE onto existing content (no `fill!(0)`); real-valued
-        # perturbation leaves the imaginary part untouched.
-        # Slot-indexed perturbation over every owned (l, m) mode, 1 ≤ l ≤ lmax.
-        for lm in 1:cfg.nlm
-            l = cfg.l_values[lm]
-            (1 <= l <= lmax) || continue
-            slot = local_spectral_storage_slot(cfg, lm)
-            slot === nothing && continue
-            for (local_r, _global_r) in enumerate(r_range)
-                local_r <= size(real3, 3) || continue
-                prev = local_spectral_value(real3, slot, local_r)
-                set_local_spectral_value!(real3, slot, local_r,
-                                          prev + convert(T, amp * (rand() - 0.5)))
-            end
-        end
-    end
-    for spectral in (field.toroidal, field.poloidal)
-        if any(isnan, parent(spectral.data_real)) || any(isinf, parent(spectral.data_real))
-            error("Non-finite values in magnetic field initial conditions (real part)")
-        end
-    end
-    return field
+    # Verbatim copy of randomize_vector_field! apart from its error wording, which the
+    # `label` keyword now carries. Sharing the body keeps the two from drifting.
+    return randomize_vector_field!(field; amplitude, lmax, domain, label = "magnetic field")
 end
 
 # ================================================================================

@@ -88,25 +88,35 @@ function compute_theta_gradient_spectral!(
                 dtheta_real = zero(T)
                 dtheta_imag = zero(T)
 
+                # sinθ·∂θY_l = A₊(l)·Y_{l+1} + A₋(l)·Y_{l-1}. Collecting the Y_l term
+                # of Σ a_{l'}·sinθ∂θY_{l'} gives b_l = A₊(l-1)·a_{l-1} + A₋(l+1)·a_{l+1}:
+                # the SOURCE a_{l∓1} is weighted by A_±(l∓1), NOT by A_±(l). This code
+                # used A_±(l) — the coefficients of Y_{l±1} in sinθ∂θY_l, i.e. the wrong
+                # l-argument — which produced a corrupted gradient. The corrected
+                # sibling in fields/scalar_operators.jl documents the same derivation;
+                # a single input mode a_L = 1 must yield exactly b_{L+1} = A₊(L) and
+                # b_{L-1} = A₋(L), which is what pins this.
                 if l < 𝔽.config.lmax
                     # Neighbor (l+1, m) storage index is precomputed once in the
                     # workspace; avoids hashing the full mode arrays every call.
                     lm_plus = ws.theta_lm_plus[lm_idx]
                     if lm_plus > 0 && lm_plus <= nlm
-                        A_plus = T(l) * sqrt(T((l + abs_m + 1) * (l - abs_m + 1)) /
-                                      T((2 * l + 1) * (2 * l + 3)))
-                        dtheta_real += A_plus * full_real[lm_plus, local_r]
-                        dtheta_imag += A_plus * full_imag[lm_plus, local_r]
+                        # A₋(l+1) = −(l+2)·sqrt(((l+1)+|m|)((l+1)−|m|)/((2l+1)(2l+3)))
+                        coeff_plus = -T(l + 2) * sqrt(T((l + abs_m + 1) * (l - abs_m + 1)) /
+                                          T((2 * l + 1) * (2 * l + 3)))
+                        dtheta_real += coeff_plus * full_real[lm_plus, local_r]
+                        dtheta_imag += coeff_plus * full_imag[lm_plus, local_r]
                     end
                 end
 
                 if l > abs_m
                     lm_minus = ws.theta_lm_minus[lm_idx]
                     if lm_minus > 0 && lm_minus <= nlm
-                        A_minus = -T(l + 1) * sqrt(T((l + abs_m) * (l - abs_m)) /
-                                       T((2 * l - 1) * (2 * l + 1)))
-                        dtheta_real += A_minus * full_real[lm_minus, local_r]
-                        dtheta_imag += A_minus * full_imag[lm_minus, local_r]
+                        # A₊(l−1) = (l−1)·sqrt(((l−1)+|m|+1)((l−1)−|m|+1)/((2l−1)(2l+1)))
+                        coeff_minus = T(l - 1) * sqrt(T((l + abs_m) * (l - abs_m)) /
+                                           T((2 * l - 1) * (2 * l + 1)))
+                        dtheta_real += coeff_minus * full_real[lm_minus, local_r]
+                        dtheta_imag += coeff_minus * full_imag[lm_minus, local_r]
                     end
                 end
 

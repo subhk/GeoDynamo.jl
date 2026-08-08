@@ -167,11 +167,19 @@ set_initial_condition!(model, :temperature, (r, θ, φ) -> 1 - r)
 ```
 """
 function set_initial_condition!(model::GeodynamoModel, field::Symbol, ic)
+    # `is_initialized` is a WHOLE-STATE flag: once set, solver_step! skips
+    # initialize_solver_fields! (`state.is_initialized || ...`,
+    # solver/mainloop.jl) for EVERY field family, not just this one. Setting it
+    # after applying a single IC therefore silently suppressed initialization of
+    # all the others — a velocity-only IC left the temperature conductive (0,0)
+    # background and the internal-source profile unfilled, so buoyancy was
+    # identically zero and the run reported a motionless isothermal shell.
+    #
+    # Initialize everything FIRST (only while the state is still uninitialized,
+    # so a mid-run call cannot clobber live fields), then let the user's IC
+    # overwrite its own family on top.
+    model.state.is_initialized || initialize_fields!(model.state)
     _apply_initial_condition!(model, field, ic)
-    # The user has supplied an IC, so mark the state initialized. Otherwise the
-    # first solver_step!/run_solver! would run initialize_solver_fields!
-    # (`state.is_initialized || ...`, solver/mainloop.jl) and overwrite this IC
-    # with the default field initialization.
     model.state.is_initialized = true
     return model
 end

@@ -67,7 +67,11 @@ function GeoDynamo.ERK2Cache{T}(
         use_krylov,
         krylov_m,
         krylov_tol,
-        mpi_consistent
+        mpi_consistent,
+        # Compatibility constructor: no boundary inputs are available here, so the
+        # fingerprint is the "unknown structure" sentinel. Caches built this way are
+        # never handed to the memoized getters.
+        zero(UInt64)
     )
 end
 

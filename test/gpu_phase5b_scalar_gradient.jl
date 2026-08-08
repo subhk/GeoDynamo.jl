@@ -26,7 +26,13 @@ using Random
         end
         gθr = fill(NaN, nl,nm,nr); gθi = fill(NaN, nl,nm,nr)
         GeoDynamo.gpu_theta_gradient!(gθr, gθi, sr, si, lmax)
-        # independent reference: exact CPU recurrence
+        # Reference recurrence. sinθ·∂θY_l = A₊(l)·Y_{l+1} + A₋(l)·Y_{l-1}, so
+        # collecting the Y_l term of Σ a_{l'}·sinθ∂θY_{l'} gives
+        #   b_l = A₊(l-1)·a_{l-1} + A₋(l+1)·a_{l+1}
+        # — the SOURCE a_{l∓1} carries A_±(l∓1), NOT A_±(l). This block previously
+        # re-derived the A_±(l) form the kernel itself used, so it characterized the bug
+        # instead of checking it (see test/code_review_batchC_fixes.jl for the
+        # single-mode analytic anchor that pins the corrected weighting).
         for li in 1:nl, mi in 1:nm, r in 1:nr
             l = li - 1; m = mi - 1
             if l < m
@@ -35,12 +41,14 @@ using Random
             end
             dtr = 0.0; dti = 0.0
             if l < lmax
-                ap = Float64(l) * sqrt(Float64((l+m+1)*(l-m+1)) / Float64((2l+1)*(2l+3)))
-                dtr += ap * sr[li+1, mi, r]; dti += ap * si[li+1, mi, r]
+                # A₋(l+1)
+                cp = -Float64(l+2) * sqrt(Float64((l+m+1)*(l-m+1)) / Float64((2l+1)*(2l+3)))
+                dtr += cp * sr[li+1, mi, r]; dti += cp * si[li+1, mi, r]
             end
             if l > m
-                am = -Float64(l+1) * sqrt(Float64((l+m)*(l-m)) / Float64((2l-1)*(2l+1)))
-                dtr += am * sr[li-1, mi, r]; dti += am * si[li-1, mi, r]
+                # A₊(l−1)
+                cm = Float64(l-1) * sqrt(Float64((l+m)*(l-m)) / Float64((2l-1)*(2l+1)))
+                dtr += cm * sr[li-1, mi, r]; dti += cm * si[li-1, mi, r]
             end
             @test gθr[li,mi,r] == dtr
             @test gθi[li,mi,r] == dti
@@ -72,14 +80,15 @@ using Random
             @test gpr[li,mi,r] == (-(mvals[mi]) * si[li,mi,r]) * rinv[r]
             @test gpi[li,mi,r] == (mvals[mi] * sr[li,mi,r]) * rinv[r]
         end
-        # ∇θ reference: recurrence × 1/r (spot-check a valid mode)
+        # ∇θ reference: recurrence × 1/r (spot-check a valid mode). Source a_{l∓1} is
+        # weighted by A_±(l∓1) — see the recurrence note in the first testset.
         li, mi, r = 4, 2, 2; l = li-1; m = mi-1
         dtr = 0.0
         if l < lmax
-            ap = Float64(l)*sqrt(Float64((l+m+1)*(l-m+1))/Float64((2l+1)*(2l+3))); dtr += ap*sr[li+1,mi,r]
+            cp = -Float64(l+2)*sqrt(Float64((l+m+1)*(l-m+1))/Float64((2l+1)*(2l+3))); dtr += cp*sr[li+1,mi,r]
         end
         if l > m
-            am = -Float64(l+1)*sqrt(Float64((l+m)*(l-m))/Float64((2l-1)*(2l+1))); dtr += am*sr[li-1,mi,r]
+            cm = Float64(l-1)*sqrt(Float64((l+m)*(l-m))/Float64((2l-1)*(2l+1))); dtr += cm*sr[li-1,mi,r]
         end
         @test gtr[li,mi,r] == dtr * rinv[r]
     end

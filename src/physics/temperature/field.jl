@@ -625,17 +625,23 @@ function set_boundary_conditions!(temp_𝔽::SHTnsTemperatureField{T};
     fill!(temp_𝔽.bc_type_inner, inner_bc_type)
     fill!(temp_𝔽.bc_type_outer, outer_bc_type)
 
-    # Set boundary values for l=0, m=0 mode (mean temperature)
+    # Clear every mode first, then set only the mean mode: the previous loop started
+    # at index 2, which left a stale value in slot 1 whenever (0,0) is not slot 1.
+    fill!(temp_𝔽.boundary_values, zero(T))
+
+    # Set boundary values for l=0, m=0 mode (mean temperature).
+    # `boundary_values` is SPECTRAL: every consumer reads this slot as the (0,0)
+    # coefficient (`apply_scalar_conductive_l0!`, the CNAB2/ERK2 boundary rows via
+    # `get_bc_vectors`, and the conductive IC in temperature/solver.jl). The transform
+    # is orthonormal (Y_0^0 = 1/√(4π)), so a uniform physical value v maps to v·√(4π) —
+    # the same scaling `apply_scalar_boundary_parameters!` (solver/backend.jl) applies.
+    # Storing the raw physical value made the prescribed boundary 1/√(4π) ≈ 0.282 of
+    # what the caller asked for.
     l0m0_idx = get_mode_index(temp_𝔽.config, 0, 0)
     if l0m0_idx > 0
-        temp_𝔽.boundary_values[1, l0m0_idx] = inner_value
-        temp_𝔽.boundary_values[2, l0m0_idx] = outer_value
-    end
-
-    # Other modes have zero boundary values by default
-    for lm_idx in 2:temp_𝔽.config.nlm
-        temp_𝔽.boundary_values[1, lm_idx] = T(0.0)
-        temp_𝔽.boundary_values[2, lm_idx] = T(0.0)
+        sqrt_4pi = sqrt(4 * convert(T, π))
+        temp_𝔽.boundary_values[1, l0m0_idx] = sqrt_4pi * inner_value
+        temp_𝔽.boundary_values[2, l0m0_idx] = sqrt_4pi * outer_value
     end
 end
 

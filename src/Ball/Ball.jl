@@ -68,7 +68,31 @@ function create_ball_radial_domain(nr::Int; radial_bandwidth::Int = 4)
 
     dr_matrices = [zeros(2*radial_bandwidth+1, N) for _ in 1:3]
     radial_laplacian = zeros(2*radial_bandwidth+1, N)
+
+    # Clenshaw-Curtis weights for the Chebyshev-Lobatto grid θ_n = πn/N,
+    # r = (1 − cos θ)/2, mapped to r ∈ [0, 1] (dr = dx/2, half-interval 0.5).
+    # `_populate_radial_operators!` fills only the derivative operators, so these
+    # have to be built here: leaving them zero makes every r²-weighted volume
+    # integral (kinetic/magnetic/scalar energy, Reynolds stress) identically zero
+    # in :ball geometry.
+    # The n = 0 node (r = 0) is deliberately NOT part of this grid, so its
+    # Lobatto weight is dropped. Every consumer integrates r²·f(r), which
+    # vanishes at r = 0, so the dropped term contributes nothing; only the outer
+    # node r_N = 1 keeps the usual endpoint halving.
     integration_weights = zeros(Float64, N)
+    for n in 1:N
+        theta_n = pi * n / N
+        w = 0.0
+        for k in 0:div(N, 2)
+            bk = (k == 0 || (k == div(N, 2) && iseven(N))) ? 1.0 : 2.0
+            w += bk * cos(2 * k * theta_n) / (1 - 4 * k^2)
+        end
+        w *= 2.0 / N
+        if n == N
+            w *= 0.5  # Lobatto endpoint correction at r = 1
+        end
+        integration_weights[n] = w * 0.5  # scale by half-interval h = 0.5
+    end
 
     domain = GeoDynamo.RadialDomain(
         N, 1:N, r, dr_matrices, radial_laplacian, integration_weights)

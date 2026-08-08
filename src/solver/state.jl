@@ -29,6 +29,12 @@ mutable struct SolverEnergyTracker
     total_energy::Vector{Float64}
     timestamps::Vector{Int}
     enable_tracking::Bool
+    # The t=0 total energy, latched before `trim_energy_tracker!` first deletes from the
+    # FRONT of `total_energy`. The drift report used `total_energy[1]` as its baseline,
+    # which silently became a moving window past the history cap — a run that had drifted
+    # 50% from its start reported ~0% and the warning stopped firing. `nothing` until the
+    # first trim; `_solver_energy_baseline` falls back to `total_energy[1]` before then.
+    initial_total_energy::Union{Float64, Nothing}
 end
 
 mutable struct SolverSolenoidalMonitor
@@ -92,6 +98,15 @@ struct ERK2StageCache{T}
     krylov_m::Int
     krylov_tol::Float64
     mpi_consistent::Bool
+    # Structural fingerprint of the boundary rows eliminated into the propagators above
+    # (`solver_erk2_constrained_propagators` folds the two constraint rows into the
+    # generator, so E/phi1/phi2 all depend on them). The memoized getters compared only
+    # diffusivity/nr/dt/use_krylov/l_values, so changing a scalar BC code — or
+    # inner_regularity, or the dpol generator — with dt unchanged silently reused
+    # propagators carrying the OLD eliminated rows. Endpoint VALUES are deliberately not
+    # part of this: `solver_erk2_constraint_row` never reads them, and the mode-value
+    # slots are live views, so including them would force a needless rebuild every step.
+    bc_signature::UInt64
 end
 
 """
@@ -321,6 +336,12 @@ struct PoloidalSplitMatrices{T}
     lookup::Dict{Int, Int}
     theta::Float64
     mass_coeff::Float64
+    # The timestep the W-advance system was FACTORIZED with: `w_factor` is the LU of
+    # (Ek/dt)I − θ·Ek·D_pol and the influence Green's functions inherit it, so a
+    # cached split is only valid for this dt. Without recording it, staleness after a
+    # Δt change is undetectable and the poloidal update solves against an operator
+    # for the old step (blow-up on an increase, silent over-damping on a decrease).
+    dt::Float64
     ball::Bool          # full-sphere: mixed influence rows + regularity recovery
     reg_r_inv::Float64  # 1/r₁ for the regularity Robin rows (0 for shell)
     # Cached radial scratch shared by mutually exclusive CNAB2/ERK2/CB3 updates.
@@ -632,10 +653,46 @@ function _restore_restart_spectral_pair!(field, data, name::AbstractString)
     return field
 end
 
+"""
+    _restart_required_keys(state) -> Vector{String}
+
+The restart keys a checkpoint MUST carry to fully restore `state`, derived from
+the field families the run actually has enabled (mirrors what
+`extract_all_fields` emits for the same state).
+"""
+function _restart_required_keys(state::SolverState)
+    required = String[
+        "velocity_toroidal", "velocity_poloidal",
+        "temperature", "temperature_spectral",
+    ]
+    if state.fields.magnetic !== nothing
+        push!(required, "magnetic_toroidal", "magnetic_poloidal")
+    end
+    if state.fields.composition !== nothing
+        push!(required, "composition", "composition_spectral")
+    end
+    return required
+end
+
 function restore_fields_from_restart!(
         state::SolverState{T, <:AbstractArchitecture},
         restart_data::Dict{String, Any}
 ) where {T}
+    # Every restore below is haskey-guarded, which makes "absent" and "restored"
+    # indistinguishable — and `Simulation` applies the restart clock
+    # unconditionally. A checkpoint written by a non-magnetic run would restart a
+    # magnetic run with velocity/temperature at t=5 and the magnetic field still
+    # at its t=0 seed, reporting success. `_copy_restart_array!` already validates
+    # SIZE; this validates PRESENCE, so a truncated or mismatched checkpoint fails
+    # loud instead of producing a physically inconsistent state.
+    missing_keys = filter(k -> !haskey(restart_data, k), _restart_required_keys(state))
+    isempty(missing_keys) || throw(ArgumentError(
+        "restore_fields_from_restart!: checkpoint is missing field(s) " *
+        join(missing_keys, ", ") * " that this run has enabled. A partial " *
+        "restore would advance the clock while leaving those fields at their " *
+        "pre-restart values. Restart from a checkpoint written by a run with " *
+        "the same enabled fields, or disable the missing field families."))
+
     if haskey(restart_data, "velocity_toroidal")
         _restore_restart_spectral_pair!(
             state.fields.velocity.toroidal,

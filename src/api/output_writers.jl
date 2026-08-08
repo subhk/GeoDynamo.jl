@@ -29,6 +29,11 @@ struct FieldWriter{S <: AbstractSchedule}
     path::String
     schedule::S
     fields::Vector{Symbol}
+    # Output numbering lives in a TimeTracker, and `write_fields!` advances it via
+    # update_tracker!. Rebuilding the tracker on every firing reset output_count to
+    # 0, so every write reused output #1 and (overwrite_files = true) deleted the
+    # previous file. The tracker therefore has to persist on the writer.
+    _tracker::Base.RefValue{Union{Nothing, TimeTracker}}
 end
 
 function FieldWriter(path::String; schedule, fields = [:velocity, :temperature, :magnetic])
@@ -41,7 +46,8 @@ function FieldWriter(path::String; schedule, fields = [:velocity, :temperature, 
             "FieldWriter: unknown field selector :$(f); valid selectors are " *
             "$(sort(collect(keys(_FIELD_KEY_GROUPS))))"))
     end
-    return FieldWriter{typeof(schedule)}(path, schedule, selected)
+    return FieldWriter{typeof(schedule)}(path, schedule, selected,
+        Base.RefValue{Union{Nothing, TimeTracker}}(nothing))
 end
 
 # ================================================================================
@@ -57,10 +63,34 @@ Schedule-driven writer that writes a restart/checkpoint file to `path` whenever
 struct CheckpointWriter{S <: AbstractSchedule}
     path::String
     schedule::S
+    # See FieldWriter: restart numbering must survive across firings, or every
+    # checkpoint overwrites restart #1.
+    _tracker::Base.RefValue{Union{Nothing, TimeTracker}}
 end
 
 function CheckpointWriter(path::String; schedule)
-    CheckpointWriter{typeof(schedule)}(path, schedule)
+    CheckpointWriter{typeof(schedule)}(path, schedule,
+        Base.RefValue{Union{Nothing, TimeTracker}}(nothing))
+end
+
+"""
+    _writer_tracker!(ow, config, current_time) -> TimeTracker
+
+The writer's persistent `TimeTracker`, created on first use.
+
+`create_time_tracker(config, current_time - 1.0)` seeds `last_output_time` one
+unit in the past so the first firing is authorized (the writer configs use
+interval 0.0 — the schedule, not the tracker, decides *when*). Reusing the same
+tracker afterwards is what makes `output_count`/`restart_count` — and hence the
+filename numbers — advance.
+"""
+function _writer_tracker!(ow, config::OutputConfig, current_time::Float64)
+    tracker = ow._tracker[]
+    if tracker === nothing
+        tracker = create_time_tracker(config, current_time - 1.0)
+        ow._tracker[] = tracker
+    end
+    return tracker
 end
 
 # ================================================================================
@@ -130,7 +160,7 @@ function _run_output_writer!(ow::FieldWriter, sim, ctx::_ScheduleContext)
         Inf,            # max_output_time
         1e-10          # time_tolerance
     )
-    tracker = create_time_tracker(config, state.time - 1.0)  # force output now
+    tracker = _writer_tracker!(ow, config, state.time)  # persistent: numbers advance
 
     metadata = Dict{String, Any}(
         "current_time" => state.time,
@@ -192,7 +222,7 @@ function _run_output_writer!(ow::CheckpointWriter, sim, ctx::_ScheduleContext)
         Inf,
         1e-10
     )
-    tracker = create_time_tracker(config, state.time - 1.0)
+    tracker = _writer_tracker!(ow, config, state.time)
 
     metadata = Dict{String, Any}(
         "current_time" => state.time,
@@ -214,6 +244,10 @@ function _run_output_writer!(ow::CheckpointWriter, sim, ctx::_ScheduleContext)
             "CheckpointWriter: write_restart! failed for path \"$(ow.path)\": " *
             sprint(showerror, e)))
     end
+    # `write_restart!` numbers the file from `tracker.restart_count + 1` but, unlike
+    # `write_fields!`, never advances the tracker itself — so the count has to be
+    # advanced here or every checkpoint would reuse restart #1 and delete the last.
+    update_tracker!(tracker, state.time, config, false, true)
     return nothing
 end
 
@@ -228,7 +262,12 @@ Iterates over `sim.output_writers`, builds a `_ScheduleContext` from the
 current simulation state, and fires each writer whose schedule returns `true`.
 """
 function _run_output_writers!(sim)
-    wtime = sim._wall_start > 0.0 ? time() - sim._wall_start : 0.0
+    # `write_fields!`/`write_restart!` are COLLECTIVE, and `should_fire` gates them
+    # (line ~110). A WallTimeInterval read from each rank's own clock can answer
+    # differently on the same step, putting one rank inside the write's MPI.Bcast!
+    # while another steps on — the deadlock `write_fields!`'s docstring warns about.
+    # `_collective_wtime` broadcasts rank 0's elapsed time so the gate is unanimous.
+    wtime = _collective_wtime(sim)
     ctx = _ScheduleContext(sim.model.clock.time, sim.model.clock.iteration, wtime)
     for ow in values(sim.output_writers)
         _run_output_writer!(ow, sim, ctx)

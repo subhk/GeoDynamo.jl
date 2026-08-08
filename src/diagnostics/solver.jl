@@ -9,7 +9,8 @@ function create_solver_energy_tracker()
         Float64[],
         Float64[],
         Int[],
-        true)
+        true,
+        nothing)
 end
 
 function create_solver_solenoidal_monitor()
@@ -41,9 +42,26 @@ function vector_energy(
     return local_energy
 end
 
+"""
+    _solver_energy_baseline(tracker) -> Float64
+
+The t=0 total energy to measure drift against: the latched `initial_total_energy` once
+history has been trimmed, otherwise the first (still-present) sample.
+"""
+function _solver_energy_baseline(tracker::SolverEnergyTracker)
+    tracker.initial_total_energy !== nothing && return tracker.initial_total_energy
+    isempty(tracker.total_energy) && return 0.0
+    return tracker.total_energy[1]
+end
+
 function trim_energy_tracker!(tracker::SolverEnergyTracker)
     n = length(tracker.total_energy)
     if n > SOLVER_MAX_TRACKER_HISTORY
+        # Latch the true first sample before it is deleted. Until the first trim,
+        # `total_energy[1]` IS the t=0 sample, so this captures it exactly once.
+        if tracker.initial_total_energy === nothing
+            tracker.initial_total_energy = tracker.total_energy[1]
+        end
         keep = n - SOLVER_MAX_TRACKER_HISTORY ÷ 2
         deleteat!(tracker.kinetic_energy, 1:keep)
         deleteat!(tracker.magnetic_energy, 1:keep)
@@ -134,7 +152,7 @@ function report_energy_conservation(
     n_samples < 2 && return nothing
 
     if step % interval == 0 && mpi_rank() == 0
-        E0 = tracker.total_energy[1]
+        E0 = _solver_energy_baseline(tracker)   # NOT total_energy[1]: the front gets trimmed
         En = tracker.total_energy[end]
         ΔE = En - E0
         rel_error = E0 != 0.0 ? abs(ΔE / E0) : 0.0

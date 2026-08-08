@@ -193,6 +193,15 @@ function build_gpu_erk2_state(st)
         caches, :velocity_tor, velocity_bc_code,
         () -> build_solver_erk2_velocity_tor_bc(T, domain, velocity_bc_code;
             config = cfg, rot_omega = 0.0))
+    # Attach the per-mode endpoints, exactly as the CPU sibling does
+    # (timestep/erk2/integrate.jl:628-635) and as temperature/composition do above and
+    # below. Without this the base builder ships `inner_mode_values === nothing`, so
+    # `_pack_erk2_bc` filled EVERY (l,m) endpoint with the spec's scalar target (0) —
+    # the device enforced a zero wall while the CPU enforced the prescribed per-mode
+    # values, and `_gpu_assert_static_bcs` accepts static values by design.
+    vtv = get_bc_vectors(st.fields.velocity.toroidal)
+    vel_tor_spec = with_boundary_mode_values(vel_tor_spec,
+        vtv.inner_real, vtv.outer_real, vtv.inner_imag, vtv.outer_imag)
 
     # --- propagator caches (memoized; identical getter calls to the CPU step) ---
     temp_cache = get_solver_erk2_temperature_cache!(

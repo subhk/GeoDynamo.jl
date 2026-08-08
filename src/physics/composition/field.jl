@@ -557,18 +557,28 @@ Neumann boundaries at the inner and outer shell surfaces.
 function set_composition_boundary_conditions!(𝔽::SHTnsCompositionField{T},
         bc_inner::Symbol, bc_outer::Symbol,
         value_inner::T = zero(T), value_outer::T = zero(T)) where {T}
-    # Set boundary condition types and values
+    # `boundary_values` is a per-mode SPECTRAL array ([2, nlm]) consumed mode by mode by
+    # the implicit boundary rows, so broadcasting one number across `[1, :]` drove the
+    # wall with that amplitude on EVERY (l,m) up to (lmax,mmax) — a wildly
+    # non-axisymmetric boundary field, not the uniform value the caller asked for. A
+    # uniform physical value v is the (0,0) coefficient v·√(4π) and nothing else; this
+    # mirrors `apply_scalar_boundary_parameters!` (solver/backend.jl), the canonical
+    # installer for the same slot. `:no_flux` means zero flux, which is the cleared row.
+    T_ = eltype(𝔽.boundary_values)
+    fill!(𝔽.boundary_values, zero(T_))
+    mean_mode = get_mode_index(𝔽.config, 0, 0)
+    sqrt_4pi = sqrt(4 * convert(T_, π))
 
     if bc_inner == :fixed
         fill!(𝔽.bc_type_inner, Int(DIRICHLET))
-        𝔽.boundary_values[1, :] .= value_inner
+        mean_mode > 0 && (𝔽.boundary_values[1, mean_mode] = sqrt_4pi * T_(value_inner))
     elseif bc_inner == :no_flux
         fill!(𝔽.bc_type_inner, Int(NEUMANN))
     end
 
     if bc_outer == :fixed
         fill!(𝔽.bc_type_outer, Int(DIRICHLET))
-        𝔽.boundary_values[2, :] .= value_outer
+        mean_mode > 0 && (𝔽.boundary_values[2, mean_mode] = sqrt_4pi * T_(value_outer))
     elseif bc_outer == :no_flux
         fill!(𝔽.bc_type_outer, Int(NEUMANN))
     end

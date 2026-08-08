@@ -659,6 +659,6 @@ function create_velocity_poloidal_split_matrices(config::SHTnsKitConfig,
 
     return PoloidalSplitMatrices{T}(dpol_op, w_factor, w_linear, p_factor,
         g1, g2, h1, h2, influence, d1_row_inner, d1_row_outer,
-        l_values, lookup, theta, Ek, ball, reg_r_inv,
+        l_values, lookup, theta, Ek, dt, ball, reg_r_inv,
         ntuple(_ -> Vector{T}(undef, N), 6))
 end
