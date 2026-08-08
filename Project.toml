@@ -1,7 +1,7 @@
 name = "GeoDynamo"
 uuid = "d9585174-0cde-43e1-8c7d-10e3f89dfe41"
 authors = ["Subhajit Kar <subhajitkar19@gmail.com>"]
-version = "2.0.9"
+version = "2.0.10"
 
 [deps]
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
