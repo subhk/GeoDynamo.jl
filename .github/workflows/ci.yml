@@ -79,7 +79,9 @@ jobs:
 
   # Multi-rank MPI CPU correctness gates. The single-process `test` job cannot
   # exercise rank decomposition, the two m-bridge communication branches,
-  # distributed I/O offsets, or multi-rank/thread collective ordering.
+  # distributed I/O offsets, multi-rank/thread collective ordering, or the control
+  # plane (stop conditions / health checks / output scheduling) that gates collectives
+  # from rank-local decisions.
   # MPIEXEC_TIMEOUT bounds a hung collective into a non-zero exit;
   # timeout-minutes is the hard backstop.
   mpi-deadlock-guard:
@@ -112,6 +114,13 @@ jobs:
           NRANKS: '2'
           NTHREADS: '2'
         run: bash test/run_mpi_threaded_smoke.sh
+
+      - name: Multi-rank control-plane invariants
+        env:
+          MPIEXEC_TIMEOUT: '300'
+          NRANKS: '2'
+          NTHREADS: '2'
+        run: bash test/run_mpi_control_plane.sh
 
       - name: Distributed transpose and layout invariants
         env:

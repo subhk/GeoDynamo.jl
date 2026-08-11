@@ -223,6 +223,7 @@ additional_tests = (
     "scalar_bc_timestepper_parity.jl",
     "velocity_magnetic_bc_timestepper_parity.jl",
     "mpi_parallel_invariants.jl",
+    "mpi_control_plane_invariants.jl",
     "mpi_threaded_step_smoke.jl",
     "mpi_distributed_write_roundtrip.jl",
     "mpi_r_theta_restart_roundtrip.jl",
