@@ -98,108 +98,15 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
     end
 
     filename = restart_files[1]
-    if rank == 0
-        println("Reading parallel restart: $(basename(filename))")
-    end
 
-    restart_data = Dict{String, Any}()
-    metadata = Dict{String, Any}()
-
-    # All ranks open the file collectively for reading
-    ds = NCDataset(comm, filename, "r"; info = MPI.Info())
-
-    try
-        # Read metadata (all ranks read scalars)
-        if haskey(ds, "time")
-            metadata["current_time"] = Float64(ds["time"][1])
-        end
-        if haskey(ds, "step")
-            metadata["current_step"] = Int(ds["step"][1])
-        end
-
-        # Read tracker state
-        if haskey(ds, "last_output_time")
-            tracker.last_output_time = Float64(ds["last_output_time"][1])
-        end
-        if haskey(ds, "output_count")
-            tracker.output_count = Int(ds["output_count"][1])
-        end
-        if haskey(ds, "restart_count")
-            tracker.restart_count = Int(ds["restart_count"][1])
-        end
-        if haskey(ds, "grid_file_written")
-            tracker.grid_file_written = ds["grid_file_written"][1] != 0
-        end
-        if haskey(metadata, "current_time")
-            tracker.last_restart_time = metadata["current_time"]
-        end
-        tracker.next_output_time = tracker.last_output_time + config.output_interval
-        tracker.next_restart_time = tracker.last_restart_time + config.restart_interval
-
-        # Read fields - each rank reads its local slice
-        if haskey(ds, "temperature") && pencils !== nothing
-            θ_range = range_local(pencils.r, 1)
-            φ_range = range_local(pencils.r, 2)
-            r_range = range_local(pencils.r, 3)  # r is distributed under r×θ (Phase 2)
-            restart_data["temperature"] = Array(ds["temperature"][θ_range, φ_range, r_range])
-        elseif haskey(ds, "temperature")
-            restart_data["temperature"] = Array(ds["temperature"][:, :, :])
-        end
-
-        if haskey(ds, "composition") && pencils !== nothing
-            θ_range = range_local(pencils.r, 1)
-            φ_range = range_local(pencils.r, 2)
-            r_range = range_local(pencils.r, 3)  # r is distributed under r×θ (Phase 2)
-            restart_data["composition"] = Array(ds["composition"][θ_range, φ_range, r_range])
-        elseif haskey(ds, "composition")
-            restart_data["composition"] = Array(ds["composition"][:, :, :])
-        end
-
-        for component in ["velocity_toroidal", "velocity_poloidal",
-            "magnetic_toroidal", "magnetic_poloidal",
-            "temperature_spectral", "composition_spectral"]
-            real_name = "$(component)_real"
-            imag_name = "$(component)_imag"
-
-            if haskey(ds, real_name) && haskey(ds, imag_name)
-                if pencils !== nothing
-                    if shtns_config !== nothing
-                        mode_indices = local_spectral_mode_indices(shtns_config)
-                        r_range = range_local(shtns_config.pencils.spec, 3)
-                        real_slice = read_local_spectral_coefficients(ds[real_name], mode_indices, r_range)
-                        imag_slice = read_local_spectral_coefficients(ds[imag_name], mode_indices, r_range)
-                        real_data,
-                        imag_data = unpack_local_spectral_coefficients(real_slice, imag_slice, shtns_config)
-                        restart_data[component] = Dict(
-                            "real" => real_data,
-                            "imag" => imag_data
-                        )
-                    else
-                        lm_range, r_range = _legacy_linear_spectral_io_ranges(pencils)
-                        real_slice = Array(ds[real_name][lm_range, r_range])
-                        imag_slice = Array(ds[imag_name][lm_range, r_range])
-                        restart_data[component] = Dict(
-                            "real" => real_slice,
-                            "imag" => imag_slice
-                        )
-                    end
-                else
-                    restart_data[component] = Dict(
-                        "real" => Array(ds[real_name][:, :]),
-                        "imag" => Array(ds[imag_name][:, :])
-                    )
-                end
-            end
-        end
-    finally
-        close(ds)
-    end
-
-    if rank == 0
-        println("Restart completed from time $(get(metadata, "current_time", "unknown"))")
-    end
-
-    return restart_data, metadata
+    # Locate-then-delegate. This function used to carry its own ~90-line copy of the
+    # read — same metadata reads, same tracker restoration, same per-field slicing,
+    # differing only in `&&`-chained vs nested-`if` form — so a field added to one
+    # reader, or a slicing fix applied to one, silently skipped the other depending on
+    # which entry point the caller used. Locating the file is the only thing that is
+    # actually specific to this entry point.
+    return _load_restart_file(filename, tracker, config;
+        pencils = pencils, shtns_config = shtns_config)
 end
 
 """

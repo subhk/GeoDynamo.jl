@@ -742,6 +742,7 @@ end
 end
 
 function allreduce_sum!(sendbuf, recvbuf)
+    _assert_no_collective_in_threaded_update("allreduce_sum!")
     return allreduce_sum_buffers!(sendbuf, recvbuf)
 end
 

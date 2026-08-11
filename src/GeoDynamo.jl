@@ -522,6 +522,7 @@ export FieldWriter, CheckpointWriter
 export RandomPerturbation, AnalyticIC, FileIC, ZeroIC
 export set_initial_condition!, set!
 export Callback, EnergyDiagnostics, SolenoidalMonitor, SimulationProgress, HealthCheck
+export ClockOnlyCallback
 export prettytime, prettysummary
 
 # ================================================================================

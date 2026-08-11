@@ -179,10 +179,41 @@ path. Single-rank runs never reach here (the collectives are no-ops there).
 """
 @inline function _solver_multirank_magnetic_collective(state::SolverState)
     mpi_comm_size() == 1 && return false
+    return _solver_magnetic_config_has_collective(state)
+end
+
+"""
+    _solver_magnetic_config_has_collective(state)
+
+Whether this magnetic CONFIGURATION reaches an MPI collective from inside a spawned
+field-update task, independent of rank count (the rank gate lives in
+`_solver_multirank_magnetic_collective`, so this part stays testable at one rank).
+
+Three sources, all of which keep the field solves sequential:
+  * a conducting inner core — `_magnetic_conducting_history_flux` reduces in BOTH the
+    toroidal and poloidal tasks;
+  * a `CONTINUITY_MAG` inner boundary on EITHER component — the toroidal branch calls
+    `_magnetic_toroidal_inner_bc_increment`, which reduces. Only `toroidal` used to be
+    inspected here, so a poloidal-side entry slipped through;
+  * topography magnetic coupling — `bcs/topography/magnetic_coupling.jl` reduces its own
+    boundary quantities, and nothing in this predicate used to mention it.
+
+This list is still enumerated by hand, which is why the collective side now carries
+`_assert_no_collective_in_threaded_update` (solver/numerics.jl): anything this predicate
+fails to anticipate raises there instead of deadlocking silently.
+"""
+@inline function _solver_magnetic_config_has_collective(state::SolverState)
     magnetic = state.fields.magnetic
     magnetic === nothing && return false
     state.magnetic_ic_admittance !== nothing && return true
-    return any(==(Int(CONTINUITY_MAG)), magnetic.toroidal.bc_type_inner)
+    continuity = Int(CONTINUITY_MAG)
+    any(==(continuity), magnetic.toroidal.bc_type_inner) && return true
+    any(==(continuity), magnetic.poloidal.bc_type_inner) && return true
+    topo = state.topography
+    if topo !== nothing && topo.config.enabled && topo.config.magnetic_coupling
+        return true
+    end
+    return false
 end
 
 """
@@ -274,20 +305,30 @@ function _apply_solver_implicit_updates_threaded!(state::SolverState)
     tasks = Task[]
     sizehint!(tasks, 6)
 
-    push!(tasks, Threads.@spawn apply_temperature_implicit_update!(state))
-    push!(tasks, Threads.@spawn apply_velocity_toroidal_implicit_update!(state))
-    push!(tasks, Threads.@spawn apply_velocity_poloidal_implicit_update!(state))
+    # Arm the collective-side guard for the duration of the spawned region, but only
+    # where ordering divergence is actually possible: at one rank the collectives are
+    # no-ops, threading every scheme is allowed, and arming it would turn a harmless
+    # reduction into a spurious error.
+    guard = mpi_comm_size() > 1
+    guard && (_IN_THREADED_IMPLICIT_UPDATE[] = true)
+    try
+        push!(tasks, Threads.@spawn apply_temperature_implicit_update!(state))
+        push!(tasks, Threads.@spawn apply_velocity_toroidal_implicit_update!(state))
+        push!(tasks, Threads.@spawn apply_velocity_poloidal_implicit_update!(state))
 
-    if state.fields.magnetic !== nothing
-        push!(tasks, Threads.@spawn apply_magnetic_toroidal_implicit_update!(state))
-        push!(tasks, Threads.@spawn apply_magnetic_poloidal_implicit_update!(state))
+        if state.fields.magnetic !== nothing
+            push!(tasks, Threads.@spawn apply_magnetic_toroidal_implicit_update!(state))
+            push!(tasks, Threads.@spawn apply_magnetic_poloidal_implicit_update!(state))
+        end
+
+        if state.fields.composition !== nothing
+            push!(tasks, Threads.@spawn apply_composition_implicit_update!(state))
+        end
+
+        foreach(fetch, tasks)
+    finally
+        guard && (_IN_THREADED_IMPLICIT_UPDATE[] = false)
     end
-
-    if state.fields.composition !== nothing
-        push!(tasks, Threads.@spawn apply_composition_implicit_update!(state))
-    end
-
-    foreach(fetch, tasks)
     return state
 end
 
