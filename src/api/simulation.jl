@@ -482,6 +482,42 @@ _gpu_schedule_may_fire(::Any, ::Int) = true             # stateful/unrecognised:
 # the fields via _health_check) is judged by its own registered schedule — never by
 # function identity, so re-registering nan_checker at a different interval keeps
 # working.
+"""
+    ClockOnlyCallback(func)
+
+Marks `func` as reading only the clock, never the field data.
+
+Under `gpu_sync = :output` the host mirror is refreshed on any iteration where something
+will read it, so a callback that merely inspects `clock.time`/`clock.iteration` — a custom
+stop condition, a progress print — would otherwise force a device→host copy every step and
+collapse `:output` into `:every`. Wrap it to opt out:
+
+    add_callback!(sim, ClockOnlyCallback(my_stop); schedule = IterationInterval(1))
+
+Calling a `ClockOnlyCallback` forwards to `func`, so it behaves exactly like the bare
+function everywhere else.
+"""
+struct ClockOnlyCallback{F}
+    func::F
+end
+
+(c::ClockOnlyCallback)(sim) = c.func(sim)
+
+"""
+    _gpu_clock_only(func) -> Bool
+
+Whether `func` reads only the clock. `false` by default: an unrecognised callback is
+assumed to read the fields, which is the conservative answer (an unnecessary sync, never a
+stale read). The three built-in stop conditions dispatch to `true`, and anything wrapped
+in [`ClockOnlyCallback`](@ref) does too — that wrapper is what makes the exclusion
+extensible instead of a closed identity test.
+"""
+_gpu_clock_only(::Any) = false
+_gpu_clock_only(::typeof(stop_time_exceeded)) = true
+_gpu_clock_only(::typeof(stop_iteration_exceeded)) = true
+_gpu_clock_only(::typeof(wall_time_limit_exceeded)) = true
+_gpu_clock_only(::ClockOnlyCallback) = true
+
 function _gpu_host_read_pending(sim::Simulation)
     iteration = sim.model.clock.iteration
     for ow in values(sim.output_writers)
@@ -489,9 +525,12 @@ function _gpu_host_read_pending(sim::Simulation)
         _gpu_schedule_may_fire(sched, iteration) && return true
     end
     for cb in values(sim.callbacks)
-        if cb isa Callback && (cb.func === stop_time_exceeded ||
-                               cb.func === stop_iteration_exceeded ||
-                               cb.func === wall_time_limit_exceeded)
+        # Clock-only callbacks read the clock, never the fields, so they never force a
+        # mirror. Decided by the `_gpu_clock_only` TRAIT, not by function identity:
+        # identity is the mechanism the comment above says was abandoned, and it cannot
+        # see through a closure, a partial, or a user's own stop condition — each of
+        # which silently collapsed `:output` back into `:every`.
+        if cb isa Callback && _gpu_clock_only(cb.func)
             continue
         end
         # Every registered callback type (Callback, EnergyDiagnostics,

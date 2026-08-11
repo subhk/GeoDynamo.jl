@@ -196,22 +196,59 @@ end
     return nothing
 end
 
+# Set for the duration of `_apply_solver_implicit_updates_threaded!`'s spawned region,
+# and only when it would actually be unsafe (more than one rank). Two `@spawn`'d tasks
+# each issuing a collective can interleave differently across ranks, which DEADLOCKS with
+# no error — the failure mode `_solver_multirank_magnetic_collective` exists to avoid by
+# keeping known-collective configs sequential.
+#
+# That call-site denylist can only exclude the configurations somebody remembered to
+# enumerate, so this flag adds a guard at the COLLECTIVE side: a reduction issued from
+# inside the threaded region raises immediately, naming the site, instead of hanging.
+#
+# COVERAGE, precisely: this catches collectives that go through the reduction helpers
+# below (and `allreduce_sum!` in physics/nonlinear.jl). It does NOT catch the ~66 bare
+# `MPI.*` call sites elsewhere in src/ — a complete net would need every one of them
+# routed through a wrapper, which is a separate change.
+const _IN_THREADED_IMPLICIT_UPDATE = Ref(false)
+
+"""
+    _assert_no_collective_in_threaded_update(site)
+
+Raise if an MPI reduction is issued from inside the threaded implicit-update region,
+where per-rank collective ordering can diverge and deadlock. `site` names the caller so
+the error points at the offending reduction rather than at the hang.
+"""
+@inline function _assert_no_collective_in_threaded_update(site)
+    _IN_THREADED_IMPLICIT_UPDATE[] || return nothing
+    error("MPI collective issued from inside the threaded implicit-update region " *
+          "($site). Two spawned tasks each issuing a collective can interleave " *
+          "differently across ranks and deadlock. Either hoist the collective out of " *
+          "the spawned region, or teach `_solver_magnetic_config_has_collective` " *
+          "(timestep/driver.jl) about the configuration that reaches it so the field " *
+          "solves stay sequential.")
+end
+
 @inline function allreduce_sum_in_place!(buffer, comm = mpi_comm())
+    _assert_no_collective_in_threaded_update("allreduce_sum_in_place!")
     MPI.Allreduce!(buffer, MPI.SUM, comm)
     return buffer
 end
 
 @inline function allreduce_sum_buffers!(sendbuf, recvbuf, comm = mpi_comm())
+    _assert_no_collective_in_threaded_update("allreduce_sum_buffers!")
     sendbuf === recvbuf || copyto!(recvbuf, sendbuf)
     MPI.Allreduce!(recvbuf, MPI.SUM, comm)
     return recvbuf
 end
 
 @inline function allreduce_sum(value, comm = mpi_comm())
+    _assert_no_collective_in_threaded_update("allreduce_sum")
     return MPI.Allreduce(value, +, comm)
 end
 
 @inline function allreduce_max(value, comm = mpi_comm())
+    _assert_no_collective_in_threaded_update("allreduce_max")
     return MPI.Allreduce(value, MPI.MAX, comm)
 end
 
