@@ -148,6 +148,33 @@ function _existing_writer_count(path::String, kind::Symbol, geometry::Symbol)
     return count
 end
 
+"""
+    _existing_grid_file(path, geometry) -> Bool
+
+Whether the one-time grid file already exists at `path`. Rank 0 checks the shared
+output directory and broadcasts the answer, exactly as `_existing_writer_count`
+does, so every rank's tracker agrees.
+
+A restored `grid_file_written` describes the directory the CHECKPOINT was written
+to, not the one a resumed run writes to. `write_fields!` (io/history.jl) sets that
+flag before writing the grid file, so a checkpoint taken from a run that emitted
+one carries `true`; seeding a fresh `FieldWriter(new_dir)` with it made
+`write_grid_file!` be skipped forever, leaving `new_dir` with history files and no
+`geodynamo_<geometry>_grid.nc`. The counters already avoid the mirror image of
+this via `_existing_writer_count`; the flag needs the same directory truth.
+"""
+function _existing_grid_file(path::String, geometry::Symbol)
+    comm = MPI.Initialized() ? get_comm() : nothing
+    rank = comm === nothing ? 0 : MPI.Comm_rank(comm)
+    present = rank == 0 && isfile(joinpath(path, "geodynamo_$(geometry)_grid.nc"))
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        buffer = Int[present ? 1 : 0]
+        MPI.Bcast!(buffer, 0, comm)
+        present = buffer[1] != 0
+    end
+    return present
+end
+
 function _restore_output_writer_tracker!(
         writer::FieldWriter, restored::TimeTracker, geometry::Symbol)
     tracker = writer._tracker[]
@@ -159,6 +186,7 @@ function _restore_output_writer_tracker!(
     end
     tracker.output_count = max(
         tracker.output_count, _existing_writer_count(writer.path, :hist, geometry))
+    tracker.grid_file_written = _existing_grid_file(writer.path, geometry)
     return tracker
 end
 
@@ -173,6 +201,7 @@ function _restore_output_writer_tracker!(
     end
     tracker.restart_count = max(
         tracker.restart_count, _existing_writer_count(writer.path, :restart, geometry))
+    tracker.grid_file_written = _existing_grid_file(writer.path, geometry)
     return tracker
 end
 

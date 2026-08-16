@@ -529,6 +529,20 @@ _gpu_clock_only(::typeof(stop_iteration_exceeded)) = true
 _gpu_clock_only(::typeof(wall_time_limit_exceeded)) = true
 _gpu_clock_only(::ClockOnlyCallback) = true
 
+# Which stop conditions leave `sim.running` rank-identical, so that
+# `_run_callbacks!` can skip its reconciling Allreduce (api/callbacks.jl).
+# The three built-ins decide from rank-consistent inputs: `clock.time` and
+# `clock.iteration` advance in lockstep, and `wall_time_limit_exceeded` reads
+# `_collective_wtime`, which broadcasts rank 0's elapsed time. `nan_checker`
+# scans only this rank's slab but already reduces the verdict with
+# `_any_rank_flag` before assigning. A `ClockOnlyCallback` is the user asserting
+# the same clock-only property — the wrapper that keeps this extensible.
+_running_flag_rank_symmetric(::typeof(stop_time_exceeded)) = true
+_running_flag_rank_symmetric(::typeof(stop_iteration_exceeded)) = true
+_running_flag_rank_symmetric(::typeof(wall_time_limit_exceeded)) = true
+_running_flag_rank_symmetric(::typeof(nan_checker)) = true
+_running_flag_rank_symmetric(::ClockOnlyCallback) = true
+
 function _gpu_host_read_pending(sim::Simulation)
     iteration = sim.model.clock.iteration
     for ow in values(sim.output_writers)

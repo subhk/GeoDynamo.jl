@@ -189,14 +189,23 @@ Whether this magnetic CONFIGURATION reaches an MPI collective from inside a spaw
 field-update task, independent of rank count (the rank gate lives in
 `_solver_multirank_magnetic_collective`, so this part stays testable at one rank).
 
-Three sources, all of which keep the field solves sequential:
-  * a conducting inner core — `_magnetic_conducting_history_flux` reduces in BOTH the
-    toroidal and poloidal tasks;
-  * a `CONTINUITY_MAG` inner boundary on EITHER component — the toroidal branch calls
-    `_magnetic_toroidal_inner_bc_increment`, which reduces. Only `toroidal` used to be
-    inspected here, so a poloidal-side entry slipped through;
-  * topography magnetic coupling — `bcs/topography/magnetic_coupling.jl` reduces its own
-    boundary quantities, and nothing in this predicate used to mention it.
+The predicate deliberately OVER-approximates. A false positive costs threading; a false
+negative is a silent multi-rank hang. Only the first source below is proven reachable
+from inside a spawned task today — the other two are conservative:
+
+  * a conducting inner core — PROVEN in-task: `_magnetic_conducting_history_flux`
+    reduces in BOTH the toroidal and poloidal update tasks;
+  * a `CONTINUITY_MAG` inner boundary on EITHER component — proven for `toroidal`,
+    whose branch calls the reducing `_magnetic_toroidal_inner_bc_increment`. No current
+    poloidal path reaches that helper, so the `poloidal` half is the conservative one:
+    inner-boundary handling has moved between the two components before, and a poloidal
+    entry that did reach it would hang rather than fail;
+  * topography magnetic coupling — CONSERVATIVE, not reachable today: the topography
+    reductions run inside `apply_solver_topography!` (solver/mainloop.jl:101,
+    timestep/cb3.jl:416), which is on the main task ahead of the implicit updates, and
+    the updates only read the already-populated `field.boundary_values`. Topography is
+    off by default and has only ever been validated at one rank, so it stays on the
+    sequential path until a multi-rank topography run is actually exercised.
 
 This list is still enumerated by hand, which is why the collective side now carries
 `_assert_no_collective_in_threaded_update` (solver/numerics.jl): anything this predicate
@@ -209,8 +218,10 @@ fails to anticipate raises there instead of deadlocking silently.
     continuity = Int(CONTINUITY_MAG)
     any(==(continuity), magnetic.toroidal.bc_type_inner) && return true
     any(==(continuity), magnetic.poloidal.bc_type_inner) && return true
+    # `state.topography` is a SolverTopographyState, never a Union with Nothing
+    # (solver/state.jl) — an emptiness check here would be dead code.
     topo = state.topography
-    if topo !== nothing && topo.config.enabled && topo.config.magnetic_coupling
+    if topo.config.enabled && topo.config.magnetic_coupling
         return true
     end
     return false

@@ -202,6 +202,7 @@ additional_tests = (
     "code_review_batchB_fixes.jl",
     "code_review_batchC_fixes.jl",
     "code_review_batchD_fixes.jl",
+    "code_review_batchE_fixes.jl",
     "grid_validation.jl",
     # MPI-aware tests
     "radial_domain.jl",
