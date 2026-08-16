@@ -1,5 +1,15 @@
 using Test
 
+const TIMESTEPPER_CONTRACT_ROOT = normpath(joinpath(@__DIR__, ".."))
+const TIMESTEPPER_API_SOURCE = read(
+    joinpath(TIMESTEPPER_CONTRACT_ROOT, "src", "api", "timesteppers.jl"), String)
+const TIMESTEPPER_CONFIG_DOC = read(
+    joinpath(TIMESTEPPER_CONTRACT_ROOT, "docs", "src", "configuration.md"), String)
+const TIMESTEPPER_GUIDE_DOC = read(
+    joinpath(TIMESTEPPER_CONTRACT_ROOT, "docs", "src", "timestepping.md"), String)
+const TIMESTEPPER_INDEX_DOC = read(
+    joinpath(TIMESTEPPER_CONTRACT_ROOT, "docs", "src", "index.md"), String)
+
 @testset "Parameter Validation" begin
     @testset "Valid default parameters" begin
         params = GeoDynamo.SolverParameters()
@@ -104,6 +114,19 @@ using Test
             @test is_valid
             @test isempty(errors)
         end
+
+        # Retain the planned descriptor types for source compatibility, but the
+        # API reference and user guides must not advertise them as runnable.
+        unsupported_notice = "Not currently supported by `Simulation`"
+        @test length(collect(eachmatch(
+            Regex(unsupported_notice), TIMESTEPPER_API_SOURCE))) == 3
+        @test occursin("Currently supported", TIMESTEPPER_CONFIG_DOC)
+        normalized_config_doc = replace(lowercase(TIMESTEPPER_CONFIG_DOC), r"\s+" => " ")
+        @test occursin("not currently supported", normalized_config_doc)
+        @test occursin("not currently supported", lowercase(TIMESTEPPER_GUIDE_DOC))
+        @test !occursin("three production-grade", lowercase(TIMESTEPPER_GUIDE_DOC))
+        @test occursin("RungeKutta3", TIMESTEPPER_GUIDE_DOC)
+        @test occursin("RungeKutta3", TIMESTEPPER_INDEX_DOC)
     end
 
     @testset "Simulation timestepper accepts a scheme symbol" begin

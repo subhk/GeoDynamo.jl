@@ -78,6 +78,49 @@ const CRM_WRITERS_SRC = read(joinpath(CRM_ROOT, "src", "api", "output_writers.jl
         @test t1.output_count == 2
     end
 
+    @testset "F1b restart seeds writer counters without clobbering files" begin
+        mktempdir() do dir
+            first_fields = GeoDynamo.FieldWriter(dir;
+                schedule = GeoDynamo.IterationInterval(1), fields = [:temperature])
+            first_checkpoints = GeoDynamo.CheckpointWriter(dir;
+                schedule = GeoDynamo.IterationInterval(1))
+            first = GeoDynamo.Simulation(crm_model(); Δt = 1e-4, stop_iteration = 1,
+                output_writers = (fields = first_fields, checkpoints = first_checkpoints))
+            GeoDynamo.run!(first)
+
+            hist1 = joinpath(dir, "geodynamo_shell_hist_1.nc")
+            restart1 = joinpath(dir, "geodynamo_shell_restart_1.nc")
+            @test isfile(hist1)
+            @test isfile(restart1)
+
+            resumed_fields = GeoDynamo.FieldWriter(dir;
+                schedule = GeoDynamo.IterationInterval(1), fields = [:temperature])
+            resumed_checkpoints = GeoDynamo.CheckpointWriter(dir;
+                schedule = GeoDynamo.IterationInterval(1))
+            resumed = GeoDynamo.Simulation(crm_model(); Δt = 1e-4, stop_iteration = 2,
+                restart_from = dir,
+                output_writers = (
+                    fields = resumed_fields,
+                    checkpoints = resumed_checkpoints,
+                ))
+
+            # The checkpoint writer knows restart #1, while the independent field
+            # writer's count must be recovered from the existing history filename.
+            fields_tracker = resumed_fields._tracker[]
+            checkpoint_tracker = resumed_checkpoints._tracker[]
+            @test fields_tracker !== nothing
+            @test checkpoint_tracker !== nothing
+            fields_tracker === nothing || @test fields_tracker.output_count == 1
+            checkpoint_tracker === nothing || @test checkpoint_tracker.restart_count == 1
+
+            GeoDynamo.run!(resumed)
+            @test isfile(hist1)
+            @test isfile(restart1)
+            @test isfile(joinpath(dir, "geodynamo_shell_hist_2.nc"))
+            @test isfile(joinpath(dir, "geodynamo_shell_restart_2.nc"))
+        end
+    end
+
     # ── F2: the poloidal W-split bakes dt, so a dt change must rebuild it ─────
     @testset "F2 poloidal W-split is invalidated on a dt change" begin
         model = crm_model()

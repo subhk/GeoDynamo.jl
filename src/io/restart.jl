@@ -3,13 +3,17 @@
 # ================================================================================
 
 """
-    write_restart!(fields, tracker, metadata, config[, pencils]; shtns_config=nothing, geometry=:shell, radius_ratio=0.35)
+    write_restart!(fields, tracker, metadata, config[, pencils];
+                   shtns_config=nothing, geometry=:shell, radius_ratio=0.35,
+                   did_output=false)
 
 Write a restart NetCDF file using the same parallel field layout as history
 output.
 
 The restart file also stores enough `TimeTracker` state for a resumed run to
 continue output and restart numbering without clobbering earlier files.
+Set `did_output=true` when a history file was successfully emitted immediately
+before this checkpoint so the persisted tracker includes that file as well.
 """
 function write_restart!(fields::Dict{String, Any}, tracker::TimeTracker,
         metadata::Dict{String, Any}, config::OutputConfig,
@@ -17,13 +21,16 @@ function write_restart!(fields::Dict{String, Any}, tracker::TimeTracker,
         shtns_config::Union{SHTnsKitConfig, Nothing} = nothing,
         geometry::Symbol = :shell,
         radius_ratio::Float64 = 0.35,
-        radial_grid::Union{AbstractVector{<:Real}, Nothing} = nothing)
+        radial_grid::Union{AbstractVector{<:Real}, Nothing} = nothing,
+        did_output::Bool = false)
     comm = output_comm()
     rank = MPI.Comm_rank(comm)
     current_time = metadata["current_time"]
     current_step = metadata["current_step"]
 
     restart_number = tracker.restart_count + 1
+    persisted_output_count = tracker.output_count + (did_output ? 1 : 0)
+    persisted_last_output_time = did_output ? current_time : tracker.last_output_time
     filename = generate_filename(
         config, current_time, current_step, "restart", restart_number; geometry = geometry)
 
@@ -36,9 +43,9 @@ function write_restart!(fields::Dict{String, Any}, tracker::TimeTracker,
 
     restart_metadata = copy(metadata)
     restart_metadata["restart_time"] = current_time
-    restart_metadata["last_output_time"] = tracker.last_output_time
-    restart_metadata["output_count"] = tracker.output_count
-    restart_metadata["restart_count"] = tracker.restart_count
+    restart_metadata["last_output_time"] = persisted_last_output_time
+    restart_metadata["output_count"] = persisted_output_count
+    restart_metadata["restart_count"] = restart_number
 
     ds = create_parallel_netcdf(
         filename, config, field_info, restart_metadata, comm; geometry = geometry)
@@ -62,9 +69,9 @@ function write_restart!(fields::Dict{String, Any}, tracker::TimeTracker,
 
         # Restart-specific data (rank 0 only)
         if rank == 0
-            ds["last_output_time"][1] = config.output_precision(tracker.last_output_time)
-            ds["output_count"][1] = Int32(tracker.output_count)
-            ds["restart_count"][1] = Int32(tracker.restart_count)
+            ds["last_output_time"][1] = config.output_precision(persisted_last_output_time)
+            ds["output_count"][1] = Int32(persisted_output_count)
+            ds["restart_count"][1] = Int32(restart_number)
             ds["grid_file_written"][1] = Int32(tracker.grid_file_written ? 1 : 0)
         end
 

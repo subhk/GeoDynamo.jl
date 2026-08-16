@@ -93,6 +93,98 @@ function _writer_tracker!(ow, config::OutputConfig, current_time::Float64)
     return tracker
 end
 
+"""Return an independent copy of a restored output tracker."""
+function _copy_time_tracker(tracker::TimeTracker)
+    return TimeTracker(
+        tracker.last_output_time,
+        tracker.last_restart_time,
+        tracker.output_count,
+        tracker.restart_count,
+        tracker.next_output_time,
+        tracker.next_restart_time,
+        tracker.grid_file_written,
+    )
+end
+
+"""Merge persisted tracker state without ever moving a writer backwards."""
+function _merge_time_tracker!(tracker::TimeTracker, restored::TimeTracker)
+    tracker.last_output_time = max(tracker.last_output_time, restored.last_output_time)
+    tracker.last_restart_time = max(tracker.last_restart_time, restored.last_restart_time)
+    tracker.output_count = max(tracker.output_count, restored.output_count)
+    tracker.restart_count = max(tracker.restart_count, restored.restart_count)
+    tracker.next_output_time = max(tracker.next_output_time, restored.next_output_time)
+    tracker.next_restart_time = max(tracker.next_restart_time, restored.next_restart_time)
+    tracker.grid_file_written |= restored.grid_file_written
+    return tracker
+end
+
+"""
+    _existing_writer_count(path, kind, geometry) -> Int
+
+Return the highest numbered GeoDynamo history or restart file already present
+at `path`. Rank 0 scans the shared output directory and broadcasts the result so
+all writer trackers remain identical.
+"""
+function _existing_writer_count(path::String, kind::Symbol, geometry::Symbol)
+    kind in (:hist, :restart) || throw(ArgumentError(
+        "writer file kind must be :hist or :restart (got $kind)"))
+    count = 0
+    comm = MPI.Initialized() ? get_comm() : nothing
+    rank = comm === nothing ? 0 : MPI.Comm_rank(comm)
+    if rank == 0 && isdir(path)
+        pattern = Regex("^geodynamo_$(geometry)_$(kind)_(\\d+)\\.nc\\z")
+        for filename in readdir(path)
+            matched = match(pattern, filename)
+            matched === nothing && continue
+            parsed = tryparse(Int, only(matched.captures))
+            parsed === nothing || (count = max(count, parsed))
+        end
+    end
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        buffer = Int[count]
+        MPI.Bcast!(buffer, 0, comm)
+        count = buffer[1]
+    end
+    return count
+end
+
+function _restore_output_writer_tracker!(
+        writer::FieldWriter, restored::TimeTracker, geometry::Symbol)
+    tracker = writer._tracker[]
+    if tracker === nothing
+        tracker = _copy_time_tracker(restored)
+        writer._tracker[] = tracker
+    else
+        _merge_time_tracker!(tracker, restored)
+    end
+    tracker.output_count = max(
+        tracker.output_count, _existing_writer_count(writer.path, :hist, geometry))
+    return tracker
+end
+
+function _restore_output_writer_tracker!(
+        writer::CheckpointWriter, restored::TimeTracker, geometry::Symbol)
+    tracker = writer._tracker[]
+    if tracker === nothing
+        tracker = _copy_time_tracker(restored)
+        writer._tracker[] = tracker
+    else
+        _merge_time_tracker!(tracker, restored)
+    end
+    tracker.restart_count = max(
+        tracker.restart_count, _existing_writer_count(writer.path, :restart, geometry))
+    return tracker
+end
+
+_restore_output_writer_tracker!(writer, restored::TimeTracker, geometry::Symbol) = nothing
+
+function _restore_output_writer_trackers!(writers, restored::TimeTracker, geometry::Symbol)
+    for writer in values(writers)
+        _restore_output_writer_tracker!(writer, restored, geometry)
+    end
+    return writers
+end
+
 # ================================================================================
 # Internal dispatch
 # ================================================================================

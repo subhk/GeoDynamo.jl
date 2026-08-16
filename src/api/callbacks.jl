@@ -277,5 +277,13 @@ function _run_callbacks!(sim)
             _fire_callback!(cb, sim)
         end
     end
+    # `run!` explicitly allows any callback to stop the simulation by assigning
+    # `sim.running = false`. A user callback may base that decision on rank-local
+    # state, so reconcile the flag before writers run or another solver step can
+    # enter a collective. Built-in rank-local health callbacks use the same
+    # reduction internally; this final guard covers the public callback contract.
+    if _any_rank_flag(!sim.running)
+        sim.running = false
+    end
     return nothing
 end

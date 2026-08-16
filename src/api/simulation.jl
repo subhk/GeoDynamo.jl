@@ -126,6 +126,11 @@ end
 
 Construct a `Simulation`.
 
+The supported timestepper objects are `CNAB2()`,
+`ExponentialRungeKutta2()`, and `RungeKutta3()`. Experimental descriptor types
+such as `ExponentialAdamsBashforth2`, `ETD`, and `ThetaMethod` are retained for
+compatibility but rejected by solver parameter validation.
+
 A positive timestep is required: pass it as `Δt` (canonical, Oceananigans convention) or `dt` (alias);
 passing both, neither, or a non-positive value throws an `ArgumentError`.
 `stop_time` accepts any `Real` and is converted to `Float64`.
@@ -187,6 +192,7 @@ function Simulation(model::GeodynamoModel;
     dt_in > 0 ||
         throw(ArgumentError("Simulation: dt = $dt_in must be positive"))
     stop_time_f = Float64(stop_time)
+    restored_output_tracker = nothing
 
     if !isempty(restart_from)
         if MPI.Initialized()
@@ -202,6 +208,7 @@ function Simulation(model::GeodynamoModel;
                 restart_time = Float64(get(metadata, "current_time", model.state.time))
                 restart_step = Int(get(metadata, "current_step", model.state.step))
                 reset_solver_clock!(model.state; time = restart_time, step = restart_step)
+                restored_output_tracker = tracker
                 @info "Simulation: loaded restart from $restart_from" time=model.state.time
             catch e
                 # Fail loud: the caller explicitly asked to restart, so silently
@@ -254,6 +261,10 @@ function Simulation(model::GeodynamoModel;
 
     callback_items = merge(_default_callbacks(), _to_ordered(callbacks, :callback))
     output_writer_items = _to_ordered(output_writers, :writer)
+    if restored_output_tracker !== nothing
+        _restore_output_writer_trackers!(
+            output_writer_items, restored_output_tracker, model.state.parameters.geometry)
+    end
 
     gpu_resolved = _resolve_gpu_stepping(gpu, model, timestep_options.timestepper)
     gpu_sync in (:every, :output) || throw(ArgumentError(

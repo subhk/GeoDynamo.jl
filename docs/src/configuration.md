@@ -122,21 +122,25 @@ Choose a timestepper object in the `Simulation` constructor:
 simulation = Simulation(model; Δt = 1e-5, timestepper = CNAB2())
 ```
 
-| Object | Description |
-|:-------|:------------|
+| Currently supported object | Description |
+|:---------------------------|:------------|
 | `CNAB2()` | Crank-Nicolson Adams-Bashforth 2; production default |
 | `CNAB2(theta = 0.6)` | CNAB2 with extra implicit damping |
-| `ExponentialAdamsBashforth2(krylov_dimension = 20, tolerance = 1e-8)` | Exponential Adams-Bashforth 2 for stiff diffusion |
-| `ExponentialRungeKutta2()` | Explicit second-order Runge-Kutta path |
-| `ETD(krylov_dimension = 20, tolerance = 1e-8)` | Exponential time differencing path |
-| `ThetaMethod(theta = 0.5)` | Direct theta-method configuration |
+| `ExponentialRungeKutta2()` | Two-stage exponential Runge-Kutta path |
+| `RungeKutta3()` (`CB3()`) | Three-stage low-storage IMEX Runge-Kutta path |
+
+!!! warning "Reserved timestepper descriptors"
+    `ExponentialAdamsBashforth2` (`EAB2`), `ETD`, and `ThetaMethod` are not
+    currently supported by the end-to-end solver. Their types remain exported
+    for source compatibility and kernel development, but `Simulation` rejects
+    them during parameter validation.
 
 !!! tip "Scheme Selection"
     | Scheme | Best For |
     |:-------|:---------|
     | **CNAB2** | Production dynamo runs, moderate timesteps |
-    | **ExponentialAdamsBashforth2** | Strongly diffusive regimes (low E, Pm) |
     | **ExponentialRungeKutta2** | Wave propagation, accuracy-critical applications |
+    | **RungeKutta3** | Higher-order transient studies and benchmarks |
 
 See [Time Integration](timestepping.md) for detailed scheme documentation.
 

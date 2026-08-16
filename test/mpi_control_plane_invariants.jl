@@ -96,6 +96,23 @@ using GeoDynamo
         @test iters[1] < 50            # stopped by the NaN, not by stop_iteration
     end
 
+    # ── a public callback may stop from rank-local state; run! must stay collective ─
+    @testset "single-rank user callback stops all ranks together" begin
+        model = mkmodel()
+        sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 50)
+        GeoDynamo.add_callback!(sim,
+            s -> (rank == nranks - 1 && (s.running = false));
+            schedule = GeoDynamo.IterationInterval(1), name = :rank_local_stop)
+
+        GeoDynamo.run!(sim)
+        MPI.Barrier(comm)
+
+        @test sim.running == false
+        iters = MPI.Allgather(model.clock.iteration, comm)
+        @test all(==(iters[1]), iters)
+        @test iters[1] == 1
+    end
+
     # ── a WallTimeInterval writer gates a COLLECTIVE; it must not desync ──────
     @testset "WallTimeInterval writer does not desync the write gate" begin
         # One shared directory, broadcast: a per-rank mktempdir() would have each
