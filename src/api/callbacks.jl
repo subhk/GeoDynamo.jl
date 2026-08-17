@@ -270,8 +270,11 @@ state, which is the conservative answer — a redundant reduction, never a diver
 stop. The built-in callback TYPES qualify because none of them assigns
 `sim.running` at all (`HealthCheck` throws instead). The built-in stop FUNCTIONS
 qualify for their own reasons and are registered beside their definitions in
-api/simulation.jl, which is also where `ClockOnlyCallback` makes the exclusion
-extensible rather than a closed identity test.
+api/simulation.jl.
+
+There is deliberately no user-facing opt-in wrapper: rank-symmetry of a stop decision
+is not a property a caller can assert by wrapping, and getting it wrong reintroduces the
+deadlock. Anything unrecognised simply pays one Allreduce per step.
 """
 _running_flag_rank_symmetric(::Any) = false
 _running_flag_rank_symmetric(cb::Callback) = _running_flag_rank_symmetric(cb.func)

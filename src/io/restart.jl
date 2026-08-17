@@ -3,6 +3,107 @@
 # ================================================================================
 
 """
+    _scan_output_count(dir, prefix, geometry, kind) -> Int
+
+Highest numbered `<prefix>_<geometry>_<kind>_N.nc` file present in `dir`, or 0.
+
+Purely local and MPI-free on purpose: each caller decides how to make the answer
+unanimous (rank 0 scans, then broadcasts), and keeping the scan itself collective-free
+is what lets it be tested serially.
+"""
+function _scan_output_count(dir::String, prefix::String, geometry::Symbol, kind::String)
+    isdir(dir) || return 0
+    # `prefix` is the free-form `OutputConfig.filename_prefix`, so it has to be escaped
+    # before it goes into a pattern: "run(1)" would add a second capture group and make
+    # `only(matched.captures)` throw, and "run[" would fail in the Regex constructor —
+    # both from inside a checkpoint write, aborting the run.
+    quoted = replace(prefix, r"([\\^$.|?*+()\[\]{}])" => s"\\\1")
+    pattern = Regex("^$(quoted)_$(geometry)_$(kind)_(\\d+)\\.nc\\z")
+    count = 0
+    for filename in readdir(dir)
+        matched = match(pattern, filename)
+        matched === nothing && continue
+        parsed = tryparse(Int, only(matched.captures))
+        parsed === nothing || (count = max(count, parsed))
+    end
+    return count
+end
+
+"""
+    _persisted_output_count(tracker, did_output, config, geometry) -> Int
+
+The history-file count to record in a restart file: the larger of what `tracker`
+believes and what `config.output_dir` actually contains.
+
+`tracker` alone is not enough because it is not always the tracker that produced the
+history files. `CheckpointWriter` writes its checkpoints through its OWN private
+tracker, built from a config whose `output_interval` is `Inf`, so that tracker sits at
+`output_count == 0` for the life of the run no matter how many history files the run
+emitted. A resume that trusted it started numbering at 1 again and — with
+`overwrite_files = true` — deleted the existing `hist_1`. The directory is the one
+witness that is right on both paths.
+
+Rank 0 scans and broadcasts, so every rank writes the same value into the file.
+"""
+function _persisted_output_count(tracker::TimeTracker, did_output::Bool,
+        config::OutputConfig, geometry::Symbol)
+    from_tracker = tracker.output_count + (did_output ? 1 : 0)
+    comm = MPI.Initialized() ? output_comm() : nothing
+    rank = comm === nothing ? 0 : MPI.Comm_rank(comm)
+    on_disk = rank == 0 ?
+              _scan_output_count(config.output_dir, config.filename_prefix, geometry,
+        "hist") : 0
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        buffer = Int[on_disk]
+        MPI.Bcast!(buffer, 0, comm)
+        on_disk = buffer[1]
+    end
+    return max(from_tracker, on_disk)
+end
+
+"""
+    _restart_path_for_all_ranks(restart_dir, restart_time) -> String
+
+The restart file every rank must open, chosen once by rank 0 and broadcast.
+
+`find_restart_files` is a rank-LOCAL `readdir` plus an mtime/stored-time sort, and the
+path it returns is handed straight to the COLLECTIVE `NCDataset(comm, ...)` open in
+`_load_restart_file`. On node-local scratch, or an NFS mount with stale attribute
+caching, two ranks can list the directory differently: they then collectively open
+DIFFERENT files — hanging in MPI-IO, or silently mixing two checkpoints — and a rank
+whose listing came back empty raises alone while the others block in the open. Choosing
+once on rank 0 removes both, and stops every rank from re-opening each candidate to read
+its stored time.
+
+The not-found `error` is raised on every rank, so an absent checkpoint aborts the run
+instead of deadlocking it. That requires rank 0's scan to be TOTAL: `find_restart_files`
+opens with a bare `readdir`, which throws `SystemError` on a missing, unmounted or
+unreadable directory — and a throw on rank 0 alone leaves the others blocked in the
+broadcast below forever. Every such failure is therefore folded into "no candidates",
+which the broadcast turns into a unanimous error.
+"""
+function _restart_path_for_all_ranks(restart_dir::String, restart_time::Float64)
+    comm = MPI.Initialized() ? output_comm() : nothing
+    rank = comm === nothing ? 0 : MPI.Comm_rank(comm)
+    selected = ""
+    if rank == 0
+        candidates = try
+            isdir(restart_dir) ? find_restart_files(restart_dir, restart_time) : String[]
+        catch err
+            @warn "Restart directory could not be scanned" restart_dir exception = err
+            String[]
+        end
+        isempty(candidates) || (selected = candidates[1])
+    end
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        selected = MPI.bcast(selected, comm; root = 0)
+    end
+    isempty(selected) && error(
+        "No readable restart files found near time $restart_time in $restart_dir")
+    return selected
+end
+
+"""
     write_restart!(fields, tracker, metadata, config[, pencils];
                    shtns_config=nothing, geometry=:shell, radius_ratio=0.35,
                    did_output=false)
@@ -14,6 +115,10 @@ The restart file also stores enough `TimeTracker` state for a resumed run to
 continue output and restart numbering without clobbering earlier files.
 Set `did_output=true` when a history file was successfully emitted immediately
 before this checkpoint so the persisted tracker includes that file as well.
+
+The persisted history count is `max` of what `tracker` knows and what the output
+directory actually holds — see `_persisted_output_count` for why the tracker alone
+is not enough.
 """
 function write_restart!(fields::Dict{String, Any}, tracker::TimeTracker,
         metadata::Dict{String, Any}, config::OutputConfig,
@@ -29,7 +134,7 @@ function write_restart!(fields::Dict{String, Any}, tracker::TimeTracker,
     current_step = metadata["current_step"]
 
     restart_number = tracker.restart_count + 1
-    persisted_output_count = tracker.output_count + (did_output ? 1 : 0)
+    persisted_output_count = _persisted_output_count(tracker, did_output, config, geometry)
     persisted_last_output_time = did_output ? current_time : tracker.last_output_time
     filename = generate_filename(
         config, current_time, current_step, "restart", restart_number; geometry = geometry)
@@ -98,13 +203,7 @@ function read_restart!(tracker::TimeTracker, restart_dir::String,
     comm = output_comm()
     rank = MPI.Comm_rank(comm)
 
-    restart_files = find_restart_files(restart_dir, restart_time)
-
-    if isempty(restart_files)
-        error("No restart files found near time $restart_time in $restart_dir")
-    end
-
-    filename = restart_files[1]
+    filename = _restart_path_for_all_ranks(restart_dir, restart_time)
 
     # Locate-then-delegate. This function used to carry its own ~90-line copy of the
     # read — same metadata reads, same tracker restoration, same per-field slicing,
@@ -128,9 +227,21 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
     comm = output_comm()
     rank = MPI.Comm_rank(comm)
 
-    if !isfile(filepath)
-        error("Rank $rank: Restart file not found: $filepath")
+    # Unanimous for the same reason the path is: this check sits directly in front of the
+    # collective `NCDataset` open below, so a rank-local verdict lets one rank abort while
+    # the others block in the open.
+    exists = rank == 0 ? isfile(filepath) : true
+    if MPI.Comm_size(comm) > 1
+        exists = MPI.bcast(exists, comm; root = 0)
     end
+    exists || error("Restart file not found (checked on rank 0): $filepath")
+    # The verdict above is rank 0's, so a rank that genuinely cannot see the file — the
+    # node-local-scratch case the path selection guards against — would otherwise walk
+    # into the collective open below and fail there with an opaque NetCDF error. Warn
+    # (never error: an error here is asymmetric, which is the hang) so the log still
+    # names the rank that could not see it.
+    rank == 0 || isfile(filepath) ||
+        @warn "Rank $rank cannot see the restart file selected by rank 0" filepath
 
     if rank == 0
         println("Loading parallel restart from $(basename(filepath))")

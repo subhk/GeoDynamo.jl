@@ -26,13 +26,14 @@ using GeoDynamo
 
     # ── D1: a collective inside the threaded region must be caught, not hang ──
     @testset "D1 collectives inside a threaded update are rejected loudly" begin
-        # The flag is only set by the threaded path when it would actually be unsafe
-        # (multi-rank); setting it by hand here lets the guard be tested at one rank.
-        @test GeoDynamo._IN_THREADED_IMPLICIT_UPDATE[] == false
+        # The guard is only armed by the threaded path when it would actually be unsafe
+        # (multi-rank); arming it by hand here lets it be tested at one rank. It is
+        # task-scoped, so `_with_threaded_update_guard` is also what releases it — see
+        # batch F for why a process-global Ref was the wrong home.
+        @test GeoDynamo._in_threaded_implicit_update() == false
         @test GeoDynamo._assert_no_collective_in_threaded_update("probe") === nothing
 
-        GeoDynamo._IN_THREADED_IMPLICIT_UPDATE[] = true
-        try
+        GeoDynamo._with_threaded_update_guard() do
             err = try
                 GeoDynamo._assert_no_collective_in_threaded_update("probe")
                 nothing
@@ -44,8 +45,6 @@ using GeoDynamo
             # the repo's own reduction helpers must route through the guard
             @test_throws ErrorException GeoDynamo.allreduce_sum(1.0)
             @test_throws ErrorException GeoDynamo.allreduce_sum_in_place!([1.0, 2.0])
-        finally
-            GeoDynamo._IN_THREADED_IMPLICIT_UPDATE[] = false
         end
         # cleared again: the helpers work normally
         @test GeoDynamo.allreduce_sum(2.0) == 2.0

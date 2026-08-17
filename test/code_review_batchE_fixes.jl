@@ -139,11 +139,13 @@ end
         user[:user] = GeoDynamo.Callback(sim -> nothing, every)
         @test GeoDynamo._callbacks_may_stop_rank_locally(user) == true
 
-        # ClockOnlyCallback is the documented opt-out: the clock is rank-symmetric
+        # ClockOnlyCallback is NOT an MPI opt-in. Its contract is "reads no field data",
+        # which a wall-clock stop condition satisfies while still deciding rank-locally,
+        # so it must keep paying the reduction.
         clock_only = copy(defaults)
         clock_only[:user] = GeoDynamo.Callback(
             GeoDynamo.ClockOnlyCallback(sim -> nothing), every)
-        @test GeoDynamo._callbacks_may_stop_rank_locally(clock_only) == false
+        @test GeoDynamo._callbacks_may_stop_rank_locally(clock_only) == true
 
         # …and an unrecognised NON-Callback entry must also stay conservative
         unknown = copy(defaults)

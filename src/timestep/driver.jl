@@ -316,30 +316,30 @@ function _apply_solver_implicit_updates_threaded!(state::SolverState)
     tasks = Task[]
     sizehint!(tasks, 6)
 
-    # Arm the collective-side guard for the duration of the spawned region, but only
-    # where ordering divergence is actually possible: at one rank the collectives are
-    # no-ops, threading every scheme is allowed, and arming it would turn a harmless
-    # reduction into a spurious error.
+    # Arm the collective-side guard INSIDE each spawned task, and only where ordering
+    # divergence is actually possible: at one rank the collectives are no-ops, threading
+    # every scheme is allowed, and arming it would turn a harmless reduction into a
+    # spurious error. Arming per task rather than once around the region is what keeps
+    # the guard scoped to this solver and removes the need for a `finally` that would
+    # disarm while sibling tasks are still running (see `_with_threaded_update_guard`).
     guard = mpi_comm_size() > 1
-    guard && (_IN_THREADED_IMPLICIT_UPDATE[] = true)
-    try
-        push!(tasks, Threads.@spawn apply_temperature_implicit_update!(state))
-        push!(tasks, Threads.@spawn apply_velocity_toroidal_implicit_update!(state))
-        push!(tasks, Threads.@spawn apply_velocity_poloidal_implicit_update!(state))
+    spawn_update(f) = guard ? Threads.@spawn(_with_threaded_update_guard(f)) :
+                      Threads.@spawn(f())
 
-        if state.fields.magnetic !== nothing
-            push!(tasks, Threads.@spawn apply_magnetic_toroidal_implicit_update!(state))
-            push!(tasks, Threads.@spawn apply_magnetic_poloidal_implicit_update!(state))
-        end
+    push!(tasks, spawn_update(() -> apply_temperature_implicit_update!(state)))
+    push!(tasks, spawn_update(() -> apply_velocity_toroidal_implicit_update!(state)))
+    push!(tasks, spawn_update(() -> apply_velocity_poloidal_implicit_update!(state)))
 
-        if state.fields.composition !== nothing
-            push!(tasks, Threads.@spawn apply_composition_implicit_update!(state))
-        end
-
-        foreach(fetch, tasks)
-    finally
-        guard && (_IN_THREADED_IMPLICIT_UPDATE[] = false)
+    if state.fields.magnetic !== nothing
+        push!(tasks, spawn_update(() -> apply_magnetic_toroidal_implicit_update!(state)))
+        push!(tasks, spawn_update(() -> apply_magnetic_poloidal_implicit_update!(state)))
     end
+
+    if state.fields.composition !== nothing
+        push!(tasks, spawn_update(() -> apply_composition_implicit_update!(state)))
+    end
+
+    foreach(fetch, tasks)
     return state
 end
 

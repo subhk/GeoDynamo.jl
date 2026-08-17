@@ -535,13 +535,20 @@ _gpu_clock_only(::ClockOnlyCallback) = true
 # `clock.iteration` advance in lockstep, and `wall_time_limit_exceeded` reads
 # `_collective_wtime`, which broadcasts rank 0's elapsed time. `nan_checker`
 # scans only this rank's slab but already reduces the verdict with
-# `_any_rank_flag` before assigning. A `ClockOnlyCallback` is the user asserting
-# the same clock-only property — the wrapper that keeps this extensible.
+# `_any_rank_flag` before assigning.
+#
+# `ClockOnlyCallback` is deliberately NOT listed. Its contract (see its docstring) is
+# "reads only the clock, never the field data" — a GPU-sync property, not an MPI one, and
+# the two are not the same claim. A custom stop condition built on the WALL clock,
+# `ClockOnlyCallback(s -> (time() - t0 > budget) && (s.running = false))`, satisfies the
+# documented contract exactly while deciding from rank-local data; declaring it symmetric
+# here would skip the reconciling reduction and let ranks leave `run!` on different
+# iterations — the deadlock this whole trait exists to prevent. Anything not listed pays
+# one Allreduce per step, which is the cheap side of that trade.
 _running_flag_rank_symmetric(::typeof(stop_time_exceeded)) = true
 _running_flag_rank_symmetric(::typeof(stop_iteration_exceeded)) = true
 _running_flag_rank_symmetric(::typeof(wall_time_limit_exceeded)) = true
 _running_flag_rank_symmetric(::typeof(nan_checker)) = true
-_running_flag_rank_symmetric(::ClockOnlyCallback) = true
 
 function _gpu_host_read_pending(sim::Simulation)
     iteration = sim.model.clock.iteration
