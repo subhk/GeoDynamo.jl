@@ -78,8 +78,16 @@ const CRM_WRITERS_SRC = read(joinpath(CRM_ROOT, "src", "api", "output_writers.jl
         @test t1.output_count == 2
     end
 
+    # Drives real writers end-to-end, so it needs parallel NetCDF (MPI-IO). The Windows
+    # JLLs ship without it and every collective open fails with NetCDF -114; probe and
+    # skip, as the other write round-trip tests do.
+    crm_parallel_err = GeoDynamo.parallel_netcdf_probe(GeoDynamo.output_comm())
+    crm_parallel_err === nothing || @warn(
+        "Parallel NetCDF unavailable; skipping restart writer-counter seeding",
+        error = crm_parallel_err)
+
     @testset "F1b restart seeds writer counters without clobbering files" begin
-        mktempdir() do dir
+        crm_parallel_err === nothing && mktempdir() do dir
             first_fields = GeoDynamo.FieldWriter(dir;
                 schedule = GeoDynamo.IterationInterval(1), fields = [:temperature])
             first_checkpoints = GeoDynamo.CheckpointWriter(dir;

@@ -53,18 +53,10 @@ const FINALIZE_MPI_DIST_WRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
     # Probe collective MPI-IO. A missing parallel-HDF5 backend cannot satisfy a
     # ≥2-rank collective write, so skip rather than fail — but the production
     # open signature is still exercised, so a regression there still errors.
-    probe = rank == 0 ? tempname() * ".nc" : ""
-    probe = MPI.bcast(probe, 0, comm)
-    parallel_ok = try
-        ds0 = NCDataset(comm, probe, "c"; info = MPI.Info())
-        close(ds0)
-        MPI.Barrier(comm)
-        rank == 0 && isfile(probe) && rm(probe; force = true)
-        true
-    catch err
-        rank == 0 &&
-            @warn "Parallel NetCDF unavailable; skipping distributed write test" error=err
-        false
+    parallel_ok = let probe_err = GeoDynamo.parallel_netcdf_probe(comm)
+        probe_err === nothing || rank == 0 &&
+            @warn "Parallel NetCDF unavailable; skipping distributed write test" error=probe_err
+        probe_err === nothing
     end
 
     if parallel_ok

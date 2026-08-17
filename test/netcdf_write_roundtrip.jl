@@ -31,15 +31,10 @@ const FINALIZE_MPI_NCWRITE = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
     # Probe whether this environment has parallel NetCDF (MPI-IO via HDF5). If
     # not, skip — but a MethodError from the production path below is NOT caught
     # here, so a regression in the open-call signature still fails the suite.
-    parallel_ok = try
-        probe = tempname() * ".nc"
-        ds0 = NCDataset(comm, probe, "c"; info = MPI.Info())
-        close(ds0)
-        isfile(probe) && rm(probe; force = true)
-        true
-    catch err
-        @warn "Parallel NetCDF unavailable; skipping write round-trip" error=err
-        false
+    parallel_ok = let probe_err = GeoDynamo.parallel_netcdf_probe(comm)
+        probe_err === nothing ||
+            @warn "Parallel NetCDF unavailable; skipping write round-trip" error=probe_err
+        probe_err === nothing
     end
 
     if parallel_ok

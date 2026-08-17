@@ -136,6 +136,22 @@ using GeoDynamo
         @test occursin("restart files", sprint(showerror, err))
     end
 
+    # ── F5: one parallel-NetCDF probe, usable as a predicate ─────────────────
+    @testset "F5 parallel NetCDF capability is probeable, not just fatal" begin
+        comm = GeoDynamo.output_comm()
+        probe_err = GeoDynamo.parallel_netcdf_probe(comm)
+        @test probe_err === nothing || probe_err isa Exception
+        @test GeoDynamo.parallel_netcdf_available(comm) == (probe_err === nothing)
+
+        # the fail-loud wrapper agrees with the predicate — it exists so callers can
+        # choose to abort, not so the capability can only be discovered by crashing
+        if probe_err === nothing
+            @test GeoDynamo.check_parallel_netcdf_support(comm) === nothing
+        else
+            @test_throws ErrorException GeoDynamo.check_parallel_netcdf_support(comm)
+        end
+    end
+
     # ── F4b: the scan pattern must survive a regex-hostile filename prefix ────
     @testset "F4b output-count scan escapes the configured prefix" begin
         mktempdir() do dir

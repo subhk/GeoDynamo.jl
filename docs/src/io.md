@@ -444,13 +444,19 @@ write_local_spectral_coefficients!(ds["velocity_toroidal_real"], mode_indices, r
 
 ### Runtime Check
 
-At initialization, the system verifies that parallel HDF5 is available:
+Parallel output needs HDF5/netCDF built with MPI-IO. Whether a build has it cannot be
+queried — it has to be probed by opening a collective dataset — so GeoDynamo exposes the
+check rather than running it at load time (aborting at `using GeoDynamo` would break
+serial-only work on a build without MPI-IO). Both forms are collective: call them on
+every rank.
 
 ```julia
-check_parallel_netcdf_support(comm)
+check_parallel_netcdf_support(comm)   # errors, with installation instructions
+parallel_netcdf_available(comm)       # Bool, for degrading or skipping
 ```
 
-This will error immediately if parallel NetCDF is not supported, with instructions on how to install a parallel-enabled HDF5.
+The Windows JLLs currently ship without MPI-IO, so collective opens there fail with
+NetCDF error `-114`. Linux and macOS builds normally have it.
 
 ### Verification
 

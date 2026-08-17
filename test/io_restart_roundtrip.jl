@@ -54,15 +54,10 @@ const FINALIZE_MPI_RESTART = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
 
     # Same parallel-NetCDF capability probe used by the write round-trip test;
     # restart write/read both go through the parallel MPI-IO path.
-    parallel_ok = try
-        probe = tempname() * ".nc"
-        ds0 = NCDataset(comm, probe, "c"; info = MPI.Info())
-        close(ds0)
-        isfile(probe) && rm(probe; force = true)
-        true
-    catch err
-        @warn "Parallel NetCDF unavailable; skipping restart write/read round-trip" error = err
-        false
+    parallel_ok = let probe_err = GeoDynamo.parallel_netcdf_probe(comm)
+        probe_err === nothing ||
+            @warn "Parallel NetCDF unavailable; skipping restart write/read round-trip" error = probe_err
+        probe_err === nothing
     end
 
     if parallel_ok

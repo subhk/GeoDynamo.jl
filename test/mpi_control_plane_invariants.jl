@@ -115,17 +115,26 @@ using GeoDynamo
 
     # ── a WallTimeInterval writer gates a COLLECTIVE; it must not desync ──────
     @testset "WallTimeInterval writer does not desync the write gate" begin
-        # One shared directory, broadcast: a per-rank mktempdir() would have each
-        # rank write a different path and the collective NetCDF open fails EACCES.
-        dir = MPI.bcast(rank == 0 ? mktempdir() : "", 0, comm)
-        model = mkmodel()
-        sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 4,
-            output_writers = (snap = GeoDynamo.FieldWriter(dir;
-                schedule = GeoDynamo.WallTimeInterval(1e-9),   # fires every step
-                fields = [:temperature]),))
-        GeoDynamo.run!(sim)
-        MPI.Barrier(comm)
-        @test model.clock.iteration == 4
+        # This is the only testset here that drives a real writer, so it needs the
+        # repo's parallel-NetCDF probe: the Windows JLLs ship without MPI-IO and every
+        # collective open there fails with NetCDF -114. Collective, so every rank
+        # probes and every rank takes the same branch.
+        probe_err = GeoDynamo.parallel_netcdf_probe(comm)
+        if probe_err !== nothing
+            @warn "Parallel NetCDF unavailable; skipping WallTimeInterval write gate" error = probe_err
+        else
+            # One shared directory, broadcast: a per-rank mktempdir() would have each
+            # rank write a different path and the collective NetCDF open fails EACCES.
+            dir = MPI.bcast(rank == 0 ? mktempdir() : "", 0, comm)
+            model = mkmodel()
+            sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 4,
+                output_writers = (snap = GeoDynamo.FieldWriter(dir;
+                    schedule = GeoDynamo.WallTimeInterval(1e-9),   # fires every step
+                    fields = [:temperature]),))
+            GeoDynamo.run!(sim)
+            MPI.Barrier(comm)
+            @test model.clock.iteration == 4
+        end
     end
 
     # ── the threaded-update collective guard must not fire on a clean config ──
