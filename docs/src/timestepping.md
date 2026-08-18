@@ -1,21 +1,8 @@
 # Time Integration
 
-GeoDynamo.jl provides three production-grade implicit-explicit (IMEX) time-stepping schemes optimized for the stiff diffusion terms in magnetohydrodynamic simulations.
-
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     Time Integration Schemes                            │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐              │
-│   │   CNAB2     │     │    ExponentialAdamsBashforth2     │     │    ExponentialRungeKutta2     │              │
-│   │  ─────────  │     │  ─────────  │     │  ─────────  │              │
-│   │  Workhorse  │     │  Stiff OK   │     │  Accurate   │              │
-│   │  A-stable   │     │  L-stable   │     │  L-stable   │              │
-│   └─────────────┘     └─────────────┘     └─────────────┘              │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+GeoDynamo.jl currently supports three end-to-end time-stepping schemes for
+magnetohydrodynamic simulations: `CNAB2`, `ExponentialRungeKutta2`, and
+`RungeKutta3` (`CB3`).
 
 ---
 
@@ -26,8 +13,8 @@ GeoDynamo.jl provides three production-grade implicit-explicit (IMEX) time-stepp
     | Scenario | Scheme | Why |
     |:---------|:-------|:----|
     | **Production dynamo runs** | CNAB2 | Robust, well-tested, low cost |
-    | **Strong diffusion** (low E, Pm) | ExponentialAdamsBashforth2 | Exact linear integration, larger Δt |
     | **Wave studies / benchmarks** | ExponentialRungeKutta2 | Best transient accuracy |
+    | **Higher-order transients** | RungeKutta3 | Three-stage, third-order explicit recurrence |
     | **Development / debugging** | CNAB2 | Simplest to understand |
 
 ---
@@ -247,7 +234,14 @@ simulation = Simulation(
 
 ## ExponentialAdamsBashforth2: Exponential Adams–Bashforth 2
 
-*Uses matrix exponentials to exactly integrate the stiff linear part.*
+!!! warning "Not currently supported"
+    `ExponentialAdamsBashforth2` is not currently supported by `Simulation`.
+    Its scalar, toroidal, and Krylov kernels are retained for development, but
+    the velocity-poloidal W-split update is incomplete. Parameter validation
+    therefore rejects this descriptor before allocating a solver state.
+
+The formulation below documents the experimental kernel work; it is not a
+runnable high-level solver option.
 
 ### Mathematical Formulation
 
@@ -266,7 +260,7 @@ where:
 
 ### Implementation Strategy
 
-GeoDynamo now routes ExponentialAdamsBashforth2 through the solver-managed Krylov path internally.
+The experimental ExponentialAdamsBashforth2 kernels use the solver-managed Krylov path internally.
 The old dense ETD cache builder and manual LU-cache entry points are retained
 only as deprecated compatibility wrappers; they are no longer the documented
 workflow.
@@ -275,19 +269,6 @@ The Krylov approach:
 - Builds an Arnoldi basis of dimension `m`
 - Computes `exp(Δt L) v` and `φ₁(Δt L) v` in reduced space
 - Avoids forming or storing full `nr × nr` exponential matrices
-
-### Usage
-
-```julia
-grid = SphericalShellGrid(lmax=64, mmax=64, nr=96, nr_inner=24)
-model = GeodynamoModel(grid; Ek=1e-5, Pr=1, Pm=2, Sc=1, Ra=1e7)
-
-simulation = Simulation(
-    model;
-    Δt=1e-5,
-    timestepper=ExponentialAdamsBashforth2(krylov_dimension=20, tolerance=1e-8),
-)
-```
 
 ### Properties
 
@@ -376,16 +357,32 @@ println("Max residual: $(stats.max_residual)")
 
 | Property | Value |
 |:---------|:------|
-| Order | 2nd (but more accurate than ExponentialAdamsBashforth2) |
+| Order | 2nd |
 | Stability | L-stable |
-| Memory | 2× ExponentialAdamsBashforth2 (half-step and full-step caches) |
+| Memory | Half-step and full-step stage caches |
 | Cost | 2× nonlinear evaluations per step |
+
+---
+
+## RungeKutta3: Low-storage IMEX Runge–Kutta 3
+
+`RungeKutta3()` (alias `CB3()`) uses a three-stage Cavaglieri-Bewley/Williamson
+2N-storage recurrence for nonlinear terms and an implicit diffusion solve at
+each substage. It is supported by both solver validation and the high-level
+`Simulation` API.
+
+```julia
+simulation = Simulation(model; Δt = 1e-5, timestepper = RungeKutta3())
+```
+
+Use it when third-order transient accuracy is worth the additional stage cost.
 
 ---
 
 ## Krylov Subspace Utilities
 
-All exponential schemes share these core routines:
+The supported `ExponentialRungeKutta2` path and experimental exponential-action
+kernels share these core routines:
 
 ### `exp_action_krylov(Aop!, v, Δt; m=20, tol=1e-8)`
 
@@ -474,19 +471,18 @@ end
 | Scenario | Scheme | Rationale |
 |:---------|:-------|:----------|
 | Production dynamo | **CNAB2** | Robust, well-tested, moderate cost |
-| Strong diffusion (low E, Pm) | **ExponentialAdamsBashforth2** | Allows larger Δt, exact linear integration |
 | Wave studies | **ExponentialRungeKutta2** | Best transient accuracy |
+| Higher-order transients | **RungeKutta3** | Third-order, low-storage recurrence |
 | Initial development/debugging | **CNAB2** | Simplest to understand |
 | Benchmark comparisons | **ExponentialRungeKutta2** | Reference-quality accuracy |
 
 ### Timestepper Guidelines
 
-| Option | CNAB2 | ExponentialAdamsBashforth2 | ExponentialRungeKutta2 |
-|:-------|:------|:-----|:-----|
+| Option | CNAB2 | ExponentialRungeKutta2 | RungeKutta3 |
+|:-------|:------|:------------------------|:------------|
 | Damping | `CNAB2(theta=0.5)` | N/A | N/A |
-| Krylov dimension | N/A | `ExponentialAdamsBashforth2(krylov_dimension=20)` | N/A |
-| Krylov tolerance | N/A | `ExponentialAdamsBashforth2(tolerance=1e-8)` | N/A |
-| `courant` | 0.5-0.9 | 0.5-0.9 | 0.3-0.5 |
+| Nonlinear stages | 1 | 2 | 3 |
+| `courant` | 0.5-0.9 | 0.3-0.5 | 0.3-0.5 |
 
 ### Startup Protocol
 
@@ -527,29 +523,27 @@ end
 
 | Action | Details |
 |:-------|:--------|
-| Increase Krylov dimension | Use `ExponentialAdamsBashforth2(krylov_dimension = 30)` or higher |
-| Tighten tolerance | Use `ExponentialAdamsBashforth2(tolerance = 1e-10)` |
 | Reduce timestep | For transient accuracy |
 | Use ExponentialRungeKutta2 | For critical accuracy requirements |
+| Use RungeKutta3 | When third-order transient accuracy is required |
 
 ### Memory Issues
 
 | Action | Details |
 |:-------|:--------|
-| Use Krylov mode | Instead of dense matrices for ExponentialAdamsBashforth2/ExponentialRungeKutta2 |
-| Reduce Krylov dimension | Use `ExponentialAdamsBashforth2(krylov_dimension = 15)` if memory-limited |
+| Use CNAB2 | Lowest-memory supported timestepper |
+| Avoid unnecessary output syncs | Prefer `IterationInterval` with `gpu_sync = :output` |
 | Check for leaks | In nonlinear term caching |
 
 ---
 
 ## Summary Comparison
 
-| Feature | CNAB2 | ExponentialAdamsBashforth2 | ExponentialRungeKutta2 |
-|:--------|:------|:-----|:-----|
-| **Order** | 2nd | 2nd (exact linear) | 2nd |
-| **Stability** | A-stable | L-stable | L-stable |
-| **Linear Treatment** | Implicit | Exponential | Exponential |
-| **Nonlinear Treatment** | AB2 | AB2 | Midpoint RK |
-| **Memory** | Low | Medium | High |
-| **Cost per Step** | Low | Medium | High |
-| **Best Use Case** | Production | Stiff problems | High accuracy |
+| Feature | CNAB2 | ExponentialRungeKutta2 | RungeKutta3 |
+|:--------|:------|:------------------------|:------------|
+| **Order** | 2nd | 2nd | 3rd |
+| **Linear Treatment** | Implicit | Exponential | Implicit per stage |
+| **Nonlinear Treatment** | AB2 | Midpoint RK | Three-stage low-storage RK |
+| **Memory** | Low | High | Medium |
+| **Cost per Step** | Low | High | High |
+| **Best Use Case** | Production | Wave/transient accuracy | Higher-order transients |

@@ -627,15 +627,10 @@ const BCS2 = GeoDynamo.bcs                      # bcs module
         end
         comm = GeoDynamo.output_comm()
 
-        parallel_ok = try
-            probe = tempname() * ".nc"
-            ds0 = NCDataset(comm, probe, "c"; info = MPI.Info())
-            close(ds0)
-            isfile(probe) && rm(probe; force = true)
-            true
-        catch err
-            @warn "Parallel NetCDF unavailable; skipping restart pencils round-trip" error = err
-            false
+        parallel_ok = let probe_err = GeoDynamo.parallel_netcdf_probe(comm)
+            probe_err === nothing ||
+                @warn "Parallel NetCDF unavailable; skipping restart pencils round-trip" error = probe_err
+            probe_err === nothing
         end
 
         if parallel_ok && MPI.Comm_size(comm) == 1

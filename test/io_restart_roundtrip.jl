@@ -54,15 +54,10 @@ const FINALIZE_MPI_RESTART = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
 
     # Same parallel-NetCDF capability probe used by the write round-trip test;
     # restart write/read both go through the parallel MPI-IO path.
-    parallel_ok = try
-        probe = tempname() * ".nc"
-        ds0 = NCDataset(comm, probe, "c"; info = MPI.Info())
-        close(ds0)
-        isfile(probe) && rm(probe; force = true)
-        true
-    catch err
-        @warn "Parallel NetCDF unavailable; skipping restart write/read round-trip" error = err
-        false
+    parallel_ok = let probe_err = GeoDynamo.parallel_netcdf_probe(comm)
+        probe_err === nothing ||
+            @warn "Parallel NetCDF unavailable; skipping restart write/read round-trip" error = probe_err
+        probe_err === nothing
     end
 
     if parallel_ok
@@ -137,7 +132,9 @@ const FINALIZE_MPI_RESTART = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
             # Tracker scalars round-trip from the file.
             @test reader.last_output_time ≈ 1.5
             @test reader.output_count == 3
-            @test reader.restart_count == 0
+            # The checkpoint is restart #1, so a resumed writer must continue
+            # at #2 instead of reusing and overwriting the file just loaded.
+            @test reader.restart_count == 1
             @test reader.grid_file_written == true
             @test reader.last_restart_time ≈ 2.5
 
@@ -157,6 +154,7 @@ const FINALIZE_MPI_RESTART = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
                 found[1], reader, config; shtns_config = cfg)
             @test md["current_step"] == 42
             @test reader.output_count == 3
+            @test reader.restart_count == 1
             @test maximum(abs.(restart_data["temperature"] .- T_in)) == 0.0
 
             @test_throws ErrorException GeoDynamo._load_restart_file(

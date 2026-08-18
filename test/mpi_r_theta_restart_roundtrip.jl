@@ -29,19 +29,13 @@ const FINALIZE_MPI_RT_RESTART = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
     comm = GeoDynamo.output_comm()
     rank = MPI.Comm_rank(comm)
 
-    # Probe parallel NetCDF (MPI-IO); skip cleanly if unavailable. The probe path
-    # must be IDENTICAL on every rank (collective open), so rank 0 picks it and
-    # broadcasts — `tempname()` alone diverges per rank and fails the open.
-    probe = rank == 0 ? tempname() * ".nc" : ""
-    probe = MPI.bcast(probe, 0, comm)
-    parallel_ok = try
-        ds0 = NCDataset(comm, probe, "c"; info = MPI.Info())
-        close(ds0)
-        rank == 0 && isfile(probe) && rm(probe; force = true)
-        true
-    catch err
-        @warn "Parallel NetCDF unavailable; skipping r×θ restart round-trip" error = err
-        false
+    # Probe parallel NetCDF (MPI-IO); skip cleanly if unavailable. The probe is
+    # collective and picks a rank-identical path internally, so every rank must
+    # reach it and every rank takes the same branch.
+    parallel_ok = let probe_err = GeoDynamo.parallel_netcdf_probe(comm)
+        probe_err === nothing ||
+            @warn "Parallel NetCDF unavailable; skipping r×θ restart round-trip" error = probe_err
+        probe_err === nothing
     end
 
     if parallel_ok

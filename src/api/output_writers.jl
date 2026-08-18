@@ -93,6 +93,122 @@ function _writer_tracker!(ow, config::OutputConfig, current_time::Float64)
     return tracker
 end
 
+"""Return an independent copy of a restored output tracker."""
+function _copy_time_tracker(tracker::TimeTracker)
+    return TimeTracker(
+        tracker.last_output_time,
+        tracker.last_restart_time,
+        tracker.output_count,
+        tracker.restart_count,
+        tracker.next_output_time,
+        tracker.next_restart_time,
+        tracker.grid_file_written,
+    )
+end
+
+"""Merge persisted tracker state without ever moving a writer backwards."""
+function _merge_time_tracker!(tracker::TimeTracker, restored::TimeTracker)
+    tracker.last_output_time = max(tracker.last_output_time, restored.last_output_time)
+    tracker.last_restart_time = max(tracker.last_restart_time, restored.last_restart_time)
+    tracker.output_count = max(tracker.output_count, restored.output_count)
+    tracker.restart_count = max(tracker.restart_count, restored.restart_count)
+    tracker.next_output_time = max(tracker.next_output_time, restored.next_output_time)
+    tracker.next_restart_time = max(tracker.next_restart_time, restored.next_restart_time)
+    tracker.grid_file_written |= restored.grid_file_written
+    return tracker
+end
+
+"""
+    _existing_writer_count(path, kind, geometry) -> Int
+
+Return the highest numbered GeoDynamo history or restart file already present
+at `path`. Rank 0 scans the shared output directory and broadcasts the result so
+all writer trackers remain identical.
+"""
+function _existing_writer_count(path::String, kind::Symbol, geometry::Symbol)
+    kind in (:hist, :restart) || throw(ArgumentError(
+        "writer file kind must be :hist or :restart (got $kind)"))
+    comm = MPI.Initialized() ? get_comm() : nothing
+    rank = comm === nothing ? 0 : MPI.Comm_rank(comm)
+    # The scan is shared with the restart writer's `_persisted_output_count`
+    # (io/restart.jl), so the two agree on how a numbered output file is spelled. The
+    # prefix is still hardcoded here because a writer carries a path and no OutputConfig;
+    # a run with a non-default `filename_prefix` is counted by the restart path only.
+    count = rank == 0 ? _scan_output_count(path, "geodynamo", geometry, String(kind)) : 0
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        buffer = Int[count]
+        MPI.Bcast!(buffer, 0, comm)
+        count = buffer[1]
+    end
+    return count
+end
+
+"""
+    _existing_grid_file(path, geometry) -> Bool
+
+Whether the one-time grid file already exists at `path`. Rank 0 checks the shared
+output directory and broadcasts the answer, exactly as `_existing_writer_count`
+does, so every rank's tracker agrees.
+
+A restored `grid_file_written` describes the directory the CHECKPOINT was written
+to, not the one a resumed run writes to. `write_fields!` (io/history.jl) sets that
+flag before writing the grid file, so a checkpoint taken from a run that emitted
+one carries `true`; seeding a fresh `FieldWriter(new_dir)` with it made
+`write_grid_file!` be skipped forever, leaving `new_dir` with history files and no
+`geodynamo_<geometry>_grid.nc`. The counters already avoid the mirror image of
+this via `_existing_writer_count`; the flag needs the same directory truth.
+"""
+function _existing_grid_file(path::String, geometry::Symbol)
+    comm = MPI.Initialized() ? get_comm() : nothing
+    rank = comm === nothing ? 0 : MPI.Comm_rank(comm)
+    present = rank == 0 && isfile(joinpath(path, "geodynamo_$(geometry)_grid.nc"))
+    if comm !== nothing && MPI.Comm_size(comm) > 1
+        buffer = Int[present ? 1 : 0]
+        MPI.Bcast!(buffer, 0, comm)
+        present = buffer[1] != 0
+    end
+    return present
+end
+
+function _restore_output_writer_tracker!(
+        writer::FieldWriter, restored::TimeTracker, geometry::Symbol)
+    tracker = writer._tracker[]
+    if tracker === nothing
+        tracker = _copy_time_tracker(restored)
+        writer._tracker[] = tracker
+    else
+        _merge_time_tracker!(tracker, restored)
+    end
+    tracker.output_count = max(
+        tracker.output_count, _existing_writer_count(writer.path, :hist, geometry))
+    tracker.grid_file_written = _existing_grid_file(writer.path, geometry)
+    return tracker
+end
+
+function _restore_output_writer_tracker!(
+        writer::CheckpointWriter, restored::TimeTracker, geometry::Symbol)
+    tracker = writer._tracker[]
+    if tracker === nothing
+        tracker = _copy_time_tracker(restored)
+        writer._tracker[] = tracker
+    else
+        _merge_time_tracker!(tracker, restored)
+    end
+    tracker.restart_count = max(
+        tracker.restart_count, _existing_writer_count(writer.path, :restart, geometry))
+    tracker.grid_file_written = _existing_grid_file(writer.path, geometry)
+    return tracker
+end
+
+_restore_output_writer_tracker!(writer, restored::TimeTracker, geometry::Symbol) = nothing
+
+function _restore_output_writer_trackers!(writers, restored::TimeTracker, geometry::Symbol)
+    for writer in values(writers)
+        _restore_output_writer_tracker!(writer, restored, geometry)
+    end
+    return writers
+end
+
 # ================================================================================
 # Internal dispatch
 # ================================================================================

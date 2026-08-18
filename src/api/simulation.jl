@@ -126,6 +126,11 @@ end
 
 Construct a `Simulation`.
 
+The supported timestepper objects are `CNAB2()`,
+`ExponentialRungeKutta2()`, and `RungeKutta3()`. Experimental descriptor types
+such as `ExponentialAdamsBashforth2`, `ETD`, and `ThetaMethod` are retained for
+compatibility but rejected by solver parameter validation.
+
 A positive timestep is required: pass it as `Δt` (canonical, Oceananigans convention) or `dt` (alias);
 passing both, neither, or a non-positive value throws an `ArgumentError`.
 `stop_time` accepts any `Real` and is converted to `Float64`.
@@ -187,6 +192,7 @@ function Simulation(model::GeodynamoModel;
     dt_in > 0 ||
         throw(ArgumentError("Simulation: dt = $dt_in must be positive"))
     stop_time_f = Float64(stop_time)
+    restored_output_tracker = nothing
 
     if !isempty(restart_from)
         if MPI.Initialized()
@@ -202,6 +208,7 @@ function Simulation(model::GeodynamoModel;
                 restart_time = Float64(get(metadata, "current_time", model.state.time))
                 restart_step = Int(get(metadata, "current_step", model.state.step))
                 reset_solver_clock!(model.state; time = restart_time, step = restart_step)
+                restored_output_tracker = tracker
                 @info "Simulation: loaded restart from $restart_from" time=model.state.time
             catch e
                 # Fail loud: the caller explicitly asked to restart, so silently
@@ -254,6 +261,10 @@ function Simulation(model::GeodynamoModel;
 
     callback_items = merge(_default_callbacks(), _to_ordered(callbacks, :callback))
     output_writer_items = _to_ordered(output_writers, :writer)
+    if restored_output_tracker !== nothing
+        _restore_output_writer_trackers!(
+            output_writer_items, restored_output_tracker, model.state.parameters.geometry)
+    end
 
     gpu_resolved = _resolve_gpu_stepping(gpu, model, timestep_options.timestepper)
     gpu_sync in (:every, :output) || throw(ArgumentError(
@@ -517,6 +528,27 @@ _gpu_clock_only(::typeof(stop_time_exceeded)) = true
 _gpu_clock_only(::typeof(stop_iteration_exceeded)) = true
 _gpu_clock_only(::typeof(wall_time_limit_exceeded)) = true
 _gpu_clock_only(::ClockOnlyCallback) = true
+
+# Which stop conditions leave `sim.running` rank-identical, so that
+# `_run_callbacks!` can skip its reconciling Allreduce (api/callbacks.jl).
+# The three built-ins decide from rank-consistent inputs: `clock.time` and
+# `clock.iteration` advance in lockstep, and `wall_time_limit_exceeded` reads
+# `_collective_wtime`, which broadcasts rank 0's elapsed time. `nan_checker`
+# scans only this rank's slab but already reduces the verdict with
+# `_any_rank_flag` before assigning.
+#
+# `ClockOnlyCallback` is deliberately NOT listed. Its contract (see its docstring) is
+# "reads only the clock, never the field data" — a GPU-sync property, not an MPI one, and
+# the two are not the same claim. A custom stop condition built on the WALL clock,
+# `ClockOnlyCallback(s -> (time() - t0 > budget) && (s.running = false))`, satisfies the
+# documented contract exactly while deciding from rank-local data; declaring it symmetric
+# here would skip the reconciling reduction and let ranks leave `run!` on different
+# iterations — the deadlock this whole trait exists to prevent. Anything not listed pays
+# one Allreduce per step, which is the cheap side of that trade.
+_running_flag_rank_symmetric(::typeof(stop_time_exceeded)) = true
+_running_flag_rank_symmetric(::typeof(stop_iteration_exceeded)) = true
+_running_flag_rank_symmetric(::typeof(wall_time_limit_exceeded)) = true
+_running_flag_rank_symmetric(::typeof(nan_checker)) = true
 
 function _gpu_host_read_pending(sim::Simulation)
     iteration = sim.model.clock.iteration

@@ -24,7 +24,12 @@ end
 """
     ExponentialAdamsBashforth2(; krylov_dimension=20, tolerance=1e-8)
 
-Exponential Adams-Bashforth second-order timestepper.
+Experimental Exponential Adams-Bashforth second-order descriptor.
+
+Not currently supported by `Simulation`: the solver's velocity-poloidal
+W-split update is not implemented for this scheme, so parameter validation
+rejects it before state allocation. The type remains available for internal
+kernel development and source compatibility.
 """
 struct ExponentialAdamsBashforth2 <: AbstractTimestepper
     krylov_dimension::Int
@@ -77,7 +82,12 @@ const CB3 = RungeKutta3
 """
     ETD(; krylov_dimension=20, tolerance=1e-8)
 
-Exponential time differencing timestepper.
+Experimental exponential time-differencing descriptor.
+
+Not currently supported by `Simulation`: the end-to-end solver update is not
+implemented for this scheme, so parameter validation rejects it before state
+allocation. The type remains available for internal kernel development and
+source compatibility.
 """
 struct ETD <: AbstractTimestepper
     krylov_dimension::Int
@@ -90,7 +100,12 @@ end
 """
     ThetaMethod(; theta=0.5)
 
-Single-parameter implicit theta timestepper.
+Experimental single-parameter implicit-theta descriptor.
+
+Not currently supported by `Simulation`: the end-to-end solver update is not
+implemented for this scheme, so parameter validation rejects it before state
+allocation. The type remains available for internal kernel development and
+source compatibility.
 """
 struct ThetaMethod <: AbstractTimestepper
     theta::Float64

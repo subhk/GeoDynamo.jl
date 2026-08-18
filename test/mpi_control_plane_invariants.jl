@@ -96,19 +96,45 @@ using GeoDynamo
         @test iters[1] < 50            # stopped by the NaN, not by stop_iteration
     end
 
-    # ── a WallTimeInterval writer gates a COLLECTIVE; it must not desync ──────
-    @testset "WallTimeInterval writer does not desync the write gate" begin
-        # One shared directory, broadcast: a per-rank mktempdir() would have each
-        # rank write a different path and the collective NetCDF open fails EACCES.
-        dir = MPI.bcast(rank == 0 ? mktempdir() : "", 0, comm)
+    # ── a public callback may stop from rank-local state; run! must stay collective ─
+    @testset "single-rank user callback stops all ranks together" begin
         model = mkmodel()
-        sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 4,
-            output_writers = (snap = GeoDynamo.FieldWriter(dir;
-                schedule = GeoDynamo.WallTimeInterval(1e-9),   # fires every step
-                fields = [:temperature]),))
+        sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 50)
+        GeoDynamo.add_callback!(sim,
+            s -> (rank == nranks - 1 && (s.running = false));
+            schedule = GeoDynamo.IterationInterval(1), name = :rank_local_stop)
+
         GeoDynamo.run!(sim)
         MPI.Barrier(comm)
-        @test model.clock.iteration == 4
+
+        @test sim.running == false
+        iters = MPI.Allgather(model.clock.iteration, comm)
+        @test all(==(iters[1]), iters)
+        @test iters[1] == 1
+    end
+
+    # ── a WallTimeInterval writer gates a COLLECTIVE; it must not desync ──────
+    @testset "WallTimeInterval writer does not desync the write gate" begin
+        # This is the only testset here that drives a real writer, so it needs the
+        # repo's parallel-NetCDF probe: the Windows JLLs ship without MPI-IO and every
+        # collective open there fails with NetCDF -114. Collective, so every rank
+        # probes and every rank takes the same branch.
+        probe_err = GeoDynamo.parallel_netcdf_probe(comm)
+        if probe_err !== nothing
+            @warn "Parallel NetCDF unavailable; skipping WallTimeInterval write gate" error = probe_err
+        else
+            # One shared directory, broadcast: a per-rank mktempdir() would have each
+            # rank write a different path and the collective NetCDF open fails EACCES.
+            dir = MPI.bcast(rank == 0 ? mktempdir() : "", 0, comm)
+            model = mkmodel()
+            sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 4,
+                output_writers = (snap = GeoDynamo.FieldWriter(dir;
+                    schedule = GeoDynamo.WallTimeInterval(1e-9),   # fires every step
+                    fields = [:temperature]),))
+            GeoDynamo.run!(sim)
+            MPI.Barrier(comm)
+            @test model.clock.iteration == 4
+        end
     end
 
     # ── the threaded-update collective guard must not fire on a clean config ──
@@ -121,6 +147,35 @@ using GeoDynamo
         GeoDynamo.run!(sim)
         MPI.Barrier(comm)
         @test model.clock.iteration == 3
-        @test GeoDynamo._IN_THREADED_IMPLICIT_UPDATE[] == false
+        @test GeoDynamo._in_threaded_implicit_update() == false
+    end
+
+    # ── the path handed to a COLLECTIVE open must be rank 0's choice ──────────
+    @testset "restart file selection is rank-0 authoritative" begin
+        # Deliberately give each rank a DIFFERENT directory — which is what node-local
+        # scratch, or an NFS mount with a stale attribute cache, looks like from inside
+        # the rank-local `readdir` in `find_restart_files`. A rank-local pick returns
+        # each rank's own file and the collective NCDataset open then targets different
+        # paths on different ranks: an MPI-IO hang, or two checkpoints silently mixed.
+        dir = mktempdir()
+        touch(joinpath(dir, "geodynamo_shell_restart_$(rank + 1).nc"))
+        chosen = GeoDynamo._restart_path_for_all_ranks(dir, -1.0)
+        n = parse(Int, match(r"_(\d+)\.nc$", basename(chosen)).captures[1])
+        ns = MPI.Allgather(n, comm)
+        @test all(==(ns[1]), ns)
+        @test ns[1] == 1                      # rank 0's file, on every rank
+
+        # a missing checkpoint must raise on EVERY rank: if only the ranks with an
+        # empty listing raise, the others walk into the collective open alone
+        empty_dir = mktempdir()
+        raised = 0
+        try
+            GeoDynamo._restart_path_for_all_ranks(empty_dir, -1.0)
+        catch
+            raised = 1
+        end
+        flags = MPI.Allgather(raised, comm)
+        @test all(==(1), flags)
+        MPI.Barrier(comm)
     end
 end

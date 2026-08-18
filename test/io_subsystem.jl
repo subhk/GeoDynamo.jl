@@ -135,6 +135,16 @@ const FINALIZE_MPI_IO_SUB = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
             @test tracker.restart_count == 1
             @test tracker.grid_file_written == true
 
+            restartfile = GeoDynamo.generate_filename(
+                config, 0.0, 7, "restart", 1; geometry = :shell)
+            resumed = GeoDynamo.create_time_tracker(config, 0.0)
+            GeoDynamo._load_restart_file(restartfile, resumed, config;
+                shtns_config = cfg)
+            # The checkpoint represents the state after both files emitted by
+            # this write_fields! call, not the counters from before the call.
+            @test resumed.output_count == 1
+            @test resumed.restart_count == 1
+
             # the no-write path returns false without producing a file
             quiet = GeoDynamo.create_time_tracker(config, 0.0)
             quiet.last_output_time = 1.0e6

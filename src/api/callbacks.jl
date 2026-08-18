@@ -261,6 +261,39 @@ end
 # ================================================================================
 
 """
+    _running_flag_rank_symmetric(cb) -> Bool
+
+Whether `cb` can only ever leave `sim.running` IDENTICAL on every rank.
+
+`false` by default: an unrecognised callback is assumed to decide from rank-local
+state, which is the conservative answer — a redundant reduction, never a diverged
+stop. The built-in callback TYPES qualify because none of them assigns
+`sim.running` at all (`HealthCheck` throws instead). The built-in stop FUNCTIONS
+qualify for their own reasons and are registered beside their definitions in
+api/simulation.jl.
+
+There is deliberately no user-facing opt-in wrapper: rank-symmetry of a stop decision
+is not a property a caller can assert by wrapping, and getting it wrong reintroduces the
+deadlock. Anything unrecognised simply pays one Allreduce per step.
+"""
+_running_flag_rank_symmetric(::Any) = false
+_running_flag_rank_symmetric(cb::Callback) = _running_flag_rank_symmetric(cb.func)
+_running_flag_rank_symmetric(::SimulationProgress) = true
+_running_flag_rank_symmetric(::EnergyDiagnostics) = true
+_running_flag_rank_symmetric(::SolenoidalMonitor) = true
+_running_flag_rank_symmetric(::HealthCheck) = true
+
+"""
+    _callbacks_may_stop_rank_locally(callbacks) -> Bool
+
+Whether ANY registered callback could set `sim.running = false` on some ranks and
+not others — i.e. whether the reconciling reduction in `_run_callbacks!` can change
+the answer at all.
+"""
+_callbacks_may_stop_rank_locally(callbacks) =
+    any(cb -> !_running_flag_rank_symmetric(cb), values(callbacks))
+
+"""
     _run_callbacks!(sim)
 
 Iterates over `sim.callbacks`, builds a `_ScheduleContext` from the current
@@ -276,6 +309,22 @@ function _run_callbacks!(sim)
         if should_fire(_callback_schedule(cb), ctx)
             _fire_callback!(cb, sim)
         end
+    end
+    # `run!` explicitly allows any callback to stop the simulation by assigning
+    # `sim.running = false`. A user callback may base that decision on rank-local
+    # state, so reconcile the flag before writers run or another solver step can
+    # enter a collective. Built-in rank-local health callbacks use the same
+    # reduction internally; this final guard covers the public callback contract.
+    #
+    # Skipped when every registered callback already leaves the flag rank-identical,
+    # so a default run does not pay an Allreduce per step for a value that cannot
+    # differ. The skip is decided from the callback REGISTRY, which the surrounding
+    # design already requires to be identical on every rank — `should_fire` mutates
+    # per-schedule fire bookkeeping, so an asymmetric registry desynchronises firing
+    # long before it reaches this line. Unrecognised entries answer "may stop", so a
+    # new callback type reduces until it is explicitly declared symmetric.
+    if _callbacks_may_stop_rank_locally(sim.callbacks) && _any_rank_flag(!sim.running)
+        sim.running = false
     end
     return nothing
 end

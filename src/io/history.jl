@@ -178,7 +178,7 @@ function write_fields!(fields::Dict{String, Any}, tracker::TimeTracker,
         write_restart!(fields, tracker, metadata, with_output_precision(config, Float64), pencils;
             shtns_config = shtns_config,
             geometry = geometry, radius_ratio = radius_ratio,
-            radial_grid = radial_grid)
+            radial_grid = radial_grid, did_output = should_output)
     end
 
     # Update tracker

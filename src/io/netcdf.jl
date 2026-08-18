@@ -3,25 +3,30 @@
 # ================================================================================
 
 """
-    check_parallel_netcdf_support(comm)
+    parallel_netcdf_probe(comm) -> Union{Nothing, Exception}
 
-Verify that parallel NetCDF (MPI-IO via HDF5) is available at runtime.
-Called once at initialization. Errors immediately if not supported.
+`nothing` when parallel NetCDF (MPI-IO via HDF5) works in this environment, otherwise
+the exception the attempt raised.
+
+Whether it works is a property of how HDF5/netCDF were BUILT, not something queryable
+from Julia, so the only reliable test is to create and close a collective dataset. The
+Windows JLLs ship without MPI-IO, so every collective open there fails with NetCDF error
+-114; Linux and macOS builds normally have it.
+
+Collective: the filename is generated on rank 0 and broadcast, because all ranks must use
+the same path for the collective open or the probe itself deadlocks. Every rank must
+therefore call this together.
 """
-function check_parallel_netcdf_support(comm)
-    # Generate filename on rank 0 and broadcast — all ranks must use the same
-    # path for the collective NCDataset open, otherwise it will deadlock.
+function parallel_netcdf_probe(comm)
     rank = MPI.Comm_rank(comm)
     tmpfile = rank == 0 ? tempname() * ".nc" : ""
     tmpfile = MPI.bcast(tmpfile, comm; root = 0)
+    failure = nothing
     try
         ds = NCDataset(comm, tmpfile, "c"; info = MPI.Info())
         close(ds)
     catch e
-        error("Parallel NetCDF (MPI-IO) is required but not available. " *
-              "Please install HDF5 with parallel support: " *
-              "set ENV[\"JULIA_HDF5_PATH\"] to a parallel-enabled HDF5 installation " *
-              "and rebuild HDF5_jll. Error: $e")
+        failure = e
     finally
         # Only rank 0 cleans up to avoid filesystem races
         if rank == 0 && isfile(tmpfile)
@@ -29,6 +34,35 @@ function check_parallel_netcdf_support(comm)
         end
         MPI.Barrier(comm)
     end
+    return failure
+end
+
+"""
+    parallel_netcdf_available(comm) -> Bool
+
+Whether parallel NetCDF (MPI-IO via HDF5) works here. The degrade-or-skip form of
+[`parallel_netcdf_probe`](@ref); [`check_parallel_netcdf_support`](@ref) is the
+fail-loud form. Collective — call it on every rank.
+"""
+parallel_netcdf_available(comm) = parallel_netcdf_probe(comm) === nothing
+
+"""
+    check_parallel_netcdf_support(comm)
+
+Verify that parallel NetCDF (MPI-IO via HDF5) is available at runtime, and error with
+installation instructions if it is not.
+
+Not called during package initialization: on a build without MPI-IO that would abort
+before a caller doing serial-only work could even load the package. Use it at the top of
+a workflow that will write parallel output, or `parallel_netcdf_available` to degrade.
+"""
+function check_parallel_netcdf_support(comm)
+    failure = parallel_netcdf_probe(comm)
+    failure === nothing && return nothing
+    error("Parallel NetCDF (MPI-IO) is required but not available. " *
+          "Please install HDF5 with parallel support: " *
+          "set ENV[\"JULIA_HDF5_PATH\"] to a parallel-enabled HDF5 installation " *
+          "and rebuild HDF5_jll. Error: $failure")
 end
 
 # ================================================================================

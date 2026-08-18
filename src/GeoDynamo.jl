@@ -467,7 +467,7 @@ export with_output_precision
 export create_time_tracker, should_output_now, should_restart_now
 export write_fields!, write_restart!, read_restart!
 export create_shtns_aware_output_config, validate_output_compatibility
-export check_parallel_netcdf_support, verify_all_ranks_wrote
+export check_parallel_netcdf_support, parallel_netcdf_available, verify_all_ranks_wrote
 export get_time_series, cleanup_old_files
 
 # exports core/initial_conditions.jl

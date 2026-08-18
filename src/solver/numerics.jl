@@ -192,6 +192,9 @@ function get_bc_vectors(field)
 end
 
 @inline function mpi_barrier!(comm = mpi_comm())
+    # A Barrier deadlocks from a spawned task exactly like an Allreduce does, and it is
+    # the one collective in this file that the guard below used to leave uncovered.
+    _assert_no_collective_in_threaded_update("mpi_barrier!")
     MPI.Barrier(comm)
     return nothing
 end
@@ -207,20 +210,57 @@ end
 # inside the threaded region raises immediately, naming the site, instead of hanging.
 #
 # COVERAGE, precisely: this catches collectives that go through the reduction helpers
-# below (and `allreduce_sum!` in physics/nonlinear.jl). It does NOT catch the ~66 bare
-# `MPI.*` call sites elsewhere in src/ — a complete net would need every one of them
-# routed through a wrapper, which is a separate change.
-const _IN_THREADED_IMPLICIT_UPDATE = Ref(false)
+# below, `mpi_barrier!` above, and `allreduce_sum!` in physics/nonlinear.jl. It does NOT
+# catch the remaining bare `MPI.*` call sites elsewhere in src/ — a complete net would
+# need every one of them routed through a wrapper, which is a separate change.
+#
+# SCOPE: the flag lives in the TASK-local storage of the task that arms it, not in a
+# process-global `Ref`. A global was wrong twice over. Two `Simulation`s stepped
+# concurrently in one process shared it, so one solver's threaded region rejected the
+# other's perfectly ordered reductions. And a global has to be cleared in a `finally`,
+# which ran as soon as `foreach(fetch, tasks)` rethrew from the FIRST failing task —
+# disarming the guard while its siblings were still running unfetched, i.e. exactly when
+# it was still needed. Task storage dies with the task: nothing to clear, nothing to race.
+#
+# A task spawned from inside the region does not inherit the flag. Nothing in the
+# implicit updates nests spawns today, and inheriting is what would re-create the
+# cross-solver false positive.
+const _THREADED_UPDATE_KEY = :geodynamo_in_threaded_implicit_update
+
+"""
+    _in_threaded_implicit_update() -> Bool
+
+Whether the CURRENT task is inside the threaded implicit-update region.
+
+Reads `current_task().storage` directly instead of calling `task_local_storage()`: the
+latter allocates the storage dict on first use, and this runs on the reduction path of
+every task, including the ones that never arm the guard at all.
+"""
+@inline function _in_threaded_implicit_update()
+    storage = current_task().storage
+    storage === nothing && return false
+    return get(storage, _THREADED_UPDATE_KEY, false)::Bool
+end
+
+"""
+    _with_threaded_update_guard(f)
+
+Run `f` with the collective guard armed for THIS task only, restoring the previous value
+on the way out — including when `f` throws.
+"""
+function _with_threaded_update_guard(f)
+    return task_local_storage(f, _THREADED_UPDATE_KEY, true)
+end
 
 """
     _assert_no_collective_in_threaded_update(site)
 
-Raise if an MPI reduction is issued from inside the threaded implicit-update region,
-where per-rank collective ordering can diverge and deadlock. `site` names the caller so
-the error points at the offending reduction rather than at the hang.
+Raise if an MPI collective is issued from inside the threaded implicit-update region,
+where per-rank ordering can diverge and deadlock. `site` names the caller so the error
+points at the offending collective rather than at the hang.
 """
 @inline function _assert_no_collective_in_threaded_update(site)
-    _IN_THREADED_IMPLICIT_UPDATE[] || return nothing
+    _in_threaded_implicit_update() || return nothing
     error("MPI collective issued from inside the threaded implicit-update region " *
           "($site). Two spawned tasks each issuing a collective can interleave " *
           "differently across ranks and deadlock. Either hoist the collective out of " *
