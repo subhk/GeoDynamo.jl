@@ -294,6 +294,19 @@ _callbacks_may_stop_rank_locally(callbacks) =
     any(cb -> !_running_flag_rank_symmetric(cb), values(callbacks))
 
 """
+    _stop_reduce_armed(sim) -> Bool
+
+Whether `_run_callbacks!` must reduce the `running` flag this step.
+
+Reads the decision `run!` took collectively at entry. A simulation object that does not
+carry the field at all — `_run_callbacks!` is duck-typed on `sim` — answers `true`,
+because reducing costs one `Allreduce` while NOT reducing on a rank that should have is
+the deadlock this whole path exists to prevent.
+"""
+@inline _stop_reduce_armed(sim) =
+    !hasfield(typeof(sim), :_stop_needs_reduce) || sim._stop_needs_reduce
+
+"""
     _run_callbacks!(sim)
 
 Iterates over `sim.callbacks`, builds a `_ScheduleContext` from the current
@@ -318,12 +331,15 @@ function _run_callbacks!(sim)
     #
     # Skipped when every registered callback already leaves the flag rank-identical,
     # so a default run does not pay an Allreduce per step for a value that cannot
-    # differ. The skip is decided from the callback REGISTRY, which the surrounding
-    # design already requires to be identical on every rank — `should_fire` mutates
-    # per-schedule fire bookkeeping, so an asymmetric registry desynchronises firing
-    # long before it reaches this line. Unrecognised entries answer "may stop", so a
-    # new callback type reduces until it is explicitly declared symmetric.
-    if _callbacks_may_stop_rank_locally(sim.callbacks) && _any_rank_flag(!sim.running)
+    # differ. The skip is read from `sim._stop_needs_reduce`, which `run!` decided
+    # COLLECTIVELY at entry — never recomputed here from this rank's own registry.
+    # The registry is not guaranteed identical across ranks (`rank == 0 &&
+    # add_callback!(...)` is ordinary usage, and `IterationInterval` is the one pure
+    # `should_fire`, so an asymmetric registry desynchronises nothing on its own), and
+    # a locally-evaluated gate would put the rank holding the odd callback into an
+    # `Allreduce` that no other rank enters. Unrecognised entries answer "may stop",
+    # so a new callback type reduces until it is explicitly declared symmetric.
+    if _stop_reduce_armed(sim) && _any_rank_flag(!sim.running)
         sim.running = false
     end
     return nothing

@@ -35,6 +35,15 @@ mutable struct Simulation{M, C, O}
     # them at pack time and is rebuilt only on a Δt change, so a programmatic BC write
     # mid-run would otherwise keep being integrated against the old wall values.
     _gpu_bc::NTuple{2, Union{Matrix{Float64}, Nothing}}
+    # Whether `_run_callbacks!` must reduce the `running` flag across ranks each
+    # step. Decided ONCE, collectively, at `run!` entry — never from the rank's own
+    # callback registry, which is not guaranteed to be identical on every rank
+    # (`rank == 0 && add_callback!(...)` is ordinary usage, and `IterationInterval`
+    # is pure, so an asymmetric registry desynchronises nothing by itself). Gating
+    # the reduction on the local registry instead makes the rank holding the odd
+    # callback enter an `Allreduce` alone. Starts `true` so a hand-stepped
+    # simulation that never enters `run!` reduces rather than risking the split.
+    _stop_needs_reduce::Bool
 end
 
 _to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol, Any}()
@@ -284,7 +293,8 @@ function Simulation(model::GeodynamoModel;
         gpu_sync,
         false,
         (nothing, nothing),
-        (nothing, nothing)
+        (nothing, nothing),
+        true
     )
 end
 
@@ -708,6 +718,14 @@ after each step.
 function run!(sim::Simulation)
     sim._wall_start = time()
     sim.running = true
+    # Decide the per-step stop reduction here, where EVERY rank arrives, rather
+    # than inside `_run_callbacks!` from the rank's own registry. The reduction
+    # itself is what must be unanimous: one rank holding an unrecognised callback
+    # arms it for all of them, and the default registry (every built-in stop is
+    # rank-symmetric) disarms it for all of them, so a default run still pays no
+    # per-step `Allreduce`. Callbacks registered after this line do not re-arm it;
+    # `add_callback!` mid-`run!` is not supported for exactly this reason.
+    sim._stop_needs_reduce = _any_rank_flag(_callbacks_may_stop_rank_locally(sim.callbacks))
     # A simulation already past its stop criteria must not take a step
     # (e.g. a second run! after completion). Check the stop conditions
     # directly rather than via _run_callbacks! so user callbacks do not

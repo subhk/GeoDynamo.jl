@@ -20,7 +20,19 @@ function _scan_output_count(dir::String, prefix::String, geometry::Symbol, kind:
     quoted = replace(prefix, r"([\\^$.|?*+()\[\]{}])" => s"\\\1")
     pattern = Regex("^$(quoted)_$(geometry)_$(kind)_(\\d+)\\.nc\\z")
     count = 0
-    for filename in readdir(dir)
+    # `isdir` passing does not mean `readdir` succeeds — a dropped execute bit, a
+    # stale NFS handle or an EIO all raise `SystemError` here. Both callers run this
+    # on rank 0 ONLY and broadcast the answer, so a throw would unwind rank 0 out of
+    # the collective alone and leave every other rank blocked in the `Bcast!`
+    # forever. Degrade to "no numbered outputs found", which is what an empty
+    # directory yields, and say so once.
+    entries = try
+        readdir(dir)
+    catch e
+        @warn "Could not list output directory; assuming no numbered outputs" dir exception=e
+        return 0
+    end
+    for filename in entries
         matched = match(pattern, filename)
         matched === nothing && continue
         parsed = tryparse(Int, only(matched.captures))
@@ -59,6 +71,33 @@ function _persisted_output_count(tracker::TimeTracker, did_output::Bool,
         on_disk = buffer[1]
     end
     return max(from_tracker, on_disk)
+end
+
+"""
+    _require_restart_file_everywhere(filepath, comm)
+
+Verify that EVERY rank can see `filepath`, and raise on every rank if any cannot.
+
+Checking on rank 0 and broadcasting catches "missing everywhere", but not the case the
+path selection is guarded against in the first place: a checkpoint sitting on node-local
+scratch, visible to rank 0 and to nothing else. Those ranks would fail alone inside the
+collective `NCDataset` open while the ranks that can see the file block inside it — the
+hang, arriving as an opaque NetCDF error. Reducing the per-rank `isfile` turns it into a
+unanimous, legible abort.
+
+Collective; every rank must call it together.
+"""
+function _require_restart_file_everywhere(filepath::String, comm)
+    missing_here = !isfile(filepath)
+    missing_anywhere = missing_here
+    if comm !== nothing && MPI.Initialized() && MPI.Comm_size(comm) > 1
+        missing_anywhere = MPI.Allreduce(missing_here ? 1 : 0, MPI.MAX, comm) > 0
+    end
+    missing_anywhere || return nothing
+    rank = (comm === nothing || !MPI.Initialized()) ? 0 : MPI.Comm_rank(comm)
+    detail = missing_here ? "not visible on rank $rank" :
+             "visible on rank $rank but not on every rank (node-local scratch?)"
+    error("Restart file unusable: $detail: $filepath")
 end
 
 """
@@ -230,18 +269,7 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
     # Unanimous for the same reason the path is: this check sits directly in front of the
     # collective `NCDataset` open below, so a rank-local verdict lets one rank abort while
     # the others block in the open.
-    exists = rank == 0 ? isfile(filepath) : true
-    if MPI.Comm_size(comm) > 1
-        exists = MPI.bcast(exists, comm; root = 0)
-    end
-    exists || error("Restart file not found (checked on rank 0): $filepath")
-    # The verdict above is rank 0's, so a rank that genuinely cannot see the file — the
-    # node-local-scratch case the path selection guards against — would otherwise walk
-    # into the collective open below and fail there with an opaque NetCDF error. Warn
-    # (never error: an error here is asymmetric, which is the hang) so the log still
-    # names the rank that could not see it.
-    rank == 0 || isfile(filepath) ||
-        @warn "Rank $rank cannot see the restart file selected by rank 0" filepath
+    _require_restart_file_everywhere(filepath, comm)
 
     if rank == 0
         println("Loading parallel restart from $(basename(filepath))")
