@@ -55,6 +55,41 @@ mutable struct BoundaryInterpolationCache{T <: AbstractFloat}
     metadata::Dict{String, Any}
 end
 
+"""
+    active_boundary_arrays(field) -> (real_array, imag_array)
+
+The boundary-value arrays the solver will ACTUALLY read for `field`, as `(2, nlm)`
+matrices (row 1 = inner, row 2 = outer). Either slot may be `nothing`.
+
+A field can hold two different sets of boundary values: the parameter-derived
+`boundary_values` / `boundary_values_imag`, and — once a spectral BC file is loaded —
+the interpolation cache's `bc_real` / `bc_imag`. The cache WINS when it is loaded, so
+anything that means to influence the implicit solve has to write to whichever set is
+live. Writing unconditionally to `boundary_values` is a silent no-op in every run that
+loads a spectral BC file, which is exactly how the topography couplings were losing
+their corrections.
+
+This is the single place that decides which set is live; `get_bc_vectors`
+(solver/numerics.jl) reads through it and the topography couplings write through it, so
+the two cannot drift apart.
+"""
+function active_boundary_arrays(field)
+    cache = hasfield(typeof(field), :boundary_interpolation_cache) ?
+            getfield(field, :boundary_interpolation_cache) : nothing
+    if cache isa BoundaryInterpolationCache
+        bc_real = cache.bc_real
+        bc_imag = cache.bc_imag
+        if cache.bc_loaded && bc_real !== nothing && bc_imag !== nothing
+            return (bc_real, bc_imag)
+        end
+    end
+    values = hasfield(typeof(field), :boundary_values) ?
+             getfield(field, :boundary_values) : nothing
+    values_imag = hasfield(typeof(field), :boundary_values_imag) ?
+                  getfield(field, :boundary_values_imag) : nothing
+    return (values, values_imag)
+end
+
 function BoundaryInterpolationCache(::Type{T} = Float64) where {T <: AbstractFloat}
     BoundaryInterpolationCache{T}(
         nothing, nothing, false, "", :unknown, 0, Dict{String, Any}())

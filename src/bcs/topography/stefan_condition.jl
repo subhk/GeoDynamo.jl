@@ -188,9 +188,20 @@ Returns spectral coefficients of the net heat flux imbalance.
 function compute_stefan_flux(state::StefanState{T}) where {T}
     nlm = state.topography.nlm
 
+    # `heat_flux_ic/oc` were sized from the SPECTRAL nlm, while `nlm` here comes from
+    # the topography field — and `create_solver_topography_state` assigns
+    # `stefan.topography = data.icb`, whose nlm follows the topography FILE's lmax.
+    # The two disagree whenever the file is coarser or finer than the run, and the
+    # loop then ran off the end of the flux vectors from inside the timestep.
+    n_avail = min(nlm, length(state.heat_flux_ic), length(state.heat_flux_oc))
+    if n_avail < nlm
+        @warn "Stefan flux: topography carries more modes than the heat-flux arrays; \
+               the extra modes contribute no flux" topography_nlm=nlm flux_nlm=n_avail maxlog=1
+    end
+
     # Net flux: k_ic ∂_n T_ic - k ∂_n T
     flux = zeros(Complex{T}, nlm)
-    for i in 1:nlm
+    for i in 1:n_avail
         flux[i] = state.k_ic * state.heat_flux_ic[i] - state.k_oc * state.heat_flux_oc[i]
     end
 
@@ -400,8 +411,11 @@ function update_icb_topography!(state::StefanState{T}, dt::T, velocity_field,
     # Get epsilon from config or use default
     ε = config !== nothing ? config.epsilon : T(0.01)
 
-    # Compute topography rate: ε ∂_t h = uₙ + F/(ρL)
-    for i in 1:nlm
+    # Compute topography rate: ε ∂_t h = uₙ + F/(ρL). `normal_velocity` is sized from
+    # the SPECTRAL nlm and `nlm` from the topography field's; see compute_stefan_flux.
+    n_rate = min(nlm, length(state.normal_velocity), length(stefan_flux),
+        length(state.topography_rate.coeffs_real))
+    for i in 1:n_rate
         dh_dt = (state.normal_velocity[i] + stefan_flux[i] / rho_L) / ε
         state.topography_rate.coeffs_real[i] = real(dh_dt)
         state.topography_rate.coeffs_imag[i] = imag(dh_dt)
@@ -410,7 +424,7 @@ function update_icb_topography!(state::StefanState{T}, dt::T, velocity_field,
     # Update topography (forward Euler - can be replaced with better scheme)
     # Warn if the topography growth rate may exceed stability bounds
     max_rate = zero(T)
-    for i in 1:nlm
+    for i in 1:n_rate
         rate_mag = abs(state.topography_rate.coeffs_real[i]) +
                    abs(state.topography_rate.coeffs_imag[i])
         max_rate = max(max_rate, rate_mag)
@@ -419,7 +433,7 @@ function update_icb_topography!(state::StefanState{T}, dt::T, velocity_field,
         @warn "Stefan condition: large topography update detected (max |dh/dt| * dt = $(max_rate * dt)). " *
               "Consider reducing the timestep for stability of the forward Euler topography update."
     end
-    for i in 1:nlm
+    for i in 1:n_rate
         state.topography.coeffs_real[i] += dt * state.topography_rate.coeffs_real[i]
         state.topography.coeffs_imag[i] += dt * state.topography_rate.coeffs_imag[i]
     end

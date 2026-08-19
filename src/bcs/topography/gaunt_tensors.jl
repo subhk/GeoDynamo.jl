@@ -676,16 +676,24 @@ function get_cross_gaunt(cache::GauntTensorCache{T}, l1::Int, m1::Int,
     # Cross terms are allowed to stay sparse until a coupling kernel actually
     # asks for them. That keeps startup cheaper while preserving deterministic
     # reuse once a coefficient has been computed.
-    # Lazy compute when missing (needed if precompute ran with use_wigner=true).
+    # Lazy compute when missing — and `precompute_gaunt_tensors!` populates G_cross
+    # only in its `!use_wigner` branch, while the solver precomputes with
+    # `use_wigner = true`, so in practice EVERY cross coefficient arrives here.
+    #
+    # Keys the selection rules reject cost nothing and are deliberately not stored.
     if l2 == 0 || L == 0 || m1 != m2 + M
         return zero(T)
     end
 
     computed = compute_cross_gaunt_tensor(l1, m1, l2, m2, L, M, cache)
-    if abs(computed) > 1e-14
-        lock(_GAUNT_CROSS_LOCK) do
-            cache.G_cross[key] = computed
-        end
+    # Store the result whatever it is. Caching only |G| > 1e-14 meant every
+    # zero-valued key missed forever and was recomputed on each visit — 5 SHTnsKit
+    # syntheses plus a full nlat×nlon quadrature — from the innermost loop of
+    # `compute_impermeability_correction` and both insulating corrections, whose
+    # trip count is ~(lmax_t+1)^2·lmax per boundary per field per step. Zeros are
+    # the overwhelming majority, so not caching them was the whole cost.
+    lock(_GAUNT_CROSS_LOCK) do
+        cache.G_cross[key] = computed
     end
     return computed
 end

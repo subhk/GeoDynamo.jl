@@ -69,7 +69,12 @@ using .ParityFixtures
         # and this assertion failed. velocity_workspace is now in SKIP_FIELDS —
         # see the rationale there. If this number moves again, find out WHY
         # before touching it.
-        @test length(names) == 176
+        # 176 -> 178 on 2026-08-18: `SHTnsTemperatureField` and
+        # `SHTnsCompositionField` each gained a `boundary_values_imag` row, so that
+        # `get_bc_vectors` can hand the scalar solve the `bc_*_imag` vectors it
+        # already accepts (the imaginary half of every m > 0 scalar boundary
+        # correction previously had nowhere to go). Two new leaves, one per field.
+        @test length(names) == 178
     end
 
     @testset "matrices are well formed" begin

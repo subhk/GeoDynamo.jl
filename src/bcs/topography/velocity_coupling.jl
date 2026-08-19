@@ -84,10 +84,12 @@ function apply_velocity_topography_correction!(velocity_field, topography::Topog
 
     # Re-establish the un-corrected base boundary rows before applying the (lagged)
     # corrections so they do not compound across timesteps. See reset_boundary_to_base!.
-    reset_boundary_to_base!(poloidal.boundary_values)
-    reset_boundary_to_base!(toroidal.boundary_values)
-    reset_boundary_to_base!(poloidal.boundary_values_imag)
-    reset_boundary_to_base!(toroidal.boundary_values_imag)
+    # These must be the SAME arrays the corrections below write to — with a spectral
+    # BC file loaded that is the interpolation cache, not `field.boundary_values`.
+    bv_arrays = _active_boundary_array_list(poloidal, toroidal)
+    for a in bv_arrays
+        reset_boundary_to_base!(a)
+    end
 
     # The expensive radial traces are staged once per field, then reused for
     # both boundaries and every coupled (l,m) mode. That keeps the topography
@@ -116,6 +118,12 @@ function apply_velocity_topography_correction!(velocity_field, topography::Topog
             poloidal, toroidal, p_cache, t_cache,
             topography.cmb, gaunt, ε, config, OUTER_BOUNDARY
         )
+    end
+
+    # Record what this pass left, so the next `reset_boundary_to_base!` can tell our
+    # own correction (roll back) from another owner's update (keep, and re-base).
+    for a in bv_arrays
+        mark_boundary_applied!(a)
     end
 
     return nothing
@@ -147,11 +155,9 @@ function apply_velocity_correction_at_boundary!(poloidal,
     # Get boundary row index (1 for inner, 2 for outer)
     bc_row = location == INNER_BOUNDARY ? 1 : 2
 
-    # Get poloidal/toroidal boundary values
-    P_bv = poloidal.boundary_values
-    P_bv_imag = poloidal.boundary_values_imag
-    T_bv = toroidal.boundary_values
-    T_bv_imag = toroidal.boundary_values_imag
+    # Get poloidal/toroidal boundary values — whichever set the solver reads.
+    P_bv, P_bv_imag = active_boundary_arrays(poloidal)
+    T_bv, T_bv_imag = active_boundary_arrays(toroidal)
 
     # Boundary values are updated mode-by-mode. Each target mode gathers all
     # topography and field couplings that project back onto that same (l,m).
@@ -465,10 +471,16 @@ function get_spectral_boundary_value(field, l::Int, m::Int,
         return zero(Complex{T})
     end
 
-    # Get from boundary_values (row 1 = inner, row 2 = outer)
+    # Get from the live boundary arrays (row 1 = inner, row 2 = outer)
     bc_row = location == INNER_BOUNDARY ? 1 : 2
-    val_real = field.boundary_values[bc_row, idx]
-    val_imag = zero(T)  # Boundary values are typically real
+    bv, bv_imag = active_boundary_arrays(field)
+    val_real = bv[bc_row, idx]
+    # Not "typically real": the field carries an imaginary boundary row precisely
+    # because m > 0 modes are complex. Hardcoding zero here truncated the Stefan
+    # normal velocity uₙ for every non-axisymmetric mode — and the negative-m
+    # conjugate branch below then operated on the already-truncated value.
+    val_imag = (bv_imag !== nothing && idx <= size(bv_imag, 2)) ?
+               T(bv_imag[bc_row, idx]) : zero(T)
 
     if m >= 0
         return complex(val_real, val_imag)

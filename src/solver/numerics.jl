@@ -160,35 +160,19 @@ Always returns a `_BCVectors` with the four keys `inner_real`, `outer_real`,
 `inner_imag`, `outer_imag`; absent slots are `nothing`.
 """
 function get_bc_vectors(field)
-    cache = hasfield(typeof(field), :boundary_interpolation_cache) ?
-            field.boundary_interpolation_cache : nothing
-    if cache isa bcs.BoundaryInterpolationCache
-        bc_real = cache.bc_real
-        bc_imag = cache.bc_imag
-        if cache.bc_loaded && bc_real !== nothing && bc_imag !== nothing
-            return _BCVectors((
-                view(bc_real, 1, :),
-                view(bc_real, 2, :),
-                view(bc_imag, 1, :),
-                view(bc_imag, 2, :)
-            ))
-        end
-    end
-
-    if hasfield(typeof(field), :boundary_values)
-        inner_imag = hasfield(typeof(field), :boundary_values_imag) ?
-                     view(field.boundary_values_imag, 1, :) : nothing
-        outer_imag = hasfield(typeof(field), :boundary_values_imag) ?
-                     view(field.boundary_values_imag, 2, :) : nothing
-        return _BCVectors((
-            view(field.boundary_values, 1, :),
-            view(field.boundary_values, 2, :),
-            inner_imag,
-            outer_imag
-        ))
-    end
-
-    return _BCVectors((nothing, nothing, nothing, nothing))
+    # Which of the field's two boundary-value sets is live is decided in exactly one
+    # place (`bcs.active_boundary_arrays`), so that a writer — the topography
+    # couplings — targets the same arrays this reader consumes.
+    bc_real, bc_imag = bcs.active_boundary_arrays(field)
+    bc_real === nothing && return _BCVectors((nothing, nothing, nothing, nothing))
+    inner_imag = bc_imag === nothing ? nothing : view(bc_imag, 1, :)
+    outer_imag = bc_imag === nothing ? nothing : view(bc_imag, 2, :)
+    return _BCVectors((
+        view(bc_real, 1, :),
+        view(bc_real, 2, :),
+        inner_imag,
+        outer_imag
+    ))
 end
 
 @inline function mpi_barrier!(comm = mpi_comm())

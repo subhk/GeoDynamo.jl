@@ -312,6 +312,11 @@ additional_tests = (
     # Allocation regression: the SH transform path must stay type-stable (no
     # per-operand boxing of the Any-typed cached scratch/plan).
     "transform_allocation_regression.jl",
+    # 2026-08-18 review batch G: control-plane I/O guards (rank-0 scan, reduced
+    # capability verdicts) and the topography correctness set. The multi-rank half
+    # runs via test/run_mpi_control_plane.sh.
+    "code_review_batchG_fixes.jl",
+    "code_review_batchG_solver_fixes.jl",
 )
 
 previous_setting = haskey(ENV, MPI_FINALIZE_KEY) ? ENV[MPI_FINALIZE_KEY] : nothing
