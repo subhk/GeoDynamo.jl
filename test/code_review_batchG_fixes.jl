@@ -27,25 +27,29 @@ end
 
 @testset "Review batch G fixes" begin
 
-    # ── G1: a rank-0-only directory scan must not throw into a collective ──────
-    @testset "_scan_output_count survives an unreadable directory" begin
+    # ── G1: an unreadable output directory must fail, not reset numbering ──────
+    @testset "_scan_output_count rejects an unreadable directory" begin
         # `_scan_output_count` runs on rank 0 ONLY, immediately in front of an
         # `MPI.Bcast!` (io/restart.jl `_persisted_output_count`,
         # api/output_writers.jl `_existing_writer_count`). `isdir` passing does not
         # mean `readdir` succeeds: a stale NFS handle, an EIO, or a directory whose
         # execute bit was dropped all raise `SystemError` from `readdir`. Rank 0 then
         # unwinds out of the collective alone and every other rank blocks in the
-        # broadcast forever. The same class of failure one function below is already
-        # guarded (`_restart_path_for_all_ranks` wraps `find_restart_files`).
+        # broadcast forever. Returning zero is not safe either: a write+execute (but
+        # unreadable) directory can still replace a known `hist_1`, so resetting the
+        # count silently destroys output. The caller must broadcast the failure and
+        # raise on every rank.
         dir = mktempdir()
         touch(joinpath(dir, "geodynamo_shell_hist_7.nc"))
         @test GeoDynamo._scan_output_count(dir, "geodynamo", :shell, "hist") == 7
 
-        chmod(dir, 0o000)
+        chmod(dir, 0o300)
         try
             # Root ignores the mode bits, so only assert when the mode really bites.
             if !isreadable(dir)
-                @test GeoDynamo._scan_output_count(dir, "geodynamo", :shell, "hist") == 0
+                @test_throws Exception GeoDynamo._scan_output_count(
+                    dir, "geodynamo", :shell, "hist")
+                @test isfile(joinpath(dir, "geodynamo_shell_hist_7.nc"))
             end
         finally
             chmod(dir, 0o700)
@@ -152,33 +156,51 @@ end
         @test topo._field_present(present, :nonexistent) == false
     end
 
-    # ── G1: the cross-Gaunt cache must memoize ZEROS as well ─────────────────
-    @testset "get_cross_gaunt caches every key it computes" begin
+    # ── G1: cross-Gaunt zero memoization must stay bounded ────────────────────
+    @testset "get_cross_gaunt keeps analytic zeros out of the value cache" begin
         # `precompute_gaunt_tensors!` fills `G_cross` only in its `!use_wigner`
         # branch, and the solver precomputes with `use_wigner = true` — so `G_cross`
         # reaches the coupling kernels EMPTY and every value is computed lazily.
-        # `get_cross_gaunt` then stored only results with |G| > 1e-14, so every
-        # zero-valued key was recomputed on every visit: 5 SHTnsKit syntheses plus a
-        # full nlat×nlon quadrature, in the innermost loop of the impermeability and
-        # insulating corrections. The lazy path is fine; the selective caching is not.
+        # Storing every computed zero avoids recomputation but materializes millions
+        # of six-integer Dict keys. Reject exact triangle/parity zeros analytically,
+        # keep only nonzero values in G_cross, and memoize the remaining numerical
+        # zeros in a bounded negative cache.
         cache = topo.GauntTensorCache{Float64}(4, 4)
         @test isempty(cache.G_cross)
 
-        # keys that clear the analytic early-out (l2 > 0, L > 0, m1 == m2 + M), so
-        # each one is genuinely computed; most of them evaluate to zero.
-        keys = [(1, 0, 1, 0, 1, 0), (1, 0, 2, 0, 1, 0), (2, 1, 1, 1, 2, 0),
-            (2, 0, 2, 0, 2, 0), (3, 1, 2, 1, 1, 0)]
-        for k in keys
-            topo.get_cross_gaunt(cache, k...)
-            @test haskey(cache.G_cross, k)
+        # Both are exact zeros before quadrature: the first violates cross parity,
+        # the second the triangle rule. Neither belongs in any cache.
+        rejected = [(1, 0, 2, 0, 1, 0), (3, 0, 1, 0, 1, 0)]
+        for k in rejected
+            @test topo.get_cross_gaunt(cache, k...) == 0.0
+            @test !haskey(cache.G_cross, k)
         end
 
-        # and a repeat visit must be a pure hit, not a recompute
-        n = length(cache.G_cross)
-        for k in keys
-            topo.get_cross_gaunt(cache, k...)
+        # A selection-rule-compatible numerical zero is memoized separately, while a
+        # nonzero coefficient remains in the value Dict.
+        numerical_zero = (1, 0, 1, 0, 1, 0)
+        nonzero = (2, 1, 1, 1, 2, 0)
+        @test topo.get_cross_gaunt(cache, numerical_zero...) == 0.0
+        @test !haskey(cache.G_cross, numerical_zero)
+        @test abs(topo.get_cross_gaunt(cache, nonzero...)) > 1e-14
+        @test haskey(cache.G_cross, nonzero)
+
+        has_negative_cache = :G_cross_zero in fieldnames(typeof(cache))
+        @test has_negative_cache
+        if has_negative_cache
+            @test numerical_zero in cache.G_cross_zero
+            @test length(cache.G_cross_zero) <= cache.G_cross_zero_limit
+
+            bounded = topo.GauntTensorCache{Float64}(4, 4;
+                cross_zero_cache_limit = 2)
+            zeros_to_memoize = [(1, 0, 1, 0, 1, 0),
+                (2, 0, 1, 0, 2, 0), (3, 0, 1, 0, 3, 0)]
+            for k in zeros_to_memoize
+                @test topo.get_cross_gaunt(bounded, k...) == 0.0
+            end
+            @test length(bounded.G_cross_zero) == 2
+            @test !(first(zeros_to_memoize) in bounded.G_cross_zero)
         end
-        @test length(cache.G_cross) == n
 
         # the analytic early-out stays free: rejected keys are never cached
         @test topo.get_cross_gaunt(cache, 1, 0, 0, 0, 1, 0) == 0.0

@@ -718,13 +718,13 @@ after each step.
 function run!(sim::Simulation)
     sim._wall_start = time()
     sim.running = true
-    # Decide the per-step stop reduction here, where EVERY rank arrives, rather
-    # than inside `_run_callbacks!` from the rank's own registry. The reduction
-    # itself is what must be unanimous: one rank holding an unrecognised callback
-    # arms it for all of them, and the default registry (every built-in stop is
-    # rank-symmetric) disarms it for all of them, so a default run still pays no
-    # per-step `Allreduce`. Callbacks registered after this line do not re-arm it;
-    # `add_callback!` mid-`run!` is not supported for exactly this reason.
+    # Collective callback implementations require every rank to enter them in the
+    # same order. Validate that invariant before any stop callback can fire.
+    _validate_callback_registry!(sim.callbacks)
+    # Decide the per-step stop reduction here, where EVERY rank arrives. The
+    # default registry is rank-symmetric and pays no per-step `Allreduce`; user
+    # callbacks that may stop from rank-local state arm it collectively.
+    # `add_callback!` mid-`run!` is unsupported because it bypasses both decisions.
     sim._stop_needs_reduce = _any_rank_flag(_callbacks_may_stop_rank_locally(sim.callbacks))
     # A simulation already past its stop criteria must not take a step
     # (e.g. a second run! after completion). Check the stop conditions

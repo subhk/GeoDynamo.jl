@@ -129,18 +129,12 @@ function _existing_writer_count(path::String, kind::Symbol, geometry::Symbol)
     kind in (:hist, :restart) || throw(ArgumentError(
         "writer file kind must be :hist or :restart (got $kind)"))
     comm = MPI.Initialized() ? get_comm() : nothing
-    rank = comm === nothing ? 0 : MPI.Comm_rank(comm)
     # The scan is shared with the restart writer's `_persisted_output_count`
     # (io/restart.jl), so the two agree on how a numbered output file is spelled. The
     # prefix is still hardcoded here because a writer carries a path and no OutputConfig;
     # a run with a non-default `filename_prefix` is counted by the restart path only.
-    count = rank == 0 ? _scan_output_count(path, "geodynamo", geometry, String(kind)) : 0
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        buffer = Int[count]
-        MPI.Bcast!(buffer, 0, comm)
-        count = buffer[1]
-    end
-    return count
+    return _collective_scan_output_count(
+        path, "geodynamo", geometry, String(kind), comm)
 end
 
 """

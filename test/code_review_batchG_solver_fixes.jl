@@ -23,7 +23,7 @@ const topoG = GeoDynamo.bcs.topography
     L = 4
     params = GeoDynamo.SolverParameters(
         architecture = :cpu, geometry = :shell,
-        nr = 16, nr_inner = 4, lmax = L, mmax = L, nlat = 12, nlon = 16,
+        nr = 16, nr_inner = 4, lmax = L, mmax = 2, nlat = 12, nlon = 16,
         Ra = 1e4, Ek = 1e-2, Pr = 1.0, Pm = 1.0,
         timestep = 1e-4, start_time = 0.0, end_time = 1e-3, stop_iteration = 10,
         include_magnetic = false, include_composition = true,
@@ -52,6 +52,33 @@ const topoG = GeoDynamo.bcs.topography
         temp.boundary_values_imag[2, 1] = 0.125
         @test GeoDynamo.get_bc_vectors(temp).outer_imag[1] == 0.125
         temp.boundary_values_imag[2, 1] = 0.0
+    end
+
+    @testset "Stefan state maps truncated solver modes into topography layout" begin
+        velocity = state.fields.velocity
+        poloidal = velocity.poloidal
+        config = poloidal.config
+        ri = state.runtime.outer_core_domain.r[1, 4]
+
+        fill!(poloidal.boundary_values, 0.0)
+        fill!(poloidal.boundary_values_imag, 0.0)
+        solver_idx = GeoDynamo.get_mode_index(config, 4, 2)
+        @test solver_idx > 0
+        poloidal.boundary_values[1, solver_idx] = 0.5
+
+        stefan = topoG.StefanState{Float64}(lmax = L, ri = ri)
+        topoG.initialize_stefan_state!(stefan,
+            state.fields.temperature, state.fields.temperature, velocity)
+
+        topo_idx = topoG.lm_to_index(4, 2, stefan.topography.lmax,
+            stefan.topography.mmax)
+        @test length(stefan.normal_velocity) == stefan.topography.nlm
+        @test length(stefan.heat_flux_ic) == stefan.topography.nlm
+        if length(stefan.normal_velocity) >= topo_idx
+            @test stefan.normal_velocity[topo_idx] ≈ 4 * 5 / ri^2 * 0.5
+        end
+
+        poloidal.boundary_values[1, solver_idx] = 0.0
     end
 
     # ── G2: a correction must land where the SOLVE reads, cache or not ───────

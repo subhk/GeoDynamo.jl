@@ -5,7 +5,10 @@
 """
     _scan_output_count(dir, prefix, geometry, kind) -> Int
 
-Highest numbered `<prefix>_<geometry>_<kind>_N.nc` file present in `dir`, or 0.
+Highest numbered `<prefix>_<geometry>_<kind>_N.nc` file present in `dir`, or 0
+when `dir` does not exist. Directory access failures are reported to the caller;
+they must not be mistaken for an empty directory because doing so can reuse an
+existing output number and overwrite data.
 
 Purely local and MPI-free on purpose: each caller decides how to make the answer
 unanimous (rank 0 scans, then broadcasts), and keeping the scan itself collective-free
@@ -20,25 +23,45 @@ function _scan_output_count(dir::String, prefix::String, geometry::Symbol, kind:
     quoted = replace(prefix, r"([\\^$.|?*+()\[\]{}])" => s"\\\1")
     pattern = Regex("^$(quoted)_$(geometry)_$(kind)_(\\d+)\\.nc\\z")
     count = 0
-    # `isdir` passing does not mean `readdir` succeeds — a dropped execute bit, a
-    # stale NFS handle or an EIO all raise `SystemError` here. Both callers run this
-    # on rank 0 ONLY and broadcast the answer, so a throw would unwind rank 0 out of
-    # the collective alone and leave every other rank blocked in the `Bcast!`
-    # forever. Degrade to "no numbered outputs found", which is what an empty
-    # directory yields, and say so once.
-    entries = try
-        readdir(dir)
-    catch e
-        @warn "Could not list output directory; assuming no numbered outputs" dir exception=e
-        return 0
-    end
-    for filename in entries
+    for filename in readdir(dir)
         matched = match(pattern, filename)
         matched === nothing && continue
         parsed = tryparse(Int, only(matched.captures))
         parsed === nothing || (count = max(count, parsed))
     end
     return count
+end
+
+"""
+    _collective_scan_output_count(dir, prefix, geometry, kind, comm) -> Int
+
+Scan on rank 0 and broadcast either the result or the scan failure. Every rank
+therefore leaves this collective along the same path, and an unreadable output
+directory cannot silently masquerade as an empty one.
+"""
+function _collective_scan_output_count(dir::String, prefix::String,
+        geometry::Symbol, kind::String, comm)
+    if comm === nothing || !MPI.Initialized() || MPI.Comm_size(comm) <= 1
+        return _scan_output_count(dir, prefix, geometry, kind)
+    end
+
+    rank = MPI.Comm_rank(comm)
+    count = 0
+    scan_error = ""
+    if rank == 0
+        try
+            count = _scan_output_count(dir, prefix, geometry, kind)
+        catch err
+            scan_error = sprint(showerror, err)
+        end
+    end
+
+    buffer = Int[count]
+    MPI.Bcast!(buffer, 0, comm)
+    scan_error = MPI.bcast(scan_error, comm; root = 0)
+    isempty(scan_error) || error(
+        "Could not scan output directory '$dir' for numbered $kind files: $scan_error")
+    return buffer[1]
 end
 
 """
@@ -61,15 +84,8 @@ function _persisted_output_count(tracker::TimeTracker, did_output::Bool,
         config::OutputConfig, geometry::Symbol)
     from_tracker = tracker.output_count + (did_output ? 1 : 0)
     comm = MPI.Initialized() ? output_comm() : nothing
-    rank = comm === nothing ? 0 : MPI.Comm_rank(comm)
-    on_disk = rank == 0 ?
-              _scan_output_count(config.output_dir, config.filename_prefix, geometry,
-        "hist") : 0
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        buffer = Int[on_disk]
-        MPI.Bcast!(buffer, 0, comm)
-        on_disk = buffer[1]
-    end
+    on_disk = _collective_scan_output_count(
+        config.output_dir, config.filename_prefix, geometry, "hist", comm)
     return max(from_tracker, on_disk)
 end
 

@@ -179,38 +179,62 @@ using GeoDynamo
         MPI.Barrier(comm)
     end
 
-    # ── an ASYMMETRIC callback REGISTRY must not make one rank reduce alone ────
-    @testset "rank-local callback registration does not desync the stop reduction" begin
-        # `rank == 0 && add_callback!(...)` is the ordinary shape of a "log from
-        # rank 0" callback, and with `IterationInterval` — the one PURE schedule,
-        # `step % interval`, no per-schedule bookkeeping — an asymmetric registry
-        # desynchronises nothing by itself. It becomes fatal only if the stop-flag
-        # reduction is gated on the rank's OWN registry: an unrecognised callback
-        # answers "may stop" on rank 0 alone, so rank 0 enters an `Allreduce` that
-        # no other rank ever enters. The reduction must therefore be decided once,
-        # collectively, rather than per-rank per-step.
-        model = mkmodel()
-        sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 3)
+    # ── callback REGISTRIES must match before any callback can enter MPI ───────
+    @testset "rank-local callback registration fails collectively" begin
+        # Callback implementations are allowed to contain collectives
+        # (EnergyDiagnostics, SolenoidalMonitor, and HealthCheck all do). A callback
+        # present only on rank 0 can therefore enter an Allreduce while peers skip to
+        # the next solver collective. Reject structural registry mismatches at run!
+        # entry, on every rank, before any callback fires.
+        if nranks == 1
+            @test_skip "callback-registry asymmetry requires at least two ranks"
+        else
+            model = mkmodel()
+            sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 3)
+            if rank == 0
+                GeoDynamo.add_callback!(sim, s -> nothing;
+                    schedule = GeoDynamo.IterationInterval(1), name = :rank0_only)
+            end
+            MPI.Barrier(comm)
+
+            raised = 0
+            message_ok = 0
+            try
+                GeoDynamo.run!(sim)
+            catch err
+                raised = 1
+                message_ok = occursin(
+                    "callback registry", lowercase(sprint(showerror, err))) ? 1 : 0
+            end
+            @test all(==(1), MPI.Allgather(raised, comm))
+            @test all(==(1), MPI.Allgather(message_ok, comm))
+            MPI.Barrier(comm)
+        end
+    end
+
+    # ── output scan failures must also abort collectively ─────────────────────
+    @testset "unreadable output directory fails on every rank" begin
+        dir = MPI.bcast(rank == 0 ? mktempdir() : "", 0, comm)
         if rank == 0
-            GeoDynamo.add_callback!(sim, s -> nothing;
-                schedule = GeoDynamo.IterationInterval(1), name = :rank0_only)
+            touch(joinpath(dir, "geodynamo_shell_hist_1.nc"))
+            chmod(dir, 0o300)
         end
         MPI.Barrier(comm)
+        unreadable = MPI.bcast(rank == 0 ? !isreadable(dir) : false, 0, comm)
 
-        # Conservative until `run!` decides: a sim stepped by hand reduces.
-        @test sim._stop_needs_reduce == true
+        if unreadable
+            raised = 0
+            try
+                GeoDynamo._existing_writer_count(dir, :hist, :shell)
+            catch
+                raised = 1
+            end
+            @test all(==(1), MPI.Allgather(raised, comm))
+        end
 
-        GeoDynamo.run!(sim)
         MPI.Barrier(comm)
-
-        # Whatever the registries say, the decision itself has to be unanimous.
-        decisions = MPI.Allgather(sim._stop_needs_reduce, comm)
-        @test all(==(decisions[1]), decisions)
-        @test decisions[1] == true       # rank 0's opaque callback arms it everywhere
-
-        iters = MPI.Allgather(model.clock.iteration, comm)
-        @test all(==(iters[1]), iters)
-        @test iters[1] == 3
+        rank == 0 && chmod(dir, 0o700)
+        MPI.Barrier(comm)
     end
 
     # ── a capability verdict used to gate a collective must be unanimous ───────
