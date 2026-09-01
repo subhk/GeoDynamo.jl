@@ -72,10 +72,12 @@ function apply_magnetic_topography_correction!(magnetic_field, topography::Topog
 
     # Re-establish the un-corrected base boundary rows (real + imag) before applying
     # the lagged correction so it does not compound across timesteps/substages.
-    reset_boundary_to_base!(poloidal.boundary_values)
-    reset_boundary_to_base!(toroidal.boundary_values)
-    reset_boundary_to_base!(poloidal.boundary_values_imag)
-    reset_boundary_to_base!(toroidal.boundary_values_imag)
+    # Same arrays the corrections below write to (the interpolation cache when a
+    # spectral BC file is loaded) — see `active_boundary_arrays`.
+    bv_arrays = _active_boundary_array_list(poloidal, toroidal)
+    for a in bv_arrays
+        reset_boundary_to_base!(a)
+    end
 
     # Precompute boundary value/derivative caches once for this field
     p_cache = compute_boundary_derivative_cache(poloidal,
@@ -101,6 +103,11 @@ function apply_magnetic_topography_correction!(magnetic_field, topography::Topog
             poloidal, toroidal, p_cache, t_cache,
             topography.cmb, gaunt, ε, config, OUTER_BOUNDARY, :insulating_outer
         )
+    end
+
+    # Record what this pass left (see `mark_boundary_applied!`).
+    for a in bv_arrays
+        mark_boundary_applied!(a)
     end
 
     return nothing
@@ -138,10 +145,9 @@ function apply_magnetic_correction_at_boundary!(poloidal,
 
     # Get poloidal/toroidal boundary values (real + imag; imag carries the m>0
     # coupling that the real-only channel would drop).
-    P_bv = poloidal.boundary_values
-    T_bv = toroidal.boundary_values
-    P_bv_i = poloidal.boundary_values_imag
-    T_bv_i = toroidal.boundary_values_imag
+    # Whichever boundary-value set the solver reads (see `active_boundary_arrays`).
+    P_bv, P_bv_i = active_boundary_arrays(poloidal)
+    T_bv, T_bv_i = active_boundary_arrays(toroidal)
 
     # Compute corrections for each (l, m) mode.
     # Only iterate m >= 0: boundary_values stores m >= 0 modes only, and +m/-m map to

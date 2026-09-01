@@ -71,12 +71,21 @@ function apply_thermal_topography_correction!(
                temperature_field.bc_type_inner : spectral.bc_type_inner
     bc_outer = hasfield(typeof(temperature_field), :bc_type_outer) ?
                temperature_field.bc_type_outer : spectral.bc_type_outer
-    bv = hasfield(typeof(temperature_field), :boundary_values) ?
-         temperature_field.boundary_values : spectral.boundary_values
+    # Whichever boundary-value set the solver reads (see `active_boundary_arrays`):
+    # a loaded spectral BC file makes the interpolation cache authoritative, and
+    # writing to `boundary_values` in that case discards the correction entirely.
+    bv, bv_imag = active_boundary_arrays(temperature_field)
+    if bv === nothing
+        bv, bv_imag = active_boundary_arrays(spectral)
+    end
 
     # Re-establish the un-corrected base before applying the (lagged) correction so
     # it does not compound across timesteps. See reset_boundary_to_base! (topography.jl).
-    reset_boundary_to_base!(bv)
+    bv_arrays = AbstractMatrix[bv]
+    bv_imag === nothing || push!(bv_arrays, bv_imag)
+    for a in bv_arrays
+        reset_boundary_to_base!(a)
+    end
 
     # Radial derivative metadata for accurate coupling terms
     ∂r = hasfield(typeof(temperature_field), :∂r) ?
@@ -100,7 +109,7 @@ function apply_thermal_topography_correction!(
     # Apply corrections at ICB if topography defined
     if topography.icb !== nothing
         apply_thermal_correction_at_boundary!(
-            spectral, cache, bv, bc_inner, bc_outer,
+            spectral, cache, bv, bv_imag, bc_inner, bc_outer,
             topography.icb, gaunt, ε, config, INNER_BOUNDARY, T_cond
         )
     end
@@ -108,9 +117,14 @@ function apply_thermal_topography_correction!(
     # Apply corrections at CMB if topography defined
     if topography.cmb !== nothing
         apply_thermal_correction_at_boundary!(
-            spectral, cache, bv, bc_inner, bc_outer,
+            spectral, cache, bv, bv_imag, bc_inner, bc_outer,
             topography.cmb, gaunt, ε, config, OUTER_BOUNDARY, T_cond
         )
+    end
+
+    # Record what this pass left (see `mark_boundary_applied!`).
+    for a in bv_arrays
+        mark_boundary_applied!(a)
     end
 
     return nothing
@@ -130,6 +144,7 @@ Apply thermal topography corrections at a specific boundary.
 function apply_thermal_correction_at_boundary!(spectral,
         cache::Union{BoundaryDerivativeCache{T}, Nothing},
         boundary_values::AbstractMatrix{T},
+        boundary_values_imag::Union{AbstractMatrix{T}, Nothing},
         bc_inner::AbstractVector{Int},
         bc_outer::AbstractVector{Int},
         topo_field::TopographyField{T},
@@ -150,6 +165,7 @@ function apply_thermal_correction_at_boundary!(spectral,
 
     # Boundary values storage
     bv = boundary_values
+    bv_imag = boundary_values_imag
 
     # Conductive profile contributions (if provided)
     dTcond_dr = zero(T)
@@ -193,6 +209,13 @@ function apply_thermal_correction_at_boundary!(spectral,
             end
 
             bv[bc_row, lm_idx] -= ε * real(correction)
+            # The coupling sum is genuinely complex for m > 0 — the velocity and
+            # magnetic paths both carry a matching imaginary boundary row — so
+            # dropping `imag(correction)` discarded the whole non-axisymmetric part of
+            # every thermal and compositional topography correction.
+            if bv_imag !== nothing && lm_idx <= size(bv_imag, 2)
+                bv_imag[bc_row, lm_idx] -= ε * imag(correction)
+            end
         end
     end
 

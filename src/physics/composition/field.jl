@@ -103,6 +103,10 @@ mutable struct SHTnsCompositionField{
 
     # Boundary conditions
     boundary_values::Matrix{T}         # [2, nlm] for ICB and CMB
+    # Imaginary part of the per-mode boundary rows — see the same field on
+    # SHTnsTemperatureField. `get_bc_vectors` forwards it to the scalar solve, so
+    # without it the imaginary half of every m > 0 boundary correction was dropped.
+    boundary_values_imag::Matrix{T}    # [2, nlm] for ICB and CMB
     bc_type_inner::Vector{Int}         # BC type for each mode at inner
     bc_type_outer::Vector{Int}         # BC type for each mode at outer
 
@@ -203,6 +207,7 @@ function create_shtns_composition_field(::Type{T}, config::C,
 
     # Boundary conditions
     boundary_values = zeros(T, 2, config.nlm)
+    boundary_values_imag = zeros(T, 2, config.nlm)
 
     # Default BC types (DIRICHLET = fixed value, NEUMANN = fixed flux)
     # For composition: typically no-flux at both boundaries
@@ -226,7 +231,7 @@ function create_shtns_composition_field(::Type{T}, config::C,
     return SHTnsCompositionField(
         composition, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
-        boundary_values, bc_type_inner, bc_type_outer,
+        boundary_values, boundary_values_imag, bc_type_inner, bc_type_outer,
         nothing, bcs.BoundaryInterpolationCache(T), Ref(1),  # boundary condition fields
         l_factors, internal_sources, config,
         ∂r, ∂²r,

@@ -433,15 +433,6 @@ function _apply_poloidal_wsplit_cnab2!(velocity, split::PoloidalSplitMatrices{T}
     return velocity
 end
 
-function queue_velocity_implicit_updates!(
-        operations::Vector{Function},
-        state::SolverState{T, <:AbstractArchitecture}
-) where {T}
-    push!(operations, () -> apply_velocity_toroidal_implicit_update!(state))
-    push!(operations, () -> apply_velocity_poloidal_implicit_update!(state))
-    return operations
-end
-
 # ============================================================================
 # Stage-4B ERK2 W-split support (see docs/superpowers/plans/2026-06-11-erk2-
 # wsplit-port.md). The ERK2 stage machinery advances V := Ek·W = Ek·D_pol·P

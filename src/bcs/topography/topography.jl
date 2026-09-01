@@ -35,6 +35,11 @@ import ..bcs: BoundaryType, DIRICHLET, NEUMANN
 import ..bcs: FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC
 import ..bcs: get_rank, get_comm
 import ..bcs: shtns_spectral_to_physical
+# The corrections below must land in whichever boundary-value arrays the implicit
+# solve actually reads — the interpolation cache wins once a spectral BC file is
+# loaded, and writing to `field.boundary_values` regardless made every correction a
+# silent no-op in exactly those runs.
+import ..bcs: active_boundary_arrays
 
 # `local_spectral_storage_slot` and `get_mode_index` are defined at the GeoDynamo
 # top level (two modules up: topography -> bcs -> GeoDynamo). Forward to them
@@ -79,10 +84,20 @@ end
 # & toroidal/magnetic) gets its own base snapshot. Velocity/magnetic bases are the
 # all-zero initial rows; temperature/composition carry the parameter mean-mode base.
 # ----------------------------------------------------------------------------
-struct BoundaryValueBase{A <: AbstractMatrix}
+mutable struct BoundaryValueBase{A <: AbstractMatrix}
     target::WeakRef
     snapshot::A
+    # What the topography correction LEFT in the array last time round, or `nothing`
+    # before the first correction. `reset_boundary_to_base!` rolls the array back only
+    # when it still matches this: the array has other owners
+    # (`update_time_dependent_boundaries!`, `apply_temperature_boundaries!`) and
+    # restoring a stale snapshot over their writes froze a time-dependent BC at its
+    # t = 0 value for the rest of the run.
+    applied::Union{A, Nothing}
 end
+
+BoundaryValueBase(target::WeakRef, snapshot::A) where {A <: AbstractMatrix} =
+    BoundaryValueBase{A}(target, snapshot, nothing)
 
 const _BOUNDARY_VALUE_BASE = Dict{UInt, BoundaryValueBase}()
 const _BOUNDARY_VALUE_BASE_LOCK = ReentrantLock()
@@ -132,7 +147,54 @@ function reset_boundary_to_base!(bv::AbstractMatrix)
             entry
         end
     end
-    _restore_boundary_to_base!(bv, entry)
+    # Roll back only OUR own correction. If the array no longer matches what the last
+    # correction left, some other owner has written to it since — that write is the
+    # new base, not something to undo.
+    if entry.applied !== nothing && bv == entry.applied
+        _restore_boundary_to_base!(bv, entry)
+    else
+        entry.snapshot = copy(bv)
+        entry.applied = nothing
+    end
+    return bv
+end
+
+"""
+    _active_boundary_array_list(fields...) -> Vector
+
+The distinct, non-`nothing` boundary-value arrays (real and imaginary) that the solver
+reads for `fields`. Deduplicated by identity, because two fields can legitimately share
+one array and resetting it twice in a pass would roll the second reset back over the
+first field's base.
+"""
+function _active_boundary_array_list(fields...)
+    out = AbstractMatrix[]
+    for f in fields
+        for a in active_boundary_arrays(f)
+            a === nothing && continue
+            any(x -> x === a, out) && continue
+            push!(out, a)
+        end
+    end
+    return out
+end
+
+"""
+    mark_boundary_applied!(bv)
+
+Record `bv` as the state the topography correction just left behind.
+
+`reset_boundary_to_base!` uses it to tell its own correction (safe to roll back) from
+an update made by another owner of the same array (must be kept, and becomes the new
+base). Call it once per boundary array after a correction pass has finished writing.
+"""
+function mark_boundary_applied!(bv::AbstractMatrix)
+    lock(_BOUNDARY_VALUE_BASE_LOCK) do
+        entry = get(_BOUNDARY_VALUE_BASE, objectid(bv), nothing)
+        if entry !== nothing && entry.target.value === bv
+            entry.applied = copy(bv)
+        end
+    end
     return bv
 end
 
@@ -341,6 +403,7 @@ export compute_stefan_flux
 # High-level interface
 export apply_all_topography_corrections!
 export clear_boundary_value_base_cache!
+export mark_boundary_applied!
 
 # ================================================================================
 # High-level Interface Functions
@@ -366,22 +429,43 @@ function apply_all_topography_corrections!(fields, topography;
     end
 
     # Apply velocity corrections if enabled and field exists
-    if config.velocity_coupling && hasfield(typeof(fields), :velocity)
+    if config.velocity_coupling && _field_present(fields, :velocity)
         apply_velocity_topography_correction!(fields.velocity, topography, config)
     end
 
     # Apply magnetic corrections if enabled and field exists
-    if config.magnetic_coupling && hasfield(typeof(fields), :magnetic)
+    if config.magnetic_coupling && _field_present(fields, :magnetic)
         apply_magnetic_topography_correction!(fields.magnetic, topography, config)
     end
 
     # Apply thermal corrections if enabled and field exists
-    if config.thermal_coupling && hasfield(typeof(fields), :temperature)
+    if config.thermal_coupling && _field_present(fields, :temperature)
         apply_thermal_topography_correction!(fields.temperature, topography, config)
+    end
+
+    # Composition obeys the same advection-diffusion boundary algebra as
+    # temperature and has its own correction, but was never dispatched: a run with
+    # `include_composition = true` and topography enabled silently got no
+    # compositional boundary correction at all.
+    if config.thermal_coupling && _field_present(fields, :composition)
+        apply_composition_topography_correction!(fields.composition, topography, config)
     end
 
     return nothing
 end
+
+"""
+    _field_present(fields, name::Symbol) -> Bool
+
+Whether `fields` actually CARRIES a field named `name`.
+
+`hasfield` answers a question about the TYPE, and `SolverFields` declares its optional
+slots as `magnetic::M where M <: Union{MagneticFieldsType,Nothing}` — so `hasfield` is
+true on a hydro-only run and the magnetic correction was invoked with `nothing` every
+single step, warning unthrottled from inside. Presence is a property of the value.
+"""
+_field_present(fields, name::Symbol) =
+    hasfield(typeof(fields), name) && getfield(fields, name) !== nothing
 
 """
     print_topography_summary(topography::TopographyData)

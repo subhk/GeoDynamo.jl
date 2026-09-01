@@ -17,6 +17,25 @@ import KernelAbstractions
         @test Base.isexported(GeoDynamo, :get_backend)
     end
 
+    @testset "CUDA extension pins the vendor for vector transforms" begin
+        # SHTnsKit v2's `GPU()` is vendor-neutral: with both CUDA.jl and
+        # AMDGPU.jl functional, `_gpu_adapter(nothing)` throws
+        # "multiple functional GPU adapters are loaded". `synthesis_sphtor` /
+        # `analysis_sphtor` auto-select a vendor only from inputs that are
+        # already device arrays -- true of the `::CUDA.CuArray` methods, but not
+        # of the `register_gpu_backend!` hooks, which receive host arrays. Those
+        # must name the vendor with `prototype=`.
+        ext_source = read(
+            joinpath(@__DIR__, "..", "ext", "GeoDynamoCUDAExt.jl"), String)
+        reg_start = findfirst("vector_synthesis=", ext_source)
+        reg_stop = findnext("scratch_zeros=", ext_source, last(reg_start))
+        @test reg_start !== nothing && reg_stop !== nothing
+        registration = ext_source[first(reg_start):first(reg_stop)]
+        @test occursin("gpu_synthesis_sphtor", registration)
+        @test occursin("gpu_analysis_sphtor", registration)
+        @test count("prototype=", registration) == 2
+    end
+
     @testset "arch_zeros on CPU" begin
         a = arch_zeros(CPU(), Float64, 3, 4)
         @test a == zeros(Float64, 3, 4)
@@ -58,6 +77,22 @@ import KernelAbstractions
         else
             @test_throws Exception GeoDynamo.create_solver_backend(params)
         end
+    end
+
+    @testset "SolverBackend show does not repeat the architecture" begin
+        # `create_solver_runtime` overwrites `_buffers.transform_device` with the
+        # backend's own architecture, so a "compute device" row printed from it
+        # just restates the "architecture" row above it. Report something that
+        # actually differs: whether the allocation-free transform plan was built.
+        params = GeoDynamo.SolverParameters(architecture = :cpu,
+            lmax = 4, mmax = 4, nlat = 8, nlon = 16, nr = 8, nr_inner = 2,
+            include_composition = false)
+        backend = GeoDynamo.create_solver_backend(params)
+        rendered = sprint(show, MIME("text/plain"), backend)
+
+        @test occursin("architecture", rendered)
+        @test !occursin("compute device", rendered)
+        @test occursin("transform plan", rendered)
     end
 
     @testset "backend build preserves concrete arch object" begin

@@ -96,6 +96,13 @@ mutable struct SHTnsTemperatureField{
     # Sources and boundary conditions
     internal_sources::Vector{T}        # Radial profile of heating
     boundary_values::Matrix{T}         # [2, nlm] for ICB and CMB
+    # Imaginary part of the per-mode boundary rows. Non-axisymmetric (m > 0) boundary
+    # data is genuinely complex — the velocity and magnetic fields have carried this
+    # row for the same reason — and `get_bc_vectors` already forwards it to the scalar
+    # solve as `bc_inner_imag` / `bc_outer_imag`. Without the array those arrived as
+    # `nothing`, so the imaginary part of every m > 0 scalar boundary correction
+    # (notably the topography coupling) had nowhere to go and was dropped.
+    boundary_values_imag::Matrix{T}    # [2, nlm] for ICB and CMB
     bc_type_inner::Vector{Int}         # BC type for each mode at inner
     bc_type_outer::Vector{Int}         # BC type for each mode at outer
 
@@ -167,6 +174,7 @@ function create_shtns_temperature_field(::Type{T}, config::C,
     # Sources and boundary conditions
     internal_sources = zeros(T, outer_core_domain.N)
     boundary_values = zeros(T, 2, config.nlm)
+    boundary_values_imag = zeros(T, 2, config.nlm)
 
     # Default BC types (DIRICHLET = fixed temperature, NEUMANN = fixed flux)
     bc_type_inner = fill(Int(DIRICHLET), config.nlm)  # Default to fixed temperature
@@ -188,7 +196,7 @@ function create_shtns_temperature_field(::Type{T}, config::C,
     return SHTnsTemperatureField(
         temperature, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
-        internal_sources, boundary_values,
+        internal_sources, boundary_values, boundary_values_imag,
         bc_type_inner, bc_type_outer,
         nothing, bcs.BoundaryInterpolationCache(T), Ref(1),  # boundary condition fields
         l_factors, config,

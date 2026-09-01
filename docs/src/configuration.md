@@ -70,13 +70,18 @@ GeoDynamo.Simulation
 
 ### SHTnsKit Transform Options
 
-These flags control SHTnsKit v1.1.15 optimizations (set in `transforms/spectral.jl`):
+These flags control SHTnsKit v2 transform paths (set in `transforms/spectral.jl`):
 
 | Flag | Default | Effect |
 |:-----|:--------|:-------|
 | `SHTNSKIT_USE_DISTRIBUTED` | `true` | Use native MPI-distributed transforms |
 | `SHTNSKIT_USE_QST` | `true` | Use full QST decomposition for 3D vectors |
 | `SHTNSKIT_USE_SCRATCH_BUFFERS` | `true` | Pre-allocate transform buffers |
+
+These are compile-time `const`s, not runtime settings: changing one means
+editing `src/transforms/spectral.jl` and recompiling the package. Each flag
+selects between two live code paths, so the non-default path stays correct but
+is unreachable until the constant is edited.
 
 **Check feature availability at runtime:**
 

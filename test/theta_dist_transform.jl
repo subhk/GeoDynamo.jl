@@ -5,6 +5,74 @@ using Test, GeoDynamo, MPI, PencilArrays
 const FINALIZE_MPI_THETA_DIST = !MPI.Initialized()
 FINALIZE_MPI_THETA_DIST && MPI.Init()
 
+function _theta_assert_only_valid_modes_seeded(spec, cfg)
+    sr = parent(spec.data_real)
+    si = parent(spec.data_imag)
+    lm_map = GeoDynamo.local_spectral_lm_map(cfg)
+    @test size(lm_map) == size(sr)[1:2]
+    for slot in CartesianIndices(lm_map)
+        lm_map[slot] != 0 && continue
+        @test all(iszero, @view sr[slot[1], slot[2], :])
+        @test all(iszero, @view si[slot[1], slot[2], :])
+    end
+    return nothing
+end
+
+function _theta_seed_scalar!(spec, cfg)
+    sr = parent(spec.data_real)
+    si = parent(spec.data_imag)
+    fill!(sr, 0.0)
+    fill!(si, 0.0)
+    r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
+    for lm_idx in GeoDynamo.local_spectral_mode_indices(cfg)
+        l = cfg.l_values[lm_idx]
+        m = cfg.m_values[lm_idx]
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
+        slot === nothing && continue
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            GeoDynamo.set_local_spectral_value!(
+                sr, slot, local_r, 0.7 / (l + m + 1))
+            GeoDynamo.set_local_spectral_value!(
+                si, slot, local_r, m == 0 ? 0.0 : -0.15 / (l + m + 1))
+        end
+    end
+    return spec
+end
+
+function _theta_seed_vector!(toroidal, poloidal, cfg)
+    tr = parent(toroidal.data_real)
+    ti = parent(toroidal.data_imag)
+    pr = parent(poloidal.data_real)
+    pi_ = parent(poloidal.data_imag)
+    fill!(tr, 0.0)
+    fill!(ti, 0.0)
+    fill!(pr, 0.0)
+    fill!(pi_, 0.0)
+    r_range = GeoDynamo.range_local(cfg.pencils.spec, 3)
+    for lm_idx in GeoDynamo.local_spectral_mode_indices(cfg)
+        l = cfg.l_values[lm_idx]
+        m = cfg.m_values[lm_idx]
+        l == 0 && continue
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, lm_idx)
+        slot === nothing && continue
+        for r_idx in r_range
+            local_r = r_idx - first(r_range) + 1
+            radial_factor = 1 + 0.2 * r_idx
+            GeoDynamo.set_local_spectral_value!(
+                tr, slot, local_r, 0.5 / (l + m + 1))
+            GeoDynamo.set_local_spectral_value!(
+                ti, slot, local_r, m == 0 ? 0.0 : -0.08 / (l + m + 1))
+            GeoDynamo.set_local_spectral_value!(
+                pr, slot, local_r, 0.3 * radial_factor / (l + m + 1))
+            GeoDynamo.set_local_spectral_value!(
+                pi_, slot, local_r,
+                m == 0 ? 0.0 : -0.1 * radial_factor / (l + m + 1))
+        end
+    end
+    return toroidal, poloidal
+end
+
 @testset "1D-theta layout + prototype pencil" begin
     cfg = GeoDynamo.create_shtnskit_config(lmax=8, mmax=8, nlat=12, nlon=20, nr=4)
     nprocs = MPI.Comm_size(MPI.COMM_WORLD)
@@ -29,17 +97,11 @@ end
     cfg = GeoDynamo.create_shtnskit_config(lmax=8, mmax=8, nlat=12, nlon=20, nr=4)
     dom = GeoDynamo.create_radial_domain(4)
     tf  = GeoDynamo.create_shtns_temperature_field(Float64, cfg, dom)
-    # Seed a few owned spectral modes directly so the roundtrip has something
-    # non-trivial to preserve.
+    # Seed every valid mode owned by this rank through the global-mode mapping
+    # so the roundtrip has non-trivial, decomposition-independent data.
+    _theta_seed_scalar!(tf.spectral, cfg)
     sr = parent(tf.spectral.data_real); si = parent(tf.spectral.data_imag)
-    sr .= 0; si .= 0
-    for k in 1:size(sr, 3)
-        sr[min(2, size(sr, 1)), 1, k] = 0.7
-        if size(sr, 2) >= 2
-            sr[min(3, size(sr, 1)), 2, k] = 0.3
-            si[min(3, size(sr, 1)), 2, k] = -0.15
-        end
-    end
+    _theta_assert_only_valid_modes_seeded(tf.spectral, cfg)
     sr0 = copy(sr); si0 = copy(si)
     GeoDynamo.scalar_spectral_to_physical!(tf.spectral, tf.temperature)
     GeoDynamo.scalar_physical_to_spectral!(tf.temperature, tf.spectral)
@@ -55,16 +117,11 @@ end
     cfg = GeoDynamo.create_shtnskit_config(lmax=8, mmax=8, nlat=12, nlon=20, nr=4)
     dom = GeoDynamo.create_radial_domain(4)
     vf  = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, dom)
+    _theta_seed_vector!(vf.toroidal, vf.poloidal, cfg)
     tr = parent(vf.toroidal.data_real); ti = parent(vf.toroidal.data_imag)
     pr = parent(vf.poloidal.data_real); pi_ = parent(vf.poloidal.data_imag)
-    tr .= 0; ti .= 0; pr .= 0; pi_ .= 0
-    for k in 1:size(tr,3)
-        tr[min(2,size(tr,1)),1,k] = 0.5
-        # r-DEPENDENT poloidal profile: under the Stage-2 solenoidal convention
-        # the tangential spheroidal scalar is (∂_r P)/r, so a constant P gives a
-        # legitimately zero v_θ and the nonzero-check below would be vacuous.
-        if size(tr,2) >= 2; pr[min(3,size(pr,1)),2,k] = 0.3*(1+0.2k); pi_[min(3,size(pr,1)),2,k] = -0.1*(1+0.2k); end
-    end
+    _theta_assert_only_valid_modes_seeded(vf.toroidal, cfg)
+    _theta_assert_only_valid_modes_seeded(vf.poloidal, cfg)
     tr0=copy(tr); ti0=copy(ti); pr0=copy(pr); pi0=copy(pi_)
     GeoDynamo.shtnskit_vector_synthesis!(vf.toroidal, vf.poloidal, vf.velocity; domain=dom)
     # Assert synthesized physical field is finite and non-zero (defence-in-depth:
@@ -91,16 +148,9 @@ end
     vf  = GeoDynamo.create_shtns_velocity_fields(Float64, cfg, dom)
     tr  = parent(vf.toroidal.data_real); ti  = parent(vf.toroidal.data_imag)
     pr  = parent(vf.poloidal.data_real); pii = parent(vf.poloidal.data_imag)
-    tr .= 0; ti .= 0; pr .= 0; pii .= 0
-    for k in 1:size(tr, 3)
-        tr[min(2, size(tr, 1)), 1, k] = 0.5
-        # r-dependent P: constant P gives zero v_θ under the solenoidal
-        # convention (S = (∂_r P)/r) — see the testset above.
-        if size(tr, 2) >= 2
-            pr[min(3, size(pr, 1)), 2, k]  =  0.3 * (1 + 0.2k)
-            pii[min(3, size(pii, 1)), 2, k] = -0.1 * (1 + 0.2k)
-        end
-    end
+    _theta_seed_vector!(vf.toroidal, vf.poloidal, cfg)
+    _theta_assert_only_valid_modes_seeded(vf.toroidal, cfg)
+    _theta_assert_only_valid_modes_seeded(vf.poloidal, cfg)
     tr0 = copy(tr); ti0 = copy(ti); pr0 = copy(pr); pi0 = copy(pii)
 
     # Call the LIVE SOLVER vector transforms (numerics.jl, in GeoDynamo module scope).

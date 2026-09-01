@@ -151,13 +151,26 @@ struct SolverRuntime{
     timestep_state::SolverTimestepState
 end
 
+# Row helpers shared by every `show(::MIME"text/plain", ...)` method in the solver
+# (SolverBackend, SolverState, SolverTopographyState). Each section header is
+# printed by the caller as a `├─`/`└─` branch; these render the leaf rows under it.
+_solver_yesno(flag::Bool) = flag ? "yes" : "no"
+
+function _solver_print_row(io::IO, label::AbstractString, value)
+    println(io, "│  ", rpad(string(label, ":"), 17), value)
+end
+
 function Base.show(io::IO, ::MIME"text/plain", backend::SolverBackend)
     cfg = backend.shtns_config
     println(io, "GeoDynamo SolverBackend")
     println(io, "├─ transforms")
     _solver_print_row(io, "backend", "SHTnsKit + PencilArrays + PencilFFTs")
     _solver_print_row(io, "architecture", backend.architecture)
-    _solver_print_row(io, "compute device", SHTnsKit.get_config_device(cfg.sht_config))
+    # Not the architecture again: `create_solver_runtime` copies that into
+    # `_buffers.transform_device`, so printing it here would just repeat the row
+    # above. Report whether the allocation-free transform plan was actually built.
+    _solver_print_row(io, "transform plan",
+        cfg._buffers.sht_plan === nothing ? "none (allocating)" : "SHTPlan")
     _solver_print_row(io, "lmax / mmax", "$(cfg.lmax) / $(cfg.mmax)")
     _solver_print_row(io, "Nθ × Nφ", "$(cfg.nlat) × $(cfg.nlon)")
     _solver_print_row(io, "spectral modes", cfg.nlm)

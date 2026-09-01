@@ -32,6 +32,10 @@ mutable struct GauntTensorCache{T <: AbstractFloat}
     G::Dict{NTuple{6, Int}, T}           # (l,m,l',m',L,M) -> value
     G_∇::Dict{NTuple{6, Int}, T}      # Gradient Gaunt
     G_cross::Dict{NTuple{6, Int}, T}     # Cross Gaunt
+    G_cross_zero::Set{NTuple{6, Int}}    # Bounded memoization of numerical zeros
+    G_cross_zero_order::Vector{NTuple{6, Int}}
+    G_cross_zero_next::Int
+    G_cross_zero_limit::Int
     sht_config::SHTnsKit.SHTConfig       # SHTnsKit configuration
     nlat::Int                            # Number of latitude points
     nlon::Int                            # Number of longitude points
@@ -42,9 +46,12 @@ end
 
 # Module-level lock for thread-safe lazy writes to G_cross in get_cross_gaunt
 const _GAUNT_CROSS_LOCK = ReentrantLock()
+const _DEFAULT_GAUNT_CROSS_ZERO_LIMIT = 16_384
 
 """
-    GauntTensorCache{T}(lmax::Int, lmax_topo::Int; nth::Int=0, nph::Int=0) where T
+    GauntTensorCache{T}(lmax::Int, lmax_topo::Int;
+                        nth::Int=0, nph::Int=0,
+                        cross_zero_cache_limit::Int=16384) where T
 
 Create a Gaunt tensor cache with SHTnsKit configuration.
 
@@ -53,8 +60,14 @@ Create a Gaunt tensor cache with SHTnsKit configuration.
 - `lmax_topo::Int`: Maximum degree for topography
 - `nth::Int`: Number of theta points (default: 2*max(lmax,lmax_topo) + 2)
 - `nph::Int`: Number of phi points (default: 2*nth)
+- `cross_zero_cache_limit::Int`: Maximum number of numerically zero cross
+  coefficients to memoize (default: 16384)
 """
-function GauntTensorCache{T}(lmax::Int, lmax_topo::Int; nth::Int = 0, nph::Int = 0) where {T}
+function GauntTensorCache{T}(lmax::Int, lmax_topo::Int;
+        nth::Int = 0, nph::Int = 0,
+        cross_zero_cache_limit::Int = _DEFAULT_GAUNT_CROSS_ZERO_LIMIT) where {T}
+    cross_zero_cache_limit >= 0 || throw(ArgumentError(
+        "cross_zero_cache_limit must be nonnegative (got $cross_zero_cache_limit)"))
     # Set default quadrature resolution (need enough points for triple products)
     # For triple product of Y_l1^m1 * Y_l2^m2 * Y_L^M, need at least 3*lmax points
     lmax_total = lmax + lmax_topo
@@ -73,6 +86,10 @@ function GauntTensorCache{T}(lmax::Int, lmax_topo::Int; nth::Int = 0, nph::Int =
         Dict{NTuple{6, Int}, T}(),
         Dict{NTuple{6, Int}, T}(),
         Dict{NTuple{6, Int}, T}(),
+        Set{NTuple{6, Int}}(),
+        NTuple{6, Int}[],
+        1,
+        cross_zero_cache_limit,
         sht_config,
         nth, nph,
         theta, weights,
@@ -669,25 +686,58 @@ Get the cross Gaunt tensor G^{(×)}_{l1,m1,l2,m2,L,M} from cache.
 function get_cross_gaunt(cache::GauntTensorCache{T}, l1::Int, m1::Int,
         l2::Int, m2::Int, L::Int, M::Int) where {T}
     key = (l1, m1, l2, m2, L, M)
-    # Fast path: read-only lookup (no lock needed for existing entries)
-    val = get(cache.G_cross, key, nothing)
-    val !== nothing && return val
-
-    # Cross terms are allowed to stay sparse until a coupling kernel actually
-    # asks for them. That keeps startup cheaper while preserving deterministic
-    # reuse once a coefficient has been computed.
-    # Lazy compute when missing (needed if precompute ran with use_wigner=true).
-    if l2 == 0 || L == 0 || m1 != m2 + M
+    # Exact selection rules stay entirely out of both caches. The cross-gradient
+    # integral has odd total degree, in addition to the usual azimuthal and
+    # triangle conditions.
+    if l1 < 0 || l2 <= 0 || L <= 0 ||
+            abs(m1) > l1 || abs(m2) > l2 || abs(M) > L ||
+            m1 != m2 + M ||
+            l1 < abs(l2 - L) || l1 > l2 + L ||
+            iseven(l1 + l2 + L)
         return zero(T)
     end
 
-    computed = compute_cross_gaunt_tensor(l1, m1, l2, m2, L, M, cache)
-    if abs(computed) > 1e-14
-        lock(_GAUNT_CROSS_LOCK) do
-            cache.G_cross[key] = computed
+    found, val = lock(_GAUNT_CROSS_LOCK) do
+        if haskey(cache.G_cross, key)
+            (true, cache.G_cross[key])
+        elseif key in cache.G_cross_zero
+            (true, zero(T))
+        else
+            (false, zero(T))
         end
     end
-    return computed
+    found && return val
+
+    computed = compute_cross_gaunt_tensor(l1, m1, l2, m2, L, M, cache)
+    is_nonzero = abs(computed) > T(1e-14)
+    lock(_GAUNT_CROSS_LOCK) do
+        if is_nonzero
+            cache.G_cross[key] = computed
+        else
+            _remember_cross_gaunt_zero!(cache, key)
+        end
+    end
+    # The cache's sparsity threshold defines numerical zero. Return the same value
+    # on the first lookup that subsequent negative-cache hits will return.
+    return is_nonzero ? computed : zero(T)
+end
+
+"""Remember a numerical cross-Gaunt zero in a bounded FIFO cache. Lock required."""
+function _remember_cross_gaunt_zero!(cache::GauntTensorCache,
+        key::NTuple{6, Int})
+    limit = cache.G_cross_zero_limit
+    (limit == 0 || key in cache.G_cross_zero) && return nothing
+
+    if length(cache.G_cross_zero_order) < limit
+        push!(cache.G_cross_zero_order, key)
+    else
+        slot = cache.G_cross_zero_next
+        delete!(cache.G_cross_zero, cache.G_cross_zero_order[slot])
+        cache.G_cross_zero_order[slot] = key
+        cache.G_cross_zero_next = slot == limit ? 1 : slot + 1
+    end
+    push!(cache.G_cross_zero, key)
+    return nothing
 end
 
 # ================================================================================

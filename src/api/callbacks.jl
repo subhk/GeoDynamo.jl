@@ -294,6 +294,76 @@ _callbacks_may_stop_rank_locally(callbacks) =
     any(cb -> !_running_flag_rank_symmetric(cb), values(callbacks))
 
 """
+    _callback_registry_signature(callbacks) -> String
+
+Return a deterministic description of the callback registry's execution
+structure. Captured values in user functions are deliberately omitted: a user
+callback may inspect rank-local state, while its name, function type, callback
+type, and schedule must still agree across ranks so every rank enters the same
+collective callback bodies in the same order.
+"""
+_schedule_registry_signature(s::TimeInterval) =
+    (:TimeInterval, string(typeof(s.interval)), s.interval, s._fired)
+_schedule_registry_signature(s::IterationInterval) =
+    (:IterationInterval, s.interval)
+_schedule_registry_signature(s::WallTimeInterval) =
+    (:WallTimeInterval, string(typeof(s.interval)), s.interval, s._last_fire)
+_schedule_registry_signature(s::SpecifiedTimes) =
+    (:SpecifiedTimes, Tuple(s.times), s._next)
+_schedule_registry_signature(s::AbstractSchedule) = (string(typeof(s)), repr(s))
+
+_callback_registry_entry(cb::Callback) =
+    (string(typeof(cb)), string(typeof(cb.func)), _schedule_registry_signature(cb.schedule))
+_callback_registry_entry(cb::SolenoidalMonitor) =
+    (string(typeof(cb)), cb.threshold, _schedule_registry_signature(cb.schedule))
+_callback_registry_entry(cb::HealthCheck) =
+    (string(typeof(cb)), cb.abort, _schedule_registry_signature(cb.schedule))
+_callback_registry_entry(cb) =
+    (string(typeof(cb)), _schedule_registry_signature(_callback_schedule(cb)))
+
+function _callback_registry_signature(callbacks)
+    entries = [(name, _callback_registry_entry(cb)) for (name, cb) in pairs(callbacks)]
+    return repr(entries)
+end
+
+"""
+    _validate_callback_registry!(callbacks)
+
+Require callback names, order, callback types, and schedules to be identical on
+all MPI ranks. Several built-in callbacks contain reductions, so allowing a
+callback to be registered on only some ranks can otherwise deadlock before the
+post-callback running-flag reduction has a chance to reconcile control flow.
+"""
+function _validate_callback_registry!(callbacks)
+    MPI.Initialized() || return nothing
+    comm = get_comm()
+    (comm === nothing || MPI.Comm_size(comm) <= 1) && return nothing
+
+    rank = MPI.Comm_rank(comm)
+    local_signature = _callback_registry_signature(callbacks)
+    root_signature = MPI.bcast(rank == 0 ? local_signature : "", comm; root = 0)
+    mismatch = local_signature != root_signature
+    if _any_rank_flag(mismatch)
+        error("MPI callback registry mismatch: callback names, order, types, and " *
+              "schedules must be structurally identical on every rank before run!.")
+    end
+    return nothing
+end
+
+"""
+    _stop_reduce_armed(sim) -> Bool
+
+Whether `_run_callbacks!` must reduce the `running` flag this step.
+
+Reads the decision `run!` took collectively at entry. A simulation object that does not
+carry the field at all — `_run_callbacks!` is duck-typed on `sim` — answers `true`,
+because reducing costs one `Allreduce` while NOT reducing on a rank that should have is
+the deadlock this whole path exists to prevent.
+"""
+@inline _stop_reduce_armed(sim) =
+    !hasfield(typeof(sim), :_stop_needs_reduce) || sim._stop_needs_reduce
+
+"""
     _run_callbacks!(sim)
 
 Iterates over `sim.callbacks`, builds a `_ScheduleContext` from the current
@@ -318,12 +388,12 @@ function _run_callbacks!(sim)
     #
     # Skipped when every registered callback already leaves the flag rank-identical,
     # so a default run does not pay an Allreduce per step for a value that cannot
-    # differ. The skip is decided from the callback REGISTRY, which the surrounding
-    # design already requires to be identical on every rank — `should_fire` mutates
-    # per-schedule fire bookkeeping, so an asymmetric registry desynchronises firing
-    # long before it reaches this line. Unrecognised entries answer "may stop", so a
-    # new callback type reduces until it is explicitly declared symmetric.
-    if _callbacks_may_stop_rank_locally(sim.callbacks) && _any_rank_flag(!sim.running)
+    # differ. The skip is read from `sim._stop_needs_reduce`, which `run!` decided
+    # COLLECTIVELY at entry — never recomputed here from this rank's own registry.
+    # `run!` validates that the registry structure is identical across ranks before
+    # entering the loop. Unrecognised entries answer "may stop", so a new callback
+    # type reduces until it is explicitly declared symmetric.
+    if _stop_reduce_armed(sim) && _any_rank_flag(!sim.running)
         sim.running = false
     end
     return nothing

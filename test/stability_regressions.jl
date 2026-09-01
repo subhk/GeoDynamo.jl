@@ -44,6 +44,13 @@ end
             boundary = reshape([1.0, 2.0], 1, 2)
             topo.reset_boundary_to_base!(boundary)
             fill!(boundary, 0.0)
+            # A correction pass declares what it left via `mark_boundary_applied!`,
+            # exactly as the velocity/magnetic/thermal couplings now do. Only a
+            # declared write is rolled back: the array has other owners
+            # (`update_time_dependent_boundaries!`), and restoring the snapshot over
+            # THEIR writes froze a time-dependent BC at its t = 0 value for the whole
+            # run. See test/code_review_batchG_fixes.jl for the full contract.
+            topo.mark_boundary_applied!(boundary)
             topo.reset_boundary_to_base!(boundary)
             @test boundary == reshape([1.0, 2.0], 1, 2)
 

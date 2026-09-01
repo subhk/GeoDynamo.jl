@@ -44,7 +44,25 @@ Whether parallel NetCDF (MPI-IO via HDF5) works here. The degrade-or-skip form o
 [`parallel_netcdf_probe`](@ref); [`check_parallel_netcdf_support`](@ref) is the
 fail-loud form. Collective — call it on every rank.
 """
-parallel_netcdf_available(comm) = parallel_netcdf_probe(comm) === nothing
+parallel_netcdf_available(comm) = _all_ranks_flag(parallel_netcdf_probe(comm) === nothing,
+    comm)
+
+"""
+    _all_ranks_flag(flag::Bool, comm) -> Bool
+
+`true` only when `flag` is set on EVERY rank of `comm` (MPI.MIN reduction).
+
+The comm-taking counterpart of `_any_rank_flag` (api/schedules.jl), for verdicts that
+gate a collective: a capability that half the ranks believe in is not a capability. The
+probe below can genuinely split — its `tempname()` names node-local scratch, so in a
+multi-node job the collective create fails only for the ranks off rank 0's node — and a
+rank-local answer sends one group past the write while the rest block inside it.
+Collective; every rank must call it together.
+"""
+function _all_ranks_flag(flag::Bool, comm)
+    (comm === nothing || !MPI.Initialized() || MPI.Comm_size(comm) <= 1) && return flag
+    return MPI.Allreduce(flag ? 1 : 0, MPI.MIN, comm) > 0
+end
 
 """
     check_parallel_netcdf_support(comm)
@@ -58,7 +76,14 @@ a workflow that will write parallel output, or `parallel_netcdf_available` to de
 """
 function check_parallel_netcdf_support(comm)
     failure = parallel_netcdf_probe(comm)
-    failure === nothing && return nothing
+    # Raise on every rank or on none: an `error` taken by the subset of ranks whose
+    # probe failed is itself the asymmetric exit this module exists to avoid — the
+    # surviving ranks would block in the next collective instead of reporting.
+    _all_ranks_flag(failure === nothing, comm) && return nothing
+    failure === nothing &&
+        error("Parallel NetCDF (MPI-IO) is required but not available: the probe " *
+              "failed on another rank (this rank's probe succeeded, which usually " *
+              "means the temporary path is node-local rather than shared).")
     error("Parallel NetCDF (MPI-IO) is required but not available. " *
           "Please install HDF5 with parallel support: " *
           "set ENV[\"JULIA_HDF5_PATH\"] to a parallel-enabled HDF5 installation " *

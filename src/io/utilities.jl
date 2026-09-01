@@ -49,30 +49,36 @@ function verify_all_ranks_wrote(output_dir::String, hist_number::Int;
 
     # Verify dimensions if expected values provided
     if expected_dims !== nothing
-        # A bare `return` from inside the `do` closure only exits the closure, so
-        # the mismatch verdict is captured here and propagated after the block.
-        mismatch_msg = nothing
+        # Record what the file actually contains before judging it: a "missing
+        # dimension" verdict is only actionable alongside the real dimension list.
+        problems = String[]
+        details = String[]
         try
             NCDataset(filepath, "r") do ds
-                for (dim_name, expected_size) in expected_dims
-                    if haskey(ds.dim, dim_name)
-                        actual_size = ds.dim[dim_name]
-                        if actual_size != expected_size
-                            info["error"] = "Dimension $dim_name: expected $expected_size, got $actual_size"
-                            mismatch_msg = "Dimension mismatch"
-                            return
-                        end
-                    end
-                end
                 info["dimensions"] = Dict(String(k) => v for (k, v) in ds.dim)
                 info["variables"] = collect(keys(ds))
+                for (dim_name, expected_size) in expected_dims
+                    if !haskey(ds.dim, dim_name)
+                        push!(details,
+                            "Dimension $dim_name is missing; expected size $expected_size")
+                        push!(problems, "Missing dimension: $dim_name")
+                        continue
+                    end
+                    actual_size = ds.dim[dim_name]
+                    if actual_size != expected_size
+                        push!(details,
+                            "Dimension $dim_name: expected $expected_size, got $actual_size")
+                        push!(problems, "Dimension mismatch: $dim_name")
+                    end
+                end
             end
         catch e
             info["error"] = string(e)
             return (false, ["Read error"], info)
         end
-        if mismatch_msg !== nothing
-            return (false, [mismatch_msg], info)
+        if !isempty(problems)
+            info["error"] = join(details, "; ")
+            return (false, problems, info)
         end
     end
 

@@ -160,35 +160,19 @@ Always returns a `_BCVectors` with the four keys `inner_real`, `outer_real`,
 `inner_imag`, `outer_imag`; absent slots are `nothing`.
 """
 function get_bc_vectors(field)
-    cache = hasfield(typeof(field), :boundary_interpolation_cache) ?
-            field.boundary_interpolation_cache : nothing
-    if cache isa bcs.BoundaryInterpolationCache
-        bc_real = cache.bc_real
-        bc_imag = cache.bc_imag
-        if cache.bc_loaded && bc_real !== nothing && bc_imag !== nothing
-            return _BCVectors((
-                view(bc_real, 1, :),
-                view(bc_real, 2, :),
-                view(bc_imag, 1, :),
-                view(bc_imag, 2, :)
-            ))
-        end
-    end
-
-    if hasfield(typeof(field), :boundary_values)
-        inner_imag = hasfield(typeof(field), :boundary_values_imag) ?
-                     view(field.boundary_values_imag, 1, :) : nothing
-        outer_imag = hasfield(typeof(field), :boundary_values_imag) ?
-                     view(field.boundary_values_imag, 2, :) : nothing
-        return _BCVectors((
-            view(field.boundary_values, 1, :),
-            view(field.boundary_values, 2, :),
-            inner_imag,
-            outer_imag
-        ))
-    end
-
-    return _BCVectors((nothing, nothing, nothing, nothing))
+    # Which of the field's two boundary-value sets is live is decided in exactly one
+    # place (`bcs.active_boundary_arrays`), so that a writer — the topography
+    # couplings — targets the same arrays this reader consumes.
+    bc_real, bc_imag = bcs.active_boundary_arrays(field)
+    bc_real === nothing && return _BCVectors((nothing, nothing, nothing, nothing))
+    inner_imag = bc_imag === nothing ? nothing : view(bc_imag, 1, :)
+    outer_imag = bc_imag === nothing ? nothing : view(bc_imag, 2, :)
+    return _BCVectors((
+        view(bc_real, 1, :),
+        view(bc_real, 2, :),
+        inner_imag,
+        outer_imag
+    ))
 end
 
 @inline function mpi_barrier!(comm = mpi_comm())
@@ -662,7 +646,9 @@ end
 @inline function transform_arch(config)
     device = config._buffers.transform_device
     device isa AbstractArchitecture && return device
-    return SHTnsKit.is_gpu_config(config.sht_config) ? GPU(device) : CPU()
+    (device === nothing || device === :cpu) && return CPU()
+    device in (:gpu, :cuda) && return GPU(device)
+    throw(ArgumentError("unsupported transform device $(repr(device))"))
 end
 
 @inline uses_gpu(config) = !(transform_arch(config) isa CPU)
@@ -1186,6 +1172,13 @@ function vector_physical_to_spectral!(
     vector_physical_to_spectral_disttranspose!(
         config, plan, vector_field, toroidal, poloidal)
 
+    # Preserve the tangentially recovered S before the radial analysis below
+    # overwrites `poloidal` with P. This diagnostic path is opt-in and reuses
+    # the existing vector scratch storage.
+    if verify_solenoidal && !raw_spheroidal && domain !== nothing
+        _capture_tangential_s!(config, plan, poloidal)
+    end
+
     if !raw_spheroidal && domain !== nothing
         # Solenoidal convention (Stage 2): the poloidal potential is recovered
         # from the RADIAL component, P = r²·Q/(l(l+1)), the exact inverse of
@@ -1194,9 +1187,47 @@ function vector_physical_to_spectral!(
         scalar_physical_to_spectral!(vector_field.r_component, poloidal)
         _poloidal_from_radial_q!(parent(poloidal.data_real),
             parent(poloidal.data_imag), config, domain)
+        if verify_solenoidal
+            _verify_solenoidal_components!(config, plan, poloidal, domain)
+        end
     end
 
     return toroidal, poloidal
+end
+
+function _capture_tangential_s!(config, plan, poloidal)
+    sc = _vector_scratch(config, plan)
+    copyto!(sc.Ssto_re, parent(poloidal.data_real))
+    copyto!(sc.Ssto_im, parent(poloidal.data_imag))
+    return nothing
+end
+
+function _verify_solenoidal_components!(config, plan, poloidal, domain)
+    sc = _vector_scratch(config, plan)
+    _storage_spheroidal_from_poloidal!(sc.Vrsto_re, sc.Vrsto_im,
+        parent(poloidal.data_real), parent(poloidal.data_imag), config, domain)
+
+    local_error = 0.0
+    local_scale = 0.0
+    @inbounds for (observed, expected) in (
+        (sc.Ssto_re, sc.Vrsto_re), (sc.Ssto_im, sc.Vrsto_im))
+        for i in eachindex(observed, expected)
+            local_error = max(local_error, abs(observed[i] - expected[i]))
+            local_scale = max(local_scale, abs(observed[i]), abs(expected[i]))
+        end
+    end
+
+    if mpi_initialized()
+        comm = mpi_comm()
+        local_error = allreduce_max(local_error, comm)
+        local_scale = allreduce_max(local_scale, comm)
+    end
+    T = eltype(parent(poloidal.data_real))
+    tolerance = 100 * eps(T) + 100 * sqrt(eps(T)) * local_scale
+    local_error <= tolerance || throw(ArgumentError(
+        "vector field is not solenoidal: tangential/radial spectral mismatch " *
+        "$(local_error) exceeds tolerance $(tolerance)"))
+    return nothing
 end
 
 # In-place P = r²·Q/(l(l+1)) on the spectral STORAGE arrays (Q was written by

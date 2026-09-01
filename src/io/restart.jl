@@ -5,7 +5,10 @@
 """
     _scan_output_count(dir, prefix, geometry, kind) -> Int
 
-Highest numbered `<prefix>_<geometry>_<kind>_N.nc` file present in `dir`, or 0.
+Highest numbered `<prefix>_<geometry>_<kind>_N.nc` file present in `dir`, or 0
+when `dir` does not exist. Directory access failures are reported to the caller;
+they must not be mistaken for an empty directory because doing so can reuse an
+existing output number and overwrite data.
 
 Purely local and MPI-free on purpose: each caller decides how to make the answer
 unanimous (rank 0 scans, then broadcasts), and keeping the scan itself collective-free
@@ -30,6 +33,38 @@ function _scan_output_count(dir::String, prefix::String, geometry::Symbol, kind:
 end
 
 """
+    _collective_scan_output_count(dir, prefix, geometry, kind, comm) -> Int
+
+Scan on rank 0 and broadcast either the result or the scan failure. Every rank
+therefore leaves this collective along the same path, and an unreadable output
+directory cannot silently masquerade as an empty one.
+"""
+function _collective_scan_output_count(dir::String, prefix::String,
+        geometry::Symbol, kind::String, comm)
+    if comm === nothing || !MPI.Initialized() || MPI.Comm_size(comm) <= 1
+        return _scan_output_count(dir, prefix, geometry, kind)
+    end
+
+    rank = MPI.Comm_rank(comm)
+    count = 0
+    scan_error = ""
+    if rank == 0
+        try
+            count = _scan_output_count(dir, prefix, geometry, kind)
+        catch err
+            scan_error = sprint(showerror, err)
+        end
+    end
+
+    buffer = Int[count]
+    MPI.Bcast!(buffer, 0, comm)
+    scan_error = MPI.bcast(scan_error, comm; root = 0)
+    isempty(scan_error) || error(
+        "Could not scan output directory '$dir' for numbered $kind files: $scan_error")
+    return buffer[1]
+end
+
+"""
     _persisted_output_count(tracker, did_output, config, geometry) -> Int
 
 The history-file count to record in a restart file: the larger of what `tracker`
@@ -49,16 +84,36 @@ function _persisted_output_count(tracker::TimeTracker, did_output::Bool,
         config::OutputConfig, geometry::Symbol)
     from_tracker = tracker.output_count + (did_output ? 1 : 0)
     comm = MPI.Initialized() ? output_comm() : nothing
-    rank = comm === nothing ? 0 : MPI.Comm_rank(comm)
-    on_disk = rank == 0 ?
-              _scan_output_count(config.output_dir, config.filename_prefix, geometry,
-        "hist") : 0
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        buffer = Int[on_disk]
-        MPI.Bcast!(buffer, 0, comm)
-        on_disk = buffer[1]
-    end
+    on_disk = _collective_scan_output_count(
+        config.output_dir, config.filename_prefix, geometry, "hist", comm)
     return max(from_tracker, on_disk)
+end
+
+"""
+    _require_restart_file_everywhere(filepath, comm)
+
+Verify that EVERY rank can see `filepath`, and raise on every rank if any cannot.
+
+Checking on rank 0 and broadcasting catches "missing everywhere", but not the case the
+path selection is guarded against in the first place: a checkpoint sitting on node-local
+scratch, visible to rank 0 and to nothing else. Those ranks would fail alone inside the
+collective `NCDataset` open while the ranks that can see the file block inside it — the
+hang, arriving as an opaque NetCDF error. Reducing the per-rank `isfile` turns it into a
+unanimous, legible abort.
+
+Collective; every rank must call it together.
+"""
+function _require_restart_file_everywhere(filepath::String, comm)
+    missing_here = !isfile(filepath)
+    missing_anywhere = missing_here
+    if comm !== nothing && MPI.Initialized() && MPI.Comm_size(comm) > 1
+        missing_anywhere = MPI.Allreduce(missing_here ? 1 : 0, MPI.MAX, comm) > 0
+    end
+    missing_anywhere || return nothing
+    rank = (comm === nothing || !MPI.Initialized()) ? 0 : MPI.Comm_rank(comm)
+    detail = missing_here ? "not visible on rank $rank" :
+             "visible on rank $rank but not on every rank (node-local scratch?)"
+    error("Restart file unusable: $detail: $filepath")
 end
 
 """
@@ -230,18 +285,7 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
     # Unanimous for the same reason the path is: this check sits directly in front of the
     # collective `NCDataset` open below, so a rank-local verdict lets one rank abort while
     # the others block in the open.
-    exists = rank == 0 ? isfile(filepath) : true
-    if MPI.Comm_size(comm) > 1
-        exists = MPI.bcast(exists, comm; root = 0)
-    end
-    exists || error("Restart file not found (checked on rank 0): $filepath")
-    # The verdict above is rank 0's, so a rank that genuinely cannot see the file — the
-    # node-local-scratch case the path selection guards against — would otherwise walk
-    # into the collective open below and fail there with an opaque NetCDF error. Warn
-    # (never error: an error here is asymmetric, which is the hang) so the log still
-    # names the rank that could not see it.
-    rank == 0 || isfile(filepath) ||
-        @warn "Rank $rank cannot see the restart file selected by rank 0" filepath
+    _require_restart_file_everywhere(filepath, comm)
 
     if rank == 0
         println("Loading parallel restart from $(basename(filepath))")

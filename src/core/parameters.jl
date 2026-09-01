@@ -213,13 +213,17 @@ function _parameter_errors_warnings(params::SolverParameters)
             "geometry = :ball but radius_ratio = $(params.radius_ratio) != 0; use radius_ratio=0 for full ball")
     end
 
-    if params.Ra <= 0.0
+    if !isfinite(params.Ra)
+        push!(errors, "Ra = $(params.Ra) must be finite")
+    elseif params.Ra <= 0.0
         push!(errors, "Ra = $(params.Ra) must be positive")
     elseif params.Ra > 1e10
         push!(warnings, "Ra = $(params.Ra) is very large; ensure numerical stability")
     end
 
-    if params.Ek <= 0.0
+    if !isfinite(params.Ek)
+        push!(errors, "Ek = $(params.Ek) must be finite")
+    elseif params.Ek <= 0.0
         push!(errors, "Ek = $(params.Ek) must be positive")
     elseif params.Ek < 1e-8
         push!(warnings, "Ek = $(params.Ek) is very small; may require fine resolution")
@@ -229,7 +233,9 @@ function _parameter_errors_warnings(params::SolverParameters)
     params.Pm > 0.0 || push!(errors, "Pm = $(params.Pm) must be positive")
     params.Sc > 0.0 || push!(errors, "Sc = $(params.Sc) must be positive")
 
-    if params.timestep <= 0.0
+    if !isfinite(params.timestep)
+        push!(errors, "timestep = $(params.timestep) must be finite")
+    elseif params.timestep <= 0.0
         push!(errors, "timestep = $(params.timestep) must be positive")
     elseif params.timestep > 1.0
         push!(warnings, "timestep = $(params.timestep) is very large; check CFL condition")
@@ -245,18 +251,25 @@ function _parameter_errors_warnings(params::SolverParameters)
     params.stop_iteration >= 1 ||
         push!(errors, "stop_iteration = $(params.stop_iteration) must be >= 1")
 
-    if params.end_time <= params.start_time
+    isfinite(params.start_time) ||
+        push!(errors, "start_time = $(params.start_time) must be finite")
+    (isfinite(params.end_time) || params.end_time == Inf) ||
+        push!(errors, "end_time = $(params.end_time) must be finite or Inf")
+    if isfinite(params.start_time) && !isnan(params.end_time) &&
+       params.end_time <= params.start_time
         push!(errors,
             "end_time = $(params.end_time) must be greater than start_time = $(params.start_time)")
     end
 
-    max_diffusivity = max(1.0, params.Pm / params.Pr, params.Pm / params.Sc, params.Ek)
-    cfl_limit = 0.1 / (params.lmax^2 * max_diffusivity)
-    if params.timestep > cfl_limit
-        push!(warnings,
-            "timestep = $(params.timestep) may violate CFL condition " *
-            "(estimated limit: $(cfl_limit) for spectral stability with " *
-            "max diffusivity = $(max_diffusivity))")
+    if all(isfinite, (params.Pm, params.Pr, params.Sc, params.Ek, params.timestep))
+        max_diffusivity = max(1.0, params.Pm / params.Pr, params.Pm / params.Sc, params.Ek)
+        cfl_limit = 0.1 / (params.lmax^2 * max_diffusivity)
+        if params.timestep > cfl_limit
+            push!(warnings,
+                "timestep = $(params.timestep) may violate CFL condition " *
+                "(estimated limit: $(cfl_limit) for spectral stability with " *
+                "max diffusivity = $(max_diffusivity))")
+        end
     end
 
     if params.output_precision ∉ (:float32, :float64)

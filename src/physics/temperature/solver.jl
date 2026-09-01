@@ -120,11 +120,3 @@ function apply_temperature_implicit_update!(state::SolverState{
         state.timestep_caches.etd_temperature,
     )
 end
-
-function queue_temperature_implicit_update!(
-        operations::Vector{Function},
-        state::SolverState{T, <:AbstractArchitecture}
-) where {T}
-    push!(operations, () -> apply_temperature_implicit_update!(state))
-    return operations
-end

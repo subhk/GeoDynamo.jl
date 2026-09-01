@@ -135,6 +135,27 @@ StefanState(; kwargs...) = StefanState{Float64}(; kwargs...)
 # Initialization
 # ================================================================================
 
+"""Keep the stored Stefan rate on the same harmonic layout as its topography."""
+function _ensure_stefan_rate_layout!(state::StefanState{T}) where {T}
+    topo = state.topography
+    rate = state.topography_rate
+    if rate.lmax == topo.lmax && rate.mmax == topo.mmax && rate.nlm == topo.nlm
+        return state
+    end
+
+    remapped = TopographyField{T}(topo.lmax, topo.mmax, topo.radius, topo.location)
+    for l in 0:min(rate.lmax, topo.lmax)
+        for m in 0:min(l, rate.mmax, topo.mmax)
+            old_idx = lm_to_index(l, m, rate.lmax, rate.mmax)
+            new_idx = lm_to_index(l, m, topo.lmax, topo.mmax)
+            remapped.coeffs_real[new_idx] = rate.coeffs_real[old_idx]
+            remapped.coeffs_imag[new_idx] = rate.coeffs_imag[old_idx]
+        end
+    end
+    state.topography_rate = remapped
+    return state
+end
+
 """
     initialize_stefan_state!(state::StefanState{T}, temperature_ic, temperature_oc,
                              velocity_field; gaunt_cache=nothing) where T
@@ -152,13 +173,17 @@ function initialize_stefan_state!(state::StefanState{T}, temperature_ic, tempera
         velocity_field; gaunt_cache = nothing) where {T}
     ri = state.topography.radius
     lmax = state.topography.lmax
+    _ensure_stefan_rate_layout!(state)
 
     # Compute normal derivatives at ICB (used in Stefan flux)
-    state.heat_flux_ic = compute_boundary_heat_flux_spectral(temperature_ic, ri, :inner)
-    state.heat_flux_oc = compute_boundary_heat_flux_spectral(temperature_oc, ri, :outer)
+    state.heat_flux_ic = compute_boundary_heat_flux_spectral(
+        temperature_ic, ri, :inner; target = state.topography)
+    state.heat_flux_oc = compute_boundary_heat_flux_spectral(
+        temperature_oc, ri, :outer; target = state.topography)
 
     # Compute normal velocity at ICB
-    state.normal_velocity = compute_normal_velocity_spectral(velocity_field, ri, INNER_BOUNDARY)
+    state.normal_velocity = compute_normal_velocity_spectral(
+        velocity_field, ri, INNER_BOUNDARY; target = state.topography)
 
     # Compute Stefan number if temperature scale is available
     # St = c_p ΔT / L  (typically from simulation parameters)
@@ -188,9 +213,20 @@ Returns spectral coefficients of the net heat flux imbalance.
 function compute_stefan_flux(state::StefanState{T}) where {T}
     nlm = state.topography.nlm
 
+    # `heat_flux_ic/oc` were sized from the SPECTRAL nlm, while `nlm` here comes from
+    # the topography field — and `create_solver_topography_state` assigns
+    # `stefan.topography = data.icb`, whose nlm follows the topography FILE's lmax.
+    # The two disagree whenever the file is coarser or finer than the run, and the
+    # loop then ran off the end of the flux vectors from inside the timestep.
+    n_avail = min(nlm, length(state.heat_flux_ic), length(state.heat_flux_oc))
+    if n_avail < nlm
+        @warn "Stefan flux: topography carries more modes than the heat-flux arrays; \
+               the extra modes contribute no flux" topography_nlm=nlm flux_nlm=n_avail maxlog=1
+    end
+
     # Net flux: k_ic ∂_n T_ic - k ∂_n T
     flux = zeros(Complex{T}, nlm)
-    for i in 1:nlm
+    for i in 1:n_avail
         flux[i] = state.k_ic * state.heat_flux_ic[i] - state.k_oc * state.heat_flux_oc[i]
     end
 
@@ -292,11 +328,6 @@ function compute_stefan_flux_with_topography(state::StefanState{T}, temperature_
                         G = get_gaunt_tensor(gaunt, l, m, lp, mp, L, M)
                         G_grad = get_gradient_gaunt(gaunt, l, m, lp, mp, L, M)
 
-                        lp_idx = lm_to_index(lp, abs(mp), lmax, mmax)
-                        if lp_idx > nlm
-                            continue
-                        end
-
                         # Slope term: -∇_H h · ∇_H T
                         if config.include_slope_terms && abs(G_grad) > 1e-15
                             # For outer core
@@ -380,13 +411,17 @@ function update_icb_topography!(state::StefanState{T}, dt::T, velocity_field,
     ri = state.topography.radius
     rho_L = state.rho * state.L
     nlm = state.topography.nlm
+    _ensure_stefan_rate_layout!(state)
 
     # Update normal velocity
-    state.normal_velocity = compute_normal_velocity_spectral(velocity_field, ri, INNER_BOUNDARY)
+    state.normal_velocity = compute_normal_velocity_spectral(
+        velocity_field, ri, INNER_BOUNDARY; target = state.topography)
 
     # Update heat fluxes
-    state.heat_flux_ic = compute_boundary_heat_flux_spectral(temperature_ic, ri, :inner)
-    state.heat_flux_oc = compute_boundary_heat_flux_spectral(temperature_oc, ri, :outer)
+    state.heat_flux_ic = compute_boundary_heat_flux_spectral(
+        temperature_ic, ri, :inner; target = state.topography)
+    state.heat_flux_oc = compute_boundary_heat_flux_spectral(
+        temperature_oc, ri, :outer; target = state.topography)
 
     # Compute Stefan flux
     if topo_data !== nothing && gaunt !== nothing && config !== nothing
@@ -400,8 +435,11 @@ function update_icb_topography!(state::StefanState{T}, dt::T, velocity_field,
     # Get epsilon from config or use default
     ε = config !== nothing ? config.epsilon : T(0.01)
 
-    # Compute topography rate: ε ∂_t h = uₙ + F/(ρL)
-    for i in 1:nlm
+    # Compute topography rate: ε ∂_t h = uₙ + F/(ρL). `normal_velocity` is sized from
+    # the SPECTRAL nlm and `nlm` from the topography field's; see compute_stefan_flux.
+    n_rate = min(nlm, length(state.normal_velocity), length(stefan_flux),
+        length(state.topography_rate.coeffs_real))
+    for i in 1:n_rate
         dh_dt = (state.normal_velocity[i] + stefan_flux[i] / rho_L) / ε
         state.topography_rate.coeffs_real[i] = real(dh_dt)
         state.topography_rate.coeffs_imag[i] = imag(dh_dt)
@@ -410,7 +448,7 @@ function update_icb_topography!(state::StefanState{T}, dt::T, velocity_field,
     # Update topography (forward Euler - can be replaced with better scheme)
     # Warn if the topography growth rate may exceed stability bounds
     max_rate = zero(T)
-    for i in 1:nlm
+    for i in 1:n_rate
         rate_mag = abs(state.topography_rate.coeffs_real[i]) +
                    abs(state.topography_rate.coeffs_imag[i])
         max_rate = max(max_rate, rate_mag)
@@ -419,7 +457,7 @@ function update_icb_topography!(state::StefanState{T}, dt::T, velocity_field,
         @warn "Stefan condition: large topography update detected (max |dh/dt| * dt = $(max_rate * dt)). " *
               "Consider reducing the timestep for stability of the forward Euler topography update."
     end
-    for i in 1:nlm
+    for i in 1:n_rate
         state.topography.coeffs_real[i] += dt * state.topography_rate.coeffs_real[i]
         state.topography.coeffs_imag[i] += dt * state.topography_rate.coeffs_imag[i]
     end
@@ -454,6 +492,7 @@ function update_icb_topography_semiimplicit!(state::StefanState{T}, dt::T, veloc
     rho_L = state.rho * state.L
     nlm = state.topography.nlm
     ε = config !== nothing ? config.epsilon : T(0.01)
+    _ensure_stefan_rate_layout!(state)
 
     # Store old RHS
     rhs_old = zeros(Complex{T}, nlm)
@@ -465,11 +504,12 @@ function update_icb_topography_semiimplicit!(state::StefanState{T}, dt::T, veloc
     # Compute new fluxes and velocities
     state.normal_velocity = compute_normal_velocity_spectral(velocity_field,
         state.topography.radius,
-        INNER_BOUNDARY)
+        INNER_BOUNDARY;
+        target = state.topography)
     state.heat_flux_ic = compute_boundary_heat_flux_spectral(temperature_ic,
-        state.topography.radius, :inner)
+        state.topography.radius, :inner; target = state.topography)
     state.heat_flux_oc = compute_boundary_heat_flux_spectral(temperature_oc,
-        state.topography.radius, :outer)
+        state.topography.radius, :outer; target = state.topography)
 
     # Compute Stefan flux at new time level
     if topo_data !== nothing && gaunt !== nothing && config !== nothing
@@ -507,7 +547,8 @@ end
 # ================================================================================
 
 """
-    compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symbol) where T
+    compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symbol;
+                                        target=nothing) where T
 
 Compute spectral coefficients of heat flux at a boundary.
 
@@ -517,8 +558,12 @@ Compute spectral coefficients of heat flux at a boundary.
 - `side`: :inner or :outer
 
 Returns vector of spectral coefficients for ∂_r T at the boundary.
+The returned vector uses sequential `(l,m)` topography ordering. With `target`,
+it has that field's exact `(lmax,mmax)` layout; otherwise it uses the source
+spectral field's limits.
 """
-function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symbol) where {T}
+function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symbol;
+        target = nothing) where {T}
     # Get spectral field
     if hasfield(typeof(temperature_field), :spectral)
         spectral = temperature_field.spectral
@@ -528,8 +573,12 @@ function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symb
         return Complex{T}[]
     end
 
-    nlm = spectral.nlm
-    flux = zeros(Complex{T}, nlm)
+    source_lmax = spectral.config.lmax
+    source_mmax = spectral.config.mmax
+    target_lmax = target === nothing ? source_lmax : target.lmax
+    target_mmax = target === nothing ? source_mmax : target.mmax
+    target_nlm = target === nothing ? spectral.nlm : target.nlm
+    flux = zeros(Complex{T}, target_nlm)
     location = side == :inner ? INNER_BOUNDARY : OUTER_BOUNDARY
 
     cache = nothing
@@ -542,20 +591,23 @@ function compute_boundary_heat_flux_spectral(temperature_field, r::T, side::Symb
     end
 
     # Store ∂_r T (k absorbed into coefficients elsewhere)
-    for lm_idx in 1:nlm
-        l, m = index_to_lm(lm_idx, spectral.config.lmax)
+    for l in 0:target_lmax
+        for m in 0:min(l, target_mmax)
+            lm_idx = lm_to_index(l, m, target_lmax, target_mmax)
+            (l > source_lmax || m > source_mmax) && continue
 
-        # Get radial derivative at boundary
-        if cache === nothing
-            ∂r = hasfield(typeof(temperature_field), :∂r) ? temperature_field.∂r : nothing
-            domain = hasfield(typeof(temperature_field), :domain) ?
-                     temperature_field.domain : nothing
-            dT_dr = get_spectral_radial_derivative(spectral, l, m, r, location;
-                ∂r = ∂r, domain = domain)
-        else
-            dT_dr = get_cache_d1(cache, l, m, location)
+            # Get radial derivative at boundary
+            if cache === nothing
+                ∂r = hasfield(typeof(temperature_field), :∂r) ? temperature_field.∂r : nothing
+                domain = hasfield(typeof(temperature_field), :domain) ?
+                         temperature_field.domain : nothing
+                dT_dr = get_spectral_radial_derivative(spectral, l, m, r, location;
+                    ∂r = ∂r, domain = domain)
+            else
+                dT_dr = get_cache_d1(cache, l, m, location)
+            end
+            flux[lm_idx] = dT_dr
         end
-        flux[lm_idx] = dT_dr
     end
 
     return flux
@@ -563,16 +615,20 @@ end
 
 """
     compute_normal_velocity_spectral(velocity_field, r::T,
-                                     location::BoundaryLocation=OUTER_BOUNDARY) where T
+                                     location::BoundaryLocation=OUTER_BOUNDARY;
+                                     target=nothing) where T
 
 Compute spectral coefficients of normal (radial) velocity at a boundary.
 
 uₙ = uᵣ = l(l+1)/r² P at the boundary
 
 Returns vector of spectral coefficients for uᵣ.
+The returned vector uses sequential `(l,m)` topography ordering. With `target`,
+it has that field's exact `(lmax,mmax)` layout; otherwise it uses the source
+poloidal field's limits.
 """
 function compute_normal_velocity_spectral(velocity_field, r::T,
-        location::BoundaryLocation = OUTER_BOUNDARY) where {T}
+        location::BoundaryLocation = OUTER_BOUNDARY; target = nothing) where {T}
     # Get poloidal component
     if hasfield(typeof(velocity_field), :poloidal)
         poloidal = velocity_field.poloidal
@@ -582,20 +638,27 @@ function compute_normal_velocity_spectral(velocity_field, r::T,
         return Complex{T}[]
     end
 
-    nlm = poloidal.nlm
-    un = zeros(Complex{T}, nlm)
+    source_lmax = poloidal.config.lmax
+    source_mmax = poloidal.config.mmax
+    target_lmax = target === nothing ? source_lmax : target.lmax
+    target_mmax = target === nothing ? source_mmax : target.mmax
+    target_nlm = target === nothing ? poloidal.nlm : target.nlm
+    un = zeros(Complex{T}, target_nlm)
 
     # uᵣ = l(l+1)/r² P
-    for lm_idx in 1:nlm
-        l, m = index_to_lm(lm_idx, poloidal.config.lmax)
+    for l in 0:target_lmax
+        for m in 0:min(l, target_mmax)
+            lm_idx = lm_to_index(l, m, target_lmax, target_mmax)
+            (l > source_lmax || m > source_mmax) && continue
 
-        if l == 0
-            continue  # l=0 has no radial velocity
+            if l == 0
+                continue  # l=0 has no radial velocity
+            end
+
+            P_val = get_spectral_boundary_value(poloidal, l, m, location)
+            ll_factor = T(l * (l + 1))
+            un[lm_idx] = ll_factor / r^2 * P_val
         end
-
-        P_val = get_spectral_boundary_value(poloidal, l, m, location)
-        ll_factor = T(l * (l + 1))
-        un[lm_idx] = ll_factor / r^2 * P_val
     end
 
     return un

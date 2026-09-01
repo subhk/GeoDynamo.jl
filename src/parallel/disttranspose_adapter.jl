@@ -185,9 +185,8 @@ function to_spec_solve(cfg, Alm, plan)
     # is config-dependent. Hand it to a barrier so the NamedTuple field accesses
     # and the reorder loop specialize on the concrete runtime type instead of
     # boxing. (spec_storage_to_solve! uses the equivalent field-assert pattern.)
-    _to_spec_solve_impl!(scratch, Alm, cfg.lmax::Int,
+    return _to_spec_solve_impl!(scratch, Alm, cfg.lmax::Int,
         length(PencilArrays.range_local(cfg.pencils.r)[3]))
-    return scratch.solve
 end
 
 function _to_spec_solve_impl!(scratch, Alm, lmax::Int, nr_local::Int)
@@ -195,7 +194,9 @@ function _to_spec_solve_impl!(scratch, Alm, lmax::Int, nr_local::Int)
     # Reorder Alm parent (l, m_bin, r_local) → almr parent (l, r_local, m_bin)
     _reorder_alm_to_almr!(parent(scratch.almr), Ap, nr_local, size(Ap, 2), lmax)
     PencilArrays.transpose!(scratch.t_fwd)  # almr → solve (persistent plan, no alloc)
-    return nothing
+    # Return the dynamically typed field while `scratch` is behind this
+    # specialization barrier; accessing it in `to_spec_solve` boxes the result.
+    return scratch.solve
 end
 
 """

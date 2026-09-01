@@ -178,4 +178,139 @@ using GeoDynamo
         @test all(==(1), flags)
         MPI.Barrier(comm)
     end
+
+    # ── callback REGISTRIES must match before any callback can enter MPI ───────
+    @testset "rank-local callback registration fails collectively" begin
+        # Callback implementations are allowed to contain collectives
+        # (EnergyDiagnostics, SolenoidalMonitor, and HealthCheck all do). A callback
+        # present only on rank 0 can therefore enter an Allreduce while peers skip to
+        # the next solver collective. Reject structural registry mismatches at run!
+        # entry, on every rank, before any callback fires.
+        if nranks == 1
+            @test_skip "callback-registry asymmetry requires at least two ranks"
+        else
+            model = mkmodel()
+            sim = GeoDynamo.Simulation(model; Δt = 1e-4, stop_iteration = 3)
+            if rank == 0
+                GeoDynamo.add_callback!(sim, s -> nothing;
+                    schedule = GeoDynamo.IterationInterval(1), name = :rank0_only)
+            end
+            MPI.Barrier(comm)
+
+            raised = 0
+            message_ok = 0
+            try
+                GeoDynamo.run!(sim)
+            catch err
+                raised = 1
+                message_ok = occursin(
+                    "callback registry", lowercase(sprint(showerror, err))) ? 1 : 0
+            end
+            @test all(==(1), MPI.Allgather(raised, comm))
+            @test all(==(1), MPI.Allgather(message_ok, comm))
+            MPI.Barrier(comm)
+        end
+    end
+
+    # ── output scan failures must also abort collectively ─────────────────────
+    @testset "unreadable output directory fails on every rank" begin
+        dir = MPI.bcast(rank == 0 ? mktempdir() : "", 0, comm)
+        if rank == 0
+            touch(joinpath(dir, "geodynamo_shell_hist_1.nc"))
+            chmod(dir, 0o300)
+        end
+        MPI.Barrier(comm)
+        unreadable = MPI.bcast(rank == 0 ? !isreadable(dir) : false, 0, comm)
+
+        if unreadable
+            raised = 0
+            try
+                GeoDynamo._existing_writer_count(dir, :hist, :shell)
+            catch
+                raised = 1
+            end
+            @test all(==(1), MPI.Allgather(raised, comm))
+        end
+
+        MPI.Barrier(comm)
+        rank == 0 && chmod(dir, 0o700)
+        MPI.Barrier(comm)
+    end
+
+    # ── a capability verdict used to gate a collective must be unanimous ───────
+    @testset "parallel-NetCDF verdict is reduced, not rank-local" begin
+        # `parallel_netcdf_available` is documented as the degrade-or-skip form, i.e.
+        # it is meant to be a branch predicate around COLLECTIVE NetCDF writes. The
+        # probe it wraps can genuinely succeed on some ranks and fail on others — its
+        # `tempname()` lands on node-local `/tmp`, so in a multi-node job the ranks
+        # off rank 0's node cannot see the path the collective create targets. A
+        # rank-local verdict then sends one group past the write while the rest enter
+        # `NCDataset(comm, ...)` and block.
+        @test GeoDynamo._all_ranks_flag(true, comm) == true
+        if nranks > 1
+            # At one rank the reduction is a no-op by construction and `rank == 0`
+            # is simply true everywhere, so the split case needs >= 2 ranks to bite.
+            split = GeoDynamo._all_ranks_flag(rank == 0, comm)
+            @test all(==(false), MPI.Allgather(split, comm))
+        end
+
+        avail = GeoDynamo.parallel_netcdf_available(comm)
+        @test all(==(avail), MPI.Allgather(avail, comm))
+        MPI.Barrier(comm)
+    end
+
+    # ── a restart file only SOME ranks can see must raise on all of them ───────
+    @testset "restart file invisible on one rank raises on every rank" begin
+        # The pre-existing guard checks `isfile` on rank 0 and broadcasts, so it
+        # catches "missing everywhere". It does not catch the node-local-scratch case
+        # it was written for: a rank that cannot see rank 0's pick only warns, and
+        # then fails alone inside the collective `NCDataset` open while the ranks that
+        # can see the file block inside it — the very hang the guard exists to stop.
+        dir = mktempdir()                       # distinct per rank
+        path = joinpath(dir, "geodynamo_shell_restart_1.nc")
+        rank == 0 && touch(path)                # visible on rank 0 ONLY
+        if nranks > 1
+            # Needs >= 2 ranks: at one rank "visible on rank 0 only" is the same as
+            # "visible everywhere", so there is nothing asymmetric to catch.
+            raised = 0
+            try
+                GeoDynamo._require_restart_file_everywhere(path, comm)
+            catch
+                raised = 1
+            end
+            flags = MPI.Allgather(raised, comm)
+            @test all(==(1), flags)
+        end
+
+        # a file NO rank can see must raise everywhere, at any rank count
+        gone = 0
+        try
+            GeoDynamo._require_restart_file_everywhere(joinpath(dir, "absent.nc"), comm)
+        catch
+            gone = 1
+        end
+        @test all(==(1), MPI.Allgather(gone, comm))
+
+        # and a file every rank can see must raise on none of them
+        shared = joinpath(dir, "seen_by_all.nc")
+        touch(shared)
+        raised2 = 0
+        try
+            GeoDynamo._require_restart_file_everywhere(shared, comm)
+        catch
+            raised2 = 1
+        end
+        @test all(==(0), MPI.Allgather(raised2, comm))
+        MPI.Barrier(comm)
+    end
+
+    # ── and the symmetric default must still SKIP the per-step reduction ───────
+    @testset "default registry leaves the per-step stop reduction disarmed" begin
+        sim = GeoDynamo.Simulation(mkmodel(); Δt = 1e-4, stop_iteration = 2)
+        GeoDynamo.run!(sim)
+        MPI.Barrier(comm)
+        decisions = MPI.Allgather(sim._stop_needs_reduce, comm)
+        @test all(==(decisions[1]), decisions)
+        @test decisions[1] == false      # every built-in stop is rank-symmetric
+    end
 end
