@@ -15,6 +15,14 @@ using GeoDynamo
     @test a.pencils.θ_comm == b.pencils.θ_comm
     @test a.pencils.r_comm == b.pencils.r_comm
 
+    # optimize_decomp is currently retained only for API compatibility and does
+    # not affect topology. It must therefore not split the communicator cache.
+    same_grid_other_flag = GeoDynamo.create_shtnskit_config(;
+        kw..., optimize_decomp = true)
+    for k in (:theta, :phi, :r, :spec, :theta_phys)
+        @test getproperty(a.pencils, k) === getproperty(same_grid_other_flag.pencils, k)
+    end
+
     # a different grid is a different decomposition
     c = GeoDynamo.create_shtnskit_config(; lmax = 4, mmax = 4, nlat = 12, nlon = 24,
         nr = 8, optimize_decomp = false)
@@ -24,6 +32,35 @@ using GeoDynamo
     @test GeoDynamo.clear_pencil_decomposition_cache!() isa Int
     d = GeoDynamo.create_shtnskit_config(; kw...)
     @test d.pencils.r !== a.pencils.r
+end
+
+
+@testset "SHTnsKit configuration summary is opt-in" begin
+    function capture_stdout(f)
+        path, io = mktemp()
+        try
+            redirect_stdout(f, io)
+            flush(io)
+            seekstart(io)
+            return read(io, String)
+        finally
+            close(io)
+            rm(path; force = true)
+        end
+    end
+
+    default_output = capture_stdout() do
+        GeoDynamo.create_shtnskit_config(
+            lmax = 3, mmax = 3, nlat = 8, nlon = 12, nr = 8)
+    end
+    @test !contains(default_output, "SHTnsKit Configuration Summary")
+
+    verbose_output = capture_stdout() do
+        GeoDynamo.create_shtnskit_config(
+            lmax = 3, mmax = 3, nlat = 8, nlon = 12, nr = 8, verbose = true)
+    end
+    @test contains(verbose_output, "SHTnsKit Configuration Summary") ==
+          (GeoDynamo.get_rank() == 0)
 end
 
 @testset "Grid constructor validation" begin

@@ -470,7 +470,7 @@ export validate_boundary_files, get_current_boundaries, print_boundary_summary
 # ================================================================================
 
 # ================================================================================
-# Cached SHTnsKit Configuration for Boundary Transforms (v1.1.15 optimization)
+# Cached SHTnsKit Configuration for Boundary Transforms
 # ================================================================================
 # This avoids recreating configs for each boundary transform call
 
@@ -530,12 +530,12 @@ This is a common utility function used by both thermal and composition modules.
 # Returns
 Vector of spectral coefficients of length nlm.
 
-# Performance (v1.1.15)
+# Performance
 Uses cached SHTnsKit configurations to avoid repeated setup overhead.
 """
 function shtns_physical_to_spectral(physical_data::Matrix{T}, config; return_complex::Bool = false) where {T}
     try
-        # Use cached configuration for efficiency (v1.1.15 optimization)
+        # Use the cached configuration for efficiency.
         nlat, nlon = size(physical_data)
         shtconfig = _get_cached_bc_shtns_config(config.lmax, config.mmax, nlat, nlon)
 

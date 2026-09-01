@@ -334,7 +334,7 @@ export create_erk2_cache_magnetic_toroidal, create_erk2_cache_magnetic_poloidal
 export create_erk2_cache_scalar, create_erk2_cache_temperature,
        create_erk2_cache_composition
 
-# exports SHTnsKit v1.1.15+ enhanced features
+# exports SHTnsKit v2 enhanced features
 export SHTNSKIT_USE_DISTRIBUTED, SHTNSKIT_USE_QST, SHTNSKIT_USE_SCRATCH_BUFFERS
 # Energy/spectrum analysis
 export compute_scalar_energy_spectrum, compute_vector_energy_spectrum
@@ -435,7 +435,7 @@ export FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC
 export load_boundary_conditions!, update_time_dependent_boundaries!
 export validate_boundary_files, get_current_boundaries, print_boundary_summary
 export get_boundary_module_info
-# bcs SHTnsKit v1.1.15 caching utilities
+# bcs SHTnsKit configuration caching utilities
 export clear_bc_shtns_config_cache!, shtns_physical_to_spectral, shtns_spectral_to_physical
 # File-based spectral BC loading
 export SpectralBoundaryCoefficients, load_spectral_bc_from_file

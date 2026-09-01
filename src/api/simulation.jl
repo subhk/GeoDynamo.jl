@@ -126,6 +126,44 @@ function _default_callbacks()
 end
 
 """
+    _commit_run_controls!(model, new_params, dt_f, old_timestep, finalize_tail)
+
+Install `new_params` on the model's solver state and run the remaining fallible
+setup, rolling the state back if any of it throws.
+
+`rebuild_solver_implicit_matrices!` deliberately reads the LIVE
+`state.parameters`, so the swap has to happen before the rebuild rather than
+after it. Everything the tail replaces is replaced wholesale (never mutated in
+place), so restoring the previous references restores the previous state exactly.
+
+This covers the run-control commit only. On the restart path the fields and the
+clock have already been overwritten before this is reached.
+"""
+function _commit_run_controls!(model, new_params, dt_f, old_timestep, finalize_tail)
+    state = model.state
+    previous_params = state.parameters
+    previous_matrices = state.implicit_matrices
+    previous_admittance = state.magnetic_ic_admittance
+    previous_dt = state.runtime.timestep_state.dt
+
+    state.parameters = new_params
+    try
+        if dt_f != old_timestep
+            rebuild_solver_implicit_matrices!(state, dt_f)
+            state.runtime.timestep_state.dt = dt_f
+        end
+        finalize_tail()
+    catch
+        state.parameters = previous_params
+        state.implicit_matrices = previous_matrices
+        state.magnetic_ic_admittance = previous_admittance
+        state.runtime.timestep_state.dt = previous_dt
+        rethrow()
+    end
+    return nothing
+end
+
+"""
     Simulation(model::GeodynamoModel;
                Δt, stop_time=Inf, stop_iteration=typemax(Int),
                timestepper, timestep_scheme, implicit_theta,
@@ -201,8 +239,46 @@ function Simulation(model::GeodynamoModel;
     dt_in > 0 ||
         throw(ArgumentError("Simulation: dt = $dt_in must be positive"))
     stop_time_f = Float64(stop_time)
-    restored_output_tracker = nothing
+    dt_f = Float64(dt_in)
+    wall_time_limit_f = Float64(wall_time_limit)
 
+    # Resolve and validate every fallible constructor option that can be checked
+    # without changing the model. In particular, late `gpu`/`gpu_sync` failures
+    # must not leave new parameters and rebuilt implicit matrices behind.
+    p = model.state.parameters
+    old_timestep = model.state.parameters.timestep
+    timestep_options = _resolve_timestepper(
+        timestepper,
+        timestep_scheme,
+        implicit_theta,
+        etd_krylov_dimension,
+        krylov_tolerance,
+        p
+    )
+    new_params = SolverParameters(;
+        (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
+        timestep = dt_f,
+        end_time = stop_time_f,
+        stop_iteration = stop_iteration,
+        timestepper = timestep_options.timestepper,
+        courant = Float64(something(courant, p.courant))
+    )
+    # Validate the run controls the caller just set (courant, stop_iteration,
+    # stop_time/end_time) instead of silently accepting invalid values that
+    # would only surface later. Use the non-printing checker so a normal
+    # construction does not spam validation warnings. The model's own params
+    # were already valid.
+    control_errors, _ = _parameter_errors_warnings(new_params)
+    isempty(control_errors) || throw(ArgumentError(
+        "Simulation: invalid run controls: " * join(control_errors, "; ")))
+
+    callback_items = merge(_default_callbacks(), _to_ordered(callbacks, :callback))
+    output_writer_items = _to_ordered(output_writers, :writer)
+    gpu_sync in (:every, :output) || throw(ArgumentError(
+        "Simulation: gpu_sync must be :every or :output (got $gpu_sync)"))
+    gpu_resolved = _resolve_gpu_stepping(gpu, model, timestep_options.timestepper)
+
+    restored_output_tracker = nothing
     if !isempty(restart_from)
         if MPI.Initialized()
             config = default_config()
@@ -232,56 +308,21 @@ function Simulation(model::GeodynamoModel;
         end
     end
 
-    dt_f = Float64(dt_in)
-
-    # Propagate dt, stop_time, and stop_iteration into the solver's SolverParameters so
-    # that solver_step! uses the timestep the caller requested.
-    p = model.state.parameters
-    old_timestep = model.state.parameters.timestep
-    timestep_options = _resolve_timestepper(
-        timestepper,
-        timestep_scheme,
-        implicit_theta,
-        etd_krylov_dimension,
-        krylov_tolerance,
-        p
-    )
-    new_params = SolverParameters(;
-        (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
-        timestep = dt_f,
-        end_time = stop_time_f,
-        stop_iteration = stop_iteration,
-        timestepper = timestep_options.timestepper,
-        courant = Float64(something(courant, p.courant))
-    )
-    # Validate the run controls the caller just set (courant, stop_iteration,
-    # stop_time/end_time) instead of silently accepting invalid values that
-    # would only surface later. Use the non-printing checker so a normal
-    # construction does not spam validation warnings. The model's own params
-    # were already valid.
-    control_errors, _ = _parameter_errors_warnings(new_params)
-    isempty(control_errors) || throw(ArgumentError(
-        "Simulation: invalid run controls: " * join(control_errors, "; ")))
-    model.state.parameters = new_params
-    if dt_f != old_timestep
-        rebuild_solver_implicit_matrices!(model.state, dt_f)
-        model.state.runtime.timestep_state.dt = dt_f
-    end
-
-    callback_items = merge(_default_callbacks(), _to_ordered(callbacks, :callback))
-    output_writer_items = _to_ordered(output_writers, :writer)
-    if restored_output_tracker !== nothing
-        _restore_output_writer_trackers!(
-            output_writer_items, restored_output_tracker, model.state.parameters.geometry)
-    end
-
-    gpu_resolved = _resolve_gpu_stepping(gpu, model, timestep_options.timestepper)
-    gpu_sync in (:every, :output) || throw(ArgumentError(
-        "Simulation: gpu_sync must be :every or :output (got $gpu_sync)"))
+    # Propagate dt, stop_time, and stop_iteration into SolverParameters only after
+    # all validations that can be performed up front have succeeded. The commit
+    # rolls itself back if the matrix rebuild or the tracker restore throws.
+    _commit_run_controls!(model, new_params, dt_f, old_timestep,
+        () -> begin
+            restored_output_tracker === nothing && return nothing
+            _restore_output_writer_trackers!(
+                output_writer_items, restored_output_tracker,
+                model.state.parameters.geometry)
+            return nothing
+        end)
 
     sync_clock!(model.clock, model.state)
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
-        model, dt_f, stop_time_f, stop_iteration, Float64(wall_time_limit),
+        model, dt_f, stop_time_f, stop_iteration, wall_time_limit_f,
         false,
         gpu_resolved,
         callback_items,
@@ -381,17 +422,17 @@ end
 Advance the model by one step with timestep `dt`, then sync the clock.
 """
 function time_step!(model::GeodynamoModel, dt::Real)
-    dt > 0 || throw(ArgumentError("time_step!: dt = $dt must be positive"))
     state = model.state
     dt_f = Float64(dt)
+    isfinite(dt_f) && dt_f > 0 ||
+        throw(ArgumentError("time_step!: dt = $dt must be finite and positive"))
     if dt_f != state.parameters.timestep
         p = state.parameters
-        state.parameters = SolverParameters(;
+        new_params = SolverParameters(;
             (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
             timestep = dt_f
         )
-        rebuild_solver_implicit_matrices!(state, dt_f)
-        state.runtime.timestep_state.dt = dt_f
+        _commit_run_controls!(model, new_params, dt_f, p.timestep, () -> nothing)
     end
     solver_step!(state)
     sync_clock!(model.clock, state)

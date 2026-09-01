@@ -44,12 +44,12 @@ using LinearAlgebra
 using Base.Threads
 
 # ================================================================================
-# SHTnsKit v1.2+ Feature Flags
+# SHTnsKit v2.0+ Feature Flags
 # ================================================================================
-# These flags indicate which v1.2+ features are available and should be used
+# These flags indicate which v2.0+ features are available and should be used
 
 const SHTNSKIT_USE_DISTRIBUTED = true      # Use dist_analysis/dist_synthesis
-const SHTNSKIT_USE_QST = true              # Use SHqst_to_spat/spat_to_SHqst for 3D vectors
+const SHTNSKIT_USE_QST = true              # Use synthesis_qst/analysis_qst for 3D vectors
 const SHTNSKIT_USE_SCRATCH_BUFFERS = true  # Use scratch_spatial/scratch_fft helpers
 
 abstract type AbstractTransformWorkspace end
@@ -464,7 +464,12 @@ transforms with MPI parallelization.
 - `nlon::Int`: Number of longitude points. Must be ≥ 2*mmax+1 for alias-free transforms.
   Powers of 2 are preferred for FFT efficiency.
 - `nr::Int`: Number of radial points (required)
-- `optimize_decomp::Bool=true`: Whether to optimize MPI process topology
+- `optimize_decomp::Bool=true`: Retained for API compatibility; the current
+  topology is selected by `GEODYNAMO_PROC_GRID` and this flag has no effect
+- `device::Symbol=:cpu`: Execution device for transforms - `:cpu`, `:gpu`, `:cuda`,
+  or `:auto` (resolves to a GPU when one is functional, otherwise `:cpu`)
+- `T::Type{<:AbstractFloat}=Float64`: Floating-point element type
+- `verbose::Bool=false`: Print a rank-zero configuration summary
 
 # Returns
 - `SHTnsKitConfig`: Fully initialized configuration ready for transforms
@@ -488,25 +493,26 @@ function create_shtnskit_config(; lmax::Int, mmax::Int = lmax,
         nr::Int,
         optimize_decomp::Bool = true,
         device::Symbol = :cpu,
-        T::Type{<:AbstractFloat} = Float64)
+        T::Type{<:AbstractFloat} = Float64,
+        verbose::Bool = false)
 
     # Step 1: Create base SHTnsKit configuration
     # Uses Gauss-Legendre quadrature for latitude (exact integration up to degree 2*nlat-1)
     # and uniform grid for longitude (FFT-based)
-    sht_config = device === :cpu ?
-                 SHTnsKit.create_gauss_config(
+    # `:auto` picks a GPU when one is actually usable and CPU otherwise, matching
+    # what the v1 path did via SHTnsKit's own device selection.
+    if device === :auto
+        device = gpu_functional() ? :cuda : :cpu
+    end
+    device in (:cpu, :gpu, :cuda) || throw(ArgumentError(
+        "device = $(repr(device)) must be :cpu, :gpu, :cuda, or :auto"))
+    # SHTnsKit v2 configurations are device-neutral.  The execution device is
+    # selected by each transform call and retained separately in our buffers.
+    sht_config = SHTnsKit.create_gauss_config(
         lmax,
         nlat;
         mmax = mmax,
         nlon = nlon,
-        norm = :orthonormal
-    ) :
-                 SHTnsKit.create_gauss_config_gpu(
-        lmax,
-        nlat;
-        mmax = mmax,
-        nlon = nlon,
-        device = device,
         norm = :orthonormal
     )
 
@@ -558,12 +564,13 @@ function create_shtnskit_config(; lmax::Int, mmax::Int = lmax,
     # Physical grids read straight from the SHTnsKit Gauss configuration so the
     # stored nodes/weights MATCH the transform grid: Gauss-Legendre colatitude
     # θ ∈ [0, π] (non-uniform), uniform longitude φ ∈ [0, 2π), and the Gauss
-    # quadrature weights (Σw = 2). `_grid` is SHTnsKit-internal but is the only
-    # source guaranteed consistent with the transforms — accessor functions have
-    # been renamed across versions. Warn LOUDLY (never silently substitute a
-    # uniform grid, which corrupts Coriolis terms and all θ-quadrature).
+    # quadrature weights (Σw = 2). SHTnsKit v2 advertises θ/φ/w as properties of
+    # `SHTConfig` (they appear in `Base.propertynames`), so this is public API
+    # rather than the internal `_grid` field the v1 code had to reach into. Warn
+    # LOUDLY if they are ever unavailable (never silently substitute a uniform
+    # grid, which corrupts Coriolis terms and all θ-quadrature).
     _sht_grid = try
-        sht_config._grid
+        (θ = sht_config.θ, φ = sht_config.φ, w = sht_config.w)
     catch
         nothing
     end
@@ -572,7 +579,7 @@ function create_shtnskit_config(; lmax::Int, mmax::Int = lmax,
         phi_grid      = Vector{Float64}(_sht_grid.φ)
         gauss_weights = Vector{Float64}(_sht_grid.w)
     else
-        @warn "SHTnsKit Gauss grid (`_grid`) unavailable; falling back to a UNIFORM θ grid + unit weights. Physical-space integration (energy/Nusselt) and Coriolis terms will be INACCURATE — check SHTnsKit version compatibility." maxlog = 1
+        @warn "SHTnsKit Gauss grid (`θ`/`φ`/`w`) unavailable; falling back to a UNIFORM θ grid + unit weights. Physical-space integration (energy/Nusselt) and Coriolis terms will be INACCURATE — check SHTnsKit version compatibility." maxlog = 1
         theta_grid    = range(0, stop = pi, length = nlat) |> collect |> Vector{Float64}
         phi_grid      = range(0, stop = 2pi, length = nlon + 1)[1:(end - 1)] |> collect |> Vector{Float64}
         gauss_weights = ones(Float64, nlat)
@@ -595,14 +602,14 @@ function create_shtnskit_config(; lmax::Int, mmax::Int = lmax,
         end
     end
 
-    if get_rank() == 0
+    if verbose && get_rank() == 0
         print_shtnskit_config_summary(
             nlat, nlon, nr, lmax, mmax, nlm, nprocs, memory_estimate)
     end
 
     # Step 8: Initialize typed buffer store with device-aware transform metadata
     buffers = SHTnsBuffers()
-    transform_device = SHTnsKit.get_config_device(sht_config)
+    transform_device = device
     buffers.transform_device = transform_device
 
     # CPU and GPU diverge here on purpose: CPU keeps the eager transform plan,
@@ -731,8 +738,11 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     # function of nprocs and GEODYNAMO_PROC_GRID), so they fully determine the result.
     # `comm` is part of the key by identity: a duplicated communicator is a genuinely
     # different topology and must not share.
+    # `optimize` is intentionally absent: it is accepted for API compatibility
+    # but does not affect the Phase-2 topology. Including it would create an
+    # identical decomposition and four additional never-freed MPI communicators.
     cache_key = (objectid(comm), MPI.Comm_size(comm), nlat, nlon, nr, lmax, mmax,
-        optimize, get(ENV, "GEODYNAMO_PROC_GRID", ""))
+        get(ENV, "GEODYNAMO_PROC_GRID", ""))
     cached = lock(_PENCIL_DECOMP_LOCK) do
         get(_PENCIL_DECOMP_CACHE, cache_key, nothing)
     end
@@ -1083,7 +1093,7 @@ function print_shtnskit_config_summary(
     version = try
         string(pkgversion(SHTnsKit))
     catch
-        "≥1.1.15"
+        "≥2.0.2"
     end
 
     println("\n╔═══════════════════════════════════════════════════════╗")
@@ -1100,7 +1110,7 @@ function print_shtnskit_config_summary(
     println("║   SHTnsKit.jl:      v$(lpad(version,7))                      ║")
     println("║   Memory/process:   $(lpad(memory_estimate,10))                    ║")
     println("║                                                       ║")
-    println("║ v1.1.15+ Features:                                    ║")
+    println("║ v2.0+ Features:                                       ║")
     println("║   Distributed transforms: $(SHTNSKIT_USE_DISTRIBUTED ? "enabled " : "disabled")                ║")
     println("║   QST vector transforms:  $(SHTNSKIT_USE_QST ? "enabled " : "disabled")                ║")
     println("║   Scratch buffers:        $(SHTNSKIT_USE_SCRATCH_BUFFERS ? "enabled " : "disabled")                ║")

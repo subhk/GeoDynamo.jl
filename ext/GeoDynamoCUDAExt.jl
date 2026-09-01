@@ -114,6 +114,21 @@ function host_store_vector_components(v_theta, v_phi, vt_field, vp_field, r_loca
     )
 end
 
+# SHTnsKit v2's `GPU()` names no vendor. `synthesis_sphtor`/`analysis_sphtor`
+# infer one from their inputs only when those are already device arrays; the
+# `register_gpu_backend!` hooks below receive host arrays, so with AMDGPU.jl
+# also loaded they would hit "multiple functional GPU adapters are loaded".
+# A CUDA prototype pins this extension to the vendor it exists to select.
+const _CUDA_VENDOR_PROTOTYPE = Ref{Any}(nothing)
+
+function cuda_vendor_prototype()
+    prototype = _CUDA_VENDOR_PROTOTYPE[]
+    prototype === nothing || return prototype
+    prototype = CUDA.CuArray{Float64}(undef, 0)
+    _CUDA_VENDOR_PROTOTYPE[] = prototype
+    return prototype
+end
+
 function __init__()
     GeoDynamo.register_gpu_backend!(
         available=CUDA.functional(),
@@ -122,22 +137,22 @@ function __init__()
             SHTnsKit.gpu_synthesis_safe(
                 cfg,
                 coeffs;
-                device=SHTnsKit.CUDA_DEVICE,
+                device=SHTnsKit.GPU(),
                 real_output=real_output,
             ),
         scalar_analysis=(cfg, spatial; real_output::Bool=true) ->
             SHTnsKit.gpu_analysis_safe(
                 cfg,
                 spatial;
-                device=SHTnsKit.CUDA_DEVICE,
-                real_output=real_output,
+                device=SHTnsKit.GPU(),
             ),
         vector_synthesis=(cfg, sph_coeffs, tor_coeffs; real_output::Bool=true) ->
             SHTnsKit.gpu_synthesis_sphtor(
                 cfg,
                 sph_coeffs,
                 tor_coeffs;
-                device=SHTnsKit.CUDA_DEVICE,
+                device=SHTnsKit.GPU(),
+                prototype=cuda_vendor_prototype(),
                 real_output=real_output,
             ),
         vector_analysis=(cfg, vtheta, vphi) ->
@@ -145,7 +160,8 @@ function __init__()
                 cfg,
                 vtheta,
                 vphi;
-                device=SHTnsKit.CUDA_DEVICE,
+                device=SHTnsKit.GPU(),
+                prototype=cuda_vendor_prototype(),
             ),
         scratch_zeros=host_scratch_zeros,
         fill_scalar_coeff_buffer=host_fill_scalar_coeff_buffer,

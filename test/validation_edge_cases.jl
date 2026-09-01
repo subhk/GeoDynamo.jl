@@ -51,6 +51,30 @@ using Test
         @test any(contains(w, "timestep") for w in warnings)
     end
 
+    @testset "Non-finite physical and time controls are invalid" begin
+        invalid_controls = (
+            (:Ra, NaN), (:Ra, Inf),
+            (:Ek, NaN), (:Ek, Inf),
+            (:timestep, NaN), (:timestep, Inf),
+            (:start_time, NaN), (:start_time, -Inf),
+            (:end_time, NaN), (:end_time, -Inf),
+        )
+        for (field, value) in invalid_controls
+            kwargs = NamedTuple{(field,)}((value,))
+            params = GeoDynamo.SolverParameters(; kwargs...)
+            is_valid, errors, _ = GeoDynamo.validate_parameters(params; strict = false)
+            @test !is_valid
+            @test any(contains(error, String(field)) for error in errors)
+        end
+
+        # Positive infinity is the documented "no time limit" sentinel used by
+        # Simulation when another stop condition controls the run.
+        is_valid, errors, _ = GeoDynamo.validate_parameters(
+            GeoDynamo.SolverParameters(end_time = Inf); strict = false)
+        @test is_valid
+        @test isempty(errors)
+    end
+
     @testset "Invalid output precision" begin
         params = GeoDynamo.SolverParameters(output_precision = :float16)
         is_valid, errors, _ = GeoDynamo.validate_parameters(params; strict = false)

@@ -13,14 +13,14 @@
 # - Analysis: Physical → Spectral (forward SH transform)
 #   Computes spherical harmonic coefficients from field values on the grid
 #
-# IMPLEMENTATION STRATEGY (SHTnsKit v1.1.15+):
-# --------------------------------------------
+# IMPLEMENTATION STRATEGY (SHTnsKit v2.0+):
+# -----------------------------------------
 # Uses native SHTnsKit distributed transforms when available:
 # - dist_synthesis() for distributed spectral→physical
 # - dist_analysis() for distributed physical→spectral
-# - dist_SHsphtor_to_spat() for distributed vector synthesis
-# - dist_spat_to_SHsphtor() for distributed vector analysis
-# - SHqst_to_spat() / spat_to_SHqst() for full 3D QST vector transforms
+# - dist_synthesis_sphtor!() for distributed vector synthesis
+# - dist_analysis_sphtor!() for distributed vector analysis
+# - synthesis_qst() / analysis_qst() for full 3D QST vector transforms
 #
 # Fallback implementation for each radial level independently:
 # 1. Extract/prepare spectral coefficients in SHTnsKit's expected format
@@ -31,27 +31,6 @@
 # synchronization after complete transforms.
 #
 # ================================================================================
-
-# Type-stable accessors for SHTnsBuffers
-@inline function _get_sht_plan(cache::SHTnsBuffers)
-    return cache.sht_plan::Union{SHTnsKit.SHTPlan, Nothing}
-end
-
-@inline function _get_synth_out(cache::SHTnsBuffers, config)
-    cache.sht_plan === nothing && return nothing
-    if cache.synth_out === nothing
-        cache.synth_out = zeros(Float64, config.nlat, config.nlon)
-    end
-    return cache.synth_out::Matrix{Float64}
-end
-
-@inline function _get_anal_out(cache::SHTnsBuffers, config)
-    cache.sht_plan === nothing && return nothing
-    if cache.anal_out === nothing
-        cache.anal_out = zeros(ComplexF64, config.lmax + 1, config.mmax + 1)
-    end
-    return cache.anal_out::Matrix{ComplexF64}
-end
 
 """
     shtnskit_spectral_to_physical!(spec, phys)
@@ -78,128 +57,6 @@ Modifies `phys.data` with the synthesized field values
 function shtnskit_spectral_to_physical!(spec::SHTnsSpecField{T},
         phys::SHTnsPhysField{T}) where {T}
     scalar_spectral_to_physical!(spec, phys)
-end
-
-"""
-    perform_synthesis_phi_local!(spec, phys, config)
-
-Perform synthesis when physical field is in phi-pencil orientation.
-
-This is the most efficient synthesis path because:
-1. The phi (longitude) dimension is fully local on each process
-2. SHTnsKit's FFT operates entirely in local memory
-3. No MPI communication needed during the transform itself
-
-# Algorithm for each radial level:
-1. Extract spectral coefficients into SHTnsKit's (lmax+1, mmax+1) matrix format
-2. Call SHTnsKit.synthesis() which does Legendre transform + FFT
-3. Store the resulting (nlat, nlon) physical field slice
-"""
-function perform_synthesis_phi_local!(spec::SHTnsSpecField{T},
-        phys::SHTnsPhysField{T},
-        config) where {T}
-    sht_config = config.sht_config
-
-    # Extract underlying Julia arrays from PencilArrays
-    spec_real_data = parent(spec.data_real)
-    spec_imag_data = parent(spec.data_imag)
-    phys_data = parent(phys.data)
-
-    # Get pre-allocated plan and output buffer (allocation-free path)
-    plan = _get_sht_plan(config._buffers)
-    synth_out = _get_synth_out(config._buffers, config)
-
-    # Get global index ranges for this rank's portion of the physical grid
-    axes_local = phys.pencil.axes_local
-
-    # Process each radial level independently (embarrassingly parallel in r)
-    for r_local in axes(phys_data, 3)
-        coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
-
-        if plan !== nothing && synth_out !== nothing
-            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output = true)
-            local_synth = @view synth_out[axes_local[1], axes_local[2]]
-            store_physical_slice_phi_local!(phys_data, local_synth, r_local, config)
-        else
-            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output = true)
-            local_slice = @view phys_slice[axes_local[1], axes_local[2]]
-            store_physical_slice_phi_local!(phys_data, local_slice, r_local, config)
-        end
-    end
-end
-
-"""
-    perform_synthesis_with_transpose!(spec, phys, config, back_plan)
-
-Perform synthesis when physical field is NOT in phi-pencil orientation.
-
-# Strategy
-When the target physical field is in a non-phi pencil (e.g., theta or r pencil),
-we can't directly use SHTnsKit because it requires all longitude points to be local.
-
-Solution:
-1. Create a temporary phi-pencil array
-2. Perform synthesis to the temporary array (longitude local)
-3. Transpose the result to the target pencil orientation
-
-This involves one extra MPI all-to-all communication (the transpose) but
-ensures the FFT can operate on contiguous local data.
-"""
-function perform_synthesis_with_transpose!(spec::SHTnsSpecField{T},
-        phys::SHTnsPhysField{T},
-        config, back_plan) where {T}
-    # Reuse cached temporary phi-pencil array (avoids allocation every call)
-    # Uses separate key from analysis to avoid aliasing if called concurrently
-    phys_phi = get_cached_buffer!(config, :synthesis_phi_tmp) do
-        PencilArray{T}(undef, config.pencils.phi)
-    end::PencilArray
-
-    # Perform synthesis with longitude local (optimal for SHTnsKit)
-    perform_synthesis_to_phi_pencil!(spec, phys_phi, config)
-
-    # Redistribute data to match target pencil orientation
-    mul!(phys.data, back_plan, phys_phi)
-end
-
-"""
-    perform_synthesis_to_phi_pencil!(spec, phys_phi, config)
-
-Core synthesis routine that writes directly to a phi-pencil array.
-
-This is the workhorse function called by other synthesis routines.
-It assumes the destination array is already in phi-pencil orientation.
-"""
-function perform_synthesis_to_phi_pencil!(spec::SHTnsSpecField{T},
-        phys_phi::PencilArray{T, 3},
-        config) where {T}
-    sht_config = config.sht_config
-
-    # Get underlying Julia arrays
-    spec_real_data = parent(spec.data_real)
-    spec_imag_data = parent(spec.data_imag)
-    phys_phi_data = parent(phys_phi)
-
-    # Get pre-allocated plan and output buffer (allocation-free path)
-    plan = _get_sht_plan(config._buffers)
-    synth_out = _get_synth_out(config._buffers, config)
-
-    # Get global index ranges for this rank's portion of the phi-pencil grid
-    axes_local = PencilArrays.pencil(phys_phi).axes_local
-
-    # Loop over radial levels (each level is independent)
-    for r_local in axes(phys_phi_data, 3)
-        coeffs_matrix = extract_coefficients_for_shtnskit(spec_real_data, spec_imag_data, r_local, config)
-
-        if plan !== nothing && synth_out !== nothing
-            SHTnsKit.synthesis!(plan, synth_out, coeffs_matrix; real_output = true)
-            local_synth = @view synth_out[axes_local[1], axes_local[2]]
-            store_physical_slice_phi_local!(phys_phi_data, local_synth, r_local, config)
-        else
-            phys_slice = SHTnsKit.synthesis(sht_config, coeffs_matrix; real_output = true)
-            local_slice = @view phys_slice[axes_local[1], axes_local[2]]
-            store_physical_slice_phi_local!(phys_phi_data, local_slice, r_local, config)
-        end
-    end
 end
 
 """
@@ -231,110 +88,6 @@ function shtnskit_physical_to_spectral!(phys::SHTnsPhysField{T},
     scalar_physical_to_spectral!(phys, spec)
 end
 
-"""
-    perform_analysis_phi_local!(phys, spec, config)
-
-Perform analysis when physical field is in phi-pencil orientation.
-
-This is the most efficient analysis path because:
-1. The phi (longitude) dimension is fully local on each process
-2. SHTnsKit's FFT operates entirely in local memory
-3. No MPI communication needed during the transform itself
-"""
-function perform_analysis_phi_local!(phys::SHTnsPhysField{T},
-        spec::SHTnsSpecField{T},
-        config) where {T}
-    sht_config = config.sht_config
-
-    # Get local data
-    phys_data = parent(phys.data)
-    spec_real_data = parent(spec.data_real)
-    spec_imag_data = parent(spec.data_imag)
-
-    # Get pre-allocated plan and output buffer
-    plan = _get_sht_plan(config._buffers)
-    anal_out = _get_anal_out(config._buffers, config)
-
-    # Get global index ranges for correct placement in Allreduce buffer
-    phys_axes_local = phys.pencil.axes_local
-
-    # Process each radial level
-    for r_local in axes(phys_data, 3)
-        phys_slice = extract_physical_slice_phi_local(phys_data, r_local, config;
-            axes_local = phys_axes_local)
-
-        if plan !== nothing && anal_out !== nothing
-            SHTnsKit.analysis!(plan, anal_out, phys_slice)
-            store_coefficients_from_shtnskit!(
-                spec_real_data, spec_imag_data, anal_out, r_local, config)
-        else
-            coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
-            store_coefficients_from_shtnskit!(
-                spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
-        end
-    end
-end
-
-"""
-    perform_analysis_with_transpose!(phys, spec, config, to_phi_plan)
-
-Perform analysis with transpose to phi-pencil.
-"""
-function perform_analysis_with_transpose!(phys::SHTnsPhysField{T},
-        spec::SHTnsSpecField{T},
-        config, to_phi_plan) where {T}
-    # Reuse cached temporary phi-pencil array (avoids allocation every call)
-    # Uses separate key from synthesis to avoid aliasing if called concurrently
-    phys_phi = get_cached_buffer!(config, :analysis_phi_tmp) do
-        PencilArray{T}(undef, config.pencils.phi)
-    end::PencilArray
-    # Forward analysis wants longitude contiguous for the FFT stage. If the
-    # caller hands us some other pencil, transpose once into phi-local layout,
-    # analyze there, then write coefficients back to distributed spectral storage.
-    # Transpose to phi-pencil using pre-computed plan
-    mul!(phys_phi, to_phi_plan, phys.data)
-    perform_analysis_from_phi_pencil!(phys_phi, spec, config)
-end
-
-"""
-    perform_analysis_from_phi_pencil!(phys_phi, spec, config)
-
-Perform analysis from phi-pencil data.
-"""
-function perform_analysis_from_phi_pencil!(phys_phi::PencilArray{T, 3},
-        spec::SHTnsSpecField{T},
-        config) where {T}
-    sht_config = config.sht_config
-
-    # Get data arrays
-    phys_phi_data = parent(phys_phi)
-    spec_real_data = parent(spec.data_real)
-    spec_imag_data = parent(spec.data_imag)
-
-    # Get pre-allocated plan and output buffer
-    plan = _get_sht_plan(config._buffers)
-    anal_out = _get_anal_out(config._buffers, config)
-
-    # Get global index ranges for correct placement in Allreduce buffer
-    phi_axes_local = PencilArrays.pencil(phys_phi).axes_local
-
-    # Process each radial level
-    for r_local in axes(phys_phi_data, 3)
-        phys_slice = extract_physical_slice_phi_local(phys_phi_data, r_local, config;
-            axes_local = phi_axes_local)
-
-        if plan !== nothing && anal_out !== nothing
-            SHTnsKit.analysis!(plan, anal_out, phys_slice)
-            store_coefficients_from_shtnskit!(
-                spec_real_data, spec_imag_data, anal_out, r_local, config)
-        else
-            coeffs_matrix = SHTnsKit.analysis(sht_config, phys_slice)
-            store_coefficients_from_shtnskit!(
-                spec_real_data, spec_imag_data, coeffs_matrix, r_local, config)
-        end
-    end
-end
-
 # ================================================================================
 # Vector Transforms with SHTnsKit and PencilArrays
 # ================================================================================
@@ -355,10 +108,10 @@ For a solenoidal vector field v (∇·v = 0):
 where T = toroidal scalar, P = poloidal scalar.
 
 In spherical components:
-    v_r = l(l+1)/r * P * Y_lm   (from poloidal only)
-    v_θ, v_φ from both T and P  (computed by SHTnsKit.SHsphtor_to_spat)
+    v_r = l(l+1)/r² * P * Y_lm  (from poloidal only)
+    v_θ, v_φ from both T and P  (computed by SHTnsKit.synthesis_sphtor)
 
-CRITICAL: SHTnsKit.SHsphtor_to_spat returns ONLY tangential components.
+CRITICAL: SHTnsKit.synthesis_sphtor returns ONLY tangential components.
 The radial component v_r MUST be computed separately from the poloidal scalar.
 
 # Parameters
@@ -374,7 +127,7 @@ function shtnskit_vector_synthesis!(tor_spec::SHTnsSpecField{T},
 
     # Phase-3 DistTransposePlan path (shared with the solver's
     # vector_spectral_to_physical!), under the Stage-2 solenoidal convention:
-    # u_r = l(l+1)·P/r², tangential S = (1/r)·∂_r(r·P) — one convention for
+    # u_r = l(l+1)·P/r², tangential S = (∂_r P)/r — one convention for
     # both the solver and MIE paths.
     vector_spectral_to_physical_disttranspose!(
         config, plan, tor_spec, pol_spec, vec_phys, domain,
@@ -398,26 +151,21 @@ For a solenoidal vector field v (∇·v = 0):
 
 # Mathematical Note on Analysis
 
-SHTnsKit.spat_to_SHsphtor takes (v_θ, v_φ) and returns (P, T).
+SHTnsKit.analysis_sphtor takes (v_θ, v_φ) and returns (P, T).
 
 This is mathematically valid for solenoidal fields because:
 1. The solenoidal constraint ∇·v = 0 couples v_r to (v_θ, v_φ)
 2. The decomposition into T (rotational) and P (potential) parts is unique
-3. The radial component v_r = l(l+1)/r * P is implicitly determined
+3. The radial component v_r = l(l+1)P/r² is implicitly determined
 
 However, this assumes EXACT solenoidality. In numerical simulations with
 finite precision, v_r may not exactly satisfy ∇·v = 0.
 
 # Alternative: Use Full 3-Component Analysis
 
-For better numerical accuracy, one could use:
-    Q_coeffs = analysis(v_r * r / l(l+1))  # Recover P from v_r
-    S, T = spat_to_SHsphtor(v_θ, v_φ)      # Decompose tangential
-
-Then check: Q_coeffs ≈ S_coeffs (should match for solenoidal field)
-
-Current implementation uses 2-component analysis which is standard practice
-for solenoidal MHD simulations.
+With `verify_solenoidal=true`, the implementation recovers
+`P = r²Q/l(l+1)` from the radial component and checks that `P'/r` agrees with
+the spheroidal scalar obtained from the tangential components.
 """
 function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
         tor_spec::SHTnsSpecField{T},
@@ -429,7 +177,8 @@ function shtnskit_vector_analysis!(vec_phys::SHTnsVectorField{T},
     # recovered from the radial component (P = r²·Q/(l(l+1)), Stage-2 solenoidal
     # convention) when a domain is supplied, raw tangential (S,T) otherwise.
     vector_physical_to_spectral!(vec_phys, tor_spec, pol_spec;
-        domain = domain, raw_spheroidal = raw_spheroidal)
+        domain = domain, verify_solenoidal = verify_solenoidal,
+        raw_spheroidal = raw_spheroidal)
     return tor_spec, pol_spec
 end
 
@@ -1194,7 +943,7 @@ end
     get_shtnskit_performance_stats()
 
 Get performance statistics for SHTnsKit transforms with PencilArrays.
-Returns information about the v1.1.15+ features being used.
+Returns information about the SHTnsKit v2 features being used.
 """
 function get_shtnskit_performance_stats()
     version_info = get_shtnskit_version_info()
@@ -1230,37 +979,6 @@ function synchronize_pencil_data!(field::Union{
         MPI.Barrier(get_comm())
     end
     return field
-end
-
-"""
-    optimize_fft_performance!(config::SHTnsKitConfig)
-
-Optimize FFT performance by warming up FFTW plans and checking efficiency.
-"""
-function optimize_fft_performance!(config::SHTnsKitConfig)
-    # Warm up FFT plans for better performance
-    if haskey(config.fft_plans, :phi_forward) && !get(config.fft_plans, :fallback, false)
-        try
-            # Create a test array to warm up the plans
-            test_pencil = config.pencils.phi
-            test_array = PencilArray{ComplexF64}(undef, test_pencil)
-            fill!(parent(test_array), complex(1.0, 0.0))
-
-            # Execute forward and backward transforms
-            plan_forward = config.fft_plans[:phi_forward]
-            plan_backward = config.fft_plans[:phi_backward]
-
-            plan_forward * parent(test_array)
-            plan_backward * parent(test_array)
-
-            if get_rank() == 0
-                @info "FFT plans warmed up successfully"
-            end
-        catch e
-            @warn "Could not warm up FFT plans: $e"
-        end
-    end
-    return config
 end
 
 """
@@ -1309,61 +1027,16 @@ end
 """
     optimize_erk2_transforms!(config::SHTnsKitConfig)
 
-Optimize SHTnsKit transforms for ERK2 timestepping with PencilFFTs.
-This function pre-warms transform plans and optimizes memory layout.
+Materialize GeoDynamo's lazy distributed-transform plan and validate the
+pencil decomposition used by ERK2. FFT and SHT plans are created by
+`create_shtnskit_config` and require no synthetic warm-up.
 """
 function optimize_erk2_transforms!(config::SHTnsKitConfig)
-    rank = get_rank()
-
-    if rank == 0
-        @info "Optimizing ERK2 transforms with PencilFFTs"
-    end
-
-    # Pre-warm SHTnsKit configuration
-    try
-        SHTnsKit.prepare_plm_tables!(config.sht_config)
-        if rank == 0
-            @info "SHTnsKit Legendre tables pre-computed"
-        end
-    catch e
-        @warn "Could not pre-compute SHTnsKit tables: $e"
-    end
-
-    # Optimize PencilFFTs plans
-    optimize_fft_performance!(config)
-
-    # Validate decomposition efficiency
+    # Plans are already optimized when the configuration is built. Ensure the
+    # one remaining lazy distributed plan is materialized, then validate the
+    # decomposition. Do not re-enable PLM tables disabled by normal setup.
+    get_disttranspose_plan(config)
     validate_pencil_decomposition(config)
-
-    # Test transform performance with sample data
-    if haskey(config.pencils, :phi) && haskey(config.pencils, :spec)
-        try
-            # Create sample spectral field
-            spec_test = PencilArray{ComplexF64}(undef, config.pencils.spec)
-            phys_test = PencilArray{Float64}(undef, config.pencils.phi)
-
-            # Fill with test data
-            fill!(parent(spec_test), complex(1.0, 0.0))
-
-            # Test a few transforms to warm up the system
-            start_time = MPI.Wtime()
-            for i in 1:3
-                # Perform synthesis (would use actual SHTnsKit functions in practice)
-                fill!(parent(phys_test), 1.0)
-                MPI.Barrier(get_comm())
-            end
-            end_time = MPI.Wtime()
-
-            if rank == 0
-                avg_time = (end_time - start_time) / 3.0
-                @info "Transform warm-up completed: $(round(avg_time*1000, digits=2)) ms per transform"
-            end
-
-        catch e
-            @warn "Transform warm-up failed: $e"
-        end
-    end
-
     return config
 end
 
@@ -1386,19 +1059,19 @@ function create_erk2_config(; lmax::Int, mmax::Int = lmax,
 end
 
 # ================================================================================
-# SHTnsKit v1.1.15+ Enhanced Features
+# SHTnsKit v2.0+ Enhanced Features
 # ================================================================================
-# These functions leverage new capabilities in SHTnsKit v1.1.15:
+# These functions leverage SHTnsKit v2 capabilities:
 # - Energy/power spectrum analysis
 # - Spectral differential operators
 # - QST vector transforms for full 3D fields
-# - Native threading controls
+# - Julia-threaded transforms
 # ================================================================================
 
 """
     compute_scalar_energy_spectrum(config::SHTnsKitConfig, alm::Matrix{ComplexF64}; real_field::Bool=true)
 
-Compute the energy spectrum per spherical harmonic degree l using SHTnsKit v1.1.15.
+Compute the energy spectrum per spherical harmonic degree l using SHTnsKit v2.
 
 # Returns
 Vector of length lmax+1 with energy at each degree l.
@@ -1508,7 +1181,7 @@ function compute_enstrophy(config::SHTnsKitConfig, Tlm::Matrix{ComplexF64}; real
 end
 
 # ================================================================================
-# Spectral Differential Operators (SHTnsKit v1.1.15)
+# Spectral Differential Operators (SHTnsKit v2)
 # ================================================================================
 
 """
@@ -1516,7 +1189,7 @@ end
                        grad_theta::Matrix{Float64}, grad_phi::Matrix{Float64})
 
 Compute the horizontal gradient of a scalar field in spectral space.
-Uses SHTnsKit.SH_to_grad_spat for efficient computation.
+Uses `SHTnsKit.synthesis_grad` for efficient computation.
 
 # Arguments
 - `Slm`: Spectral coefficients of the scalar field
@@ -1525,17 +1198,10 @@ Uses SHTnsKit.SH_to_grad_spat for efficient computation.
 """
 function spectral_gradient!(config::SHTnsKitConfig, Slm::Matrix{ComplexF64},
         grad_theta::Matrix{Float64}, grad_phi::Matrix{Float64})
-    try
-        gt, gp = SHTnsKit.SH_to_grad_spat(config.sht_config, Slm; real_output = true)
-        copyto!(grad_theta, gt)
-        copyto!(grad_phi, gp)
-    catch e
-        # Fallback: compute using synthesis of derivatives
-        @warn "SH_to_grad_spat not available, using fallback gradient computation"
-        # Manual gradient would require implementing derivative operators
-        fill!(grad_theta, 0.0)
-        fill!(grad_phi, 0.0)
-    end
+    gt, gp = SHTnsKit.synthesis_grad(config.sht_config, Slm; real_output = true)
+    copyto!(grad_theta, gt)
+    copyto!(grad_phi, gp)
+    return nothing
 end
 
 """
@@ -1597,7 +1263,7 @@ function extract_vorticity_coefficients(config::SHTnsKitConfig, Tlm::Matrix{Comp
 end
 
 # ================================================================================
-# QST Vector Transforms (SHTnsKit v1.1.15)
+# QST Vector Transforms (SHTnsKit v2)
 # ================================================================================
 # QST decomposition: (Q, S, T) where Q relates to radial component,
 # S (spheroidal/poloidal) and T (toroidal) relate to tangential components.
@@ -1606,7 +1272,7 @@ end
 """
     shtnskit_qst_to_spatial!(config::SHTnsKitConfig, Qlm, Slm, Tlm, vr, vtheta, vphi)
 
-Convert QST spectral coefficients to full 3D spatial vector field using SHTnsKit v1.1.15.
+Convert QST spectral coefficients to a full 3D spatial vector field using SHTnsKit v2.
 
 This is more efficient than separate scalar + vector synthesis as it handles
 all three components in a single call.
@@ -1621,17 +1287,12 @@ function shtnskit_qst_to_spatial!(config::SHTnsKitConfig, Qlm::Matrix{ComplexF64
         Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64},
         vr::Matrix{Float64}, vtheta::Matrix{Float64}, vphi::Matrix{Float64})
     if SHTNSKIT_USE_QST
-        try
-            vr_out, vt_out,
-            vp_out = SHTnsKit.SHqst_to_spat(
-                config.sht_config, Qlm, Slm, Tlm; real_output = true)
-            copyto!(vr, vr_out)
-            copyto!(vtheta, vt_out)
-            copyto!(vphi, vp_out)
-            return
-        catch e
-            @debug "SHqst_to_spat not available, using fallback: $e"
-        end
+        vr_out, vt_out, vp_out = SHTnsKit.synthesis_qst(
+            config.sht_config, Qlm, Slm, Tlm; real_output = true)
+        copyto!(vr, vr_out)
+        copyto!(vtheta, vt_out)
+        copyto!(vphi, vp_out)
+        return nothing
     end
 
     # Fallback: separate synthesis calls
@@ -1640,12 +1301,13 @@ function shtnskit_qst_to_spatial!(config::SHTnsKitConfig, Qlm::Matrix{ComplexF64
     vp_tmp = SHTnsKit.synthesis_sphtor(config.sht_config, Slm, Tlm; real_output = true)
     copyto!(vtheta, vt_tmp)
     copyto!(vphi, vp_tmp)
+    return nothing
 end
 
 """
     shtnskit_spatial_to_qst!(config::SHTnsKitConfig, vr, vtheta, vphi, Qlm, Slm, Tlm)
 
-Convert full 3D spatial vector field to QST spectral coefficients using SHTnsKit v1.1.15.
+Convert a full 3D spatial vector field to QST spectral coefficients using SHTnsKit v2.
 
 # Arguments
 - `vr`, `vtheta`, `vphi`: Input spatial components
@@ -1657,16 +1319,12 @@ function shtnskit_spatial_to_qst!(config::SHTnsKitConfig, vr::Matrix{Float64},
         vtheta::Matrix{Float64}, vphi::Matrix{Float64},
         Qlm::Matrix{ComplexF64}, Slm::Matrix{ComplexF64}, Tlm::Matrix{ComplexF64})
     if SHTNSKIT_USE_QST
-        try
-            Q_out, S_out,
-            T_out = SHTnsKit.spat_to_SHqst(config.sht_config, vr, vtheta, vphi)
-            copyto!(Qlm, Q_out)
-            copyto!(Slm, S_out)
-            copyto!(Tlm, T_out)
-            return
-        catch e
-            @debug "spat_to_SHqst not available, using fallback: $e"
-        end
+        Q_out, S_out, T_out =
+            SHTnsKit.analysis_qst(config.sht_config, vr, vtheta, vphi)
+        copyto!(Qlm, Q_out)
+        copyto!(Slm, S_out)
+        copyto!(Tlm, T_out)
+        return nothing
     end
 
     # Fallback: separate analysis calls
@@ -1674,27 +1332,35 @@ function shtnskit_spatial_to_qst!(config::SHTnsKitConfig, vr::Matrix{Float64},
     S_tmp, T_tmp = SHTnsKit.analysis_sphtor(config.sht_config, vtheta, vphi)
     copyto!(Slm, S_tmp)
     copyto!(Tlm, T_tmp)
+    return nothing
 end
 
 # ================================================================================
-# Threading Control (SHTnsKit v1.1.15)
+# Threading Control (SHTnsKit v2)
 # ================================================================================
 
 """
     set_shtnskit_threads(num_threads::Int)
 
-Configure the number of threads used by SHTnsKit transforms.
-Uses SHTnsKit.shtns_use_threads when available.
+Report the number of Julia threads used by SHTnsKit transforms.
+
+SHTnsKit v2 uses Julia's launch-time thread count, so this can no longer change
+it. A request that differs from the active count warns and is ignored; restart
+Julia with `--threads=<num_threads>` to actually change it.
 """
 function set_shtnskit_threads(num_threads::Int)
-    try
-        SHTnsKit.shtns_use_threads(num_threads)
-        if get_rank() == 0
-            @info "SHTnsKit configured to use $num_threads threads"
+    num_threads > 0 || throw(ArgumentError("num_threads must be positive"))
+    active_threads = Base.Threads.nthreads()
+    if get_rank() == 0
+        if num_threads == active_threads
+            @info "SHTnsKit is using $active_threads Julia threads"
+        else
+            @warn "SHTnsKit v2 uses Julia's launch-time thread count " *
+                  "($active_threads); ignoring the request for $num_threads. " *
+                  "Restart Julia with --threads=$num_threads to change it."
         end
-    catch e
-        @debug "shtns_use_threads not available: $e"
     end
+    return nothing
 end
 
 """
@@ -1716,7 +1382,7 @@ function get_shtnskit_version_info()
     end
 
     has_qst = try
-        isdefined(SHTnsKit, :SHqst_to_spat)
+        isdefined(SHTnsKit, :synthesis_qst) && isdefined(SHTnsKit, :analysis_qst)
     catch
         false
     end
@@ -1753,7 +1419,7 @@ function get_shtnskit_version_info()
 end
 
 # ================================================================================
-# In-Place Transform Functions (SHTnsKit v1.1.15)
+# In-Place Transform Functions (SHTnsKit v2)
 # ================================================================================
 # These functions use in-place operations to reduce memory allocations
 
@@ -1761,7 +1427,7 @@ end
     shtnskit_synthesis_inplace!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
                                  f_out::Matrix{Float64})
 
-In-place spectral-to-physical synthesis using SHTnsKit v1.1.15.
+In-place spectral-to-physical synthesis using SHTnsKit v2.
 Writes result directly to f_out, avoiding allocation of temporary arrays.
 
 # Arguments
@@ -1772,7 +1438,7 @@ Writes result directly to f_out, avoiding allocation of temporary arrays.
 function shtnskit_synthesis_inplace!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
         f_out::Matrix{Float64})
     try
-        # Use in-place synthesis if available (v1.1.15+)
+        # Use the v2 in-place synthesis API when available.
         # SHTnsKit API: synthesis!(config, f_out, alm) — output before input
         SHTnsKit.synthesis!(config.sht_config, f_out, alm)
     catch e
@@ -1787,7 +1453,7 @@ end
     shtnskit_analysis_inplace!(config::SHTnsKitConfig, f::Matrix{Float64},
                                 alm_out::Matrix{ComplexF64})
 
-In-place physical-to-spectral analysis using SHTnsKit v1.1.15.
+In-place physical-to-spectral analysis using SHTnsKit v2.
 Writes result directly to alm_out, avoiding allocation of temporary arrays.
 
 # Arguments
@@ -1798,7 +1464,7 @@ Writes result directly to alm_out, avoiding allocation of temporary arrays.
 function shtnskit_analysis_inplace!(config::SHTnsKitConfig, f::Matrix{Float64},
         alm_out::Matrix{ComplexF64})
     try
-        # Use in-place analysis if available (v1.1.15+)
+        # Use the v2 in-place analysis API when available.
         # SHTnsKit API: analysis!(config, alm_out, f) — output before input
         SHTnsKit.analysis!(config.sht_config, alm_out, f)
     catch e
@@ -1810,7 +1476,7 @@ function shtnskit_analysis_inplace!(config::SHTnsKitConfig, f::Matrix{Float64},
 end
 
 # ================================================================================
-# Field Rotation Functions (SHTnsKit v1.1.15)
+# Field Rotation Functions (SHTnsKit v2)
 # ================================================================================
 # These functions use Wigner D-matrices for efficient field rotations in spectral space
 
@@ -2009,7 +1675,7 @@ function rotate_field_euler!(config::SHTnsKitConfig, alm::Matrix{ComplexF64},
 end
 
 # ================================================================================
-# Horizontal Laplacian Operator (SHTnsKit v1.1.15)
+# Horizontal Laplacian Operator (SHTnsKit v2)
 # ================================================================================
 
 """
@@ -2132,7 +1798,7 @@ function compute_horizontal_gradient_magnitude(config::SHTnsKitConfig, alm::Matr
 end
 
 # ================================================================================
-# Spectral Filtering Functions (SHTnsKit v1.1.15)
+# Spectral Filtering Functions (SHTnsKit v2)
 # ================================================================================
 
 """
