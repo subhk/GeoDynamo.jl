@@ -543,7 +543,14 @@ Load topography from a physical space array h(θ, φ) by transforming to spectra
 function load_topography_from_array(h_physical::Matrix{T}, radius::Float64,
         location::BoundaryLocation, config;
         lmax::Int = -1) where {T}
-    lmax_use = lmax > 0 ? lmax : config.lmax
+    # The analysis below cannot produce degrees above the transform's own
+    # truncation, so a larger request is clamped rather than honoured with zeros:
+    # the returned field must advertise the resolution it actually carries.
+    lmax_requested = lmax > 0 ? lmax : config.lmax
+    lmax_use = min(lmax_requested, config.lmax)
+    if lmax_requested > lmax_use
+        @warn "Requested topography lmax exceeds the transform truncation; clamping" requested=lmax_requested config_lmax=config.lmax
+    end
     # The storage loop below only ever visits m <= config.mmax, so the field has to be
     # built at that same truncation. Built at (lmax_use, lmax_use) instead, its layout
     # reserved slots the loop never fills, and the running counter that did the filling
@@ -552,27 +559,23 @@ function load_topography_from_array(h_physical::Matrix{T}, radius::Float64,
 
     field = TopographyField{Float64}(lmax_use, mmax_use, radius, location)
 
-    # Transform to spectral space using SHTnsKit
-    try
-        # Perform forward transform
-        coeffs = SHTnsKit.analysis(config, h_physical)
+    # `create_shtnskit_config` returns GeoDynamo's solver wrapper, while SHTnsKit's
+    # transform API accepts the underlying `SHTConfig`. Keep accepting a raw
+    # SHTnsKit configuration too, as documented by this loader's generic `config`
+    # argument.
+    sht_config = hasproperty(config, :sht_config) ? config.sht_config : config
+    coeffs = SHTnsKit.analysis(sht_config, h_physical)
 
-        # Store coefficients. Index through `lm_to_index` rather than a running
-        # counter so the write position is derived from the field's own layout.
-        for l in 0:min(lmax_use, config.lmax)
-            for m in 0:min(l, mmax_use)
-                idx = lm_to_index(l, m, field.lmax, field.mmax)
-                if idx <= field.nlm && l < size(coeffs, 1) && m < size(coeffs, 2)
-                    field.coeffs_real[idx] = real(coeffs[l + 1, m + 1])
-                    field.coeffs_imag[idx] = imag(coeffs[l + 1, m + 1])
-                end
+    # Store coefficients. Index through `lm_to_index` rather than a running
+    # counter so the write position is derived from the field's own layout.
+    for l in 0:lmax_use
+        for m in 0:min(l, mmax_use)
+            idx = lm_to_index(l, m, field.lmax, field.mmax)
+            if idx <= field.nlm && l < size(coeffs, 1) && m < size(coeffs, 2)
+                field.coeffs_real[idx] = real(coeffs[l + 1, m + 1])
+                field.coeffs_imag[idx] = imag(coeffs[l + 1, m + 1])
             end
         end
-    catch e
-        @warn "SHTnsKit transform failed, using mean value only: $e"
-        # Fallback: just use mean (l=0 mode)
-        mean_val = sum(h_physical) / length(h_physical)
-        field.coeffs_real[1] = mean_val * sqrt(4π)
     end
 
     update_topography_statistics!(field)

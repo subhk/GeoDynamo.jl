@@ -204,6 +204,7 @@ additional_tests = (
     "code_review_batchD_fixes.jl",
     "code_review_batchE_fixes.jl",
     "code_review_batchF_fixes.jl",
+    "code_structure_cleanup.jl",
     "grid_validation.jl",
     # MPI-aware tests
     "radial_domain.jl",
@@ -248,6 +249,7 @@ additional_tests = (
     "theta_dist_adapter.jl",
     "theta_dist_transform.jl",
     "spectral_operators.jl",
+    "shtnskit_v2_compat.jl",
     "ball_roundtrip.jl",
     "ball_finiteness.jl",
     "ball_domain.jl",
