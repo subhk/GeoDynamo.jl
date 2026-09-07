@@ -220,6 +220,12 @@ function write_restart!(fields::Dict{String, Any}, tracker::TimeTracker,
     config = _lossless_restart_config(config)
     comm = output_comm()
     rank = MPI.Comm_rank(comm)
+    # A CheckpointWriter routinely owns a directory of its own that nothing has
+    # created yet. `create_parallel_netcdf` only ever DELETES a pre-existing
+    # file, so without this the collective open fails on every rank with a bare
+    # "Permission denied" and the step's work is lost. Same helper, and the same
+    # collective discipline, as the history path in `write_fields!`.
+    _ensure_output_directory_collectively!(config, comm)
     current_time = metadata["current_time"]
     current_step = metadata["current_step"]
 

@@ -126,7 +126,16 @@ function _finalize_boundary_value_base!(key::UInt, target)
 end
 
 function reset_boundary_to_base!(bv::AbstractMatrix)
-    entry = lock(_BOUNDARY_VALUE_BASE_LOCK) do
+    # The whole body holds the lock. `BoundaryValueBase` is mutable and the
+    # rollback below ASSIGNS `entry.snapshot`/`entry.applied` and writes
+    # `snapshot` element-wise, while `mark_boundary_applied!` mutates the same
+    # fields and the finalizer can `delete!` the entry at any safepoint. A
+    # reader that lands between the lookup and the rollback sees
+    # `applied === nothing`, skips the rebase and adopts the CORRECTED array as
+    # the new base — the compounding this mechanism exists to prevent.
+    # `_finalize_boundary_value_base!` uses `trylock`, so a finalizer running
+    # inside this section returns instead of deadlocking.
+    lock(_BOUNDARY_VALUE_BASE_LOCK) do
         _prune_boundary_value_base_cache!()
         key = objectid(bv)
         entry = get(_BOUNDARY_VALUE_BASE, key, nothing)
@@ -138,22 +147,19 @@ function reset_boundary_to_base!(bv::AbstractMatrix)
                     _finalize_boundary_value_base!(key, target)
                 end
             end
-            entry
-        else
-            entry
         end
-    end
-    # Roll back only OUR own correction, element by element: wherever the array no
-    # longer holds what the last correction left, some other owner has written since,
-    # and that write is the new base rather than something to undo. Before the first
-    # correction, or across a reshape, there is nothing to attribute — take the array
-    # as it stands.
-    if entry.applied === nothing || !_rebasable(bv, entry)
-        entry.snapshot = copy(bv)
-        entry.applied = nothing
-    else
-        _rebase_boundary_to_base!(bv, entry)
-        entry.applied = nothing
+        # Roll back only OUR own correction, element by element: wherever the array no
+        # longer holds what the last correction left, some other owner has written since,
+        # and that write is the new base rather than something to undo. Before the first
+        # correction, or across a reshape, there is nothing to attribute — take the array
+        # as it stands.
+        if entry.applied === nothing || !_rebasable(bv, entry)
+            entry.snapshot = copy(bv)
+            entry.applied = nothing
+        else
+            _rebase_boundary_to_base!(bv, entry)
+            entry.applied = nothing
+        end
     end
     return bv
 end

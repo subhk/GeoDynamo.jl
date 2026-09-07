@@ -327,6 +327,11 @@ additional_tests = (
     # 2026-09-05 review of the same branch: legacy checkpoints without history
     # keys, ZeroIC re-arming the AB2 bootstrap, atomic cross-Gaunt view swap.
     "code_review_20260905_fixes.jl",
+    # 2026-09-07 review of the same branch: three regressions it introduced
+    # against main — checkpoints requiring inner-core keys no released version
+    # wrote, CheckpointWriter never creating its directory, and the boundary
+    # base cache mutated outside its lock.
+    "code_review_20260907_fixes.jl",
     # Collective discipline: serial contracts of parallel/collectives.jl and
     # api/registry.jl. Multi-rank half: test/run_mpi_control_plane.sh.
     "collectives_and_registry.jl",

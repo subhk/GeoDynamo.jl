@@ -470,6 +470,32 @@ end
 # ================================================================================
 
 """
+    _leave_define_mode_collectively!(ds)
+
+Collective; every rank must call it together. Take `ds` out of NetCDF define mode
+so that a subsequent ROOT-ONLY payload write cannot block.
+
+For a parallel NetCDF (NetCDF-4/HDF5) dataset the first payload write forces the
+exit from define mode, and that exit is collective. A root-only write wrapped in
+`run_on_root!` parks every other rank on an `MPI.bcast`, so rank 0 waits in the
+exit for ranks that never arrive — a silent deadlock, not an error. Before
+`write_coordinate_data!` took the root-only form, the non-root ranks fell straight
+through to their own writes in `write_field_data!` and supplied that participation
+by accident.
+
+Both production callers already sync for this reason (`write_fields!` in
+io/history.jl, `write_restart!` in io/restart.jl); doing it here as well makes the
+writer safe for any caller instead of leaving an undocumented precondition. A sync
+on a dataset already in data mode is just a flush.
+
+Objects that are not NetCDF datasets have no define mode and are a no-op: the
+control-plane invariants pass a plain `Dict` stub to inject a write failure. The
+verdict depends only on the type, so it is identical on every rank.
+"""
+_leave_define_mode_collectively!(ds::NCDatasets.NCDataset) = (NCDatasets.sync(ds); nothing)
+_leave_define_mode_collectively!(::Any) = nothing
+
+"""
     write_coordinate_data!(ds, field_info, config)
 
 Write coordinate arrays. Only rank 0 writes coordinates (they are global/shared).
@@ -478,6 +504,7 @@ reported before any rank enters the next NetCDF operation.
 """
 function write_coordinate_data!(ds, field_info::FieldInfo, config::OutputConfig)
     comm = output_comm()
+    _leave_define_mode_collectively!(ds)
     run_on_root!(comm, "Writing NetCDF coordinate data") do
         T = config.output_precision
         if !isempty(field_info.theta) && haskey(ds, "theta")

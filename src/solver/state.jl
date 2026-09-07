@@ -700,20 +700,41 @@ end
 The restart keys a checkpoint MUST carry to restore `state`: the primary fields
 of every family the run has enabled. These are the keys every released version
 has written, so any checkpoint ever produced satisfies them.
+
+The conducting-inner-core fields are deliberately NOT on this list even when the
+run enables that boundary condition: no released version wrote
+`magnetic_toroidal_ic`/`magnetic_poloidal_ic`, so requiring them would reject
+every checkpoint those runs ever produced, with a remedy the user cannot follow
+without changing the physics. They restore when present and are left at the
+values the run built at initialization when absent — see
+`_restart_optional_primary_keys`.
 """
 function _restart_required_keys(state::SolverState)
     required = String["velocity_toroidal", "velocity_poloidal",
                       "temperature", "temperature_spectral"]
     if state.fields.magnetic !== nothing
         push!(required, "magnetic_toroidal", "magnetic_poloidal")
-        if state.parameters.magnetic_inner_bc === :conducting_inner_core
-            push!(required, "magnetic_toroidal_ic", "magnetic_poloidal_ic")
-        end
     end
     if state.fields.composition !== nothing
         push!(required, "composition", "composition_spectral")
     end
     return required
+end
+
+"""
+    _restart_optional_primary_keys(state) -> Vector{String}
+
+Primary-field restart keys that are restored when the checkpoint carries them and
+skipped when it does not, because they postdate checkpoints still in use.
+
+Only the conducting-inner-core magnetic fields qualify: they were added after
+several released versions, so a run resuming from an older file rebuilds them
+from its own initialization rather than refusing to start.
+"""
+function _restart_optional_primary_keys(state::SolverState)
+    (state.fields.magnetic !== nothing &&
+        state.parameters.magnetic_inner_bc === :conducting_inner_core) || return String[]
+    return String["magnetic_toroidal_ic", "magnetic_poloidal_ic"]
 end
 
 """
@@ -814,16 +835,12 @@ function restore_fields_from_restart!(
         _restore_restart_spectral_pair_if_present!(
             magnetic.prev_nl_poloidal, restart_data, "magnetic_prev_nl_poloidal")
         if state.parameters.magnetic_inner_bc === :conducting_inner_core
-            _restore_restart_spectral_pair!(
-                magnetic.toroidal_ic,
-                restart_data["magnetic_toroidal_ic"],
-                "magnetic_toroidal_ic"
-            )
-            _restore_restart_spectral_pair!(
-                magnetic.poloidal_ic,
-                restart_data["magnetic_poloidal_ic"],
-                "magnetic_poloidal_ic"
-            )
+            # Optional, not required: checkpoints written before these keys
+            # existed leave the inner-core fields as initialization built them.
+            _restore_restart_spectral_pair_if_present!(
+                magnetic.toroidal_ic, restart_data, "magnetic_toroidal_ic")
+            _restore_restart_spectral_pair_if_present!(
+                magnetic.poloidal_ic, restart_data, "magnetic_poloidal_ic")
         end
     end
 
