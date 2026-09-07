@@ -75,6 +75,34 @@ using LinearAlgebra
     @test u_real ≈ expected atol=1e-4
     @test parent(u_field.data_imag)[1, 1, 2] ≈ 0.0 atol=1e-4
 
+    # Some governing equations carry a mass coefficient on the time
+    # derivative.  After dividing by that coefficient, ERK2 must apply the
+    # same scale to both nonlinear evaluations while retaining the raw values
+    # in its buffers (the solver restores those raw nonlinear fields after the
+    # staged evaluation).
+    forcing_scale = 4.0
+    parent(u_field.data_real) .= 0.0
+    parent(u_field.data_imag) .= 0.0
+    parent(nl_field.data_real) .= 0.0
+    parent(nl_field.data_imag) .= 0.0
+    parent(u_field.data_real)[1, 1, 2] = u0
+    parent(nl_field.data_real)[1, 1, 2] = c
+
+    buffers_scaled = GeoDynamo.ERK2FieldBuffers(u_field, nl_field, cache)
+    GeoDynamo.erk2_prepare_field!(
+        buffers_scaled, u_field, nl_field, cache, cfg, dt;
+        nonlinear_scale = forcing_scale)
+    @test buffers_scaled.n_current_real[1, 1, 2] == c
+    GeoDynamo.erk2_apply_stage!(buffers_scaled, u_field)
+    GeoDynamo.erk2_store_stage_nonlinear!(buffers_scaled, nl_field)
+    GeoDynamo.erk2_finalize_field!(
+        buffers_scaled, u_field, cache, cfg, dt;
+        nonlinear_scale = forcing_scale)
+
+    expected_scaled = exp(-lambda * dt) * u0 +
+                      (1 - exp(-lambda * dt)) * forcing_scale * c / lambda
+    @test parent(u_field.data_real)[1, 1, 2] ≈ expected_scaled atol=1e-4
+
     # Scenario 2: linear nonlinearity N(u) = beta * u requiring stage recomputation
     u0_linear = 0.45
     beta = 0.15
@@ -113,5 +141,31 @@ using LinearAlgebra
     expected_linear = exp((beta - lambda) * dt) * u0_linear
 
     @test u_linear ≈ expected_linear atol=1e-4
+    @test parent(u_field.data_imag)[1, 1, 2] ≈ 0.0 atol=1e-4
+
+    # Repeat the state-dependent forcing case with a non-unit mass scaling.
+    # Unlike the constant-forcing case above, N(stage) - N(initial) is nonzero,
+    # so this specifically guards the scaled phi2 correction in finalize.
+    parent(u_field.data_real) .= 0.0
+    parent(u_field.data_imag) .= 0.0
+    parent(nl_field.data_real) .= 0.0
+    parent(nl_field.data_imag) .= 0.0
+    parent(u_field.data_real)[1, 1, 2] = u0_linear
+    parent(nl_field.data_real)[1, 1, 2] = beta * u0_linear
+
+    buffers_linear_scaled = GeoDynamo.ERK2FieldBuffers(u_field, nl_field, cache)
+    GeoDynamo.erk2_prepare_field!(
+        buffers_linear_scaled, u_field, nl_field, cache, cfg, dt;
+        nonlinear_scale = forcing_scale)
+    GeoDynamo.erk2_apply_stage!(buffers_linear_scaled, u_field)
+    u_stage_scaled = parent(u_field.data_real)[1, 1, 2]
+    parent(nl_field.data_real)[1, 1, 2] = beta * u_stage_scaled
+    GeoDynamo.erk2_store_stage_nonlinear!(buffers_linear_scaled, nl_field)
+    GeoDynamo.erk2_finalize_field!(
+        buffers_linear_scaled, u_field, cache, cfg, dt;
+        nonlinear_scale = forcing_scale)
+
+    expected_linear_scaled = exp((forcing_scale * beta - lambda) * dt) * u0_linear
+    @test parent(u_field.data_real)[1, 1, 2] ≈ expected_linear_scaled atol=1e-4
     @test parent(u_field.data_imag)[1, 1, 2] ≈ 0.0 atol=1e-4
 end

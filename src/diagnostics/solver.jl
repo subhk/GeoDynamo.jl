@@ -102,7 +102,7 @@ function _solver_scalar_spectral_energy(field, domain::RadialDomain)
                              local_spectral_value(si, slot, local_r)^2)
         end
     end
-    return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
+    return 0.5 * global_sum(local_energy)
 end
 
 function compute_total_energy!(state::SolverState{T, <:AbstractArchitecture}) where {T}

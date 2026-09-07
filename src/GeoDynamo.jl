@@ -570,6 +570,7 @@ include("core/parameters.jl")
 
 # Include base modules in dependency order
 include("parallel/mpi.jl")
+include("parallel/collectives.jl")   # the ONE home for MPI collectives (+ threaded-update guard)
 include("parallel/pencils.jl")
 include("parallel/transposes.jl")
 include("parallel/process_grid.jl")  # GEODYNAMO_PROC_GRID parser + θ/r subcommunicators
@@ -646,6 +647,7 @@ include("api/model.jl")
 include("api/initial_conditions.jl")
 include("api/set.jl")
 include("api/fields.jl")
+include("api/registry.jl")           # CollectiveRegistry: validated once, then frozen
 include("api/callbacks.jl")
 include("api/output_writers.jl")
 include("api/simulation.jl")

@@ -57,6 +57,42 @@ using Logging
         end
     end
 
+    @testset "repr-escaped strings and quoted hash characters round-trip safely" begin
+        interpolation_text = "\$(error(\"parameter strings must never execute\"))"
+        tricky = "runs/#night/\"quoted\"/back\\slash\nnext\t" * interpolation_text
+        @test GeoDynamo.safe_parse_value(repr(tricky), Dict{Symbol, Any}()) == tricky
+
+        params = GeoDynamo.SolverParameters(
+            nr = 16,
+            nr_inner = 4,
+            lmax = 4,
+            mmax = 4,
+            nlat = 12,
+            nlon = 16,
+            restart_dir = tricky,
+            temperature_bc_file = "boundaries/#thermal.nc",
+        )
+        tmpfile = tempname() * ".jl"
+        try
+            GeoDynamo.save_parameters(params, tmpfile)
+            loaded = @test_logs min_level = Logging.Warn GeoDynamo.load_parameters_from_file(tmpfile)
+            @test loaded.restart_dir == tricky
+            @test loaded.temperature_bc_file == "boundaries/#thermal.nc"
+        finally
+            rm(tmpfile, force = true)
+        end
+
+        commented = tempname() * ".jl"
+        try
+            write(commented,
+                "restart_dir = \"snapshots/#accepted\" # an actual trailing comment\n")
+            loaded = @test_logs min_level = Logging.Warn GeoDynamo.load_parameters_from_file(commented)
+            @test loaded.restart_dir == "snapshots/#accepted"
+        finally
+            rm(commented, force = true)
+        end
+    end
+
     @testset "missing file: load_parameters errors, _from_file falls back" begin
         # An explicitly named missing file is a hard error at the load_parameters
         # level (silently using defaults hid typos / missing configs).

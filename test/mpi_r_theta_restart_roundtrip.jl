@@ -62,7 +62,58 @@ const FINALIZE_MPI_RT_RESTART = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
         for (k, gr) in enumerate(rr), (j, gφ) in enumerate(φr), (i, gθ) in enumerate(θr)
             localT[i, j, k] = encode(gθ, gφ, gr)
         end
-        fields = Dict{String, Any}("temperature" => localT)
+
+        # Restart-only spectral state uses the spec pencil, whose spectral-mode
+        # and radial ownership changes with the process-grid orientation. Encode
+        # GLOBAL (field, lm, r) coordinates so a locally self-consistent but
+        # globally misplaced read/write is detected exactly.
+        spec_shape = GeoDynamo.size_local(pencils.spec)
+        lm_map = GeoDynamo.local_spectral_lm_map(cfg)
+        spec_rr = GeoDynamo.range_local(pencils.spec, 3)
+        function encoded_spectral_pair(tag; inner_nr = nothing)
+            radial_indices = inner_nr === nothing ? collect(spec_rr) : collect(1:inner_nr)
+            local_shape = (spec_shape[1], spec_shape[2], length(radial_indices))
+            real_data = zeros(Float64, local_shape)
+            imag_data = zeros(Float64, local_shape)
+            for slot in CartesianIndices(lm_map)
+                global_lm = lm_map[slot]
+                global_lm == 0 && continue
+                for (local_r, global_r) in enumerate(radial_indices)
+                    value = tag * 100_000_000.0 + global_lm * 10_000.0 + global_r
+                    real_data[slot[1], slot[2], local_r] = value
+                    imag_data[slot[1], slot[2], local_r] = -value
+                end
+            end
+            return Dict("real" => real_data, "imag" => imag_data)
+        end
+
+        history_names = (
+            "temperature_prev_nonlinear",
+            "velocity_prev_nl_toroidal",
+            "velocity_prev_nl_poloidal",
+            "magnetic_prev_nl_toroidal",
+            "magnetic_prev_nl_poloidal",
+            "composition_prev_nonlinear",
+        )
+        restart_spectral = Dict{String, Any}(
+            name => encoded_spectral_pair(tag)
+            for (tag, name) in enumerate(history_names)
+        )
+        nr_inner = 5
+        @test nr_inner != nr
+        restart_spectral["magnetic_toroidal_ic"] =
+            encoded_spectral_pair(7; inner_nr = nr_inner)
+        restart_spectral["magnetic_poloidal_ic"] =
+            encoded_spectral_pair(8; inner_nr = nr_inner)
+        temperature_sources = collect(91.0:98.0)
+        composition_sources = collect(101.0:108.0)
+        fields = Dict{String, Any}(
+            "temperature" => localT,
+            "temperature_internal_sources" => temperature_sources,
+            "composition_internal_sources" => composition_sources,
+            "needs_ab2_bootstrap" => false,
+        )
+        merge!(fields, restart_spectral)
 
         # Output dir must be identical on every rank (collective parallel write).
         tmpdir = get(ENV, "RTHETA_RESTART_TMPDIR",
@@ -104,6 +155,34 @@ const FINALIZE_MPI_RT_RESTART = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
         @test local_ok == 1
         # and every rank must agree (one wrong slab fails the whole grid)
         @test MPI.Allreduce(local_ok, MPI.MIN, comm) == 1
+
+        for (name, expected) in restart_spectral
+            @test haskey(restart_data, name)
+            actual = restart_data[name]
+            @test size(actual["real"]) == size(expected["real"])
+            @test size(actual["imag"]) == size(expected["imag"])
+            spectral_ok = actual["real"] == expected["real"] &&
+                          actual["imag"] == expected["imag"]
+            @test spectral_ok
+            @test MPI.Allreduce(spectral_ok ? 1 : 0, MPI.MIN, comm) == 1
+        end
+        @test restart_data["temperature_internal_sources"] == temperature_sources
+        @test restart_data["composition_internal_sources"] == composition_sources
+        @test restart_data["needs_ab2_bootstrap"] === false
+
+        # Exercise both encoded values of the scalar bootstrap state without
+        # conflating the check with the larger distributed field payload.
+        fields["needs_ab2_bootstrap"] = true
+        tracker.restart_count = 1
+        metadata["current_time"] = 2.0
+        metadata["current_step"] = 6
+        GeoDynamo.write_restart!(fields, tracker, metadata, config, pencils;
+            shtns_config = cfg, geometry = :shell,
+            radius_ratio = 0.35, radial_grid = radial_nodes)
+        reader_true = GeoDynamo.create_time_tracker(config, 0.0)
+        restart_true, _ = GeoDynamo.read_restart!(
+            reader_true, tmpdir, 2.0, config, pencils; shtns_config = cfg)
+        @test restart_true["needs_ab2_bootstrap"] === true
 
         MPI.Barrier(comm)
         rank == 0 && isdir(tmpdir) && rm(tmpdir; recursive = true, force = true)

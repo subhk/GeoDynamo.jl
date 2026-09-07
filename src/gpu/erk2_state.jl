@@ -208,7 +208,7 @@ function build_gpu_erk2_state(st)
         caches, params.Pm / params.Pr, T, cfg, domain, dt, temperature_bc_code;
         bc_spec = temp_spec, use_krylov = false)
     vel_tor_cache = get_solver_erk2_cache!(
-        caches, :velocity_toroidal, params.Ek, T, cfg, domain, dt;
+        caches, :velocity_toroidal, 1.0, T, cfg, domain, dt;
         use_krylov = false, bc_spec = vel_tor_spec)
     vel_pol_cache = get_solver_erk2_cache!(
         caches, :velocity_poloidal, 1.0, T, cfg, domain, dt;

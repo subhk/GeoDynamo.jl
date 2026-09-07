@@ -36,13 +36,11 @@ mutable struct Simulation{M, C, O}
     # mid-run would otherwise keep being integrated against the old wall values.
     _gpu_bc::NTuple{2, Union{Matrix{Float64}, Nothing}}
     # Whether `_run_callbacks!` must reduce the `running` flag across ranks each
-    # step. Decided ONCE, collectively, at `run!` entry — never from the rank's own
-    # callback registry, which is not guaranteed to be identical on every rank
-    # (`rank == 0 && add_callback!(...)` is ordinary usage, and `IterationInterval`
-    # is pure, so an asymmetric registry desynchronises nothing by itself). Gating
-    # the reduction on the local registry instead makes the rank holding the odd
-    # callback enter an `Allreduce` alone. Starts `true` so a hand-stepped
-    # simulation that never enters `run!` reduces rather than risking the split.
+    # step. Decided ONCE, collectively, by `_freeze_callbacks!` at `run!` entry or the
+    # first `time_step!` — never from the rank's own callback registry, because gating
+    # a reduction on a rank-local predicate makes the rank holding the odd callback
+    # enter an `Allreduce` alone. It starts `true` so nothing can skip the reduction
+    # before that decision has been taken.
     _stop_needs_reduce::Bool
 end
 
@@ -105,7 +103,7 @@ function nan_checker(sim)
     # decision has to be reduced (as `check_simulation_state_for_nan` in
     # core/simulation_health.jl already does). Without it, only the ranks that own
     # the blown-up modes leave run! and the rest hang in the next collective.
-    if _any_rank_flag(r.has_issue)
+    if any_rank(r.has_issue)
         if r.has_issue
             @warn "NaN/Inf found in fields $(r.fields) at iteration $(sim.model.clock.iteration); stopping simulation."
         else
@@ -272,8 +270,12 @@ function Simulation(model::GeodynamoModel;
     isempty(control_errors) || throw(ArgumentError(
         "Simulation: invalid run controls: " * join(control_errors, "; ")))
 
-    callback_items = merge(_default_callbacks(), _to_ordered(callbacks, :callback))
-    output_writer_items = _to_ordered(output_writers, :writer)
+    callback_items = CollectiveRegistry{:callback}(
+        merge(_default_callbacks(), _to_ordered(callbacks, :callback)))
+    output_writer_items = CollectiveRegistry{:writer}(_to_ordered(output_writers, :writer))
+    # Writers are fixed at construction; validate them collectively here, before
+    # `_restore_output_writer_trackers!` (collective) can run on an asymmetric set.
+    _freeze_output_writers!(output_writer_items)
     gpu_sync in (:every, :output) || throw(ArgumentError(
         "Simulation: gpu_sync must be :every or :output (got $gpu_sync)"))
     gpu_resolved = _resolve_gpu_stepping(gpu, model, timestep_options.timestepper)
@@ -444,8 +446,18 @@ end
     time_step!(sim::Simulation)
 
 Advance the simulation by one step at `sim.dt`, firing callbacks and writers.
+In an MPI run every rank must call this together: the first call validates the
+callback registry collectively and freezes it (see `add_callback!`).
 """
 function time_step!(sim::Simulation)
+    _freeze_callbacks!(sim)
+    return _time_step!(sim)
+end
+
+# Unchecked step used by `run!` and by `time_step!` once the registry is frozen.
+# Public hand-stepping goes through `time_step!` above so a rank-local registry
+# mismatch is rejected before the numerical state advances.
+function _time_step!(sim::Simulation)
     if sim.gpu
         _gpu_time_step!(sim)
     else
@@ -586,7 +598,7 @@ _gpu_clock_only(::ClockOnlyCallback) = true
 # `clock.iteration` advance in lockstep, and `wall_time_limit_exceeded` reads
 # `_collective_wtime`, which broadcasts rank 0's elapsed time. `nan_checker`
 # scans only this rank's slab but already reduces the verdict with
-# `_any_rank_flag` before assigning.
+# `any_rank` before assigning.
 #
 # `ClockOnlyCallback` is deliberately NOT listed. Its contract (see its docstring) is
 # "reads only the clock, never the field data" — a GPU-sync property, not an MPI one, and
@@ -759,14 +771,9 @@ after each step.
 function run!(sim::Simulation)
     sim._wall_start = time()
     sim.running = true
-    # Collective callback implementations require every rank to enter them in the
-    # same order. Validate that invariant before any stop callback can fire.
-    _validate_callback_registry!(sim.callbacks)
-    # Decide the per-step stop reduction here, where EVERY rank arrives. The
-    # default registry is rank-symmetric and pays no per-step `Allreduce`; user
-    # callbacks that may stop from rank-local state arm it collectively.
-    # `add_callback!` mid-`run!` is unsupported because it bypasses both decisions.
-    sim._stop_needs_reduce = _any_rank_flag(_callbacks_may_stop_rank_locally(sim.callbacks))
+    # Validate + freeze the callback registry and decide the stop reduction, once,
+    # where EVERY rank arrives. Writers were frozen by the constructor.
+    _freeze_callbacks!(sim)
     # A simulation already past its stop criteria must not take a step
     # (e.g. a second run! after completion). Check the stop conditions
     # directly rather than via _run_callbacks! so user callbacks do not
@@ -775,7 +782,7 @@ function run!(sim::Simulation)
     stop_iteration_exceeded(sim)
     wall_time_limit_exceeded(sim)
     while sim.running
-        time_step!(sim)
+        _time_step!(sim)
     end
     _gpu_sync_host!(sim)        # lazy gpu_sync = :output: final state to host
     return sim
@@ -783,14 +790,21 @@ end
 
 """
     add_callback!(sim, func; schedule, name=auto)
+    add_callback!(sim, cb::Callback; name=auto)
 
-Register `func(sim)` to fire on `schedule`. Returns `sim`.
+Register `func(sim)` (or a prebuilt `Callback`) to fire on `schedule`. Returns
+`sim`. Must be called on every rank, before `run!` or the first `time_step!`:
+the registry is validated collectively and frozen at that point, and a later
+registration throws.
 """
-function add_callback!(sim::Simulation, func; schedule,
+function add_callback!(sim::Simulation, cb::Callback;
         name::Symbol = Symbol(:callback, length(sim.callbacks) + 1))
-    sim.callbacks[name] = Callback(func; schedule = schedule)
+    register!(sim.callbacks, name, cb)
     return sim
 end
+add_callback!(sim::Simulation, func; schedule,
+        name::Symbol = Symbol(:callback, length(sim.callbacks) + 1)) =
+    add_callback!(sim, Callback(func; schedule = schedule); name = name)
 
 # ================================================================================
 # Oceananigans-canonical `Δt` property

@@ -89,6 +89,26 @@ using Test
         @test any(contains(e, "Sc") for e in errors)
     end
 
+    @testset "Stefan evolution is rejected until the solver implements it" begin
+        params = GeoDynamo.SolverParameters(stefan_enabled = true)
+        is_valid, errors, _ = GeoDynamo.validate_parameters(params; strict = false)
+        @test !is_valid
+        @test any(contains(e, "stefan_enabled=true") for e in errors)
+        @test any(contains(e, "not implemented") for e in errors)
+    end
+
+    @testset "Conducting inner core needs at least three radial points" begin
+        params = GeoDynamo.SolverParameters(
+            nr = 8, nr_inner = 2,
+            magnetic_inner_bc = :conducting_inner_core,
+            include_magnetic = true,
+        )
+        is_valid, errors, _ = GeoDynamo.validate_parameters(params; strict = false)
+        @test !is_valid
+        @test any(contains(e, "conducting_inner_core") for e in errors)
+        @test any(contains(e, "nr_inner >= 3") for e in errors)
+    end
+
     @testset "Valid ball geometry passes" begin
         params = GeoDynamo.SolverParameters(geometry = :ball, radius_ratio = 0.0)
         is_valid, errors, _ = GeoDynamo.validate_parameters(params; strict = false)

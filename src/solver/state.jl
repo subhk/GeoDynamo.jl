@@ -602,6 +602,14 @@ function GeoDynamo.extract_all_fields(state::SolverState{
         "real" => copy(parent(state.fields.velocity.poloidal.data_real)),
         "imag" => copy(parent(state.fields.velocity.poloidal.data_imag))
     )
+    fields["velocity_prev_nl_toroidal"] = Dict(
+        "real" => copy(parent(state.fields.velocity.prev_nl_toroidal.data_real)),
+        "imag" => copy(parent(state.fields.velocity.prev_nl_toroidal.data_imag))
+    )
+    fields["velocity_prev_nl_poloidal"] = Dict(
+        "real" => copy(parent(state.fields.velocity.prev_nl_poloidal.data_real)),
+        "imag" => copy(parent(state.fields.velocity.prev_nl_poloidal.data_imag))
+    )
 
     # Only emit magnetic fields when the run actually evolves them. When
     # include_magnetic=false, state.fields.magnetic is nothing; the runtime
@@ -617,6 +625,24 @@ function GeoDynamo.extract_all_fields(state::SolverState{
             "real" => copy(parent(magnetic.poloidal.data_real)),
             "imag" => copy(parent(magnetic.poloidal.data_imag))
         )
+        fields["magnetic_prev_nl_toroidal"] = Dict(
+            "real" => copy(parent(magnetic.prev_nl_toroidal.data_real)),
+            "imag" => copy(parent(magnetic.prev_nl_toroidal.data_imag))
+        )
+        fields["magnetic_prev_nl_poloidal"] = Dict(
+            "real" => copy(parent(magnetic.prev_nl_poloidal.data_real)),
+            "imag" => copy(parent(magnetic.prev_nl_poloidal.data_imag))
+        )
+        if state.parameters.magnetic_inner_bc === :conducting_inner_core
+            fields["magnetic_toroidal_ic"] = Dict(
+                "real" => copy(parent(magnetic.toroidal_ic.data_real)),
+                "imag" => copy(parent(magnetic.toroidal_ic.data_imag))
+            )
+            fields["magnetic_poloidal_ic"] = Dict(
+                "real" => copy(parent(magnetic.poloidal_ic.data_real)),
+                "imag" => copy(parent(magnetic.poloidal_ic.data_imag))
+            )
+        end
     end
 
     fields["temperature"] = copy(parent(state.fields.temperature.temperature.data))
@@ -624,6 +650,12 @@ function GeoDynamo.extract_all_fields(state::SolverState{
         "real" => copy(parent(state.fields.temperature.spectral.data_real)),
         "imag" => copy(parent(state.fields.temperature.spectral.data_imag))
     )
+    fields["temperature_prev_nonlinear"] = Dict(
+        "real" => copy(parent(state.fields.temperature.prev_nonlinear.data_real)),
+        "imag" => copy(parent(state.fields.temperature.prev_nonlinear.data_imag))
+    )
+    fields["temperature_internal_sources"] =
+        copy(state.fields.temperature.internal_sources)
 
     if state.fields.composition !== nothing
         fields["composition"] = copy(parent(state.fields.composition.composition.data))
@@ -631,7 +663,16 @@ function GeoDynamo.extract_all_fields(state::SolverState{
             "real" => copy(parent(state.fields.composition.spectral.data_real)),
             "imag" => copy(parent(state.fields.composition.spectral.data_imag))
         )
+        fields["composition_prev_nonlinear"] = Dict(
+            "real" => copy(parent(state.fields.composition.prev_nonlinear.data_real)),
+            "imag" => copy(parent(state.fields.composition.prev_nonlinear.data_imag))
+        )
+        fields["composition_internal_sources"] =
+            copy(state.fields.composition.internal_sources)
     end
+
+    fields["needs_ab2_bootstrap"] =
+        state.runtime.timestep_state.needs_ab2_bootstrap
 
     return fields
 end
@@ -656,22 +697,59 @@ end
 """
     _restart_required_keys(state) -> Vector{String}
 
-The restart keys a checkpoint MUST carry to fully restore `state`, derived from
-the field families the run actually has enabled (mirrors what
-`extract_all_fields` emits for the same state).
+The restart keys a checkpoint MUST carry to restore `state`: the primary fields
+of every family the run has enabled. These are the keys every released version
+has written, so any checkpoint ever produced satisfies them.
 """
 function _restart_required_keys(state::SolverState)
-    required = String[
-        "velocity_toroidal", "velocity_poloidal",
-        "temperature", "temperature_spectral",
-    ]
+    required = String["velocity_toroidal", "velocity_poloidal",
+                      "temperature", "temperature_spectral"]
     if state.fields.magnetic !== nothing
         push!(required, "magnetic_toroidal", "magnetic_poloidal")
+        if state.parameters.magnetic_inner_bc === :conducting_inner_core
+            push!(required, "magnetic_toroidal_ic", "magnetic_poloidal_ic")
+        end
     end
     if state.fields.composition !== nothing
         push!(required, "composition", "composition_spectral")
     end
     return required
+end
+
+"""
+    _restart_history_keys(state) -> Vector{String}
+
+The OPTIONAL restart keys describing the two-step timestepper history (previous
+nonlinear terms, source profiles and the bootstrap flag). A checkpoint that
+carries all of them restores the history verbatim; one that carries none or only
+some of them (any released version before the history was persisted, or a
+truncated write) restores the primary fields and re-arms
+`needs_ab2_bootstrap`, so the next step rebuilds the history from the loaded
+state — the behaviour those checkpoints always had.
+"""
+function _restart_history_keys(state::SolverState)
+    keys = String[
+        "velocity_prev_nl_toroidal", "velocity_prev_nl_poloidal",
+        "temperature_prev_nonlinear", "temperature_internal_sources",
+        "needs_ab2_bootstrap",
+    ]
+    if state.fields.magnetic !== nothing
+        push!(keys, "magnetic_prev_nl_toroidal", "magnetic_prev_nl_poloidal")
+    end
+    if state.fields.composition !== nothing
+        push!(keys, "composition_prev_nonlinear", "composition_internal_sources")
+    end
+    return keys
+end
+
+function _restore_restart_spectral_pair_if_present!(field, restart_data, name)
+    haskey(restart_data, name) || return field
+    return _restore_restart_spectral_pair!(field, restart_data[name], name)
+end
+
+function _copy_restart_array_if_present!(destination, restart_data, name)
+    haskey(restart_data, name) || return destination
+    return _copy_restart_array!(destination, restart_data[name], name)
 end
 
 function restore_fields_from_restart!(
@@ -707,6 +785,12 @@ function restore_fields_from_restart!(
             "velocity_poloidal"
         )
     end
+    _restore_restart_spectral_pair_if_present!(
+        state.fields.velocity.prev_nl_toroidal, restart_data,
+        "velocity_prev_nl_toroidal")
+    _restore_restart_spectral_pair_if_present!(
+        state.fields.velocity.prev_nl_poloidal, restart_data,
+        "velocity_prev_nl_poloidal")
 
     magnetic = state.fields.magnetic === nothing ? state.runtime.magnetic :
                state.fields.magnetic
@@ -724,6 +808,24 @@ function restore_fields_from_restart!(
             "magnetic_poloidal"
         )
     end
+    if state.fields.magnetic !== nothing
+        _restore_restart_spectral_pair_if_present!(
+            magnetic.prev_nl_toroidal, restart_data, "magnetic_prev_nl_toroidal")
+        _restore_restart_spectral_pair_if_present!(
+            magnetic.prev_nl_poloidal, restart_data, "magnetic_prev_nl_poloidal")
+        if state.parameters.magnetic_inner_bc === :conducting_inner_core
+            _restore_restart_spectral_pair!(
+                magnetic.toroidal_ic,
+                restart_data["magnetic_toroidal_ic"],
+                "magnetic_toroidal_ic"
+            )
+            _restore_restart_spectral_pair!(
+                magnetic.poloidal_ic,
+                restart_data["magnetic_poloidal_ic"],
+                "magnetic_poloidal_ic"
+            )
+        end
+    end
 
     if haskey(restart_data, "temperature")
         _copy_restart_array!(
@@ -739,6 +841,12 @@ function restore_fields_from_restart!(
             "temperature_spectral"
         )
     end
+    _restore_restart_spectral_pair_if_present!(
+        state.fields.temperature.prev_nonlinear, restart_data,
+        "temperature_prev_nonlinear")
+    _copy_restart_array_if_present!(
+        state.fields.temperature.internal_sources, restart_data,
+        "temperature_internal_sources")
 
     if state.fields.composition !== nothing
         if haskey(restart_data, "composition")
@@ -755,8 +863,20 @@ function restore_fields_from_restart!(
                 "composition_spectral"
             )
         end
+        _restore_restart_spectral_pair_if_present!(
+            state.fields.composition.prev_nonlinear, restart_data,
+            "composition_prev_nonlinear")
+        _copy_restart_array_if_present!(
+            state.fields.composition.internal_sources, restart_data,
+            "composition_internal_sources")
     end
 
+    # Only a checkpoint carrying the COMPLETE history may hand over its
+    # bootstrap flag; anything less re-arms the bootstrap so the next step
+    # rebuilds every family's history from the restored primary fields.
+    history_complete = all(k -> haskey(restart_data, k), _restart_history_keys(state))
+    state.runtime.timestep_state.needs_ab2_bootstrap =
+        history_complete ? Bool(restart_data["needs_ab2_bootstrap"]) : true
     _synchronize_solver_views!(state)
     state.is_initialized = true
     return state

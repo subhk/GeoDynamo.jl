@@ -10,6 +10,7 @@
 
 using Test
 using GeoDynamo
+using SHTnsKit
 
 # Shorthand for the internal topography submodule (matches test/topography_data.jl)
 const topo = GeoDynamo.bcs.topography
@@ -108,14 +109,53 @@ end
         # `m in 0:min(l, config.mmax)` with a running counter, so with config.mmax <
         # lmax the counter desynchronised from the field's own layout at l = mmax+1
         # and scrambled every higher-degree coefficient.
-        cfg = (lmax = 8, mmax = 4)               # transform is irrelevant here
-        h = zeros(Float64, 4, 8)
+        cfg = SHTnsKit.create_gauss_config(
+            8, 12; mmax = 4, nlon = 16, norm = :orthonormal)
+        h = zeros(Float64, cfg.nlat, cfg.nlon)
         field = topo.load_topography_from_array(h, 1.0,
             GeoDynamo.bcs.OUTER_BOUNDARY, cfg)
         @test field.lmax == 8
         @test field.mmax == 4
         @test field.nlm == topo.TopographyField{Float64}(8, 4, 1.0,
             GeoDynamo.bcs.OUTER_BOUNDARY).nlm
+    end
+
+    @testset "load_topography_from_array clamps lmax to the config" begin
+        # A requested lmax above the transform's own truncation used to build the
+        # field at that larger lmax while the storage loop stopped at config.lmax,
+        # so the degrees in between stayed zero-initialised and the returned field
+        # advertised a resolution it did not have.
+        cfg = SHTnsKit.create_gauss_config(
+            8, 12; mmax = 4, nlon = 16, norm = :orthonormal)
+        h = zeros(Float64, cfg.nlat, cfg.nlon)
+        field = @test_logs (:warn,) topo.load_topography_from_array(
+            h, 1.0, GeoDynamo.bcs.OUTER_BOUNDARY, cfg; lmax = 12)
+        @test field.lmax == 8
+        @test field.mmax == 4
+        @test field.nlm == topo.TopographyField{Float64}(8, 4, 1.0,
+            GeoDynamo.bcs.OUTER_BOUNDARY).nlm
+    end
+
+    @testset "load_topography_from_array preserves non-axisymmetric modes" begin
+        cfg = GeoDynamo.create_shtnskit_config(
+            lmax = 4,
+            mmax = 3,
+            nlat = 8,
+            nlon = 12,
+            nr = 4,
+        )
+        coefficients = zeros(ComplexF64, cfg.lmax + 1, cfg.mmax + 1)
+        coefficients[4, 3] = 0.75 - 0.25im # (l, m) = (3, 2)
+        h = SHTnsKit.synthesis(cfg.sht_config, coefficients; real_output = true)
+
+        field = topo.load_topography_from_array(
+            h, 1.0, GeoDynamo.bcs.OUTER_BOUNDARY, cfg)
+        idx = topo.lm_to_index(3, 2, field.lmax, field.mmax)
+
+        @test complex(field.coeffs_real[idx], field.coeffs_imag[idx]) ≈
+              coefficients[4, 3]
+        @test_throws DimensionMismatch topo.load_topography_from_array(
+            h[1:(end - 1), :], 1.0, GeoDynamo.bcs.OUTER_BOUNDARY, cfg)
     end
 
     # ── G8: random topography must be a real field, and reproducible ──────────

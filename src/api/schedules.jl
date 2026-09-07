@@ -44,34 +44,12 @@ itself rank-consistent.
 """
 function _collective_wtime(sim)
     sim._wall_start > 0.0 || return 0.0
-    wtime = time() - sim._wall_start
-    if MPI.Initialized()
-        comm = get_comm()
-        if comm !== nothing && MPI.Comm_size(comm) > 1
-            buf = Float64[wtime]
-            MPI.Bcast!(buf, 0, comm)
-            wtime = buf[1]
-        end
-    end
-    return wtime
+    buf = Float64[time() - sim._wall_start]
+    comm = _default_comm()
+    root_broadcast!(buf, comm)
+    return buf[1]
 end
 
-"""
-    _any_rank_flag(flag::Bool) -> Bool
-
-`true` when `flag` is set on ANY rank (MPI.MAX reduction), else `flag` unchanged.
-
-A stop decision taken from rank-local data — a NaN scan sees only this rank's
-modes and radial slab — makes the offending ranks leave `run!` while the rest
-call `time_step!` again and block forever in its next collective. Reducing the
-flag first means all ranks stop together.
-"""
-function _any_rank_flag(flag::Bool)
-    MPI.Initialized() || return flag
-    comm = get_comm()
-    (comm === nothing || MPI.Comm_size(comm) <= 1) && return flag
-    return MPI.Allreduce(flag ? 1 : 0, MPI.MAX, comm) > 0
-end
 
 function should_fire(s::TimeInterval, ctx::_ScheduleContext)
     s.interval <= 0 && return false

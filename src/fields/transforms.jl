@@ -27,7 +27,7 @@
 # 2. Call SHTnsKit.synthesis() or SHTnsKit.analysis()
 # 3. Store/scatter results to the appropriate PencilArray
 #
-# MPI parallelization is handled through PencilArrays, with MPI.Barrier()
+# MPI parallelization is handled through PencilArrays, with a barrier
 # synchronization after complete transforms.
 #
 # ================================================================================
@@ -198,7 +198,7 @@ end
 # 2. SHTnsKit format: Expects a (lmax+1) × (mmax+1) matrix where entry [l+1, m+1]
 #    contains the coefficient f_l^m.
 #
-# 3. MPI gathering: Since spectral data may be distributed, we use MPI.Allreduce
+# 3. MPI gathering: Since spectral data may be distributed, we use an Allreduce
 #    to combine partial coefficient matrices from all processes.
 #
 # ================================================================================
@@ -763,7 +763,7 @@ end
 Extract physical slice when in phi-local pencil using pre-allocated buffer.
 
 # WARNING: MPI Synchronization
-This function contains MPI.Allreduce! which is a collective operation.
+This function calls `global_sum!`, a collective operation.
 When called inside a per-radial loop, ALL MPI processes must call this
 function the same number of times, otherwise deadlock will occur.
 Ensure even radial distribution or use global loop bounds.
@@ -840,7 +840,7 @@ end
 Generic extraction for any pencil orientation using pre-allocated buffer.
 
 # WARNING: MPI Synchronization
-This function contains MPI.Allreduce! which is a collective operation.
+This function calls `global_sum!`, a collective operation.
 When called inside a per-radial loop, ALL MPI processes must call this
 function the same number of times, otherwise deadlock will occur.
 Ensure even radial distribution or use global loop bounds.
@@ -914,7 +914,7 @@ function batch_shtnskit_transforms!(specs::Vector{SHTnsSpecField{T}},
     end
 
     # Process sequentially to avoid MPI collectives from multiple threads
-    # Each shtnskit_spectral_to_physical! call has MPI.Barrier at the end,
+    # Each shtnskit_spectral_to_physical! call has a barrier at the end,
     # which must not be called from multiple threads simultaneously
     for batch_idx in eachindex(specs)
         shtnskit_spectral_to_physical!(specs[batch_idx], physs[batch_idx])
@@ -975,9 +975,7 @@ Synchronize PencilArray data across MPI processes to ensure consistency.
 function synchronize_pencil_data!(field::Union{
         SHTnsSpecField{T}, SHTnsPhysField{T}}) where {T}
     # Synchronize the underlying PencilArray data
-    if hasmethod(MPI.Barrier, Tuple{typeof(get_comm())})
-        MPI.Barrier(get_comm())
-    end
+    barrier(get_comm())
     return field
 end
 

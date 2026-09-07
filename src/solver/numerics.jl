@@ -176,104 +176,36 @@ function get_bc_vectors(field)
 end
 
 @inline function mpi_barrier!(comm = mpi_comm())
-    # A Barrier deadlocks from a spawned task exactly like an Allreduce does, and it is
-    # the one collective in this file that the guard below used to leave uncovered.
+    # A Barrier deadlocks from a spawned task exactly like an Allreduce does.
     _assert_no_collective_in_threaded_update("mpi_barrier!")
-    MPI.Barrier(comm)
-    return nothing
+    return barrier(comm)
 end
 
-# Set for the duration of `_apply_solver_implicit_updates_threaded!`'s spawned region,
-# and only when it would actually be unsafe (more than one rank). Two `@spawn`'d tasks
-# each issuing a collective can interleave differently across ranks, which DEADLOCKS with
-# no error — the failure mode `_solver_multirank_magnetic_collective` exists to avoid by
-# keeping known-collective configs sequential.
-#
-# That call-site denylist can only exclude the configurations somebody remembered to
-# enumerate, so this flag adds a guard at the COLLECTIVE side: a reduction issued from
-# inside the threaded region raises immediately, naming the site, instead of hanging.
-#
-# COVERAGE, precisely: this catches collectives that go through the reduction helpers
-# below, `mpi_barrier!` above, and `allreduce_sum!` in physics/nonlinear.jl. It does NOT
-# catch the remaining bare `MPI.*` call sites elsewhere in src/ — a complete net would
-# need every one of them routed through a wrapper, which is a separate change.
-#
-# SCOPE: the flag lives in the TASK-local storage of the task that arms it, not in a
-# process-global `Ref`. A global was wrong twice over. Two `Simulation`s stepped
-# concurrently in one process shared it, so one solver's threaded region rejected the
-# other's perfectly ordered reductions. And a global has to be cleared in a `finally`,
-# which ran as soon as `foreach(fetch, tasks)` rethrew from the FIRST failing task —
-# disarming the guard while its siblings were still running unfetched, i.e. exactly when
-# it was still needed. Task storage dies with the task: nothing to clear, nothing to race.
-#
-# A task spawned from inside the region does not inherit the flag. Nothing in the
-# implicit updates nests spawns today, and inheriting is what would re-create the
-# cross-solver false positive.
-const _THREADED_UPDATE_KEY = :geodynamo_in_threaded_implicit_update
-
-"""
-    _in_threaded_implicit_update() -> Bool
-
-Whether the CURRENT task is inside the threaded implicit-update region.
-
-Reads `current_task().storage` directly instead of calling `task_local_storage()`: the
-latter allocates the storage dict on first use, and this runs on the reduction path of
-every task, including the ones that never arm the guard at all.
-"""
-@inline function _in_threaded_implicit_update()
-    storage = current_task().storage
-    storage === nothing && return false
-    return get(storage, _THREADED_UPDATE_KEY, false)::Bool
-end
-
-"""
-    _with_threaded_update_guard(f)
-
-Run `f` with the collective guard armed for THIS task only, restoring the previous value
-on the way out — including when `f` throws.
-"""
-function _with_threaded_update_guard(f)
-    return task_local_storage(f, _THREADED_UPDATE_KEY, true)
-end
-
-"""
-    _assert_no_collective_in_threaded_update(site)
-
-Raise if an MPI collective is issued from inside the threaded implicit-update region,
-where per-rank ordering can diverge and deadlock. `site` names the caller so the error
-points at the offending collective rather than at the hang.
-"""
-@inline function _assert_no_collective_in_threaded_update(site)
-    _in_threaded_implicit_update() || return nothing
-    error("MPI collective issued from inside the threaded implicit-update region " *
-          "($site). Two spawned tasks each issuing a collective can interleave " *
-          "differently across ranks and deadlock. Either hoist the collective out of " *
-          "the spawned region, or teach `_solver_magnetic_config_has_collective` " *
-          "(timestep/driver.jl) about the configuration that reaches it so the field " *
-          "solves stay sequential.")
-end
+# The threaded implicit-update guard (`_in_threaded_implicit_update`,
+# `_with_threaded_update_guard`, `_assert_no_collective_in_threaded_update`) lives in
+# parallel/collectives.jl with the collectives it protects. The delegates below keep
+# asserting BEFORE the serial fast path so a threaded-region collective is reported
+# at one rank too.
 
 @inline function allreduce_sum_in_place!(buffer, comm = mpi_comm())
     _assert_no_collective_in_threaded_update("allreduce_sum_in_place!")
-    MPI.Allreduce!(buffer, MPI.SUM, comm)
-    return buffer
+    return global_sum!(buffer, comm)
 end
 
 @inline function allreduce_sum_buffers!(sendbuf, recvbuf, comm = mpi_comm())
     _assert_no_collective_in_threaded_update("allreduce_sum_buffers!")
     sendbuf === recvbuf || copyto!(recvbuf, sendbuf)
-    MPI.Allreduce!(recvbuf, MPI.SUM, comm)
-    return recvbuf
+    return global_sum!(recvbuf, comm)
 end
 
 @inline function allreduce_sum(value, comm = mpi_comm())
     _assert_no_collective_in_threaded_update("allreduce_sum")
-    return MPI.Allreduce(value, +, comm)
+    return global_sum(value, comm)
 end
 
 @inline function allreduce_max(value, comm = mpi_comm())
     _assert_no_collective_in_threaded_update("allreduce_max")
-    return MPI.Allreduce(value, MPI.MAX, comm)
+    return global_max(value, comm)
 end
 
 @inline function domain_bandwidth(domain::RadialDomainType)

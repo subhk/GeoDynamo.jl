@@ -153,12 +153,7 @@ function check_simulation_state_for_nan(
         any_issue |= (has_nan || has_inf)
     end
 
-    comm = get_comm()
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        local_flag = any_issue ? 1 : 0
-        global_flag = MPI.Allreduce(local_flag, MPI.MAX, comm)
-        any_issue = global_flag > 0
-    end
+    any_issue = any_rank(any_issue, get_comm())
 
     if any_issue && config.abort_on_nan
         error(

@@ -94,6 +94,91 @@ using GeoDynamo
                   S.Simulation
         end
     end
+
+    @testset "Simulation run-control commit rolls back on a late failure" begin
+        # Validation-only atomicity is not enough: the parameters swap is followed
+        # by a matrix rebuild and an output-tracker restore, either of which can
+        # throw and strand the state with new parameters and stale matrices.
+        if MPI.Finalized()
+            @warn "MPI finalized; skipping run-control commit rollback test"
+        else
+            MPI.Initialized() || MPI.Init()
+            grid = S.SphericalShellGrid(S.CPU();
+                lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 16, nr_inner = 4)
+            model = S.GeodynamoModel(grid;
+                Ek = 1e-2, Ra = 1e4,
+                include_magnetic = false, include_composition = false)
+            state = model.state
+            p = state.parameters
+            before = (
+                parameters = state.parameters,
+                implicit_matrices = state.implicit_matrices,
+                magnetic_ic_admittance = state.magnetic_ic_admittance,
+                dt = state.runtime.timestep_state.dt,
+            )
+            new_dt = 2 * p.timestep
+            new_params = S.SolverParameters(;
+                (f => getfield(p, f) for f in fieldnames(S.SolverParameters))...,
+                timestep = new_dt)
+
+            @test_throws ErrorException S._commit_run_controls!(
+                model, new_params, new_dt, p.timestep, () -> error("injected failure"))
+
+            @test state.parameters === before.parameters
+            @test state.implicit_matrices === before.implicit_matrices
+            @test state.magnetic_ic_admittance === before.magnetic_ic_admittance
+            @test state.runtime.timestep_state.dt == before.dt
+        end
+    end
+
+    @testset "Simulation validation failures do not mutate the model" begin
+        if MPI.Finalized()
+            @warn "MPI finalized; skipping Simulation atomic-validation test"
+        else
+            MPI.Initialized() || MPI.Init()
+            grid = S.SphericalShellGrid(S.CPU();
+                lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 16, nr_inner = 4)
+
+            for invalid_option in ((gpu_sync = :sometimes,), (gpu = :always,))
+                model = S.GeodynamoModel(grid;
+                    Ek = 1e-2, Ra = 1e4,
+                    include_magnetic = false, include_composition = false)
+                state = model.state
+                before = (
+                    parameters = state.parameters,
+                    implicit_matrices = state.implicit_matrices,
+                    magnetic_ic_admittance = state.magnetic_ic_admittance,
+                    timestep_dt = state.runtime.timestep_state.dt,
+                    timestep_time = state.runtime.timestep_state.time,
+                    timestep_step = state.runtime.timestep_state.step,
+                    state_time = state.time,
+                    state_step = state.step,
+                    clock_time = model.clock.time,
+                    clock_iteration = model.clock.iteration,
+                    clock_last_dt = model.clock.last_dt,
+                )
+
+                @test_throws ArgumentError S.Simulation(model;
+                    dt = 2e-4,
+                    stop_time = 0.75,
+                    stop_iteration = 17,
+                    courant = 0.25,
+                    invalid_option...)
+
+                @test state.parameters === before.parameters
+                @test state.implicit_matrices === before.implicit_matrices
+                @test state.magnetic_ic_admittance === before.magnetic_ic_admittance
+                @test state.runtime.timestep_state.dt == before.timestep_dt
+                @test state.runtime.timestep_state.time == before.timestep_time
+                @test state.runtime.timestep_state.step == before.timestep_step
+                @test state.time == before.state_time
+                @test state.step == before.state_step
+                @test model.clock.time == before.clock_time
+                @test model.clock.iteration == before.clock_iteration
+                @test model.clock.last_dt == before.clock_last_dt
+            end
+        end
+    end
 end
 
 @testset "Codex round-4 hardening" begin

@@ -757,6 +757,15 @@ function create_pencil_decomposition_shtnskit(nlat::Int, nlon::Int, nr::Int,
     θ_ranks, r_ranks = read_proc_grid(nprocs)
     proc_dims = (θ_ranks, r_ranks)
 
+    # Refuse a grid that hands some rank an empty local range, and warn about mode-load
+    # imbalance. This is the path a `SphericalShellGrid` + `GeodynamoModel` run actually
+    # takes — `create_pencil_topology` (parallel/pencils.jl) validated, this one did not,
+    # so `GEODYNAMO_PROC_GRID=4x1` on lmax=mmax=1 built a spectral pencil with an empty
+    # m-slot range on half the ranks and deadlocked in `run!` with no warning logged.
+    # The verdict is a pure function of values identical on every rank, so it raises
+    # everywhere at once, before the first collective.
+    validate_proc_grid(θ_ranks, r_ranks; nlat = nlat, nr = nr, lmax = lmax, mmax = mmax)
+
     # Create PencilArrays MPI topology
     # MPITopology maps the 2D process grid to MPI ranks
     TopoCtor = getproperty(PencilArrays, Symbol("MPITopology"))

@@ -2,6 +2,29 @@
 # Parallel NetCDF Support Check
 # ================================================================================
 
+function _cleanup_parallel_netcdf_probe_collectively!(tmpfile::AbstractString, comm,
+        remove_file = path -> rm(path; force = true))
+    run_on_root!(
+        comm, "Cleaning up parallel NetCDF probe file '$tmpfile'") do
+        isfile(tmpfile) && remove_file(tmpfile)
+    end
+    return nothing
+end
+
+function _remove_existing_netcdf_collectively!(
+        filename::AbstractString, overwrite_files::Bool, comm, remove_file = rm)
+    run_on_root!(comm, "Removing existing output file '$filename'") do
+        overwrite_files && isfile(filename) && remove_file(filename)
+    end
+    return nothing
+end
+
+function _open_and_close_parallel_netcdf_probe!(comm, tmpfile)
+    ds = NCDataset(comm, tmpfile, "c"; info = MPI.Info())
+    close(ds)
+    return nothing
+end
+
 """
     parallel_netcdf_probe(comm) -> Union{Nothing, Exception}
 
@@ -17,22 +40,34 @@ Collective: the filename is generated on rank 0 and broadcast, because all ranks
 the same path for the collective open or the probe itself deadlocks. Every rank must
 therefore call this together.
 """
-function parallel_netcdf_probe(comm)
-    rank = MPI.Comm_rank(comm)
-    tmpfile = rank == 0 ? tempname() * ".nc" : ""
-    tmpfile = MPI.bcast(tmpfile, comm; root = 0)
+function parallel_netcdf_probe(comm;
+        _make_tempfile = () -> tempname() * ".nc",
+        _probe_dataset = _open_and_close_parallel_netcdf_probe!,
+        _remove_file = path -> rm(path; force = true))
+    tmpfile = ""
+    tmpfile = try
+        root_value(() -> String(_make_tempfile()), comm,
+            "Generating parallel NetCDF probe filename")
+    catch err
+        return err
+    end
     failure = nothing
     try
-        ds = NCDataset(comm, tmpfile, "c"; info = MPI.Info())
-        close(ds)
+        _probe_dataset(comm, tmpfile)
     catch e
         failure = e
     finally
-        # Only rank 0 cleans up to avoid filesystem races
-        if rank == 0 && isfile(tmpfile)
-            rm(tmpfile; force = true)
+        # Only rank 0 removes the file, but a cleanup failure must reach every
+        # peer before the barrier. Preserve an earlier probe failure when both
+        # the collective open and the cleanup fail.
+        cleanup_failure = try
+            _cleanup_parallel_netcdf_probe_collectively!(tmpfile, comm, _remove_file)
+            nothing
+        catch err
+            err
         end
-        MPI.Barrier(comm)
+        failure === nothing && (failure = cleanup_failure)
+        barrier(comm)
     end
     return failure
 end
@@ -44,25 +79,12 @@ Whether parallel NetCDF (MPI-IO via HDF5) works here. The degrade-or-skip form o
 [`parallel_netcdf_probe`](@ref); [`check_parallel_netcdf_support`](@ref) is the
 fail-loud form. Collective — call it on every rank.
 """
-parallel_netcdf_available(comm) = _all_ranks_flag(parallel_netcdf_probe(comm) === nothing,
-    comm)
+# `all_ranks`, not a rank-local answer: the probe can genuinely split — its
+# `tempname()` names node-local scratch, so in a multi-node job the collective create
+# fails only for the ranks off rank 0's node — and a capability half the ranks believe
+# in would send one group past the write while the rest block inside it.
+parallel_netcdf_available(comm) = all_ranks(parallel_netcdf_probe(comm) === nothing, comm)
 
-"""
-    _all_ranks_flag(flag::Bool, comm) -> Bool
-
-`true` only when `flag` is set on EVERY rank of `comm` (MPI.MIN reduction).
-
-The comm-taking counterpart of `_any_rank_flag` (api/schedules.jl), for verdicts that
-gate a collective: a capability that half the ranks believe in is not a capability. The
-probe below can genuinely split — its `tempname()` names node-local scratch, so in a
-multi-node job the collective create fails only for the ranks off rank 0's node — and a
-rank-local answer sends one group past the write while the rest block inside it.
-Collective; every rank must call it together.
-"""
-function _all_ranks_flag(flag::Bool, comm)
-    (comm === nothing || !MPI.Initialized() || MPI.Comm_size(comm) <= 1) && return flag
-    return MPI.Allreduce(flag ? 1 : 0, MPI.MIN, comm) > 0
-end
 
 """
     check_parallel_netcdf_support(comm)
@@ -79,7 +101,7 @@ function check_parallel_netcdf_support(comm)
     # Raise on every rank or on none: an `error` taken by the subset of ranks whose
     # probe failed is itself the asymmetric exit this module exists to avoid — the
     # surviving ranks would block in the next collective instead of reporting.
-    _all_ranks_flag(failure === nothing, comm) && return nothing
+    all_ranks(failure === nothing, comm) && return nothing
     failure === nothing &&
         error("Parallel NetCDF (MPI-IO) is required but not available: the probe " *
               "failed on another rank (this rank's probe succeeded, which usually " *
@@ -130,14 +152,14 @@ Defines global dimensions and variables based on field_info.
 """
 function create_parallel_netcdf(filename::String, config::OutputConfig,
         field_info::FieldInfo, metadata::Dict{String, Any}, comm;
-        geometry::Symbol = :shell)
-    rank = MPI.Comm_rank(comm)
+        geometry::Symbol = :shell,
+        _remove_file = rm)
     nprocs = MPI.Comm_size(comm)
 
-    if config.overwrite_files && isfile(filename) && rank == 0
-        rm(filename)
-    end
-    MPI.Barrier(comm)
+    # Deletion is root-only to avoid filesystem races, but every rank must see
+    # the outcome before entering the collective NetCDF open below.
+    _remove_existing_netcdf_collectively!(
+        filename, config.overwrite_files, comm, _remove_file)
 
     ds = NCDataset(comm, filename, "c"; info = MPI.Info())
 
@@ -213,6 +235,25 @@ end
                                                                        MIXED_FIELDS ||
                                                                        config.output_space ==
                                                                        SPECTRAL_ONLY
+
+const RESTART_HISTORY_SPECTRAL_COMPONENTS = (
+    "temperature_prev_nonlinear",
+    "velocity_prev_nl_toroidal",
+    "velocity_prev_nl_poloidal",
+    "magnetic_prev_nl_toroidal",
+    "magnetic_prev_nl_poloidal",
+    "composition_prev_nonlinear",
+)
+
+const RESTART_INNER_CORE_SPECTRAL_COMPONENTS = (
+    "magnetic_toroidal_ic",
+    "magnetic_poloidal_ic",
+)
+
+const RESTART_SOURCE_PROFILES = (
+    "temperature_internal_sources",
+    "composition_internal_sources",
+)
 
 """
     setup_variables!(ds, field_info, config, available_fields)
@@ -320,6 +361,87 @@ function setup_variables!(ds, field_info::FieldInfo, config::OutputConfig,
 end
 
 """
+    setup_restart_variables!(ds, fields, field_info, config)
+
+Define checkpoint-only variables that are intentionally absent from history
+files: CNAB2 nonlinear history, conducting-inner-core state, mutable scalar
+source profiles, and the AB2 bootstrap flag.
+"""
+function setup_restart_variables!(ds, fields::Dict{String, Any},
+        field_info::FieldInfo, config::OutputConfig)
+    T = config.output_precision
+
+    has_restart_spectral = any(component -> haskey(fields, component),
+        RESTART_HISTORY_SPECTRAL_COMPONENTS) ||
+                           any(component -> haskey(fields, component),
+        RESTART_INNER_CORE_SPECTRAL_COMPONENTS)
+    if has_restart_spectral && field_info.nlm > 0 && !haskey(ds.dim, "spectral_mode")
+        defDim(ds, "spectral_mode", field_info.nlm)
+    end
+
+    if haskey(ds.dim, "spectral_mode") && field_info.nr > 0
+        for component in RESTART_HISTORY_SPECTRAL_COMPONENTS
+            haskey(fields, component) || continue
+            defVar(ds, "$(component)_real", T, ("spectral_mode", "r");
+                attrib = Dict(
+                    "long_name" => "$(component)_real_coefficients",
+                    "representation" => "restart_spectral_history"))
+            defVar(ds, "$(component)_imag", T, ("spectral_mode", "r");
+                attrib = Dict(
+                    "long_name" => "$(component)_imaginary_coefficients",
+                    "representation" => "restart_spectral_history"))
+        end
+    end
+
+    nr_inner = 0
+    for component in RESTART_INNER_CORE_SPECTRAL_COMPONENTS
+        haskey(fields, component) || continue
+        field_data = fields[component]
+        haskey(field_data, "real") && haskey(field_data, "imag") || continue
+        real_data = field_data["real"]
+        imag_data = field_data["imag"]
+        size(real_data) == size(imag_data) || throw(DimensionMismatch(
+            "Restart field $component has mismatched real/imag sizes."))
+        component_nr_inner = size(real_data, ndims(real_data))
+        nr_inner == 0 || nr_inner == component_nr_inner || throw(DimensionMismatch(
+            "Conducting-inner-core restart fields have inconsistent radial sizes."))
+        nr_inner = component_nr_inner
+    end
+    if nr_inner > 0
+        defDim(ds, "r_inner_core", nr_inner)
+        for component in RESTART_INNER_CORE_SPECTRAL_COMPONENTS
+            haskey(fields, component) || continue
+            defVar(ds, "$(component)_real", T,
+                ("spectral_mode", "r_inner_core");
+                attrib = Dict(
+                    "long_name" => "$(component)_real_coefficients",
+                    "representation" => "restart_inner_core_spectral_state"))
+            defVar(ds, "$(component)_imag", T,
+                ("spectral_mode", "r_inner_core");
+                attrib = Dict(
+                    "long_name" => "$(component)_imaginary_coefficients",
+                    "representation" => "restart_inner_core_spectral_state"))
+        end
+    end
+
+    for profile in RESTART_SOURCE_PROFILES
+        haskey(fields, profile) || continue
+        defVar(ds, profile, T, ("r",);
+            attrib = Dict(
+                "long_name" => replace(profile, "_" => " "),
+                "representation" => "restart_radial_profile"))
+    end
+
+    if haskey(fields, "needs_ab2_bootstrap")
+        haskey(ds.dim, "scalar") || defDim(ds, "scalar", 1)
+        defVar(ds, "needs_ab2_bootstrap", Int32, ("scalar",);
+            attrib = Dict("long_name" => "CNAB2 history requires bootstrap"))
+    end
+
+    return ds
+end
+
+"""
     setup_diagnostic_variables!(ds, diagnostics, config)
 
 Create scalar diagnostic variables for the diagnostics dictionary.
@@ -351,12 +473,12 @@ end
     write_coordinate_data!(ds, field_info, config)
 
 Write coordinate arrays. Only rank 0 writes coordinates (they are global/shared).
+Collective: every rank must call this function so a root write failure can be
+reported before any rank enters the next NetCDF operation.
 """
 function write_coordinate_data!(ds, field_info::FieldInfo, config::OutputConfig)
-    rank = MPI.Comm_rank(output_comm())
-
-    # Coordinates are the same on all ranks; only rank 0 writes them
-    if rank == 0
+    comm = output_comm()
+    run_on_root!(comm, "Writing NetCDF coordinate data") do
         T = config.output_precision
         if !isempty(field_info.theta) && haskey(ds, "theta")
             ds["theta"][:] = T.(field_info.theta)
@@ -372,6 +494,7 @@ function write_coordinate_data!(ds, field_info::FieldInfo, config::OutputConfig)
             ds["m_values"][:] = Int32.(field_info.m_values)
         end
     end
+    return nothing
 end
 
 function _legacy_linear_spectral_io_ranges(pencils)
@@ -517,6 +640,86 @@ function unpack_local_spectral_coefficients(real_data::AbstractMatrix,
 end
 
 """
+    pack_local_inner_core_spectral_coefficients(real_data, imag_data, field_info)
+
+Pack conducting-inner-core spectral storage without applying the outer-core
+radial ownership range. Inner-core pencils share spectral-mode ownership with
+the outer core, but every owning rank carries all `nr_inner` radial points.
+"""
+function pack_local_inner_core_spectral_coefficients(real_data::AbstractArray,
+        imag_data::AbstractArray, field_info::FieldInfo)
+    size(real_data) == size(imag_data) || throw(DimensionMismatch(
+        "Inner-core spectral restart data have mismatched real/imag sizes."))
+    if ndims(real_data) == 2
+        return real_data, imag_data
+    elseif ndims(real_data) == 3
+        field_info.has_config || throw(ArgumentError(
+            "Packing 3D inner-core spectral storage requires SHTns configuration metadata.",
+        ))
+
+        config = field_info.config::SHTnsKitConfig
+        lm_map = local_spectral_lm_map(config)
+        mode_indices = local_spectral_mode_indices(config)
+        nr_inner = size(real_data, 3)
+        packed_real = zeros(eltype(real_data), length(mode_indices), nr_inner)
+        packed_imag = zeros(eltype(imag_data), length(mode_indices), nr_inner)
+        isempty(mode_indices) && return packed_real, packed_imag
+        mode_rows = _mode_row_lookup(mode_indices, config.nlm)
+
+        for slot in CartesianIndices(lm_map)
+            global_lm = lm_map[slot]
+            global_lm == 0 && continue
+            row = mode_rows[global_lm]
+            (1 <= row <= size(packed_real, 1)) || continue
+            for local_r in 1:nr_inner
+                packed_real[row, local_r] = local_spectral_value(real_data, slot, local_r)
+                packed_imag[row, local_r] = local_spectral_value(imag_data, slot, local_r)
+            end
+        end
+
+        return packed_real, packed_imag
+    end
+
+    throw(ArgumentError(
+        "Expected inner-core spectral coefficient arrays with 2 or 3 dimensions, got $(ndims(real_data)) and $(ndims(imag_data)).",
+    ))
+end
+
+"""
+    unpack_local_inner_core_spectral_coefficients(real_data, imag_data, config)
+
+Rebuild local conducting-inner-core storage from its NetCDF slab. The radial
+extent comes from the checkpoint rather than the outer-core spectral pencil.
+"""
+function unpack_local_inner_core_spectral_coefficients(real_data::AbstractMatrix,
+        imag_data::AbstractMatrix, config::SHTnsKitConfig)
+    size(real_data) == size(imag_data) || throw(DimensionMismatch(
+        "Inner-core spectral restart data have mismatched real/imag sizes."))
+    lm_map = local_spectral_lm_map(config)
+    nr_inner = size(real_data, 2)
+    unpacked_real = zeros(eltype(real_data), size(lm_map, 1), size(lm_map, 2), nr_inner)
+    unpacked_imag = zeros(eltype(imag_data), size(lm_map, 1), size(lm_map, 2), nr_inner)
+    mode_indices = local_spectral_mode_indices(config)
+    isempty(mode_indices) && return unpacked_real, unpacked_imag
+    mode_rows = _mode_row_lookup(mode_indices, config.nlm)
+
+    for slot in CartesianIndices(lm_map)
+        global_lm = lm_map[slot]
+        global_lm == 0 && continue
+        row = mode_rows[global_lm]
+        (1 <= row <= size(real_data, 1)) || continue
+        for local_r in 1:nr_inner
+            set_local_spectral_value!(
+                unpacked_real, slot, local_r, real_data[row, local_r])
+            set_local_spectral_value!(
+                unpacked_imag, slot, local_r, imag_data[row, local_r])
+        end
+    end
+
+    return unpacked_real, unpacked_imag
+end
+
+"""
     write_field_data!(ds, fields, config, field_info)
 
 Write field data using parallel offset writes. Each rank writes its local pencil
@@ -589,20 +792,96 @@ function write_field_data!(ds, fields::Dict{String, Any}, config::OutputConfig,
 end
 
 """
+    write_restart_field_data!(ds, fields, config, field_info)
+
+Write state needed only for an exact solver continuation. Keeping this separate
+from `write_field_data!` prevents checkpoint history and inner-core work arrays
+from appearing in ordinary history output.
+"""
+function write_restart_field_data!(ds, fields::Dict{String, Any},
+        config::OutputConfig, field_info::FieldInfo)
+    T = config.output_precision
+    pencils = field_info.has_pencils ? field_info.pencils : nothing
+
+    for component in RESTART_HISTORY_SPECTRAL_COMPONENTS
+        haskey(fields, component) || continue
+        real_name = "$(component)_real"
+        imag_name = "$(component)_imag"
+        haskey(ds, real_name) && haskey(ds, imag_name) || continue
+        field_data = fields[component]
+        real_data, imag_data = pack_local_spectral_coefficients(
+            field_data["real"], field_data["imag"], field_info)
+        real_out = T.(real_data)
+        imag_out = T.(imag_data)
+        if pencils !== nothing
+            mode_indices, r_range = local_spectral_io_ranges(field_info)
+            write_local_spectral_coefficients!(
+                ds[real_name], mode_indices, r_range, real_out)
+            write_local_spectral_coefficients!(
+                ds[imag_name], mode_indices, r_range, imag_out)
+        else
+            ds[real_name][:, :] = real_out
+            ds[imag_name][:, :] = imag_out
+        end
+    end
+
+    for component in RESTART_INNER_CORE_SPECTRAL_COMPONENTS
+        haskey(fields, component) || continue
+        real_name = "$(component)_real"
+        imag_name = "$(component)_imag"
+        haskey(ds, real_name) && haskey(ds, imag_name) || continue
+        field_data = fields[component]
+        real_data, imag_data = pack_local_inner_core_spectral_coefficients(
+            field_data["real"], field_data["imag"], field_info)
+        real_out = T.(real_data)
+        imag_out = T.(imag_data)
+        if pencils !== nothing
+            mode_indices = field_info.has_config ?
+                           local_spectral_mode_indices(
+                field_info.config::SHTnsKitConfig) :
+                           first(_legacy_linear_spectral_io_ranges(pencils))
+            r_inner_range = 1:size(real_out, 2)
+            write_local_spectral_coefficients!(
+                ds[real_name], mode_indices, r_inner_range, real_out)
+            write_local_spectral_coefficients!(
+                ds[imag_name], mode_indices, r_inner_range, imag_out)
+        else
+            ds[real_name][:, :] = real_out
+            ds[imag_name][:, :] = imag_out
+        end
+    end
+
+    comm = output_comm()
+    run_on_root!(comm, "Writing NetCDF restart payload") do
+        for profile in RESTART_SOURCE_PROFILES
+            if haskey(fields, profile) && haskey(ds, profile)
+                ds[profile][:] = T.(fields[profile])
+            end
+        end
+        if haskey(fields, "needs_ab2_bootstrap") && haskey(ds, "needs_ab2_bootstrap")
+            ds["needs_ab2_bootstrap"][1] =
+                Int32(Bool(fields["needs_ab2_bootstrap"]) ? 1 : 0)
+        end
+    end
+
+    return ds
+end
+
+"""
     write_time_data!(ds, time, step, config)
 
 Write scalar simulation time and step values.
 
 Only rank 0 writes these shared scalar variables; field arrays are handled by
-the distributed write path.
+the distributed write path. Collective: every rank must call this function.
 """
 function write_time_data!(ds, time::Float64, step::Int, config::OutputConfig)
-    rank = MPI.Comm_rank(output_comm())
-    # Only rank 0 writes scalar time/step data
-    if rank == 0
+    comm = output_comm()
+    run_on_root!(comm, "Writing NetCDF time data") do
         ds["time"][1] = config.output_precision(time)
         ds["step"][1] = Int32(step)
     end
+    return nothing
 end
 
 """
@@ -616,8 +895,8 @@ function write_diagnostics!(ds, diagnostics::Dict{String, Float64}, config::Outp
     if !config.include_diagnostics
         return
     end
-    rank = MPI.Comm_rank(output_comm())
-    if rank == 0
+    comm = output_comm()
+    run_on_root!(comm, "Writing NetCDF diagnostic data") do
         for (name, value) in diagnostics
             var_name = "diag_$(name)"
             if haskey(ds, var_name)
@@ -625,6 +904,7 @@ function write_diagnostics!(ds, diagnostics::Dict{String, Float64}, config::Outp
             end
         end
     end
+    return nothing
 end
 
 # ================================================================================

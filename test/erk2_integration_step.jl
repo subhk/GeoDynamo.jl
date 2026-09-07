@@ -66,6 +66,39 @@ using MPI
     GeoDynamo.solver_step!(state)
     @test state.step == 1
 
+    # Ek·∂ₜu_tor = Ek·Δu_tor + N_tor becomes
+    # ∂ₜu_tor = Δu_tor + N_tor/Ek.  The ERK2 toroidal propagator must
+    # therefore use unit diffusivity and scale the nonlinear increment by
+    # inv(Ek); using Ek as the propagator diffusivity scales the entire dynamics
+    # by Ek and is not equivalent to the CNAB2 mass-matrix formulation.
+    vel_tor_cache = state.timestep_caches.erk2_velocity_toroidal
+    @test vel_tor_cache !== nothing
+    @test vel_tor_cache.diffusivity == 1.0
+    vel_tor_buffers = state.timestep_caches.erk2_field_buffers[:velocity_toroidal]
+    cfg = state.runtime.shtns_config
+    nr = state.runtime.outer_core_domain.N
+    forcing_scale_error = 0.0
+    profile = zeros(Float64, nr)
+    for lm in GeoDynamo.local_spectral_mode_indices(cfg)
+        slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+        slot === nothing && continue
+        cache_idx = vel_tor_buffers.cache_lookup[cfg.l_values[lm]]
+        for (nl_data, k1_data) in (
+                (vel_tor_buffers.n_current_real, vel_tor_buffers.k1_real),
+                (vel_tor_buffers.n_current_imag, vel_tor_buffers.k1_imag))
+            for r in 1:nr
+                profile[r] = GeoDynamo.local_spectral_value(nl_data, slot, r) / params.Ek
+            end
+            expected_k1 = vel_tor_cache.phi1_full[cache_idx] * profile
+            for r in 1:nr
+                forcing_scale_error = max(
+                    forcing_scale_error,
+                    abs(GeoDynamo.local_spectral_value(k1_data, slot, r) - expected_k1[r]))
+            end
+        end
+    end
+    @test forcing_scale_error < 1e-10
+
     @test all(isfinite, parent(state.fields.magnetic.toroidal.data_real))
     @test all(isfinite, parent(state.fields.magnetic.poloidal.data_real))
     @test all(isfinite, parent(state.fields.composition.spectral.data_real))

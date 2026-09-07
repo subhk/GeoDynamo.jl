@@ -14,13 +14,11 @@ magnitude, with extra degree-wise diagnostics when SHTns metadata is available.
 function compute_diagnostics(fields::Dict{String, Any}, field_info::FieldInfo)
     diagnostics = Dict{String, Float64}()
     comm = get_comm()
-    nprocs = (comm !== nothing && MPI.Comm_size(comm) > 1) ? MPI.Comm_size(comm) : 1
-    use_mpi = nprocs > 1
 
     # Helper: reduce a scalar across all ranks
-    _global_sum(x) = use_mpi ? MPI.Allreduce(x, MPI.SUM, comm) : x
-    _global_max(x) = use_mpi ? MPI.Allreduce(x, MPI.MAX, comm) : x
-    _global_min(x) = use_mpi ? MPI.Allreduce(x, MPI.MIN, comm) : x
+    _global_sum(x) = global_sum(x, comm)
+    _global_max(x) = global_max(x, comm)
+    _global_min(x) = global_min(x, comm)
 
     # Physical-space fields: need global reduction for correct mean/min/max/std
     for (key, prefix) in [("temperature", "temp"), ("composition", "comp")]
@@ -153,10 +151,7 @@ function compute_spectral_energy_diagnostics!(diagnostics::Dict{String, Float64}
     # This call is reached uniformly on all ranks (field_info.has_config is
     # rank-uniform; no rank-divergent early return above), so the collective
     # is safe from deadlock.
-    comm = get_comm()
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        l_energies = MPI.Allreduce(l_energies, MPI.SUM, comm)
-    end
+    l_energies = global_sum(l_energies, get_comm())
 
     total_energy = sum(l_energies)
     if total_energy > 0

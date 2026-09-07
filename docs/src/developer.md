@@ -273,6 +273,18 @@ The CI workflow automatically publishes to `gh-pages` on each push to `main`.
 | Test single-rank behavior | Ensure code works without implicit reductions |
 | Use global loop bounds | Prevent deadlocks with collectives |
 | All I/O is collective | All ranks must call `NCDataset(...)` together for parallel I/O |
+| Use the helpers in `parallel/collectives.jl` | Every MPI collective goes through `global_sum`, `any_rank`, `root_value`, `barrier`, … — the static check `test/mpi_collective_static_checks.jl` rejects raw `MPI.*` collectives elsewhere |
+| Never gate a collective on rank-local data | Reduce the decision first (`any_rank`/`all_ranks`) or take it on rank 0 and broadcast (`root_value`/`root_broadcast!`) |
+
+#### Collective discipline
+
+`src/parallel/collectives.jl` is the one place that issues MPI collectives. Each
+helper has a serial fast path (no MPI, or one rank: identity), asserts it is not
+inside the threaded implicit-update region, and issues exactly one MPI call. The
+callback and output-writer registries (`CollectiveRegistry`, `src/api/registry.jl`)
+are validated collectively once — writers in the `Simulation` constructor,
+callbacks at `run!` or the first `time_step!` — and then frozen, so the set of
+collectives a step enters cannot change and no per-step validation is needed.
 
 ### Documentation
 

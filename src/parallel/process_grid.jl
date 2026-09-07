@@ -61,21 +61,45 @@ end
 """
     validate_proc_grid(θ_ranks, r_ranks; nlat, nr, lmax, mmax)
 
-Warn (once, on rank 0) about a process grid that over-decomposes an axis (idle
-ranks) or yields a large spherical-harmonic mode-load imbalance. Purely advisory —
-does not change the decomposition.
+Check a process grid at setup.
+
+**Fatal**: a grid that over-decomposes an axis past its global size, which hands some
+rank an EMPTY local range. That is not merely wasteful — it DEADLOCKS. Reproduced at
+4 ranks with `GEODYNAMO_PROC_GRID=4x1` on `lmax=mmax=1, nlat=4, nlon=8, nr=8`: the
+spectral pencil came back as `axes_local=(1:2, 1:0, 1:8)` on rank 0 and
+`(1:2, 2:1, 1:8)` on rank 2, `time_step!` completed on every rank, and `run!` never
+returned — no error, no output, just a launcher timeout. The same grid runs to
+completion at 1 and 2 ranks. Refusing it converts a silent hang into a legible abort.
+
+The four fatal conditions are decided from values that are identical on every rank
+(the grid comes from `GEODYNAMO_PROC_GRID`, the sizes from the shared config), so
+every rank throws together and no collective is needed to agree. Deliberately NOT
+behind the `rank == 0` guard below: a rank-0-only throw would leave every other rank
+blocking in the next collective — the failure mode this check exists to remove.
+
+**Advisory** (warned once, on rank 0): mode-load imbalance, and ranks that own zero
+spherical-harmonic MODES. A zero-mode rank is not a zero-slot rank — a 2×2 grid at
+`lmax=mmax=4` leaves the high-m/low-l corner with no valid `m ≤ l` pair and still
+reproduces the serial result bit-exactly in the MPI gates — so it stays a warning.
 """
 function validate_proc_grid(θ_ranks::Int, r_ranks::Int; nlat::Int, nr::Int,
         lmax::Int, mmax::Int)
     (θ_ranks <= 1 && r_ranks <= 1) && return nothing
+
+    fatal = String[]
+    θ_ranks > nlat     && push!(fatal, "θ_ranks=$θ_ranks > nlat=$nlat ⇒ ranks with no latitudes")
+    θ_ranks > mmax + 1 && push!(fatal, "θ_ranks=$θ_ranks > mmax+1=$(mmax + 1) ⇒ ranks with no m-modes")
+    r_ranks > nr       && push!(fatal, "r_ranks=$r_ranks > nr=$nr ⇒ ranks with no radial levels")
+    r_ranks > lmax + 1 && push!(fatal, "r_ranks=$r_ranks > lmax+1=$(lmax + 1) ⇒ ranks with no l-slots")
+    isempty(fatal) || throw(ArgumentError(
+        "Process grid $(θ_ranks)×$(r_ranks) (θ×r) leaves ranks with an empty local " *
+        "range, which deadlocks the run:\n - " * join(fatal, "\n - ") *
+        "\nChoose a grid whose factors fit every axis (set GEODYNAMO_PROC_GRID), or " *
+        "run with fewer ranks."))
+
     get_rank() == 0 || return nothing
 
     msgs = String[]
-    θ_ranks > nlat     && push!(msgs, "θ_ranks=$θ_ranks > nlat=$nlat ⇒ ranks with no latitudes")
-    θ_ranks > mmax + 1 && push!(msgs, "θ_ranks=$θ_ranks > mmax+1=$(mmax + 1) ⇒ ranks with no m-modes")
-    r_ranks > nr       && push!(msgs, "r_ranks=$r_ranks > nr=$nr ⇒ ranks with no radial levels")
-    r_ranks > lmax + 1 && push!(msgs, "r_ranks=$r_ranks > lmax+1=$(lmax + 1) ⇒ ranks with no l-slots")
-
     counts = spectral_mode_counts(θ_ranks, r_ranks, lmax, mmax)
     if !isempty(counts)
         nzero = count(==(0), counts)

@@ -41,34 +41,17 @@ directory cannot silently masquerade as an empty one.
 """
 function _collective_scan_output_count(dir::String, prefix::String,
         geometry::Symbol, kind::String, comm)
-    if comm === nothing || !MPI.Initialized() || MPI.Comm_size(comm) <= 1
-        return _scan_output_count(dir, prefix, geometry, kind)
+    return root_value(comm, "Could not scan output directory '$dir' for numbered $kind files") do
+        _scan_output_count(dir, prefix, geometry, kind)
     end
-
-    rank = MPI.Comm_rank(comm)
-    count = 0
-    scan_error = ""
-    if rank == 0
-        try
-            count = _scan_output_count(dir, prefix, geometry, kind)
-        catch err
-            scan_error = sprint(showerror, err)
-        end
-    end
-
-    buffer = Int[count]
-    MPI.Bcast!(buffer, 0, comm)
-    scan_error = MPI.bcast(scan_error, comm; root = 0)
-    isempty(scan_error) || error(
-        "Could not scan output directory '$dir' for numbered $kind files: $scan_error")
-    return buffer[1]
 end
 
 """
-    _persisted_output_count(tracker, did_output, config, geometry) -> Int
+    _persisted_output_count(tracker, did_output, config, geometry;
+                            history_dirs=()) -> Int
 
 The history-file count to record in a restart file: the larger of what `tracker`
-believes and what `config.output_dir` actually contains.
+believes and what the run's history directories actually contain.
 
 `tracker` alone is not enough because it is not always the tracker that produced the
 history files. `CheckpointWriter` writes its checkpoints through its OWN private
@@ -78,14 +61,28 @@ emitted. A resume that trusted it started numbering at 1 again and — with
 `overwrite_files = true` — deleted the existing `hist_1`. The directory is the one
 witness that is right on both paths.
 
-Rank 0 scans and broadcasts, so every rank writes the same value into the file.
+Which directory, though, is not `config.output_dir` on the checkpoint path:
+`_run_output_writer!(::CheckpointWriter, ...)` (api/output_writers.jl) builds that
+config with `output_dir = ow.path`, the CHECKPOINT directory, which holds no
+`<prefix>_<geometry>_hist_N.nc` at all. `history_dirs` carries the run's real history
+directories (`_history_output_dirs`); empty means "scan `config.output_dir`", which is
+right for the legacy `write_fields!` path where the two are the same directory.
+
+Rank 0 scans and broadcasts, so every rank writes the same value into the file — one
+collective per directory, hence the requirement that `history_dirs` be identical on
+every rank (`_freeze_output_writers!` enforces it at construction).
 """
 function _persisted_output_count(tracker::TimeTracker, did_output::Bool,
-        config::OutputConfig, geometry::Symbol)
+        config::OutputConfig, geometry::Symbol;
+        history_dirs = ())
     from_tracker = tracker.output_count + (did_output ? 1 : 0)
     comm = MPI.Initialized() ? output_comm() : nothing
-    on_disk = _collective_scan_output_count(
-        config.output_dir, config.filename_prefix, geometry, "hist", comm)
+    dirs = isempty(history_dirs) ? (config.output_dir,) : history_dirs
+    on_disk = 0
+    for dir in dirs
+        on_disk = max(on_disk, _collective_scan_output_count(
+            dir, config.filename_prefix, geometry, "hist", comm))
+    end
     return max(from_tracker, on_disk)
 end
 
@@ -105,10 +102,7 @@ Collective; every rank must call it together.
 """
 function _require_restart_file_everywhere(filepath::String, comm)
     missing_here = !isfile(filepath)
-    missing_anywhere = missing_here
-    if comm !== nothing && MPI.Initialized() && MPI.Comm_size(comm) > 1
-        missing_anywhere = MPI.Allreduce(missing_here ? 1 : 0, MPI.MAX, comm) > 0
-    end
+    missing_anywhere = any_rank(missing_here, comm)
     missing_anywhere || return nothing
     rank = (comm === nothing || !MPI.Initialized()) ? 0 : MPI.Comm_rank(comm)
     detail = missing_here ? "not visible on rank $rank" :
@@ -139,23 +133,58 @@ which the broadcast turns into a unanimous error.
 """
 function _restart_path_for_all_ranks(restart_dir::String, restart_time::Float64)
     comm = MPI.Initialized() ? output_comm() : nothing
-    rank = comm === nothing ? 0 : MPI.Comm_rank(comm)
-    selected = ""
-    if rank == 0
+    selected = root_value(comm, "Selecting restart file") do
         candidates = try
             isdir(restart_dir) ? find_restart_files(restart_dir, restart_time) : String[]
         catch err
             @warn "Restart directory could not be scanned" restart_dir exception = err
             String[]
         end
-        isempty(candidates) || (selected = candidates[1])
-    end
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        selected = MPI.bcast(selected, comm; root = 0)
+        isempty(candidates) ? "" : candidates[1]
     end
     isempty(selected) && error(
         "No readable restart files found near time $restart_time in $restart_dir")
     return selected
+end
+
+function _write_restart_tracker_data_collectively!(ds,
+        persisted_last_output_time::Real, persisted_output_count::Integer,
+        restart_number::Integer, grid_file_written::Bool,
+        config::OutputConfig, comm)
+    run_on_root!(comm, "Writing NetCDF restart tracker data") do
+        ds["last_output_time"][1] = config.output_precision(persisted_last_output_time)
+        ds["output_count"][1] = Int32(persisted_output_count)
+        ds["restart_count"][1] = Int32(restart_number)
+        ds["grid_file_written"][1] = Int32(grid_file_written ? 1 : 0)
+    end
+    return nothing
+end
+
+"""
+    _lossless_restart_config(config) -> OutputConfig
+
+Return a restart-specific copy of `config` that always writes the mixed
+physical/spectral layout. History output may intentionally select only one
+representation, but a checkpoint cannot inherit that lossy choice because
+`restore_fields_from_restart!` needs both parts of the solver state.
+"""
+function _lossless_restart_config(config::OutputConfig)
+    config.output_space == MIXED_FIELDS && return config
+    return OutputConfig(
+        MIXED_FIELDS,
+        config.output_dir,
+        config.filename_prefix,
+        config.include_metadata,
+        config.include_grid,
+        config.include_diagnostics,
+        config.output_precision,
+        config.spectral_lmax_output,
+        config.overwrite_files,
+        config.output_interval,
+        config.restart_interval,
+        config.max_output_time,
+        config.time_tolerance,
+    )
 end
 
 """
@@ -163,17 +192,19 @@ end
                    shtns_config=nothing, geometry=:shell, radius_ratio=0.35,
                    did_output=false)
 
-Write a restart NetCDF file using the same parallel field layout as history
-output.
+Write a restart NetCDF file through the parallel field-I/O path. Restart files
+always use the lossless mixed physical/spectral layout, even when `config`
+selects a single representation for ordinary history output.
 
 The restart file also stores enough `TimeTracker` state for a resumed run to
 continue output and restart numbering without clobbering earlier files.
 Set `did_output=true` when a history file was successfully emitted immediately
 before this checkpoint so the persisted tracker includes that file as well.
 
-The persisted history count is `max` of what `tracker` knows and what the output
-directory actually holds — see `_persisted_output_count` for why the tracker alone
-is not enough.
+The persisted history count is `max` of what `tracker` knows and what the run's
+history directories actually hold — see `_persisted_output_count` for why the tracker
+alone is not enough. Pass `history_dirs` when `config.output_dir` is NOT where the
+history files live, as it is not for a `CheckpointWriter`.
 """
 function write_restart!(fields::Dict{String, Any}, tracker::TimeTracker,
         metadata::Dict{String, Any}, config::OutputConfig,
@@ -182,14 +213,19 @@ function write_restart!(fields::Dict{String, Any}, tracker::TimeTracker,
         geometry::Symbol = :shell,
         radius_ratio::Float64 = 0.35,
         radial_grid::Union{AbstractVector{<:Real}, Nothing} = nothing,
-        did_output::Bool = false)
+        did_output::Bool = false,
+        history_dirs = ())
+    # Checkpoints are solver state, not presentation output. Do not let a
+    # history-only layout silently omit fields that the restart loader requires.
+    config = _lossless_restart_config(config)
     comm = output_comm()
     rank = MPI.Comm_rank(comm)
     current_time = metadata["current_time"]
     current_step = metadata["current_step"]
 
     restart_number = tracker.restart_count + 1
-    persisted_output_count = _persisted_output_count(tracker, did_output, config, geometry)
+    persisted_output_count = _persisted_output_count(tracker, did_output, config, geometry;
+        history_dirs = history_dirs)
     persisted_last_output_time = did_output ? current_time : tracker.last_output_time
     filename = generate_filename(
         config, current_time, current_step, "restart", restart_number; geometry = geometry)
@@ -221,19 +257,23 @@ function write_restart!(fields::Dict{String, Any}, tracker::TimeTracker,
         defVar(ds, "output_count", Int32, ("scalar",))
         defVar(ds, "restart_count", Int32, ("scalar",))
         defVar(ds, "grid_file_written", Int32, ("scalar",))
+        setup_restart_variables!(ds, fields, field_info, config)
+
+        # Leaving define mode is collective for parallel NetCDF. Do it on
+        # every rank before any root-only payload write can fail.
+        NCDatasets.sync(ds)
 
         # Write data
         write_coordinate_data!(ds, field_info, config)
         write_field_data!(ds, fields, config, field_info)
+        write_restart_field_data!(ds, fields, config, field_info)
         write_time_data!(ds, current_time, current_step, config)
 
-        # Restart-specific data (rank 0 only)
-        if rank == 0
-            ds["last_output_time"][1] = config.output_precision(persisted_last_output_time)
-            ds["output_count"][1] = Int32(persisted_output_count)
-            ds["restart_count"][1] = Int32(restart_number)
-            ds["grid_file_written"][1] = Int32(tracker.grid_file_written ? 1 : 0)
-        end
+        # Restart-specific data are root-written but failure is collective, so
+        # every rank either reaches the sync below or aborts before it.
+        _write_restart_tracker_data_collectively!(ds,
+            persisted_last_output_time, persisted_output_count,
+            restart_number, tracker.grid_file_written, config, comm)
 
         # Flush all pending writes before close (critical for restart integrity)
         NCDatasets.sync(ds)
@@ -347,9 +387,10 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
             end
         end
 
-        for component in ["velocity_toroidal", "velocity_poloidal",
+        for component in ("velocity_toroidal", "velocity_poloidal",
             "magnetic_toroidal", "magnetic_poloidal",
-            "temperature_spectral", "composition_spectral"]
+            "temperature_spectral", "composition_spectral",
+            RESTART_HISTORY_SPECTRAL_COMPONENTS...)
             real_name = "$(component)_real"
             imag_name = "$(component)_imag"
 
@@ -382,6 +423,52 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
                     )
                 end
             end
+        end
+
+        for component in RESTART_INNER_CORE_SPECTRAL_COMPONENTS
+            real_name = "$(component)_real"
+            imag_name = "$(component)_imag"
+            if haskey(ds, real_name) && haskey(ds, imag_name)
+                if pencils !== nothing
+                    nr_inner = size(ds[real_name], 2)
+                    r_inner_range = 1:nr_inner
+                    if shtns_config !== nothing
+                        mode_indices = local_spectral_mode_indices(shtns_config)
+                        real_slice = read_local_spectral_coefficients(
+                            ds[real_name], mode_indices, r_inner_range)
+                        imag_slice = read_local_spectral_coefficients(
+                            ds[imag_name], mode_indices, r_inner_range)
+                        real_data, imag_data =
+                            unpack_local_inner_core_spectral_coefficients(
+                                real_slice, imag_slice, shtns_config)
+                        restart_data[component] = Dict(
+                            "real" => real_data,
+                            "imag" => imag_data,
+                        )
+                    else
+                        lm_range, _ = _legacy_linear_spectral_io_ranges(pencils)
+                        restart_data[component] = Dict(
+                            "real" => Array(ds[real_name][lm_range, r_inner_range]),
+                            "imag" => Array(ds[imag_name][lm_range, r_inner_range]),
+                        )
+                    end
+                else
+                    restart_data[component] = Dict(
+                        "real" => Array(ds[real_name][:, :]),
+                        "imag" => Array(ds[imag_name][:, :]),
+                    )
+                end
+            end
+        end
+
+        for profile in RESTART_SOURCE_PROFILES
+            if haskey(ds, profile)
+                restart_data[profile] = Array(ds[profile][:])
+            end
+        end
+        if haskey(ds, "needs_ab2_bootstrap")
+            restart_data["needs_ab2_bootstrap"] =
+                ds["needs_ab2_bootstrap"][1] != 0
         end
     finally
         close(ds)

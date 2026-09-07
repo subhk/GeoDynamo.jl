@@ -225,14 +225,14 @@ function analyze_load_balance(pencil::Pencil)::Float64
     local_size::Tuple{Int, Int, Int} = size_local(pencil)
     local_elements::Int = prod(local_size)
 
-    min_size = MPI.Allreduce(local_elements, MPI.MIN, comm)
-    max_size = MPI.Allreduce(local_elements, MPI.MAX, comm)
-    total_size = MPI.Allreduce(local_elements, MPI.SUM, comm)
+    min_size = global_min(local_elements, comm)
+    max_size = global_max(local_elements, comm)
+    total_size = global_sum(local_elements, comm)
     avg_size = total_size / nprocs
     imbalance = (max_size - min_size) / avg_size * 100
 
-    # Collective: every rank must call MPI.Gather; only root receives the result.
-    all_sizes = MPI.Gather(local_elements, comm; root = 0)
+    # Collective: every rank must call gather_root; only root receives the result.
+    all_sizes = gather_root(local_elements, comm)
 
     if rank == 0
         std_size = std(all_sizes)
@@ -335,7 +335,7 @@ function print_pencil_info(pencils)
         local_range = range_local(pencil)
 
         # Gather info from all ranks
-        all_local_sizes = MPI.Gather(prod(local_size), get_comm(); root = 0)
+        all_local_sizes = gather_root(prod(local_size), get_comm())
 
         if rank == 0
             println("\n Pencil: $name")
@@ -384,7 +384,7 @@ end
 Validate that radial dimension has compatible distribution across all pencils.
 
 # MPI Synchronization Requirement
-The SHTnsKit transforms use MPI.Allreduce inside per-radial-level loops.
+The SHTnsKit transforms use an Allreduce inside per-radial-level loops.
 All processes must have the SAME number of local radial levels, otherwise
 processes will enter/exit the loop at different times causing **MPI DEADLOCK**.
 
@@ -447,7 +447,7 @@ function validate_radial_distribution(pencils; warn_uneven::Bool = true, strict:
             local_r_count = length(local_axes[3])
 
             # Gather counts from all processes
-            all_r_counts = MPI.Allgather(local_r_count, comm)
+            all_r_counts = allgather(local_r_count, comm)
 
             # Check if all counts are equal
             min_count = minimum(all_r_counts)
@@ -470,7 +470,7 @@ function validate_radial_distribution(pencils; warn_uneven::Bool = true, strict:
         MPI processes: $nprocs
 
         This WILL cause MPI deadlock in SHTnsKit transforms because
-        MPI.Allreduce is called inside per-radial-level loops.
+        An Allreduce is called inside per-radial-level loops.
 
         SOLUTION: Ensure nr (radial grid points) is evenly divisible by nprocs.
         For example: if nprocs=4, use nr=64, 128, 256, etc.

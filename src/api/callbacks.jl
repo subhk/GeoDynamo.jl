@@ -243,7 +243,7 @@ function _fire_callback!(cb::HealthCheck, sim)
     # `_health_check` is rank-LOCAL, so `abort` has to be a collective decision:
     # calling error() on only the offending ranks leaves the others in the next
     # collective, which hangs instead of aborting.
-    if _any_rank_flag(r.has_issue)
+    if any_rank(r.has_issue)
         @warn "HealthCheck: non-finite values detected" step=sim.model.clock.iteration time=sim.model.clock.time fields=r.fields
         if cb.abort
             error("HealthCheck: non-finite values detected in fields $(r.fields) " *
@@ -326,27 +326,32 @@ function _callback_registry_signature(callbacks)
     return repr(entries)
 end
 
-"""
-    _validate_callback_registry!(callbacks)
+const _CALLBACK_REGISTRY_MISMATCH =
+    "MPI callback registry mismatch: callback names, order, types, and " *
+    "schedules must be structurally identical on every rank before run!. " *
+    "Register the callback on every rank and put the rank-local test " *
+    "inside its body, rather than registering it on some ranks only."
 
-Require callback names, order, callback types, and schedules to be identical on
-all MPI ranks. Several built-in callbacks contain reductions, so allowing a
-callback to be registered on only some ranks can otherwise deadlock before the
-post-callback running-flag reduction has a chance to reconcile control flow.
 """
-function _validate_callback_registry!(callbacks)
-    MPI.Initialized() || return nothing
-    comm = get_comm()
-    (comm === nothing || MPI.Comm_size(comm) <= 1) && return nothing
+    _freeze_callbacks!(sim) -> nothing
 
-    rank = MPI.Comm_rank(comm)
-    local_signature = _callback_registry_signature(callbacks)
-    root_signature = MPI.bcast(rank == 0 ? local_signature : "", comm; root = 0)
-    mismatch = local_signature != root_signature
-    if _any_rank_flag(mismatch)
-        error("MPI callback registry mismatch: callback names, order, types, and " *
-              "schedules must be structurally identical on every rank before run!.")
-    end
+Collective; every rank must call it together. Validate the callback registry once
+(names, order, callback types, schedules identical on every rank — several built-in
+callbacks contain reductions, so an asymmetric registry deadlocks before the
+post-callback running-flag reduction can reconcile control flow), decide
+collectively whether the per-step stop reduction is needed, and freeze the
+registry. No-op once frozen, so `run!` and every `time_step!` may call it.
+
+`rank == 0 && add_callback!(sim, …)` is rejected even for a callback that enters no
+collective: nothing here can inspect an arbitrary user function for reductions, and
+the safe direction is a loud abort on every rank.
+"""
+function _freeze_callbacks!(sim)
+    reg = sim.callbacks
+    isfrozen(reg) && return nothing
+    validate_and_freeze!(reg, _callback_registry_signature, _CALLBACK_REGISTRY_MISMATCH)
+    # Decided here, where EVERY rank arrives, never from this rank's own registry.
+    sim._stop_needs_reduce = any_rank(_callbacks_may_stop_rank_locally(reg))
     return nothing
 end
 
@@ -393,7 +398,7 @@ function _run_callbacks!(sim)
     # `run!` validates that the registry structure is identical across ranks before
     # entering the loop. Unrecognised entries answer "may stop", so a new callback
     # type reduces until it is explicitly declared symmetric.
-    if _stop_reduce_armed(sim) && _any_rank_flag(!sim.running)
+    if _stop_reduce_armed(sim) && any_rank(!sim.running)
         sim.running = false
     end
     return nothing

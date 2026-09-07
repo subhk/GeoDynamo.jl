@@ -78,12 +78,18 @@ function get_solver_erk2_field_buffers!(
 end
 
 """
-    prepare_solver_erk2_field!(buffers, u, nl, cache, config, dt; bc_spec=nothing)
+    prepare_solver_erk2_field!(buffers, u, nl, cache, config, dt;
+                               bc_spec=nothing, nonlinear_scale=1)
 
 Prepare the first ERK2 stage for one field.
 
 This computes the full-step linear term, the first nonlinear increment, and
 the half-step provisional state used for recomputing nonlinear terms.
+
+`nonlinear_scale` converts a raw right-hand side to the divided evolution
+equation when its time derivative has a non-unit mass coefficient.  The raw
+nonlinear data remain in `buffers.n_current_*` so they can be restored after
+the staged evaluation.
 """
 function prepare_solver_erk2_field!(
         buffers::SolverERK2FieldBuffers{T},
@@ -92,7 +98,8 @@ function prepare_solver_erk2_field!(
         cache::ERK2StageCache{T},
         config::SHTnsConfigType,
         dt::Float64;
-        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
+        nonlinear_scale::Real = one(T)
 ) where {T}
     cache.use_krylov &&
         error("Krylov-based ERK2 caches are not supported in staged integration")
@@ -104,6 +111,7 @@ function prepare_solver_erk2_field!(
 
     copyto!(buffers.n_current_real, nl_real)
     copyto!(buffers.n_current_imag, nl_imag)
+    nl_scale = T(nonlinear_scale)
 
     r_range = local_range(u.pencil, 3)
 
@@ -155,6 +163,8 @@ function prepare_solver_erk2_field!(
             slot,
             r_range
         )
+        @. nr_vec = nl_scale * nr_vec
+        @. ni_vec = nl_scale * ni_vec
 
         # Real component
         LA.mul!(linear_tmp, E_full, ur)
@@ -213,7 +223,8 @@ function prepare_solver_erk2_field!(
 end
 
 """
-    GeoDynamo.erk2_prepare_field!(buffers, u, nl, cache, config, dt; bc_spec=nothing)
+    GeoDynamo.erk2_prepare_field!(buffers, u, nl, cache, config, dt;
+                                  bc_spec=nothing, nonlinear_scale=1)
 
 Public wrapper for preparing the provisional ERK2 stage for one field.
 """
@@ -224,7 +235,8 @@ function GeoDynamo.erk2_prepare_field!(
         cache::GeoDynamo.ERK2Cache{T},
         config::SHTnsConfigType,
         dt::Float64;
-        bc_spec::Union{Nothing, GeoDynamo.ERK2BoundarySpec{T}} = nothing
+        bc_spec::Union{Nothing, GeoDynamo.ERK2BoundarySpec{T}} = nothing,
+        nonlinear_scale::Real = one(T)
 ) where {T}
     return prepare_solver_erk2_field!(
         buffers,
@@ -233,7 +245,8 @@ function GeoDynamo.erk2_prepare_field!(
         cache,
         config,
         dt;
-        bc_spec
+        bc_spec,
+        nonlinear_scale
     )
 end
 
@@ -290,7 +303,8 @@ function GeoDynamo.erk2_store_stage_nonlinear!(
 end
 
 """
-    finalize_solver_erk2_field!(buffers, u, cache, config, dt; bc_spec=nothing)
+    finalize_solver_erk2_field!(buffers, u, cache, config, dt;
+                                bc_spec=nothing, nonlinear_scale=1)
 
 Write the accepted ERK2 update back into `u`.
 
@@ -303,7 +317,8 @@ function finalize_solver_erk2_field!(
         cache::ERK2StageCache{T},
         config::SHTnsConfigType,
         dt::Float64;
-        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing
+        bc_spec::Union{SolverERK2BoundarySpec{T}, Nothing} = nothing,
+        nonlinear_scale::Real = one(T)
 ) where {T}
     cache.use_krylov &&
         error("Krylov-based ERK2 caches are not supported in staged integration")
@@ -320,6 +335,7 @@ function finalize_solver_erk2_field!(
     result_real_profile = buffers._ws[5], buffers._ws[6], buffers._ws[7], buffers._ws[8]
 
     nlm_total = u.nlm
+    nl_scale = T(nonlinear_scale)
 
     # Per-mode finalize on the owning rank only. The inputs (linear, k1, N_n, stage
     # N) are owner-local per-mode radial profiles (the spectral pencil keeps the
@@ -345,8 +361,7 @@ function finalize_solver_erk2_field!(
         gather_local_radial_profile!(
             tmp_Nn, tmp_stage, buffers.n_current_real, buffers.stage_nl_real, slot, r_range)
 
-        delta .= tmp_stage
-        @. delta = delta - tmp_Nn
+        @. delta = nl_scale * (tmp_stage - tmp_Nn)
         LA.mul!(correction, phi2, delta)
         @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
         if bc_spec !== nothing
@@ -372,8 +387,7 @@ function finalize_solver_erk2_field!(
         gather_local_radial_profile!(
             tmp_Nn, tmp_stage, buffers.n_current_imag, buffers.stage_nl_imag, slot, r_range)
 
-        delta .= tmp_stage
-        @. delta = delta - tmp_Nn
+        @. delta = nl_scale * (tmp_stage - tmp_Nn)
         LA.mul!(correction, phi2, delta)
         @. result = tmp_linear + dt * tmp_k1 + T(2) * dt * correction
         if bc_spec !== nothing
@@ -401,7 +415,8 @@ function finalize_solver_erk2_field!(
 end
 
 """
-    GeoDynamo.erk2_finalize_field!(buffers, u, cache, config, dt; bc_spec=nothing)
+    GeoDynamo.erk2_finalize_field!(buffers, u, cache, config, dt;
+                                   bc_spec=nothing, nonlinear_scale=1)
 
 Public wrapper for writing the accepted ERK2 update back into a field.
 """
@@ -411,7 +426,8 @@ function GeoDynamo.erk2_finalize_field!(
         cache::GeoDynamo.ERK2Cache{T},
         config::SHTnsConfigType,
         dt::Float64;
-        bc_spec::Union{Nothing, GeoDynamo.ERK2BoundarySpec{T}} = nothing
+        bc_spec::Union{Nothing, GeoDynamo.ERK2BoundarySpec{T}} = nothing,
+        nonlinear_scale::Real = one(T)
 ) where {T}
     return finalize_solver_erk2_field!(
         buffers,
@@ -419,7 +435,8 @@ function GeoDynamo.erk2_finalize_field!(
         cache,
         config,
         dt;
-        bc_spec
+        bc_spec,
+        nonlinear_scale
     )
 end
 
@@ -669,10 +686,14 @@ function integrate_solver_erk2_step!(state::SolverState{
         bc_spec = temp_bc
     )
 
+    # Ek·∂ₜT = Ek·ΔT + N_T.  ERK2 advances the divided equation,
+    # ∂ₜT = ΔT + N_T/Ek, so its propagator has unit diffusivity and both
+    # nonlinear stages use inv(Ek).  (CNAB2 retains Ek as a mass coefficient.)
+    velocity_toroidal_nonlinear_scale = inv(params.Ek)
     vel_tor_cache = get_solver_erk2_cache!(
         state.timestep_caches,
         :velocity_toroidal,
-        params.Ek,
+        1.0,
         T,
         runtime.shtns_config,
         runtime.outer_core_domain,
@@ -694,7 +715,8 @@ function integrate_solver_erk2_step!(state::SolverState{
         vel_tor_cache,
         runtime.shtns_config,
         params.timestep;
-        bc_spec = vel_tor_bc
+        bc_spec = vel_tor_bc,
+        nonlinear_scale = velocity_toroidal_nonlinear_scale
     )
 
     vel_pol_cache = get_solver_erk2_cache!(
@@ -904,7 +926,8 @@ function integrate_solver_erk2_step!(state::SolverState{
         vel_tor_cache,
         runtime.shtns_config,
         params.timestep;
-        bc_spec = vel_tor_bc
+        bc_spec = vel_tor_bc,
+        nonlinear_scale = velocity_toroidal_nonlinear_scale
     )
     finalize_solver_erk2_field!(
         vel_pol_buffers,

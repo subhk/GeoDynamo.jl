@@ -177,6 +177,18 @@ function _parameter_errors_warnings(params::SolverParameters)
     if params.magnetic_inner_bc === :conducting_inner_core && params.geometry !== :shell
         push!(errors, "magnetic_inner_bc=:conducting_inner_core requires geometry=:shell")
     end
+    if params.magnetic_inner_bc === :conducting_inner_core &&
+       params.geometry === :shell && params.nr_inner < 3
+        push!(errors,
+            "magnetic_inner_bc=:conducting_inner_core requires nr_inner >= 3 " *
+            "(got $(params.nr_inner))")
+    end
+
+    if params.stefan_enabled
+        push!(errors,
+            "stefan_enabled=true is not supported: ICB evolution is not implemented " *
+            "in the active solver path")
+    end
 
     if params.lmax < 1
         push!(errors, "lmax = $(params.lmax) must be >= 1")
@@ -381,7 +393,13 @@ function safe_parse_value(value_str::AbstractString, param_dict::Dict{Symbol, An
     end
 
     if startswith(s, '"') && endswith(s, '"')
-        return s[2:(end - 1)]
+        # `save_parameters` emits strings with `repr`, including escaped quotes,
+        # slashes, control characters, and interpolation markers. Parsing a
+        # literal decodes those escapes without evaluating any expression.
+        literal = Meta.parse(s)
+        literal isa AbstractString || throw(ArgumentError(
+            "Unsupported interpolated string in parameter file"))
+        return String(literal)
     end
 
     int_val = tryparse(Int, s)
@@ -462,6 +480,31 @@ end
 
 const _LEGACY_PARAM_ALIASES = Dict{Symbol, Symbol}(:max_steps => :stop_iteration)
 
+function _strip_parameter_comment(value::AbstractString)
+    in_string = false
+    escaped = false
+
+    for index in eachindex(value)
+        char = value[index]
+        if in_string
+            if escaped
+                escaped = false
+            elseif char == '\\'
+                escaped = true
+            elseif char == '"'
+                in_string = false
+            end
+        elseif char == '"'
+            in_string = true
+        elseif char == '#'
+            index == firstindex(value) && return ""
+            return strip(SubString(value, firstindex(value), prevind(value, index)))
+        end
+    end
+
+    return strip(value)
+end
+
 function _parameter_assignments_from_file(config_file::String)
     param_dict = Dict{Symbol, Any}()
     content = read(config_file, String)
@@ -471,11 +514,11 @@ function _parameter_assignments_from_file(config_file::String)
         isempty(line) && continue
         startswith(line, "#") && continue
 
-        match_result = match(r"^(?:const\s+)?([A-Za-z]\w*)\s*=\s*([^#]+)", line)
+        match_result = match(r"^(?:const\s+)?([A-Za-z]\w*)\s*=\s*(.*)$", line)
         match_result === nothing && continue
 
         param_name = Symbol(match_result.captures[1])
-        param_value_str = strip(match_result.captures[2])
+        param_value_str = _strip_parameter_comment(match_result.captures[2])
 
         if haskey(_LEGACY_PARAM_ALIASES, param_name)
             new_name = _LEGACY_PARAM_ALIASES[param_name]

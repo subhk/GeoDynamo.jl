@@ -153,15 +153,10 @@ one carries `true`; seeding a fresh `FieldWriter(new_dir)` with it made
 this via `_existing_writer_count`; the flag needs the same directory truth.
 """
 function _existing_grid_file(path::String, geometry::Symbol)
-    comm = MPI.Initialized() ? get_comm() : nothing
-    rank = comm === nothing ? 0 : MPI.Comm_rank(comm)
-    present = rank == 0 && isfile(joinpath(path, "geodynamo_$(geometry)_grid.nc"))
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        buffer = Int[present ? 1 : 0]
-        MPI.Bcast!(buffer, 0, comm)
-        present = buffer[1] != 0
+    comm = _default_comm()
+    return root_value(comm, "Checking for an existing grid file in '$path'") do
+        isfile(joinpath(path, "geodynamo_$(geometry)_grid.nc"))
     end
-    return present
 end
 
 function _restore_output_writer_tracker!(
@@ -196,7 +191,77 @@ end
 
 _restore_output_writer_tracker!(writer, restored::TimeTracker, geometry::Symbol) = nothing
 
+"""
+    _output_writer_registry_signature(writers) -> String
+
+Return a deterministic description of the output-writer registry's COLLECTIVE
+structure: names, order, writer types, destinations, and schedules.
+
+Everything in it decides how many collectives the registry enters. Paths are part
+of the signature because the scans are per-path; schedules are, because
+`_run_output_writers!` gates the collective `write_fields!`/`write_restart!` on
+`should_fire`. Writer types this module does not know issue no collectives of their
+own, so only their type is pinned.
+"""
+_output_writer_registry_entry(ow::FieldWriter) =
+    (string(typeof(ow)), ow.path, Tuple(ow.fields),
+        _schedule_registry_signature(ow.schedule))
+_output_writer_registry_entry(ow::CheckpointWriter) =
+    (string(typeof(ow)), ow.path, _schedule_registry_signature(ow.schedule))
+_output_writer_registry_entry(ow) = (string(typeof(ow)),)
+
+function _output_writer_registry_signature(writers)
+    entries = [(name, _output_writer_registry_entry(ow)) for (name, ow) in pairs(writers)]
+    return repr(entries)
+end
+
+const _OUTPUT_WRITER_REGISTRY_MISMATCH =
+    "MPI output-writer registry mismatch: writer names, order, types, " *
+    "paths, and schedules must be structurally identical on every rank. " *
+    "Construct the same writers everywhere and keep any rank-local " *
+    "decision inside the writer's schedule, not in the registry."
+
+"""
+    _freeze_output_writers!(reg) -> reg
+
+Collective; every rank must call it together. Validate the writer registry once
+and freeze it. `_restore_output_writer_tracker!` enters three collectives per
+FieldWriter/CheckpointWriter and none for other writer types, and
+`write_fields!`/`write_restart!` are collective, so
+`output_writers = rank == 0 ? (snap = FieldWriter(dir; …),) : NamedTuple()` — a
+natural, and wrong, MPI idiom — must abort on every rank instead of hanging.
+"""
+_freeze_output_writers!(reg::CollectiveRegistry{:writer}) =
+    validate_and_freeze!(reg, _output_writer_registry_signature,
+        _OUTPUT_WRITER_REGISTRY_MISMATCH)
+
+"""
+    _history_output_dirs(writers) -> Tuple{Vararg{String}}
+
+The distinct directories the run's `FieldWriter`s emit history files into, in
+registry order.
+
+A `CheckpointWriter` writes its restart file through a config whose `output_dir` is
+the CHECKPOINT directory, so the history count persisted with it
+(`_persisted_output_count`, io/restart.jl) has to be told where the history files
+actually live. Empty when the run has no `FieldWriter`, which means "fall back to the
+caller's own directory".
+
+The result is identical on every rank because `_freeze_output_writers!` pinned
+the paths at construction, which matters: the count of collectives the scan enters is its length.
+"""
+function _history_output_dirs(writers)
+    dirs = String[]
+    for ow in values(writers)
+        ow isa FieldWriter || continue
+        ow.path in dirs || push!(dirs, ow.path)
+    end
+    return Tuple(dirs)
+end
+
 function _restore_output_writer_trackers!(writers, restored::TimeTracker, geometry::Symbol)
+    # The loop below enters a rank-dependent number of collectives; the registry
+    # reaching it was validated and frozen by the `Simulation` constructor.
     for writer in values(writers)
         _restore_output_writer_tracker!(writer, restored, geometry)
     end
@@ -343,6 +408,7 @@ function _run_output_writer!(ow::CheckpointWriter, sim, ctx::_ScheduleContext)
         fields = extract_all_fields(state)
         write_restart!(fields, tracker, metadata, config,
             state.runtime.shtns_config.pencils;
+            history_dirs = _history_output_dirs(sim.output_writers),
             shtns_config = state.runtime.shtns_config,
             geometry = state.parameters.geometry,
             radius_ratio = state.parameters.radius_ratio,
@@ -374,7 +440,7 @@ current simulation state, and fires each writer whose schedule returns `true`.
 function _run_output_writers!(sim)
     # `write_fields!`/`write_restart!` are COLLECTIVE, and `should_fire` gates them
     # (line ~110). A WallTimeInterval read from each rank's own clock can answer
-    # differently on the same step, putting one rank inside the write's MPI.Bcast!
+    # differently on the same step, putting one rank inside the write's broadcast
     # while another steps on — the deadlock `write_fields!`'s docstring warns about.
     # `_collective_wtime` broadcasts rank 0's elapsed time so the gate is unanimous.
     wtime = _collective_wtime(sim)

@@ -1067,7 +1067,7 @@ function compute_kinetic_energy(𝒰::SHTnsVelocityFields{T}, outer_core_domain:
     end
 
     # Global sum
-    return 0.5 * MPI.Allreduce(local_energy, MPI.SUM, get_comm())
+    return 0.5 * global_sum(local_energy)
 end
 
 """
@@ -1122,13 +1122,13 @@ function compute_reynolds_stress(𝒰::SHTnsVelocityFields{T}) where {T}
         end
     end
 
-    global_weight = MPI.Allreduce(local_weight, MPI.SUM, get_comm())
-    R_rr = MPI.Allreduce(local_rr, MPI.SUM, get_comm()) / global_weight
-    R_θθ = MPI.Allreduce(local_θθ, MPI.SUM, get_comm()) / global_weight
-    R_φφ = MPI.Allreduce(local_φφ, MPI.SUM, get_comm()) / global_weight
-    R_rθ = MPI.Allreduce(local_rθ, MPI.SUM, get_comm()) / global_weight
-    R_rφ = MPI.Allreduce(local_rφ, MPI.SUM, get_comm()) / global_weight
-    R_θφ = MPI.Allreduce(local_θφ, MPI.SUM, get_comm()) / global_weight
+    global_weight = global_sum(local_weight)
+    R_rr = global_sum(local_rr) / global_weight
+    R_θθ = global_sum(local_θθ) / global_weight
+    R_φφ = global_sum(local_φφ) / global_weight
+    R_rθ = global_sum(local_rθ) / global_weight
+    R_rφ = global_sum(local_rφ) / global_weight
+    R_θφ = global_sum(local_θφ) / global_weight
 
     return (R_rr, R_θθ, R_φφ, R_rθ, R_rφ, R_θφ)
 end

@@ -57,6 +57,7 @@ function get_nprocs()
     return MPI_STATE.nprocs
 end
 
+
 """
     rank_seed(seed, rank = get_rank())
 

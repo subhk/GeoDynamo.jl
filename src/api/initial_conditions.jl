@@ -107,8 +107,8 @@ end
 """
     ZeroIC()
 
-Leave the field at its default (zero) initial state.  This is a no-op: after
-`initialize_solver_state` all fields are already zero-initialized.
+Set the selected field, its physical representation, and its time-integration
+history to zero.
 """
 struct ZeroIC end
 
@@ -167,6 +167,10 @@ set_initial_condition!(model, :temperature, (r, θ, φ) -> 1 - r)
 ```
 """
 function set_initial_condition!(model::GeodynamoModel, field::Symbol, ic)
+    # Validate the field before whole-state initialization. In particular, an
+    # invalid ZeroIC request must not initialize/mutate the model before failing.
+    _get_field(model, field)
+
     # `is_initialized` is a WHOLE-STATE flag: once set, solver_step! skips
     # initialize_solver_fields! (`state.is_initialized || ...`,
     # solver/mainloop.jl) for EVERY field family, not just this one. Setting it
@@ -269,13 +273,84 @@ end
 
 # --- ZeroIC --------------------------------------------------------------------
 #
-# Fields are zero-initialised by `initialize_solver_state`, so this is a no-op.
+
+@inline function _zero_ic_spectral!(field)
+    fill!(parent(field.data_real), zero(eltype(parent(field.data_real))))
+    fill!(parent(field.data_imag), zero(eltype(parent(field.data_imag))))
+    return field
+end
+
+@inline function _zero_ic_physical!(field)
+    fill!(parent(field.data), zero(eltype(parent(field.data))))
+    return field
+end
+
+@inline function _zero_ic_vector!(field)
+    _zero_ic_physical!(field.r_component)
+    _zero_ic_physical!(field.θ_component)
+    _zero_ic_physical!(field.φ_component)
+    return field
+end
+
+function _zero_ic_scalar_state!(field)
+    for spectral in (field.spectral, field.nonlinear, field.prev_nonlinear,
+                     field.work_spectral)
+        _zero_ic_spectral!(spectral)
+    end
+    _zero_ic_physical!(get_main_physical_field(field))
+    _zero_ic_physical!(field.work_physical)
+    _zero_ic_physical!(field.advection_physical)
+    _zero_ic_vector!(field.gradient)
+    return field
+end
+
+function _zero_ic_velocity_state!(field)
+    for spectral in (field.toroidal, field.poloidal, field.ζᵀ, field.ζᴾ,
+                     field.nl_toroidal, field.nl_poloidal,
+                     field.prev_nl_toroidal, field.prev_nl_poloidal,
+                     field.work_tor, field.work_pol)
+        _zero_ic_spectral!(spectral)
+    end
+    for physical in (field.velocity, field.vorticity,
+                     field.work_physical, field.advection_physical)
+        _zero_ic_vector!(physical)
+    end
+    return field
+end
+
+function _zero_ic_magnetic_state!(field)
+    for spectral in (field.toroidal, field.poloidal,
+                     field.toroidal_ic, field.poloidal_ic,
+                     field.nl_toroidal, field.nl_poloidal,
+                     field.prev_nl_toroidal, field.prev_nl_poloidal,
+                     field.work_tor, field.work_pol)
+        _zero_ic_spectral!(spectral)
+    end
+    for physical in (field.magnetic, field.current,
+                     field.work_physical, field.induction_physical)
+        _zero_ic_vector!(physical)
+    end
+    return field
+end
 
 function _apply_initial_condition!(
         model::GeodynamoModel,
         field::Symbol,
         ::ZeroIC
 )
+    target = _get_field(model, field)
+    if field === :temperature || field === :composition
+        _zero_ic_scalar_state!(target)
+    elseif field === :velocity
+        _zero_ic_velocity_state!(target)
+    else
+        _zero_ic_magnetic_state!(target)
+    end
+    # The previous nonlinear history of this family is now zero. A two-step
+    # scheme that has already run (`needs_ab2_bootstrap == false`) would
+    # extrapolate 1.5*N^n - 0.5*0 on the next step; ask for a fresh bootstrap
+    # instead, exactly as a checkpoint without history does.
+    model.state.runtime.timestep_state.needs_ab2_bootstrap = true
     return model
 end
 

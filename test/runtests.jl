@@ -8,6 +8,7 @@ include(joinpath(@__DIR__, "magnetic_boundary_static_checks.jl"))
 include(joinpath(@__DIR__, "scalar_boundary_shared_static_checks.jl"))
 include(joinpath(@__DIR__, "temperature_boundary_static_checks.jl"))
 include(joinpath(@__DIR__, "composition_boundary_static_checks.jl"))
+include(joinpath(@__DIR__, "mpi_collective_static_checks.jl"))
 using GeoDynamo
 
 const TEST_DIR = @__DIR__
@@ -319,6 +320,21 @@ additional_tests = (
     # runs via test/run_mpi_control_plane.sh.
     "code_review_batchG_fixes.jl",
     "code_review_batchG_solver_fixes.jl",
+    # 2026-09-04 branch review: output-writer registry collectives, checkpoint
+    # history bookkeeping, element-wise topography rebase, lock-free cross-Gaunt
+    # cache hits. The multi-rank half runs via test/run_mpi_control_plane.sh.
+    "code_review_20260904_fixes.jl",
+    # 2026-09-05 review of the same branch: legacy checkpoints without history
+    # keys, ZeroIC re-arming the AB2 bootstrap, atomic cross-Gaunt view swap.
+    "code_review_20260905_fixes.jl",
+    # Collective discipline: serial contracts of parallel/collectives.jl and
+    # api/registry.jl. Multi-rank half: test/run_mpi_control_plane.sh.
+    "collectives_and_registry.jl",
+    # Observed temporal order of accuracy, end to end. Nothing else in the suite
+    # measures the convergence RATE: the erk2_*/cb3_* files check kernels and caches
+    # in isolation, and the parity files check that two schemes agree — both are
+    # consistent with a scheme converging at the wrong order.
+    "timestepper_temporal_order.jl",
 )
 
 previous_setting = haskey(ENV, MPI_FINALIZE_KEY) ? ENV[MPI_FINALIZE_KEY] : nothing

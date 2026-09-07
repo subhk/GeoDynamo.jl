@@ -337,11 +337,11 @@ end
 Ensure all pending PencilFFTs operations are completed and data is consistent across processes.
 """
 function synchronize_pencil_transforms!(field::SHTnsSpecField{T}) where {T}
-    # NOTE: MPI.Barrier only ensures all ranks reach this point; it does NOT
+    # NOTE: a barrier only ensures all ranks reach this point; it does NOT
     # flush pending non-blocking communications. PencilFFTs operations should
     # be fully blocking by the time this is called. If async operations are
     # introduced in the future, replace this with proper completion (MPI.Waitall).
-    MPI.Barrier(get_comm())
+    barrier(get_comm())
     return field
 end
 

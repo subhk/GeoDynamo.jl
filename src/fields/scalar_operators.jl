@@ -291,7 +291,6 @@ function compute_theta_gradient_spectral!(𝔽::AbstractScalarField{T}, ws::Grad
     # MPI setup: theta gradient couples (l,m) with (l±1,m) which may reside
     # on different MPI ranks. Gather full spectral data via Allreduce.
     comm = get_comm()
-    multi = MPI.Initialized() && MPI.Comm_size(comm) > 1
 
     # Reuse the pre-allocated workspace buffers for gathering across ranks
     # (refilled per radial level below) instead of allocating per call.
@@ -317,10 +316,8 @@ function compute_theta_gradient_spectral!(𝔽::AbstractScalarField{T}, ws::Grad
                 end
             end
         end
-        if multi
-            MPI.Allreduce!(full_real, MPI.SUM, comm)
-            MPI.Allreduce!(full_imag, MPI.SUM, comm)
-        end
+        global_sum!(full_real, comm)
+        global_sum!(full_imag, comm)
 
         # Compute theta gradient using gathered full spectral data
         for lm_idx in lm_range

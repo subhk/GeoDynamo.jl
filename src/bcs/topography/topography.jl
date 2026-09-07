@@ -34,6 +34,7 @@ import ..bcs: BoundaryLocation, INNER_BOUNDARY, OUTER_BOUNDARY
 import ..bcs: BoundaryType, DIRICHLET, NEUMANN
 import ..bcs: FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC
 import ..bcs: get_rank, get_comm
+import ...global_sum!   # GeoDynamo.parallel/collectives.jl (grandparent module)
 import ..bcs: shtns_spectral_to_physical
 # The corrections below must land in whichever boundary-value arrays the implicit
 # solve actually reads — the interpolation cache wins once a spectral BC file is
@@ -102,11 +103,6 @@ BoundaryValueBase(target::WeakRef, snapshot::A) where {A <: AbstractMatrix} =
 const _BOUNDARY_VALUE_BASE = Dict{UInt, BoundaryValueBase}()
 const _BOUNDARY_VALUE_BASE_LOCK = ReentrantLock()
 
-@inline function _restore_boundary_to_base!(bv, entry::BoundaryValueBase)
-    copyto!(bv, entry.snapshot)
-    return bv
-end
-
 function _prune_boundary_value_base_cache!()
     filter!(entry -> entry.second.target.value !== nothing, _BOUNDARY_VALUE_BASE)
     return nothing
@@ -147,14 +143,56 @@ function reset_boundary_to_base!(bv::AbstractMatrix)
             entry
         end
     end
-    # Roll back only OUR own correction. If the array no longer matches what the last
-    # correction left, some other owner has written to it since — that write is the
-    # new base, not something to undo.
-    if entry.applied !== nothing && bv == entry.applied
-        _restore_boundary_to_base!(bv, entry)
-    else
+    # Roll back only OUR own correction, element by element: wherever the array no
+    # longer holds what the last correction left, some other owner has written since,
+    # and that write is the new base rather than something to undo. Before the first
+    # correction, or across a reshape, there is nothing to attribute — take the array
+    # as it stands.
+    if entry.applied === nothing || !_rebasable(bv, entry)
         entry.snapshot = copy(bv)
         entry.applied = nothing
+    else
+        _rebase_boundary_to_base!(bv, entry)
+        entry.applied = nothing
+    end
+    return bv
+end
+
+"""Whether `entry` still describes an array shaped like `bv`, so it can be rebased."""
+@inline _rebasable(bv, entry::BoundaryValueBase) =
+    entry.applied !== nothing &&
+    axes(bv) == axes(entry.applied) && axes(bv) == axes(entry.snapshot)
+
+"""
+    _rebase_boundary_to_base!(bv, entry)
+
+Undo the topography correction ELEMENT BY ELEMENT.
+
+A whole-array `bv == entry.applied` answered "someone else wrote here" in two cases
+where nobody did:
+
+  * any element is `NaN`, because `NaN != NaN`. A correction that legitimately
+    produced a `NaN` therefore never rolled back.
+  * another owner rewrote only PART of the array — which is the shape that actually
+    occurs: `apply_temperature_boundaries!`/`apply_composition_boundaries!`
+    (bcs/integration.jl) write `1:min(length(coeffs), nlm)` of the real array and
+    never the imaginary one.
+
+In both cases the CORRECTED array became the new base, so the next pass added a
+second correction on top of the first — the compounding this base/snapshot
+mechanism exists to prevent. Deciding per element keeps a foreign write (new base)
+and rolls back everything the correction still owns; `isequal` makes `NaN` compare
+equal to itself.
+"""
+function _rebase_boundary_to_base!(bv, entry::BoundaryValueBase)
+    applied = something(entry.applied)   # `_rebasable` already ruled out `nothing`
+    snapshot = entry.snapshot
+    @inbounds for i in eachindex(bv, applied, snapshot)
+        if isequal(bv[i], applied[i])
+            bv[i] = snapshot[i]     # still our correction: undo it
+        else
+            snapshot[i] = bv[i]     # a foreign write: it is the new base
+        end
     end
     return bv
 end
@@ -370,6 +408,7 @@ export enable_topography!, disable_topography!, is_topography_enabled
 export GauntTensorCache
 export compute_gaunt_tensor, compute_gradient_gaunt_tensor, compute_cross_gaunt_tensor
 export precompute_gaunt_tensors!, get_gaunt_tensor, get_gradient_gaunt, get_cross_gaunt
+export flush_cross_gaunt_view!
 export gaunt_on_the_fly, gradient_gaunt_from_basic
 export evaluate_spherical_harmonics_grid, evaluate_spherical_harmonic_gradient_grid
 
@@ -450,6 +489,12 @@ function apply_all_topography_corrections!(fields, topography;
     if config.thermal_coupling && _field_present(fields, :composition)
         apply_composition_topography_correction!(fields.composition, topography, config)
     end
+
+    # Lazy cross-Gaunt insertions publish geometrically while the correction loops
+    # run. Publish the below-threshold tail once, at the full correction-pass batch
+    # boundary, so the next pass serves every accumulated hit without the write lock.
+    topography.gaunt_cache === nothing ||
+        flush_cross_gaunt_view!(topography.gaunt_cache)
 
     return nothing
 end

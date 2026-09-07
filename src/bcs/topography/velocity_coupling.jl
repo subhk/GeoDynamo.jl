@@ -531,10 +531,8 @@ function get_spectral_radial_derivative(field, l::Int, m::Int, r,
         data_real, data_imag, slot, r_range)
 
     comm = get_comm()
-    if comm !== nothing && MPI.Comm_size(comm) > 1
-        MPI.Allreduce!(profile_real, MPI.SUM, comm)
-        MPI.Allreduce!(profile_imag, MPI.SUM, comm)
-    end
+    global_sum!(profile_real, comm)
+    global_sum!(profile_imag, comm)
 
     dprofile_real = zeros(T, nr)
     dprofile_imag = zeros(T, nr)
