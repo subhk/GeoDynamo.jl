@@ -107,7 +107,7 @@ function _build_geodynamo_model(
     # `GPU(CUDABackend())`) is preserved end-to-end instead of being flattened
     # to `arch_sym` and rebuilt lossily as `GPU(nothing)`.
     state = initialize_solver_state(T; params = params, arch = grid.arch)
-    clock = Clock{T}(T(state.time), state.step, 0, zero(T))
+    clock = Clock{T}(state.runtime.timestep_state)
     model = GeodynamoModel{T, typeof(state.backend.architecture), typeof(grid)}(state, grid, clock)
     if !isnothing(initial_conditions)
         for (field_sym, ic) in pairs(initial_conditions)

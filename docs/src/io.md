@@ -283,6 +283,11 @@ Restart files include:
 - All field data (same as history files)
 - Tracker state (`last_output_time`, `output_count`, etc.)
 - `grid_file_written` flag for consistency
+- Nonlinear history, source profiles, `needs_ab2_bootstrap`, and `previous_dt`
+  when written from a solver state. `previous_dt` records the interval associated
+  with the stored nonlinear samples, so a restart can continue with a different
+  timestep. Older checkpoints without a complete history still load and rebuild
+  that history on the next step.
 
 ### Reading Restarts
 

@@ -89,9 +89,8 @@ const FINALIZE_MPI_DIAGNOSTICS = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true")
         state = GeoDynamo.initialize_simulation(Float64, tiny_params)
         GeoDynamo.initialize_fields!(state)
 
-        # Diagnostics elsewhere already use runtime.timestep_state.step. This
-        # check should follow the same source of truth even if state.step has not
-        # been synchronized yet.
+        # Both public and runtime writes update the same integration counter;
+        # diagnostics must observe the most recent value.
         state.step = 1
         state.runtime.timestep_state.step = 2
         parent(state.fields.velocity.toroidal.data_real)[1, 1, 1] = NaN

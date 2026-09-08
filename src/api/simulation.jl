@@ -32,7 +32,7 @@ mutable struct Simulation{M, C, O}
     _gpu_src::NTuple{2, Union{Vector{Float64}, Nothing}}
     # Host-side copies of the scalar boundary ENDPOINT values baked into `_gpu_state`
     # (temperature, composition), for the same reason as `_gpu_src`: the bundle copies
-    # them at pack time and is rebuilt only on a Δt change, so a programmatic BC write
+    # them at pack time and reuses them across steps, so a programmatic BC write
     # mid-run would otherwise keep being integrated against the old wall values.
     _gpu_bc::NTuple{2, Union{Matrix{Float64}, Nothing}}
     # Whether `_run_callbacks!` must reduce the `running` flag across ranks each
@@ -142,20 +142,24 @@ function _commit_run_controls!(model, new_params, dt_f, old_timestep, finalize_t
     previous_params = state.parameters
     previous_matrices = state.implicit_matrices
     previous_admittance = state.magnetic_ic_admittance
+    previous_caches = state.timestep_caches
     previous_dt = state.runtime.timestep_state.dt
+    previous_bootstrap = state.runtime.timestep_state.needs_ab2_bootstrap
 
     state.parameters = new_params
     try
-        if dt_f != old_timestep
-            rebuild_solver_implicit_matrices!(state, dt_f)
-            state.runtime.timestep_state.dt = dt_f
+        ensure_solver_operators!(state, dt_f)
+        if typeof(new_params.timestepper) !== typeof(previous_params.timestepper)
+            state.runtime.timestep_state.needs_ab2_bootstrap = true
         end
         finalize_tail()
     catch
         state.parameters = previous_params
         state.implicit_matrices = previous_matrices
         state.magnetic_ic_admittance = previous_admittance
+        state.timestep_caches = previous_caches
         state.runtime.timestep_state.dt = previous_dt
+        state.runtime.timestep_state.needs_ab2_bootstrap = previous_bootstrap
         rethrow()
     end
     return nothing
@@ -279,6 +283,8 @@ function Simulation(model::GeodynamoModel;
     gpu_sync in (:every, :output) || throw(ArgumentError(
         "Simulation: gpu_sync must be :every or :output (got $gpu_sync)"))
     gpu_resolved = _resolve_gpu_stepping(gpu, model, timestep_options.timestepper)
+
+    prepare_solver_host_update!(model.state)
 
     restored_output_tracker = nothing
     if !isempty(restart_from)
@@ -428,6 +434,7 @@ function time_step!(model::GeodynamoModel, dt::Real)
     dt_f = Float64(dt)
     isfinite(dt_f) && dt_f > 0 ||
         throw(ArgumentError("time_step!: dt = $dt must be finite and positive"))
+    prepare_solver_host_update!(state)
     if dt_f != state.parameters.timestep
         p = state.parameters
         new_params = SolverParameters(;
@@ -437,8 +444,6 @@ function time_step!(model::GeodynamoModel, dt::Real)
         _commit_run_controls!(model, new_params, dt_f, p.timestep, () -> nothing)
     end
     solver_step!(state)
-    sync_clock!(model.clock, state)
-    model.clock.last_dt = dt_f
     return model
 end
 
@@ -478,6 +483,7 @@ end
 function _gpu_time_step!(sim::Simulation)
     model = sim.model
     state = model.state
+    ensure_solver_operators!(state)
     if sim._gpu_state === nothing || sim._gpu_dt != sim.dt
         # The bootstrap step below runs on the HOST state, so under
         # gpu_sync = :output the device must be mirrored back first — otherwise
@@ -497,20 +503,15 @@ function _gpu_time_step!(sim::Simulation)
         sim._gpu_dt = sim.dt
         sim._gpu_src = _gpu_source_snapshot(state)
         sim._gpu_bc = _gpu_bc_snapshot(state)
+        state.timestep_caches.gpu_owner = WeakRef(sim)
         return sim
     end
     # The bundle bakes boundary endpoint values and the internal-source profiles
-    # at BUILD time and is only rebuilt on a Δt change, so the scope limits have
+    # at BUILD time, so the scope limits have
     # to be re-checked here too — otherwise attaching time-dependent boundary data
     # (or calling set_internal_heating!) mid-run is silently ignored while the
     # builder docstring promises a loud rejection.
     _gpu_assert_bundle_current(sim)
-    # Match the CPU convention: solver_step! (solver/mainloop.jl) bumps
-    # timestep_state.step BEFORE the physics, so anything reading it during a step
-    # sees the step being computed. Nothing on the device path reads it today —
-    # this keeps a future CPU-side hook inside the device loop from inheriting an
-    # off-by-one. `reset_solver_clock!` below sets the authoritative pair.
-    state.runtime.timestep_state.step = state.step + 1
     # Three-way device-step dispatch; each gpu_*_solver_step! call is itself a
     # dispatch barrier over the ::Any bundle. The host re-sync is deferred to
     # the gpu_sync block below (PR #77 lazy mirror) — no unconditional sync here.
@@ -521,12 +522,7 @@ function _gpu_time_step!(sim::Simulation)
     else
         gpu_solver_step!(sim._gpu_state)
     end
-    # Advance BOTH clocks. `runtime.timestep_state` is what get_current_simulation_time
-    # (bcs/integration.jl) and the ERK2 diagnostics read; leaving it at the bootstrap
-    # value makes them see a frozen time for the whole device run.
-    reset_solver_clock!(state; time = state.time + sim.dt, step = state.step + 1)
-    sync_clock!(model.clock, state)        # counters are host-side — no device read
-    model.clock.last_dt = sim.dt
+    finalize_solver_step!(state, state.step + 1; dt=sim.dt)
     if sim._gpu_sync === :every || _gpu_host_read_pending(sim)
         sync_gpu_state_to_cpu!(state, sim._gpu_state)
         sim._gpu_dirty = false
@@ -648,6 +644,16 @@ function _gpu_sync_host!(sim::Simulation)
     return sim
 end
 
+# Called before a public host edit or a switch to CPU stepping. Synchronizing
+# first preserves every unedited field even with gpu_sync=:output; discarding the
+# pack afterwards makes the next GPU step bootstrap from the edited host state.
+function _release_solver_device_owner!(sim::Simulation)
+    _gpu_sync_host!(sim)
+    sim._gpu_state = nothing
+    sim._gpu_erk2 = nothing
+    return nothing
+end
+
 """
     sync_gpu_host!(sim::Simulation) -> sim
 
@@ -728,13 +734,13 @@ function _gpu_assert_bundle_current(sim::Simulation)
     _gpu_source_current(state.fields.temperature, baked_t) || error(
         "GPU solver path: the temperature internal-source profile changed after the " *
         "device bundle was built (e.g. set_internal_heating!). The bundle bakes the " *
-        "profile at pack time and is only rebuilt on a Δt change, so the device would " *
+        "profile at pack time and reuses it across steps, so the device would " *
         "keep integrating the old source. Rebuild the Simulation, or change the source " *
         "before the first step.")
     _gpu_source_current(state.fields.composition, baked_c) || error(
         "GPU solver path: the composition internal-source profile changed after the " *
-        "device bundle was built. The bundle bakes the profile at pack time and is only " *
-        "rebuilt on a Δt change, so the device would keep integrating the old source. " *
+        "device bundle was built. The bundle bakes the profile at pack time and " *
+        "reuses it across steps, so the device would keep integrating the old source. " *
         "Rebuild the Simulation, or change the source before the first step.")
     # `_gpu_assert_static_bcs` only rejects a time-dependent BoundaryConditionSet; a
     # direct write to `boundary_values` (the programmatic BC surface, or set_*_bcs!)
@@ -745,12 +751,12 @@ function _gpu_assert_bundle_current(sim::Simulation)
     _gpu_bc_current(state.fields.temperature, bc_t) || error(
         "GPU solver path: the temperature boundary endpoint values changed after the " *
         "device bundle was built. The bundle bakes `boundary_values` at pack time and is " *
-        "only rebuilt on a Δt change, so the device would keep applying the old wall " *
+        "reused across steps, so the device would keep applying the old wall " *
         "values. Rebuild the Simulation, or change the boundary values before the first step.")
     _gpu_bc_current(state.fields.composition, bc_c) || error(
         "GPU solver path: the composition boundary endpoint values changed after the " *
         "device bundle was built. The bundle bakes `boundary_values` at pack time and is " *
-        "only rebuilt on a Δt change, so the device would keep applying the old wall " *
+        "reused across steps, so the device would keep applying the old wall " *
         "values. Rebuild the Simulation, or change the boundary values before the first step.")
     return nothing
 end

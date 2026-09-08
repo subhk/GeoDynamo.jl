@@ -47,12 +47,10 @@ function initialize_solver_state(::Type{T} = Float64;
         topography,
         runtime,
         create_solver_implicit_matrix_store(implicit_matrices),
-        TimestepCaches{T}(),
+        TimestepCaches{T}(solver_operator_key(params)),
         create_solver_energy_tracker(),
         create_solver_solenoidal_monitor(),
         magnetic_ic_admittance,
-        params.start_time,
-        0,
         false
     )
 end
@@ -89,10 +87,11 @@ The step order is:
 4. finalize time/step bookkeeping and diagnostics
 """
 function solver_step!(state::SolverState{T, <:AbstractArchitecture}) where {T}
+    prepare_solver_host_update!(state)
+    ensure_solver_operators!(state)
     state.is_initialized || initialize_solver_fields!(state)
 
     next_step = state.step + 1
-    state.runtime.timestep_state.step = next_step
 
     # Step 1: compute explicit nonlinear terms from the current fields.
     compute_solver_nonlinear_terms!(state)
@@ -105,6 +104,9 @@ function solver_step!(state::SolverState{T, <:AbstractArchitecture}) where {T}
 
     # Step 4: update time, solver views, and phase change bookkeeping.
     finalize_solver_step!(state, next_step)
+    if state.parameters.timestepper isa ExponentialRungeKutta2
+        run_diagnostics!(state; interval = 100)
+    end
     update_solver_icb_phase_change!(state)
     check_solver_health!(state)
 
@@ -117,14 +119,13 @@ const advance_solver_step! = solver_step!
 """
     rebuild_solver_implicit_matrices!(state, dt)
 
-Rebuild the pre-factored implicit matrix store for a new timestep `dt`.
-The implicit operators bake `dt` in at factorization time, so changing the
-timestep requires re-factorization. Reuses the backend's grid/config and all
-non-timestep physical parameters; only `dt` changes.
+Rebuild implicit matrices and discard derived operators using the current
+parameters and timestep `dt`. Grid resources and scratch buffers are reused.
 """
 function rebuild_solver_implicit_matrices!(
         state::SolverState{
             T, <:AbstractArchitecture}, dt::Real) where {T}
+    prepare_solver_host_update!(state)
     backend = state.backend
     # Physical parameters come from the LIVE `state.parameters`, not
     # `backend.parameters`: `SolverBackend` is immutable and its snapshot is frozen at
@@ -141,8 +142,26 @@ function rebuild_solver_implicit_matrices!(
     magnetic_ic_admittance = _build_implicit_matrices_dict(
         T, backend.shtns_config, backend.outer_core_domain,
         backend.inner_core_domain, state.parameters, Float64(dt))
-    state.implicit_matrices = create_solver_implicit_matrix_store(matrices)
+    store = create_solver_implicit_matrix_store(matrices)
+    key = solver_operator_key(state.parameters, dt)
+    caches = fresh_solver_operator_caches(state.timestep_caches, key)
+    old_key = state.timestep_caches.operator_key
+    # Preserve variable-step history when only dt changes. A different operator
+    # or scheme requires a fresh bootstrap of its nonlinear history.
+    if old_key !== nothing && solver_operator_key(state.parameters, old_key.dt) != old_key
+        state.runtime.timestep_state.needs_ab2_bootstrap = true
+    end
+    state.implicit_matrices = store
     state.magnetic_ic_admittance = magnetic_ic_admittance
+    state.timestep_caches = caches
+    state.runtime.timestep_state.dt = dt
+    return state
+end
+
+"""Ensure all cached timestep operators match the requested run controls."""
+function ensure_solver_operators!(state::SolverState, dt::Real=state.parameters.timestep)
+    key = solver_operator_key(state.parameters, dt)
+    key == state.timestep_caches.operator_key || rebuild_solver_implicit_matrices!(state, dt)
     return state
 end
 

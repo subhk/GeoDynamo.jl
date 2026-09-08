@@ -332,6 +332,8 @@ additional_tests = (
     # wrote, CheckpointWriter never creating its directory, and the boundary
     # base cache mutated outside its lock.
     "code_review_20260907_fixes.jl",
+    "code_review_20260908_fixes.jl",
+    "integration_ownership.jl",
     # Collective discipline: serial contracts of parallel/collectives.jl and
     # api/registry.jl. Multi-rank half: test/run_mpi_control_plane.sh.
     "collectives_and_registry.jl",

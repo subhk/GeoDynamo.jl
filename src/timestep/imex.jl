@@ -1,10 +1,13 @@
 """
-    solver_build_rhs_cnab2!(rhs, uₙ, nₙ, nₙ₋₁, dt, matrices; mass_coeff=1.0)
+    solver_build_rhs_cnab2!(rhs, uₙ, nₙ, nₙ₋₁, dt, matrices; mass_coeff=1.0, previous_dt=dt)
 
 Build the CNAB2 right-hand side inside the flattened solver layer in `src/`
 so the solver step reads
 as a self-contained algorithm instead of reaching back into the legacy
 timestep entry points.
+
+`previous_dt` is the interval between the two supplied nonlinear samples. Equal
+timesteps recover the usual 3/2 and -1/2 Adams–Bashforth weights.
 """
 function solver_build_rhs_cnab2!(
         rhs::SpectralFieldType{T},
@@ -14,6 +17,7 @@ function solver_build_rhs_cnab2!(
         dt::Float64,
         matrices::ImplicitMatrixSet{T};
         mass_coeff::Float64 = 1.0,
+        previous_dt::Real = dt,
         work::Union{SolverRadialWork{T}, Nothing} = nothing
 ) where {T}
     rhs_real = parent(rhs.data_real)
@@ -28,8 +32,7 @@ function solver_build_rhs_cnab2!(
     r_range = local_range(uₙ.pencil, 3)
 
     inv_dt = T(mass_coeff / dt)
-    three_halves = T(1.5)
-    one_half = T(0.5)
+    current_weight, previous_weight = T.(cnab2_weights(dt, previous_dt))
     θ = T(matrices.theta)
     linear_weight = one(T) - θ
     add_linear = !iszero(linear_weight)
@@ -76,11 +79,11 @@ function solver_build_rhs_cnab2!(
             local_r <= size(rhs_real, 3) || continue
 
             rhs_value_real = inv_dt * local_spectral_value(u_real, slot, local_r) +
-                             three_halves * local_spectral_value(n_real, slot, local_r) -
-                             one_half * local_spectral_value(p_real, slot, local_r)
+                             current_weight * local_spectral_value(n_real, slot, local_r) -
+                             previous_weight * local_spectral_value(p_real, slot, local_r)
             rhs_value_imag = inv_dt * local_spectral_value(u_imag, slot, local_r) +
-                             three_halves * local_spectral_value(n_imag, slot, local_r) -
-                             one_half * local_spectral_value(p_imag, slot, local_r)
+                             current_weight * local_spectral_value(n_imag, slot, local_r) -
+                             previous_weight * local_spectral_value(p_imag, slot, local_r)
 
             if add_linear
                 rhs_value_real += linear_weight * linear_real[r_idx]

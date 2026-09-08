@@ -183,6 +183,7 @@ function apply_velocity_toroidal_implicit_update!(state::SolverState{
             dt,
             matrices;
             mass_coeff = E,
+            previous_dt = runtime.timestep_state.previous_dt,
             work = radial_work
         )
         solver_solve_velocity_implicit_step!(
@@ -294,7 +295,8 @@ function apply_velocity_poloidal_implicit_update!(state::SolverState{
         #   W := D_pol·P;  Ek(∂t − D_pol)W = N_W (AB2 on nl_poloidal = N_W);
         #   D_pol·P⁺ = W⁺ with P=0 walls; no-slip P′=0 via influence corrections.
         split = _get_or_build_poloidal_split!(state, velocity_bc)
-        _apply_poloidal_wsplit_cnab2!(velocity, split, runtime.outer_core_domain, dt)
+        _apply_poloidal_wsplit_cnab2!(velocity, split, runtime.outer_core_domain, dt;
+            previous_dt = runtime.timestep_state.previous_dt)
     else
         # Stage-4B: nl_poloidal carries the W-equation RHS (N_W); the exponential
         # (ERK2/EAB2) and theta-method poloidal paths are gated until ported to
@@ -318,16 +320,13 @@ const _VEL_POL_STAGE4B_MSG =
 # Lazily build (and cache on the state) the Stage-4B poloidal split operators.
 function _get_or_build_poloidal_split!(state::SolverState{T, <:AbstractArchitecture},
         velocity_bc::Int) where {T}
+    ensure_solver_operators!(state)
     caches = state.timestep_caches
     dt = state.parameters.timestep
     theta = _timestepper_implicit_theta(state.parameters.timestepper, state.parameters)
     split = caches.poloidal_split
-    # dt and theta are BAKED into w_factor's LU and the influence responses, so a
-    # build-once memo silently keeps solving the old system after a Δt change
-    # (`time_step!(model, new_dt)` / `sim.Δt = …` rebuild the implicit matrices but
-    # never touch this cache). Both siblings guard the same way:
-    # `cb3_poloidal_split` via `cb3_built_dt`, `erk2_poloidal_green` via `green.dt`.
-    if split !== nothing && split.dt == dt && split.theta == theta
+    # The common operator key has already checked dt, theta, Ek and wall types.
+    if split !== nothing
         return split::PoloidalSplitMatrices{T}
     end
     split = create_velocity_poloidal_split_matrices(
@@ -345,7 +344,7 @@ end
 
 # One CNAB2 step of the W-split per (l,m) mode (r-local layout).
 function _apply_poloidal_wsplit_cnab2!(velocity, split::PoloidalSplitMatrices{T},
-        domain, dt::Float64) where {T}
+        domain, dt::Float64; previous_dt::Real = dt) where {T}
     cfg = velocity.poloidal.config
     nr = domain.N
     r_range = local_range(velocity.poloidal.pencil, 3)
@@ -355,6 +354,7 @@ function _apply_poloidal_wsplit_cnab2!(velocity, split::PoloidalSplitMatrices{T}
 
     inv_dt = T(split.mass_coeff / dt)
     one_m_theta = T(1.0 - split.theta)
+    current_weight, previous_weight = T.(cnab2_weights(dt, previous_dt))
 
     P, W, LW, rhs, Wp, Pp = split.work   # cached per-step radial scratch
 
@@ -393,8 +393,8 @@ function _apply_poloidal_wsplit_cnab2!(velocity, split::PoloidalSplitMatrices{T}
             mul!(LW, split.w_linear[idx], W)      # Ek·D_pol·W
             for r_idx in 1:nr
                 rhs[r_idx] = inv_dt * W[r_idx] + one_m_theta * LW[r_idx] +
-                             T(1.5) * local_spectral_value(n_arr, slot, r_idx) -
-                             T(0.5) * local_spectral_value(pn_arr, slot, r_idx)
+                             current_weight * local_spectral_value(n_arr, slot, r_idx) -
+                             previous_weight * local_spectral_value(pn_arr, slot, r_idx)
             end
             solve_banded!(Wp, split.w_factor[idx], rhs)
 

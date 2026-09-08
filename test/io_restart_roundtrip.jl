@@ -219,6 +219,7 @@ const FINALIZE_MPI_RESTART = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
             "temperature_internal_sources" => collect(51.0:58.0),
             "composition_internal_sources" => collect(61.0:68.0),
             "needs_ab2_bootstrap" => false,
+            "previous_dt" => 3e-5,
         )
         merge!(fields, restart_spectral)
 
@@ -326,6 +327,7 @@ const FINALIZE_MPI_RESTART = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == 
                 @test restart_data[name]["imag"] == expected["imag"]
             end
             @test restart_data["needs_ab2_bootstrap"] === false
+            @test restart_data["previous_dt"] == 3e-5
             @test restart_data["temperature_internal_sources"] == collect(51.0:58.0)
             @test restart_data["composition_internal_sources"] == collect(61.0:68.0)
         end

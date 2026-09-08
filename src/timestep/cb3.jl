@@ -124,17 +124,11 @@ function _cb3_stage_matrices(state::SolverState{T, <:AbstractArchitecture},
 end
 
 # RK3's three substages use distinct γ, so the (γ·dt)-shifted implicit operators and
-# poloidal W-split differ per stage. They depend only on (γ, dt, parameters, geometry);
-# parameters/geometry are fixed per run, so we cache per stage and invalidate when dt
-# changes. This replaces a full rebuild + LU-refactorization of every operator on every
-# substage (3×/step) with a build-once-per-(stage, dt).
+# poloidal W-split differ per stage. The shared operator key invalidates all stages
+# together when dt, physical coefficients or boundary types change.
 function _cb3_invalidate_caches_if_dt_changed!(state::SolverState)
-    caches = state.timestep_caches
-    if caches.cb3_built_dt != state.parameters.timestep
-        fill!(caches.cb3_stage_matrices, nothing)
-        fill!(caches.cb3_poloidal_split, nothing)
-        caches.cb3_built_dt = state.parameters.timestep
-    end
+    ensure_solver_operators!(state)
+    state.timestep_caches.cb3_built_dt = state.parameters.timestep
     return nothing
 end
 

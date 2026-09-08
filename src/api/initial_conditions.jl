@@ -170,6 +170,7 @@ function set_initial_condition!(model::GeodynamoModel, field::Symbol, ic)
     # Validate the field before whole-state initialization. In particular, an
     # invalid ZeroIC request must not initialize/mutate the model before failing.
     _get_field(model, field)
+    prepare_solver_host_update!(model.state)
 
     # `is_initialized` is a WHOLE-STATE flag: once set, solver_step! skips
     # initialize_solver_fields! (`state.is_initialized || ...`,
@@ -184,6 +185,7 @@ function set_initial_condition!(model::GeodynamoModel, field::Symbol, ic)
     # overwrite its own family on top.
     model.state.is_initialized || initialize_fields!(model.state)
     _apply_initial_condition!(model, field, ic)
+    model.state.runtime.timestep_state.needs_ab2_bootstrap = true
     model.state.is_initialized = true
     return model
 end
@@ -346,11 +348,7 @@ function _apply_initial_condition!(
     else
         _zero_ic_magnetic_state!(target)
     end
-    # The previous nonlinear history of this family is now zero. A two-step
-    # scheme that has already run (`needs_ab2_bootstrap == false`) would
-    # extrapolate 1.5*N^n - 0.5*0 on the next step; ask for a fresh bootstrap
-    # instead, exactly as a checkpoint without history does.
-    model.state.runtime.timestep_state.needs_ab2_bootstrap = true
+    # The public setter resets nonlinear history for every IC variant.
     return model
 end
 

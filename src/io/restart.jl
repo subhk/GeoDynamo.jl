@@ -476,6 +476,9 @@ function _load_restart_file(filepath::String, tracker::TimeTracker, config::Outp
             restart_data["needs_ab2_bootstrap"] =
                 ds["needs_ab2_bootstrap"][1] != 0
         end
+        if haskey(ds, "previous_dt")
+            restart_data["previous_dt"] = Float64(ds["previous_dt"][1])
+        end
     finally
         close(ds)
     end

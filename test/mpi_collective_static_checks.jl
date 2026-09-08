@@ -8,19 +8,27 @@ const COLLECTIVE_STATIC_ROOT = normpath(joinpath(@__DIR__, "..", "src"))
 const COLLECTIVE_STATIC_HOME = joinpath("parallel", "collectives.jl")
 const COLLECTIVE_RE = r"\bMPI\.(Allreduce!?|Bcast!|bcast|Allgather\w*|Alltoall\w*|Reduce!?|Gather\w*|Scatter\w*|Barrier)\b"
 
-# Comments are not calls. Strip from the first unquoted `#` to end of line.
-function _strip_line_comment(line::AbstractString)
-    in_str = false
-    prev = ' '
-    for (i, c) in pairs(line)
-        if c == '"' && prev != '\\'
-            in_str = !in_str
-        elseif c == '#' && !in_str
-            return line[1:prevind(line, i)]
+# Parsing ignores comments and string contents, while still visiting executable
+# expressions in interpolated strings and calls split across multiple lines.
+function _collective_call_sites!(hits, expr, rel, line=1)
+    expr isa Expr || return hits
+    if expr.head === :call
+        callee = expr.args[1]
+        if callee isa Expr && callee.head === :. && callee.args[1] === :MPI
+            name = callee.args[2]
+            if name isa QuoteNode && occursin(COLLECTIVE_RE, "MPI.$(name.value)")
+                push!(hits, "$rel:$line: MPI.$(name.value)")
+            end
         end
-        prev = c
     end
-    return line
+    for arg in expr.args
+        if arg isa LineNumberNode
+            line = arg.line
+        else
+            _collective_call_sites!(hits, arg, rel, line)
+        end
+    end
+    return hits
 end
 
 function _raw_collective_sites(root)
@@ -30,15 +38,29 @@ function _raw_collective_sites(root)
         path = joinpath(dir, file)
         rel = relpath(path, root)
         rel == COLLECTIVE_STATIC_HOME && continue
-        for (n, line) in enumerate(eachline(path))
-            occursin(COLLECTIVE_RE, _strip_line_comment(line)) || continue
-            push!(hits, "$rel:$n: $(strip(line))")
-        end
+        _collective_call_sites!(hits, Meta.parseall(read(path, String)), rel)
     end
     return hits
 end
 
 @testset "MPI collective static contract" begin
+    @testset "Only executable calls count" begin
+        mktempdir() do dir
+            path = joinpath(dir, "probe.jl")
+            write(path, join([
+                "# MPI.Allreduce(x, comm)",
+                "\"\"\"", "Explains MPI.bcast and MPI.Barrier(comm).", "\"\"\"",
+                "function documented() end",
+                "println(\"MPI.Allgather(x, comm)\")",
+                "#= MPI.Reduce(x, comm)", "MPI.Scatter(x, comm) =#",
+            ], "\n"))
+            @test isempty(_raw_collective_sites(dir))
+            open(path, "a") do io
+                write(io, "\nMPI.Allreduce(\n x, +, comm)\nMPI.Barrier(comm)\n")
+            end
+            @test length(_raw_collective_sites(dir)) == 2
+        end
+    end
     hits = _raw_collective_sites(COLLECTIVE_STATIC_ROOT)
     isempty(hits) || println(stderr, "raw MPI collectives outside $(COLLECTIVE_STATIC_HOME):\n  " *
                                      join(hits, "\n  "))

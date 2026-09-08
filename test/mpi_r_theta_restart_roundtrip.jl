@@ -112,6 +112,7 @@ const FINALIZE_MPI_RT_RESTART = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
             "temperature_internal_sources" => temperature_sources,
             "composition_internal_sources" => composition_sources,
             "needs_ab2_bootstrap" => false,
+            "previous_dt" => 3e-5,
         )
         merge!(fields, restart_spectral)
 
@@ -169,6 +170,7 @@ const FINALIZE_MPI_RT_RESTART = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") 
         @test restart_data["temperature_internal_sources"] == temperature_sources
         @test restart_data["composition_internal_sources"] == composition_sources
         @test restart_data["needs_ab2_bootstrap"] === false
+        @test restart_data["previous_dt"] == 3e-5
 
         # Exercise both encoded values of the scalar bootstrap state without
         # conflating the check with the larger distributed field payload.

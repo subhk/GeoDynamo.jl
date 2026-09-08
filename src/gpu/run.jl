@@ -67,8 +67,8 @@ integrated as CNAB2).  Builds the device state via [`build_gpu_solver_state`](@r
 moved to `arch` with [`gpu_to_device`](@ref) — pass `arch = GPU()` on a CUDA box), runs the
 device loop, then ALWAYS syncs the evolved state back into `cpu_state` via
 [`sync_gpu_state_to_cpu!`](@ref) (spectral fields, CNAB2 `prev_nl` histories, and the lagged
-physical buffers) and advances both clocks — `cpu_state.step`/`.time` and the
-`runtime.timestep_state` pair the boundary-condition and diagnostic layers read — so
+physical buffers) and advances the shared integration clock exposed through
+`cpu_state.step`/`.time`, `runtime.timestep_state` and any attached model clock, so
 CPU-side stepping / diagnostics / output / restart can continue coherently from the
 GPU-evolved state.  (To run the device loop without
 syncing back — keeping a handle to the device state — call `build_gpu_solver_state` +
@@ -82,6 +82,8 @@ a conducting inner core additionally requires CNAB2 (see `build_gpu_solver_state
 function gpu_run!(cpu_state::SolverState, nsteps::Int; arch::AbstractArchitecture = CPU(),
         output_every::Int = 0, output_fn = nothing)
     nsteps >= 0 || throw(ArgumentError("gpu_run!: nsteps must be ≥ 0, got $nsteps"))
+    prepare_solver_host_update!(cpu_state)
+    ensure_solver_operators!(cpu_state)
     gst = build_gpu_solver_state(cpu_state)
     # Dispatch on the CONFIGURED timestepper, exactly as `_gpu_time_step!`
     # (api/simulation.jl) does. Running `gpu_solver_step!` unconditionally silently
@@ -97,11 +99,9 @@ function gpu_run!(cpu_state::SolverState, nsteps::Int; arch::AbstractArchitectur
     gpu_run!(gst, nsteps; output_every = output_every, output_fn = output_fn,
         step! = _gpu_device_step(ts, erk))
     sync_gpu_state_to_cpu!(cpu_state, gst)
-    # Advance the runtime clock alongside the public one; downstream readers
-    # (get_current_simulation_time, ERK2 diagnostics) go through
-    # `runtime.timestep_state`, not `cpu_state.step`/`.time`.
-    reset_solver_clock!(cpu_state;
-        time = cpu_state.time + nsteps * cpu_state.parameters.timestep,
-        step = cpu_state.step + nsteps)
+    if nsteps > 0
+        finalize_solver_step!(cpu_state, cpu_state.step + nsteps;
+            elapsed=nsteps * cpu_state.parameters.timestep)
+    end
     return cpu_state
 end

@@ -892,22 +892,22 @@ function integrate_solver_erk2_step!(state::SolverState{
     compute_solver_nonlinear_terms!(state)
 
     store_solver_erk2_stage_nonlinear!(temp_buffers, state.fields.temperature.nonlinear)
-    maybe_log_solver_erk2_stage_residual!(:temperature, temp_buffers, runtime.timestep_state.step)
+    maybe_log_solver_erk2_stage_residual!(:temperature, temp_buffers, runtime.timestep_state.step + 1)
     store_solver_erk2_stage_nonlinear!(vel_tor_buffers, state.fields.velocity.nl_toroidal)
-    maybe_log_solver_erk2_stage_residual!(:velocity_toroidal, vel_tor_buffers, runtime.timestep_state.step)
+    maybe_log_solver_erk2_stage_residual!(:velocity_toroidal, vel_tor_buffers, runtime.timestep_state.step + 1)
     store_solver_erk2_stage_nonlinear!(vel_pol_buffers, state.fields.velocity.nl_poloidal)
-    maybe_log_solver_erk2_stage_residual!(:velocity_poloidal, vel_pol_buffers, runtime.timestep_state.step)
+    maybe_log_solver_erk2_stage_residual!(:velocity_poloidal, vel_pol_buffers, runtime.timestep_state.step + 1)
 
     if mag_tor_buffers !== nothing
         store_solver_erk2_stage_nonlinear!(mag_tor_buffers, state.fields.magnetic.nl_toroidal)
-        maybe_log_solver_erk2_stage_residual!(:magnetic_toroidal, mag_tor_buffers, runtime.timestep_state.step)
+        maybe_log_solver_erk2_stage_residual!(:magnetic_toroidal, mag_tor_buffers, runtime.timestep_state.step + 1)
         store_solver_erk2_stage_nonlinear!(mag_pol_buffers, state.fields.magnetic.nl_poloidal)
-        maybe_log_solver_erk2_stage_residual!(:magnetic_poloidal, mag_pol_buffers, runtime.timestep_state.step)
+        maybe_log_solver_erk2_stage_residual!(:magnetic_poloidal, mag_pol_buffers, runtime.timestep_state.step + 1)
     end
 
     if comp_buffers !== nothing
         store_solver_erk2_stage_nonlinear!(comp_buffers, state.fields.composition.nonlinear)
-        maybe_log_solver_erk2_stage_residual!(:composition, comp_buffers, runtime.timestep_state.step)
+        maybe_log_solver_erk2_stage_residual!(:composition, comp_buffers, runtime.timestep_state.step + 1)
     end
 
     # Finalization writes the accepted ERK2 state back to the solver-owned
@@ -972,8 +972,7 @@ function integrate_solver_erk2_step!(state::SolverState{
         )
     end
 
-    report_solver_phi2_conditioning(runtime.timestep_state.step; interval = 100)
-    run_diagnostics!(state; interval = 100)
+    report_solver_phi2_conditioning(runtime.timestep_state.step + 1; interval = 100)
 
     restore_solver_erk2_nonlinear_terms!(
         state,

@@ -80,7 +80,7 @@ function apply_composition_implicit_update!(state::SolverState{
         state,
         composition,
         :composition,
-        state.parameters.Pm / state.parameters.Sc,
+        T(state.parameters.Pm / state.parameters.Sc),
         _composition_bc_code(state.parameters.composition_bcs),
         solver_solve_composition_implicit_step!,
         state.timestep_caches.etd_composition,

@@ -114,7 +114,7 @@ function apply_temperature_implicit_update!(state::SolverState{
         state,
         state.fields.temperature,
         :temperature,
-        state.parameters.Pm / state.parameters.Pr,
+        T(state.parameters.Pm / state.parameters.Pr),
         _thermal_bc_code(state.parameters.temperature_bcs),
         solver_solve_temperature_implicit_step!,
         state.timestep_caches.etd_temperature,

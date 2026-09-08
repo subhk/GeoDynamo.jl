@@ -371,6 +371,38 @@ struct ERK2PoloidalGreenCache{T}
     cache::ERK2StageCache{T}
 end
 
+"""Dependencies shared by implicit and derived timestep operators.
+
+Grid/domain objects and element type are fixed by the owning SolverState. Wall
+values, sources and output controls are not linear-operator dependencies.
+"""
+struct SolverOperatorKey
+    dt::Float64
+    scheme::DataType
+    theta::Float64
+    krylov_dimension::Int
+    krylov_tolerance::Float64
+    Ek::Float64
+    thermal_diffusivity::Float64
+    compositional_diffusivity::Float64
+    velocity_bc::Int
+    temperature_bc::Int
+    composition_bc::Int
+    magnetic_inner_bc::Symbol
+    geometry::Symbol
+    include_composition::Bool
+end
+
+function solver_operator_key(p::SolverParameters, dt::Real=p.timestep)
+    ts = p.timestepper
+    return SolverOperatorKey(Float64(dt), typeof(ts),
+        _timestepper_implicit_theta(ts, p), _timestepper_krylov_dimension(ts, p),
+        _timestepper_krylov_tolerance(ts, p), p.Ek, p.Pm / p.Pr, p.Pm / p.Sc,
+        _velocity_bc_code(p.velocity_bcs), _thermal_bc_code(p.temperature_bcs),
+        _composition_bc_code(p.composition_bcs), p.magnetic_inner_bc,
+        p.geometry, p.include_composition)
+end
+
 mutable struct TimestepCaches{T}
     # EAB2 exponential integrator caches.
     etd_velocity_toroidal::Union{EAB2CacheEntry{T}, Nothing}
@@ -410,16 +442,20 @@ mutable struct TimestepCaches{T}
     erk2_poloidal_green::Union{ERK2PoloidalGreenCache{T}, Nothing}
     # RungeKutta3 (CB3) per-substage implicit operators + poloidal W-split. RK3 uses
     # three distinct γ coefficients, so each substage's (γ·dt)-shifted operators differ;
-    # they are cached per stage (slots 1..3) and rebuilt only when dt changes. Without
-    # this, every substage rebuilt + LU-refactorized every operator. Stored as
+    # they are cached per stage (slots 1..3) and invalidated by the shared operator
+    # key. Without this, every substage rebuilt + LU-refactorized every operator. Stored as
     # `Vector{Any}` because `ImplicitMatrixSet` is defined below this struct; the getter
     # `_get_or_build_cb3_stage_matrices!` asserts the concrete element type.
     cb3_stage_matrices::Vector{Any}
     cb3_poloidal_split::Vector{Union{PoloidalSplitMatrices{T}, Nothing}}
     cb3_built_dt::Float64
+    # The Simulation holding an active device copy, if any. A weak reference
+    # avoids retaining a discarded Simulation through its model's caches.
+    gpu_owner::WeakRef
+    operator_key::Union{SolverOperatorKey, Nothing}
 end
 
-function TimestepCaches{T}() where {T}
+function TimestepCaches{T}(key::Union{SolverOperatorKey, Nothing}=nothing) where {T}
     TimestepCaches{T}(
         nothing, nothing, nothing, nothing, nothing, nothing,
         nothing, nothing, nothing, nothing, nothing, nothing,
@@ -432,8 +468,20 @@ function TimestepCaches{T}() where {T}
         nothing,
         Any[nothing, nothing, nothing],
         Union{PoloidalSplitMatrices{T}, Nothing}[nothing, nothing, nothing],
-        NaN
+        NaN,
+        WeakRef(nothing),
+        key
     )
+end
+
+# Replacing derived caches makes rollback cheap and complete. Scratch buffers
+# contain no operator coefficients and can be reused on the unchanged grid.
+function fresh_solver_operator_caches(old::TimestepCaches{T}, key::SolverOperatorKey) where {T}
+    caches = TimestepCaches{T}(key)
+    caches.radial_work = old.radial_work
+    caches.radial_work_lock = old.radial_work_lock
+    caches.erk2_field_buffers = old.erk2_field_buffers
+    return caches
 end
 
 struct ImplicitMatrixSet{T}
@@ -491,9 +539,37 @@ mutable struct SolverState{
     # CNAB2 update couples the outer-core solve to the inner-core diffusion across
     # the ICB and reconstructs the inner-core scalars toroidal_ic / poloidal_ic.
     magnetic_ic_admittance::Union{NamedTuple, Nothing}
-    time::Float64
-    step::Int
     is_initialized::Bool
+end
+
+# Public clock properties are views of the integration state, never mirrors.
+@inline function Base.getproperty(state::SolverState, name::Symbol)
+    if name === :time || name === :step
+        return getproperty(getfield(state, :runtime).timestep_state, name)
+    end
+    return getfield(state, name)
+end
+
+@inline function Base.setproperty!(state::SolverState, name::Symbol, value)
+    if name === :time || name === :step
+        return setproperty!(getfield(state, :runtime).timestep_state, name, value)
+    end
+    return setfield!(state, name, convert(fieldtype(typeof(state), name), value))
+end
+
+Base.propertynames(state::SolverState, private::Bool=false) =
+    (fieldnames(typeof(state))..., :time, :step)
+
+_release_solver_device_owner!(::Nothing) = nothing
+
+"""Synchronize and release a device copy before mutating its host solver state."""
+function prepare_solver_host_update!(state::SolverState)
+    caches = state.timestep_caches
+    owner = caches.gpu_owner.value
+    owner === nothing && return state
+    _release_solver_device_owner!(owner)
+    caches.gpu_owner = WeakRef(nothing)
+    return state
 end
 
 function Base.show(io::IO, ::MIME"text/plain", state::SolverState)
@@ -557,8 +633,6 @@ end
 
 function _synchronize_solver_views!(state::SolverState{T, <:AbstractArchitecture}) where {T}
     state.fields = _collect_solver_fields(state.runtime, state.parameters)
-    state.time = state.runtime.timestep_state.time
-    state.step = state.runtime.timestep_state.step
     return state
 end
 
@@ -673,6 +747,7 @@ function GeoDynamo.extract_all_fields(state::SolverState{
 
     fields["needs_ab2_bootstrap"] =
         state.runtime.timestep_state.needs_ab2_bootstrap
+    fields["previous_dt"] = state.runtime.timestep_state.previous_dt
 
     return fields
 end
@@ -741,7 +816,7 @@ end
     _restart_history_keys(state) -> Vector{String}
 
 The OPTIONAL restart keys describing the two-step timestepper history (previous
-nonlinear terms, source profiles and the bootstrap flag). A checkpoint that
+nonlinear terms, their timestep, source profiles and the bootstrap flag). A checkpoint that
 carries all of them restores the history verbatim; one that carries none or only
 some of them (any released version before the history was persisted, or a
 truncated write) restores the primary fields and re-arms
@@ -752,7 +827,7 @@ function _restart_history_keys(state::SolverState)
     keys = String[
         "velocity_prev_nl_toroidal", "velocity_prev_nl_poloidal",
         "temperature_prev_nonlinear", "temperature_internal_sources",
-        "needs_ab2_bootstrap",
+        "needs_ab2_bootstrap", "previous_dt",
     ]
     if state.fields.magnetic !== nothing
         push!(keys, "magnetic_prev_nl_toroidal", "magnetic_prev_nl_poloidal")
@@ -791,6 +866,11 @@ function restore_fields_from_restart!(
         "restore would advance the clock while leaving those fields at their " *
         "pre-restart values. Restart from a checkpoint written by a run with " *
         "the same enabled fields, or disable the missing field families."))
+
+    history_dt = Float64(get(restart_data, "previous_dt", state.parameters.timestep))
+    isfinite(history_dt) && history_dt > 0 || throw(ArgumentError(
+        "restore_fields_from_restart!: previous_dt must be finite and positive"))
+    prepare_solver_host_update!(state)
 
     if haskey(restart_data, "velocity_toroidal")
         _restore_restart_spectral_pair!(
@@ -894,6 +974,7 @@ function restore_fields_from_restart!(
     history_complete = all(k -> haskey(restart_data, k), _restart_history_keys(state))
     state.runtime.timestep_state.needs_ab2_bootstrap =
         history_complete ? Bool(restart_data["needs_ab2_bootstrap"]) : true
+    state.runtime.timestep_state.previous_dt = history_dt
     _synchronize_solver_views!(state)
     state.is_initialized = true
     return state

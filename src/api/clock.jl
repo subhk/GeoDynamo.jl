@@ -1,49 +1,64 @@
-"""
-    mutable struct Clock{T}
-
-Oceananigans-style tracker for simulation `time`, `iteration`, integrator
-`stage`, and the last timestep `last_dt`. A `Clock` is attached to each
-[`GeodynamoModel`](@ref) and synced after every advance via `sync_clock!`.
-
-The authoritative time/step live on the solver state; this `Clock` is a mirror.
-It is correct to read between steps, not mid-step.
-
-`stage` mirrors Oceananigans' multi-stage field and is reserved for future use;
-the current drivers are single-stage, so it stays `0`.
-"""
-mutable struct Clock{T}
+# Standalone clocks retain their chosen numeric type. Model clocks use the
+# solver's integration state directly, exposing time and last_dt as T.
+mutable struct StandaloneClockState{T}
     time::T
-    iteration::Int
+    step::Int
     stage::Int
     last_dt::T
 end
 
-Clock{T}() where {T} = Clock{T}(zero(T), 0, 0, zero(T))
+"""
+    Clock{T}
 
-function Clock(; time = 0.0, iteration::Int = 0, stage::Int = 0, last_dt = 0.0)
+Oceananigans-style view of simulation `time`, `iteration`, integrator `stage`,
+and the last completed timestep `last_dt` (also available as `last_Δt`). A model's
+clock reads and writes its solver's integration state, so low-level advances and
+clock resets are immediately visible. Counters advance after a completed step.
+
+`Clock()` and the keyword/positional constructors also create standalone clocks.
+`stage` is reserved for future use and is zero between steps.
+"""
+mutable struct Clock{T}
+    state::Union{StandaloneClockState{T}, SolverTimestepState}
+end
+
+Clock{T}(time, iteration, stage, last_dt) where {T} =
+    Clock{T}(StandaloneClockState{T}(time, iteration, stage, last_dt))
+Clock{T}() where {T} = Clock{T}(zero(T), 0, 0, zero(T))
+Clock(time::T, iteration::Int, stage::Int, last_dt::T) where {T} =
+    Clock{T}(time, iteration, stage, last_dt)
+
+function Clock(; time=0.0, iteration::Int=0, stage::Int=0, last_dt=0.0)
     T = promote_type(typeof(time), typeof(last_dt))
     return Clock{T}(T(time), iteration, stage, T(last_dt))
 end
 
-# state::SolverState — pull the authoritative values into the mirror.
-function sync_clock!(clock::Clock{T}, state) where {T}
-    clock.time = T(state.time)
-    clock.iteration = state.step
+# Compatibility helper: attach a detached clock to the solver instead of copying
+# counters that would become stale on the next low-level advance.
+function sync_clock!(clock::Clock, state)
+    setfield!(clock, :state, state.runtime.timestep_state)
     return clock
 end
 
-# ================================================================================
-# Oceananigans-canonical `last_Δt` property alias for `last_dt`
-# ================================================================================
-
-function Base.getproperty(c::Clock, name::Symbol)
-    name === :last_Δt && return getfield(c, :last_dt)
+@inline function Base.getproperty(c::Clock{T}, name::Symbol) where {T}
+    state = getfield(c, :state)
+    name === :time && return T(state.time)
+    name === :iteration && return state.step
+    name === :stage && return state.stage
+    (name === :last_dt || name === :last_Δt) && return T(state.last_dt)
     return getfield(c, name)
 end
 
-function Base.setproperty!(c::Clock{T}, name::Symbol, x) where {T}
-    name === :last_Δt && return setfield!(c, :last_dt, T(x))
-    return setfield!(c, name, x)
+@inline function Base.setproperty!(c::Clock{T}, name::Symbol, value) where {T}
+    state = getfield(c, :state)
+    name === :time && return setproperty!(state, :time, T(value))
+    name === :iteration && return setproperty!(state, :step, Int(value))
+    name === :stage && return setproperty!(state, :stage, Int(value))
+    (name === :last_dt || name === :last_Δt) &&
+        return setproperty!(state, :last_dt, T(value))
+    return setfield!(c, name, convert(fieldtype(typeof(c), name), value))
 end
 
-Base.propertynames(c::Clock) = (fieldnames(Clock)..., :last_Δt)
+Base.propertynames(::Clock, private::Bool=false) = private ?
+    (:time, :iteration, :stage, :last_dt, :last_Δt, :state) :
+    (:time, :iteration, :stage, :last_dt, :last_Δt)

@@ -437,6 +437,11 @@ function setup_restart_variables!(ds, fields::Dict{String, Any},
         defVar(ds, "needs_ab2_bootstrap", Int32, ("scalar",);
             attrib = Dict("long_name" => "CNAB2 history requires bootstrap"))
     end
+    if haskey(fields, "previous_dt")
+        haskey(ds.dim, "scalar") || defDim(ds, "scalar", 1)
+        defVar(ds, "previous_dt", Float64, ("scalar",);
+            attrib = Dict("long_name" => "timestep associated with nonlinear history"))
+    end
 
     return ds
 end
@@ -888,6 +893,9 @@ function write_restart_field_data!(ds, fields::Dict{String, Any},
         if haskey(fields, "needs_ab2_bootstrap") && haskey(ds, "needs_ab2_bootstrap")
             ds["needs_ab2_bootstrap"][1] =
                 Int32(Bool(fields["needs_ab2_bootstrap"]) ? 1 : 0)
+        end
+        if haskey(fields, "previous_dt") && haskey(ds, "previous_dt")
+            ds["previous_dt"][1] = Float64(fields["previous_dt"])
         end
     end
 

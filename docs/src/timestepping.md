@@ -4,6 +4,20 @@ GeoDynamo.jl currently supports three end-to-end time-stepping schemes for
 magnetohydrodynamic simulations: `CNAB2`, `ExponentialRungeKutta2`, and
 `RungeKutta3` (`CB3`).
 
+The model's `clock` and `state.time`/`state.step` are views of the runtime's
+integration state. CPU and GPU drivers advance this clock after each completed
+step, including calls to `solver_step!` and `gpu_run!`. No manual clock
+synchronization is needed. `clock.last_dt` (also `last_Δt`) reports the last
+completed interval; resetting the clock clears it to zero. `previous_dt` remains
+separate because it belongs to the saved nonlinear history used by CNAB2.
+
+Implicit and derived timestep operators share a dependency key covering the
+timestep, scheme settings, diffusion coefficients and boundary types. A change
+rebuilds the operators together while retaining scratch buffers. Output controls
+do not trigger a rebuild. Grid, domain and numeric precision are fixed for the
+lifetime of a solver state. Public field setters synchronize any active device
+copy and reset nonlinear history before stepping resumes.
+
 ---
 
 ## Quick Selection
@@ -195,6 +209,18 @@ Rearranging:
 ```
 
 where θ = 0.5 gives classic Crank–Nicolson (second-order, A-stable).
+
+These formulas assume equal timesteps. When `time_step!(model, dt)` or a change
+to `simulation.dt` selects a different duration, the nonlinear extrapolation is
+
+```math
+\left(1 + \frac{\Delta t_n}{2\Delta t_{n-1}}\right)N^n
+- \frac{\Delta t_n}{2\Delta t_{n-1}}N^{n-1}.
+```
+
+Here `Δt_n` is the step being taken and `Δt_{n-1}` is the last completed step.
+The solver retains that interval in checkpoints. Calling `set!` to replace a
+field reinitializes the nonlinear history before the next step.
 
 ### Implementation
 
