@@ -1,7 +1,7 @@
 """
     reset_solver_clock!(state; time, step)
 
-Synchronize the public solver clock and the runtime `TimestepState`.
+Reset the integration clock exposed by the solver and model views.
 
 Use this when initializing or rewinding a solver state so diagnostics,
 callbacks, and field views all see the same time/step pair.
@@ -9,8 +9,8 @@ callbacks, and field views all see the same time/step pair.
 function reset_solver_clock!(state::SolverState; time::Float64, step::Int)
     state.runtime.timestep_state.time = time
     state.runtime.timestep_state.step = step
-    state.time = time
-    state.step = step
+    state.runtime.timestep_state.stage = 0
+    state.runtime.timestep_state.last_dt = 0.0
     return state
 end
 
@@ -115,6 +115,7 @@ Initialize all enabled field families and mark the solver state ready to step.
 This is the solver-local implementation behind `GeoDynamo.initialize_fields!`.
 """
 function initialize_solver_fields!(state::SolverState{T, <:AbstractArchitecture}) where {T}
+    prepare_solver_host_update!(state)
     Random.seed!(42 + state.backend.rank)
 
     initialize_temperature_field!(state)
@@ -123,6 +124,8 @@ function initialize_solver_fields!(state::SolverState{T, <:AbstractArchitecture}
     initialize_composition_field!(state)
 
     reset_solver_clock!(state; time = state.parameters.start_time, step = 0)
+    state.runtime.timestep_state.needs_ab2_bootstrap = true
+    state.runtime.timestep_state.previous_dt = state.parameters.timestep
     _synchronize_solver_views!(state)
     state.is_initialized = true
     return state
@@ -392,9 +395,14 @@ end
 
 Advance the runtime clock after a timestep and refresh solver views.
 """
-function finalize_solver_step!(state::SolverState, step::Int)
-    state.runtime.timestep_state.time = state.time + state.parameters.timestep
-    state.runtime.timestep_state.step = step
+function finalize_solver_step!(state::SolverState, step::Int;
+        dt::Real=state.parameters.timestep, elapsed::Real=dt)
+    clock = state.runtime.timestep_state
+    clock.time += elapsed
+    clock.step = step
+    clock.stage = 0
+    clock.last_dt = dt
+    clock.previous_dt = dt
     _synchronize_solver_views!(state)
     return state
 end

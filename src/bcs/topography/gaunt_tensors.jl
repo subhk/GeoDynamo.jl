@@ -31,7 +31,22 @@ mutable struct GauntTensorCache{T <: AbstractFloat}
     lmax_topo::Int
     G::Dict{NTuple{6, Int}, T}           # (l,m,l',m',L,M) -> value
     G_∇::Dict{NTuple{6, Int}, T}      # Gradient Gaunt
-    G_cross::Dict{NTuple{6, Int}, T}     # Cross Gaunt
+    G_cross::Dict{NTuple{6, Int}, T}     # Cross Gaunt (mutable; lock required)
+    G_cross_zero::Set{NTuple{6, Int}}    # Bounded memoization of numerical zeros
+    G_cross_zero_order::Vector{NTuple{6, Int}}
+    G_cross_zero_next::Int
+    G_cross_zero_limit::Int
+    # Lock-free READ view of the two caches above, numerical zeros stored as zeros.
+    # Replaced wholesale under the lock and never mutated after publication, so
+    # `get_cross_gaunt` can serve a hit without touching `_GAUNT_CROSS_LOCK`. The
+    # field is `@atomic`: readers load it without the lock while the publisher
+    # stores it, and a plain field store/load pair is a data race under Julia's
+    # memory model (the load may be hoisted out of a caller's loop, so a thread
+    # keeps serving — and re-locking on — a stale view). Release/acquire orders
+    # the fully-built `Dict` before the pointer swap.
+    @atomic G_cross_view::Dict{NTuple{6, Int}, T}
+    G_cross_view_size::Int               # entry count at the last publication
+    G_cross_view_dirty::Bool             # authoritative caches changed since publish
     sht_config::SHTnsKit.SHTConfig       # SHTnsKit configuration
     nlat::Int                            # Number of latitude points
     nlon::Int                            # Number of longitude points
@@ -42,9 +57,12 @@ end
 
 # Module-level lock for thread-safe lazy writes to G_cross in get_cross_gaunt
 const _GAUNT_CROSS_LOCK = ReentrantLock()
+const _DEFAULT_GAUNT_CROSS_ZERO_LIMIT = 16_384
 
 """
-    GauntTensorCache{T}(lmax::Int, lmax_topo::Int; nth::Int=0, nph::Int=0) where T
+    GauntTensorCache{T}(lmax::Int, lmax_topo::Int;
+                        nth::Int=0, nph::Int=0,
+                        cross_zero_cache_limit::Int=16384) where T
 
 Create a Gaunt tensor cache with SHTnsKit configuration.
 
@@ -53,8 +71,14 @@ Create a Gaunt tensor cache with SHTnsKit configuration.
 - `lmax_topo::Int`: Maximum degree for topography
 - `nth::Int`: Number of theta points (default: 2*max(lmax,lmax_topo) + 2)
 - `nph::Int`: Number of phi points (default: 2*nth)
+- `cross_zero_cache_limit::Int`: Maximum number of numerically zero cross
+  coefficients to memoize (default: 16384)
 """
-function GauntTensorCache{T}(lmax::Int, lmax_topo::Int; nth::Int = 0, nph::Int = 0) where {T}
+function GauntTensorCache{T}(lmax::Int, lmax_topo::Int;
+        nth::Int = 0, nph::Int = 0,
+        cross_zero_cache_limit::Int = _DEFAULT_GAUNT_CROSS_ZERO_LIMIT) where {T}
+    cross_zero_cache_limit >= 0 || throw(ArgumentError(
+        "cross_zero_cache_limit must be nonnegative (got $cross_zero_cache_limit)"))
     # Set default quadrature resolution (need enough points for triple products)
     # For triple product of Y_l1^m1 * Y_l2^m2 * Y_L^M, need at least 3*lmax points
     lmax_total = lmax + lmax_topo
@@ -73,6 +97,13 @@ function GauntTensorCache{T}(lmax::Int, lmax_topo::Int; nth::Int = 0, nph::Int =
         Dict{NTuple{6, Int}, T}(),
         Dict{NTuple{6, Int}, T}(),
         Dict{NTuple{6, Int}, T}(),
+        Set{NTuple{6, Int}}(),
+        NTuple{6, Int}[],
+        1,
+        cross_zero_cache_limit,
+        Dict{NTuple{6, Int}, T}(),
+        0,
+        false,
         sht_config,
         nth, nph,
         theta, weights,
@@ -628,6 +659,10 @@ function precompute_gaunt_tensors!(cache::GauntTensorCache{T};
     end
 
     cache.is_precomputed = true
+    # Publish once so the whole precomputed set is served lock-free from here on.
+    lock(_GAUNT_CROSS_LOCK) do
+        _publish_cross_gaunt_view!(cache)
+    end
 
     if verbose && get_rank() == 0
         @info "Gaunt tensors precomputed" G_nonzero=count_G G_∇_nonzero=count_grad G_cross_nonzero=count_cross
@@ -669,25 +704,132 @@ Get the cross Gaunt tensor G^{(×)}_{l1,m1,l2,m2,L,M} from cache.
 function get_cross_gaunt(cache::GauntTensorCache{T}, l1::Int, m1::Int,
         l2::Int, m2::Int, L::Int, M::Int) where {T}
     key = (l1, m1, l2, m2, L, M)
-    # Fast path: read-only lookup (no lock needed for existing entries)
-    val = get(cache.G_cross, key, nothing)
-    val !== nothing && return val
-
-    # Cross terms are allowed to stay sparse until a coupling kernel actually
-    # asks for them. That keeps startup cheaper while preserving deterministic
-    # reuse once a coefficient has been computed.
-    # Lazy compute when missing (needed if precompute ran with use_wigner=true).
-    if l2 == 0 || L == 0 || m1 != m2 + M
+    # Exact selection rules stay entirely out of both caches. The cross-gradient
+    # integral has odd total degree, in addition to the usual azimuthal and
+    # triangle conditions.
+    if l1 < 0 || l2 <= 0 || L <= 0 ||
+            abs(m1) > l1 || abs(m2) > l2 || abs(M) > L ||
+            m1 != m2 + M ||
+            l1 < abs(l2 - L) || l1 > l2 + L ||
+            iseven(l1 + l2 + L)
         return zero(T)
     end
 
-    computed = compute_cross_gaunt_tensor(l1, m1, l2, m2, L, M, cache)
-    if abs(computed) > 1e-14
-        lock(_GAUNT_CROSS_LOCK) do
-            cache.G_cross[key] = computed
+    # Lock-free fast path. `G_cross_view` is swapped out wholesale under the lock and
+    # never mutated once published, so reading it races with nothing. This matters:
+    # under `use_wigner=true` the cross tensors are filled lazily, from the innermost
+    # (l,m,l',m',L,M) loop of the topography couplings, so taking the process-global
+    # lock on every cache HIT serialized every thread in the hottest loop in the file.
+    published = @atomic :acquire cache.G_cross_view
+    hit = get(published, key, nothing)
+    hit === nothing || return hit
+
+    found, val = lock(_GAUNT_CROSS_LOCK) do
+        if haskey(cache.G_cross, key)
+            (true, cache.G_cross[key])
+        elseif key in cache.G_cross_zero
+            (true, zero(T))
+        else
+            (false, zero(T))
         end
     end
-    return computed
+    found && return val
+
+    computed = compute_cross_gaunt_tensor(l1, m1, l2, m2, L, M, cache)
+    is_nonzero = abs(computed) > T(1e-14)
+    lock(_GAUNT_CROSS_LOCK) do
+        if is_nonzero
+            if !haskey(cache.G_cross, key)
+                cache.G_cross[key] = computed
+                cache.G_cross_view_dirty = true
+            end
+        else
+            _remember_cross_gaunt_zero!(cache, key)
+        end
+        _maybe_publish_cross_gaunt_view!(cache)
+    end
+    # The cache's sparsity threshold defines numerical zero. Return the same value
+    # on the first lookup that subsequent negative-cache hits will return.
+    return is_nonzero ? computed : zero(T)
+end
+
+"""
+    _publish_cross_gaunt_view!(cache)
+
+Rebuild the lock-free read view from the authoritative caches. Lock required.
+
+The view is a fresh `Dict` that nothing mutates afterwards, so `get_cross_gaunt` may
+read the published one without synchronisation while a later publication is being
+built. Remembered numerical zeros are folded in as `zero(T)` values; they are copied
+from the CURRENT `G_cross_zero`, so a key the bounded FIFO has since evicted simply
+drops out of the next view and the view stays bounded by
+`length(G_cross) + G_cross_zero_limit`.
+"""
+function _publish_cross_gaunt_view!(cache::GauntTensorCache{T}) where {T}
+    fresh = Dict{NTuple{6, Int}, T}()
+    sizehint!(fresh, length(cache.G_cross) + length(cache.G_cross_zero))
+    for (k, v) in cache.G_cross
+        fresh[k] = v
+    end
+    for k in cache.G_cross_zero
+        haskey(fresh, k) || (fresh[k] = zero(T))
+    end
+    @atomic :release cache.G_cross_view = fresh
+    cache.G_cross_view_size = length(fresh)
+    cache.G_cross_view_dirty = false
+    return nothing
+end
+
+"""
+Republish once the cached content has doubled. Lock required.
+
+Rebuilding costs `O(n)`, so doubling keeps the amortized cost per insert constant
+while progressively handing the lazy fill a lock-free path. Entries added below the
+next doubling threshold remain pending until [`flush_cross_gaunt_view!`](@ref) is
+called at the end of the surrounding batch.
+"""
+function _maybe_publish_cross_gaunt_view!(cache::GauntTensorCache)
+    cache.G_cross_view_dirty || return nothing
+    total = length(cache.G_cross) + length(cache.G_cross_zero)
+    total >= 2 * cache.G_cross_view_size + 1 || return nothing
+    _publish_cross_gaunt_view!(cache)
+    return nothing
+end
+
+"""
+    flush_cross_gaunt_view!(cache::GauntTensorCache)
+
+Publish every cross-Gaunt entry accumulated since the last publication so future
+cache hits use the lock-free read view. `get_cross_gaunt` publishes geometrically to
+keep lazy insertion amortized `O(1)`, which can leave the final entries of a batch
+pending below the next doubling threshold. Call this once after all tasks making a
+direct batch of `get_cross_gaunt` calls have completed. The high-level topography
+correction pass does this automatically.
+"""
+function flush_cross_gaunt_view!(cache::GauntTensorCache)
+    lock(_GAUNT_CROSS_LOCK) do
+        cache.G_cross_view_dirty && _publish_cross_gaunt_view!(cache)
+    end
+    return cache
+end
+
+"""Remember a numerical cross-Gaunt zero in a bounded FIFO cache. Lock required."""
+function _remember_cross_gaunt_zero!(cache::GauntTensorCache,
+        key::NTuple{6, Int})
+    limit = cache.G_cross_zero_limit
+    (limit == 0 || key in cache.G_cross_zero) && return nothing
+
+    if length(cache.G_cross_zero_order) < limit
+        push!(cache.G_cross_zero_order, key)
+    else
+        slot = cache.G_cross_zero_next
+        delete!(cache.G_cross_zero, cache.G_cross_zero_order[slot])
+        cache.G_cross_zero_order[slot] = key
+        cache.G_cross_zero_next = slot == limit ? 1 : slot + 1
+    end
+    push!(cache.G_cross_zero, key)
+    cache.G_cross_view_dirty = true
+    return nothing
 end
 
 # ================================================================================

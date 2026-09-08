@@ -177,6 +177,18 @@ function _parameter_errors_warnings(params::SolverParameters)
     if params.magnetic_inner_bc === :conducting_inner_core && params.geometry !== :shell
         push!(errors, "magnetic_inner_bc=:conducting_inner_core requires geometry=:shell")
     end
+    if params.magnetic_inner_bc === :conducting_inner_core &&
+       params.geometry === :shell && params.nr_inner < 3
+        push!(errors,
+            "magnetic_inner_bc=:conducting_inner_core requires nr_inner >= 3 " *
+            "(got $(params.nr_inner))")
+    end
+
+    if params.stefan_enabled
+        push!(errors,
+            "stefan_enabled=true is not supported: ICB evolution is not implemented " *
+            "in the active solver path")
+    end
 
     if params.lmax < 1
         push!(errors, "lmax = $(params.lmax) must be >= 1")
@@ -213,13 +225,17 @@ function _parameter_errors_warnings(params::SolverParameters)
             "geometry = :ball but radius_ratio = $(params.radius_ratio) != 0; use radius_ratio=0 for full ball")
     end
 
-    if params.Ra <= 0.0
+    if !isfinite(params.Ra)
+        push!(errors, "Ra = $(params.Ra) must be finite")
+    elseif params.Ra <= 0.0
         push!(errors, "Ra = $(params.Ra) must be positive")
     elseif params.Ra > 1e10
         push!(warnings, "Ra = $(params.Ra) is very large; ensure numerical stability")
     end
 
-    if params.Ek <= 0.0
+    if !isfinite(params.Ek)
+        push!(errors, "Ek = $(params.Ek) must be finite")
+    elseif params.Ek <= 0.0
         push!(errors, "Ek = $(params.Ek) must be positive")
     elseif params.Ek < 1e-8
         push!(warnings, "Ek = $(params.Ek) is very small; may require fine resolution")
@@ -229,7 +245,9 @@ function _parameter_errors_warnings(params::SolverParameters)
     params.Pm > 0.0 || push!(errors, "Pm = $(params.Pm) must be positive")
     params.Sc > 0.0 || push!(errors, "Sc = $(params.Sc) must be positive")
 
-    if params.timestep <= 0.0
+    if !isfinite(params.timestep)
+        push!(errors, "timestep = $(params.timestep) must be finite")
+    elseif params.timestep <= 0.0
         push!(errors, "timestep = $(params.timestep) must be positive")
     elseif params.timestep > 1.0
         push!(warnings, "timestep = $(params.timestep) is very large; check CFL condition")
@@ -245,18 +263,25 @@ function _parameter_errors_warnings(params::SolverParameters)
     params.stop_iteration >= 1 ||
         push!(errors, "stop_iteration = $(params.stop_iteration) must be >= 1")
 
-    if params.end_time <= params.start_time
+    isfinite(params.start_time) ||
+        push!(errors, "start_time = $(params.start_time) must be finite")
+    (isfinite(params.end_time) || params.end_time == Inf) ||
+        push!(errors, "end_time = $(params.end_time) must be finite or Inf")
+    if isfinite(params.start_time) && !isnan(params.end_time) &&
+       params.end_time <= params.start_time
         push!(errors,
             "end_time = $(params.end_time) must be greater than start_time = $(params.start_time)")
     end
 
-    max_diffusivity = max(1.0, params.Pm / params.Pr, params.Pm / params.Sc, params.Ek)
-    cfl_limit = 0.1 / (params.lmax^2 * max_diffusivity)
-    if params.timestep > cfl_limit
-        push!(warnings,
-            "timestep = $(params.timestep) may violate CFL condition " *
-            "(estimated limit: $(cfl_limit) for spectral stability with " *
-            "max diffusivity = $(max_diffusivity))")
+    if all(isfinite, (params.Pm, params.Pr, params.Sc, params.Ek, params.timestep))
+        max_diffusivity = max(1.0, params.Pm / params.Pr, params.Pm / params.Sc, params.Ek)
+        cfl_limit = 0.1 / (params.lmax^2 * max_diffusivity)
+        if params.timestep > cfl_limit
+            push!(warnings,
+                "timestep = $(params.timestep) may violate CFL condition " *
+                "(estimated limit: $(cfl_limit) for spectral stability with " *
+                "max diffusivity = $(max_diffusivity))")
+        end
     end
 
     if params.output_precision ∉ (:float32, :float64)
@@ -368,7 +393,13 @@ function safe_parse_value(value_str::AbstractString, param_dict::Dict{Symbol, An
     end
 
     if startswith(s, '"') && endswith(s, '"')
-        return s[2:(end - 1)]
+        # `save_parameters` emits strings with `repr`, including escaped quotes,
+        # slashes, control characters, and interpolation markers. Parsing a
+        # literal decodes those escapes without evaluating any expression.
+        literal = Meta.parse(s)
+        literal isa AbstractString || throw(ArgumentError(
+            "Unsupported interpolated string in parameter file"))
+        return String(literal)
     end
 
     int_val = tryparse(Int, s)
@@ -449,6 +480,31 @@ end
 
 const _LEGACY_PARAM_ALIASES = Dict{Symbol, Symbol}(:max_steps => :stop_iteration)
 
+function _strip_parameter_comment(value::AbstractString)
+    in_string = false
+    escaped = false
+
+    for index in eachindex(value)
+        char = value[index]
+        if in_string
+            if escaped
+                escaped = false
+            elseif char == '\\'
+                escaped = true
+            elseif char == '"'
+                in_string = false
+            end
+        elseif char == '"'
+            in_string = true
+        elseif char == '#'
+            index == firstindex(value) && return ""
+            return strip(SubString(value, firstindex(value), prevind(value, index)))
+        end
+    end
+
+    return strip(value)
+end
+
 function _parameter_assignments_from_file(config_file::String)
     param_dict = Dict{Symbol, Any}()
     content = read(config_file, String)
@@ -458,11 +514,11 @@ function _parameter_assignments_from_file(config_file::String)
         isempty(line) && continue
         startswith(line, "#") && continue
 
-        match_result = match(r"^(?:const\s+)?([A-Za-z]\w*)\s*=\s*([^#]+)", line)
+        match_result = match(r"^(?:const\s+)?([A-Za-z]\w*)\s*=\s*(.*)$", line)
         match_result === nothing && continue
 
         param_name = Symbol(match_result.captures[1])
-        param_value_str = strip(match_result.captures[2])
+        param_value_str = _strip_parameter_comment(match_result.captures[2])
 
         if haskey(_LEGACY_PARAM_ALIASES, param_name)
             new_name = _LEGACY_PARAM_ALIASES[param_name]

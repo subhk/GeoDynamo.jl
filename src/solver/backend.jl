@@ -47,7 +47,19 @@ mutable struct SolverTimestepState
     error::Float64
     converged::Bool
     needs_ab2_bootstrap::Bool
+    previous_dt::Float64  # interval belonging to the stored nonlinear history
+    stage::Int
+    last_dt::Float64      # zero before the first completed step
 end
+
+SolverTimestepState(time, dt, step, iteration, error, converged, needs_ab2_bootstrap) =
+    SolverTimestepState(time, dt, step, iteration, error, converged,
+        needs_ab2_bootstrap, dt)
+
+SolverTimestepState(time, dt, step, iteration, error, converged,
+        needs_ab2_bootstrap, previous_dt) =
+    SolverTimestepState(time, dt, step, iteration, error, converged,
+        needs_ab2_bootstrap, previous_dt, 0, 0.0)
 
 """
     SolverGradientWorkspace{T}
@@ -151,13 +163,26 @@ struct SolverRuntime{
     timestep_state::SolverTimestepState
 end
 
+# Row helpers shared by every `show(::MIME"text/plain", ...)` method in the solver
+# (SolverBackend, SolverState, SolverTopographyState). Each section header is
+# printed by the caller as a `├─`/`└─` branch; these render the leaf rows under it.
+_solver_yesno(flag::Bool) = flag ? "yes" : "no"
+
+function _solver_print_row(io::IO, label::AbstractString, value)
+    println(io, "│  ", rpad(string(label, ":"), 17), value)
+end
+
 function Base.show(io::IO, ::MIME"text/plain", backend::SolverBackend)
     cfg = backend.shtns_config
     println(io, "GeoDynamo SolverBackend")
     println(io, "├─ transforms")
     _solver_print_row(io, "backend", "SHTnsKit + PencilArrays + PencilFFTs")
     _solver_print_row(io, "architecture", backend.architecture)
-    _solver_print_row(io, "compute device", SHTnsKit.get_config_device(cfg.sht_config))
+    # Not the architecture again: `create_solver_runtime` copies that into
+    # `_buffers.transform_device`, so printing it here would just repeat the row
+    # above. Report whether the allocation-free transform plan was actually built.
+    _solver_print_row(io, "transform plan",
+        cfg._buffers.sht_plan === nothing ? "none (allocating)" : "SHTPlan")
     _solver_print_row(io, "lmax / mmax", "$(cfg.lmax) / $(cfg.mmax)")
     _solver_print_row(io, "Nθ × Nφ", "$(cfg.nlat) × $(cfg.nlon)")
     _solver_print_row(io, "spectral modes", cfg.nlm)
@@ -360,27 +385,29 @@ end
 
 function build_velocity_implicit_matrices(cfg, domain, E, dt, velocity_bc_code;
         theta::Float64 = 0.5,
+        T::Type{<:Number} = Float64,
         inner_regularity::Bool = false)
     return (
         tor = SOLVER_VELOCITY_TOROIDAL_MATRIX_BUILDER(
             cfg, domain, E, dt; velocity_bc_code = velocity_bc_code, mass_coeff = E,
-            theta = theta, inner_regularity = inner_regularity
+            theta = theta, T = T, inner_regularity = inner_regularity
         ),
         pol = SOLVER_VELOCITY_POLOIDAL_MATRIX_BUILDER(
             cfg, domain, E, dt; velocity_bc_code = velocity_bc_code, mass_coeff = E,
-            theta = theta
+            theta = theta, T = T
         )
     )
 end
 
 function build_magnetic_implicit_matrices(cfg, domain, dt;
         theta::Float64 = 0.5,
+        T::Type{<:Number} = Float64,
         inner_regularity::Bool = false)
     return (
         tor = SOLVER_MAGNETIC_TOROIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt;
-            theta = theta, inner_regularity = inner_regularity),
+            theta = theta, T = T, inner_regularity = inner_regularity),
         pol = SOLVER_MAGNETIC_POLOIDAL_MATRIX_BUILDER(cfg, domain, 1.0, dt;
-            theta = theta, inner_regularity = inner_regularity)
+            theta = theta, T = T, inner_regularity = inner_regularity)
     )
 end
 
@@ -428,9 +455,9 @@ end
     dt,
     temperature_bc_code,
     inner_regularity::Bool = false;
-    theta::Float64 = 0.5) = SOLVER_TEMPERATURE_MATRIX_BUILDER(
+    theta::Float64 = 0.5, T::Type{<:Number} = Float64) = SOLVER_TEMPERATURE_MATRIX_BUILDER(
     cfg, domain, diffusivity, dt; temperature_bc_code = temperature_bc_code,
-    theta = theta, inner_regularity = inner_regularity)
+    theta = theta, T = T, inner_regularity = inner_regularity)
 
 @inline solver_build_composition_implicit_matrix(cfg,
     domain,
@@ -438,9 +465,9 @@ end
     dt,
     composition_bc_code,
     inner_regularity::Bool = false;
-    theta::Float64 = 0.5) = SOLVER_COMPOSITION_MATRIX_BUILDER(
+    theta::Float64 = 0.5, T::Type{<:Number} = Float64) = SOLVER_COMPOSITION_MATRIX_BUILDER(
     cfg, domain, diffusivity, dt; composition_bc_code = composition_bc_code,
-    theta = theta, inner_regularity = inner_regularity)
+    theta = theta, T = T, inner_regularity = inner_regularity)
 
 # Shared core for both the eager (construction-time) and rebuild (dt-change)
 # implicit-matrix paths. `dt` is the authoritative timestep — callers pass it
@@ -453,7 +480,7 @@ function _build_implicit_matrices_dict(
     matrices = Dict{Symbol, OldImplicitMatrices{T}}()
     velocity = build_velocity_implicit_matrices(
         cfg, outer, p.Ek, dt, _velocity_bc_code(p.velocity_bcs);
-        theta = theta,
+        theta = theta, T = T,
         inner_regularity = inner_regularity)
     matrices[:velocity_tor] = velocity.tor
     matrices[:velocity_pol] = velocity.pol
@@ -473,7 +500,7 @@ function _build_implicit_matrices_dict(
         magnetic_ic_admittance = magnetic.admittance
     else
         magnetic = build_magnetic_implicit_matrices(cfg, outer, dt;
-            theta = theta,
+            theta = theta, T = T,
             inner_regularity = inner_regularity)
     end
     matrices[:magnetic_tor] = magnetic.tor
@@ -481,11 +508,11 @@ function _build_implicit_matrices_dict(
 
     matrices[:temperature] = solver_build_temperature_implicit_matrix(
         cfg, outer, p.Pm / p.Pr, dt, _thermal_bc_code(p.temperature_bcs),
-        inner_regularity; theta = theta)
+        inner_regularity; theta = theta, T = T)
     if p.include_composition
         matrices[:composition] = solver_build_composition_implicit_matrix(
             cfg, outer, p.Pm / p.Sc, dt, _composition_bc_code(p.composition_bcs),
-            inner_regularity; theta = theta)
+            inner_regularity; theta = theta, T = T)
     end
     return matrices, magnetic_ic_admittance
 end

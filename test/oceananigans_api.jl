@@ -35,6 +35,44 @@ using Test
         @test model.clock.iteration == 0
     end
 
+    @testset "model physical-parameter plumbing and unavailable modes" begin
+        using MPI
+        MPI.Initialized() || MPI.Init()
+
+        shell = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 16, nr_inner = 4)
+        shell_model = GeoDynamo.GeodynamoModel(shell;
+            Ek = 1e-2, Ra = 1e4, RaC = 2.5e5, include_composition = true)
+        @test shell_model.state.parameters.RaC == 2.5e5
+
+        ball = GeoDynamo.SphericalBallGrid(GeoDynamo.CPU();
+            lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 16)
+        ball_model = GeoDynamo.GeodynamoModel(ball;
+            Ek = 1e-2, Ra = 1e4, RaC = 7.5e5, include_composition = true)
+        @test ball_model.state.parameters.RaC == 7.5e5
+
+        stefan_error = try
+            GeoDynamo.GeodynamoModel(shell; Ek = 1e-2, Ra = 1e4, stefan_enabled = true)
+            nothing
+        catch err
+            err
+        end
+        @test stefan_error isa ArgumentError
+        @test occursin("stefan_enabled=true", sprint(showerror, stefan_error))
+
+        thin_inner_grid = GeoDynamo.SphericalShellGrid(GeoDynamo.CPU();
+            lmax = 4, mmax = 4, nlat = 12, nlon = 16, nr = 8, nr_inner = 2)
+        conducting_error = try
+            GeoDynamo.GeodynamoModel(thin_inner_grid; Ek = 1e-2, Ra = 1e4,
+                include_magnetic = true, magnetic_inner_bc = :conducting_inner_core)
+            nothing
+        catch err
+            err
+        end
+        @test conducting_error isa ArgumentError
+        @test occursin("nr_inner >= 3", sprint(showerror, conducting_error))
+    end
+
     @testset "time_step! advances one step" begin
         using MPI
         if !MPI.Initialized()
@@ -121,8 +159,11 @@ using Test
         model = GeoDynamo.GeodynamoModel(grid;
             Ek = 1e-2, Ra = 1e4, include_magnetic = false, include_composition = false)
         sim = GeoDynamo.Simulation(model; dt = 1e-4, stop_iteration = 2)
-        @test sim.callbacks isa GeoDynamo.OrderedDict{Symbol, <:Any}
-        @test sim.output_writers isa GeoDynamo.OrderedDict{Symbol, <:Any}
+        # Registries are CollectiveRegistry (validated collectively once, then
+        # frozen); they still READ like an ordered dict.
+        @test sim.callbacks isa GeoDynamo.CollectiveRegistry{:callback}
+        @test sim.output_writers isa GeoDynamo.CollectiveRegistry{:writer}
+        @test collect(keys(sim.callbacks)) isa Vector{Symbol}
 
         fired = Ref(0)
         GeoDynamo.add_callback!(sim, _ -> (fired[] += 1);

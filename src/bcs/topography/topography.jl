@@ -34,7 +34,13 @@ import ..bcs: BoundaryLocation, INNER_BOUNDARY, OUTER_BOUNDARY
 import ..bcs: BoundaryType, DIRICHLET, NEUMANN
 import ..bcs: FieldType, TEMPERATURE, COMPOSITION, VELOCITY, MAGNETIC
 import ..bcs: get_rank, get_comm
+import ...global_sum!   # GeoDynamo.parallel/collectives.jl (grandparent module)
 import ..bcs: shtns_spectral_to_physical
+# The corrections below must land in whichever boundary-value arrays the implicit
+# solve actually reads — the interpolation cache wins once a spectral BC file is
+# loaded, and writing to `field.boundary_values` regardless made every correction a
+# silent no-op in exactly those runs.
+import ..bcs: active_boundary_arrays
 
 # `local_spectral_storage_slot` and `get_mode_index` are defined at the GeoDynamo
 # top level (two modules up: topography -> bcs -> GeoDynamo). Forward to them
@@ -79,18 +85,23 @@ end
 # & toroidal/magnetic) gets its own base snapshot. Velocity/magnetic bases are the
 # all-zero initial rows; temperature/composition carry the parameter mean-mode base.
 # ----------------------------------------------------------------------------
-struct BoundaryValueBase{A <: AbstractMatrix}
+mutable struct BoundaryValueBase{A <: AbstractMatrix}
     target::WeakRef
     snapshot::A
+    # What the topography correction LEFT in the array last time round, or `nothing`
+    # before the first correction. `reset_boundary_to_base!` rolls the array back only
+    # when it still matches this: the array has other owners
+    # (`update_time_dependent_boundaries!`, `apply_temperature_boundaries!`) and
+    # restoring a stale snapshot over their writes froze a time-dependent BC at its
+    # t = 0 value for the rest of the run.
+    applied::Union{A, Nothing}
 end
+
+BoundaryValueBase(target::WeakRef, snapshot::A) where {A <: AbstractMatrix} =
+    BoundaryValueBase{A}(target, snapshot, nothing)
 
 const _BOUNDARY_VALUE_BASE = Dict{UInt, BoundaryValueBase}()
 const _BOUNDARY_VALUE_BASE_LOCK = ReentrantLock()
-
-@inline function _restore_boundary_to_base!(bv, entry::BoundaryValueBase)
-    copyto!(bv, entry.snapshot)
-    return bv
-end
 
 function _prune_boundary_value_base_cache!()
     filter!(entry -> entry.second.target.value !== nothing, _BOUNDARY_VALUE_BASE)
@@ -115,7 +126,16 @@ function _finalize_boundary_value_base!(key::UInt, target)
 end
 
 function reset_boundary_to_base!(bv::AbstractMatrix)
-    entry = lock(_BOUNDARY_VALUE_BASE_LOCK) do
+    # The whole body holds the lock. `BoundaryValueBase` is mutable and the
+    # rollback below ASSIGNS `entry.snapshot`/`entry.applied` and writes
+    # `snapshot` element-wise, while `mark_boundary_applied!` mutates the same
+    # fields and the finalizer can `delete!` the entry at any safepoint. A
+    # reader that lands between the lookup and the rollback sees
+    # `applied === nothing`, skips the rebase and adopts the CORRECTED array as
+    # the new base — the compounding this mechanism exists to prevent.
+    # `_finalize_boundary_value_base!` uses `trylock`, so a finalizer running
+    # inside this section returns instead of deadlocking.
+    lock(_BOUNDARY_VALUE_BASE_LOCK) do
         _prune_boundary_value_base_cache!()
         key = objectid(bv)
         entry = get(_BOUNDARY_VALUE_BASE, key, nothing)
@@ -127,12 +147,98 @@ function reset_boundary_to_base!(bv::AbstractMatrix)
                     _finalize_boundary_value_base!(key, target)
                 end
             end
-            entry
+        end
+        # Roll back only OUR own correction, element by element: wherever the array no
+        # longer holds what the last correction left, some other owner has written since,
+        # and that write is the new base rather than something to undo. Before the first
+        # correction, or across a reshape, there is nothing to attribute — take the array
+        # as it stands.
+        if entry.applied === nothing || !_rebasable(bv, entry)
+            entry.snapshot = copy(bv)
+            entry.applied = nothing
         else
-            entry
+            _rebase_boundary_to_base!(bv, entry)
+            entry.applied = nothing
         end
     end
-    _restore_boundary_to_base!(bv, entry)
+    return bv
+end
+
+"""Whether `entry` still describes an array shaped like `bv`, so it can be rebased."""
+@inline _rebasable(bv, entry::BoundaryValueBase) =
+    entry.applied !== nothing &&
+    axes(bv) == axes(entry.applied) && axes(bv) == axes(entry.snapshot)
+
+"""
+    _rebase_boundary_to_base!(bv, entry)
+
+Undo the topography correction ELEMENT BY ELEMENT.
+
+A whole-array `bv == entry.applied` answered "someone else wrote here" in two cases
+where nobody did:
+
+  * any element is `NaN`, because `NaN != NaN`. A correction that legitimately
+    produced a `NaN` therefore never rolled back.
+  * another owner rewrote only PART of the array — which is the shape that actually
+    occurs: `apply_temperature_boundaries!`/`apply_composition_boundaries!`
+    (bcs/integration.jl) write `1:min(length(coeffs), nlm)` of the real array and
+    never the imaginary one.
+
+In both cases the CORRECTED array became the new base, so the next pass added a
+second correction on top of the first — the compounding this base/snapshot
+mechanism exists to prevent. Deciding per element keeps a foreign write (new base)
+and rolls back everything the correction still owns; `isequal` makes `NaN` compare
+equal to itself.
+"""
+function _rebase_boundary_to_base!(bv, entry::BoundaryValueBase)
+    applied = something(entry.applied)   # `_rebasable` already ruled out `nothing`
+    snapshot = entry.snapshot
+    @inbounds for i in eachindex(bv, applied, snapshot)
+        if isequal(bv[i], applied[i])
+            bv[i] = snapshot[i]     # still our correction: undo it
+        else
+            snapshot[i] = bv[i]     # a foreign write: it is the new base
+        end
+    end
+    return bv
+end
+
+"""
+    _active_boundary_array_list(fields...) -> Vector
+
+The distinct, non-`nothing` boundary-value arrays (real and imaginary) that the solver
+reads for `fields`. Deduplicated by identity, because two fields can legitimately share
+one array and resetting it twice in a pass would roll the second reset back over the
+first field's base.
+"""
+function _active_boundary_array_list(fields...)
+    out = AbstractMatrix[]
+    for f in fields
+        for a in active_boundary_arrays(f)
+            a === nothing && continue
+            any(x -> x === a, out) && continue
+            push!(out, a)
+        end
+    end
+    return out
+end
+
+"""
+    mark_boundary_applied!(bv)
+
+Record `bv` as the state the topography correction just left behind.
+
+`reset_boundary_to_base!` uses it to tell its own correction (safe to roll back) from
+an update made by another owner of the same array (must be kept, and becomes the new
+base). Call it once per boundary array after a correction pass has finished writing.
+"""
+function mark_boundary_applied!(bv::AbstractMatrix)
+    lock(_BOUNDARY_VALUE_BASE_LOCK) do
+        entry = get(_BOUNDARY_VALUE_BASE, objectid(bv), nothing)
+        if entry !== nothing && entry.target.value === bv
+            entry.applied = copy(bv)
+        end
+    end
     return bv
 end
 
@@ -308,6 +414,7 @@ export enable_topography!, disable_topography!, is_topography_enabled
 export GauntTensorCache
 export compute_gaunt_tensor, compute_gradient_gaunt_tensor, compute_cross_gaunt_tensor
 export precompute_gaunt_tensors!, get_gaunt_tensor, get_gradient_gaunt, get_cross_gaunt
+export flush_cross_gaunt_view!
 export gaunt_on_the_fly, gradient_gaunt_from_basic
 export evaluate_spherical_harmonics_grid, evaluate_spherical_harmonic_gradient_grid
 
@@ -341,6 +448,7 @@ export compute_stefan_flux
 # High-level interface
 export apply_all_topography_corrections!
 export clear_boundary_value_base_cache!
+export mark_boundary_applied!
 
 # ================================================================================
 # High-level Interface Functions
@@ -366,22 +474,49 @@ function apply_all_topography_corrections!(fields, topography;
     end
 
     # Apply velocity corrections if enabled and field exists
-    if config.velocity_coupling && hasfield(typeof(fields), :velocity)
+    if config.velocity_coupling && _field_present(fields, :velocity)
         apply_velocity_topography_correction!(fields.velocity, topography, config)
     end
 
     # Apply magnetic corrections if enabled and field exists
-    if config.magnetic_coupling && hasfield(typeof(fields), :magnetic)
+    if config.magnetic_coupling && _field_present(fields, :magnetic)
         apply_magnetic_topography_correction!(fields.magnetic, topography, config)
     end
 
     # Apply thermal corrections if enabled and field exists
-    if config.thermal_coupling && hasfield(typeof(fields), :temperature)
+    if config.thermal_coupling && _field_present(fields, :temperature)
         apply_thermal_topography_correction!(fields.temperature, topography, config)
     end
 
+    # Composition obeys the same advection-diffusion boundary algebra as
+    # temperature and has its own correction, but was never dispatched: a run with
+    # `include_composition = true` and topography enabled silently got no
+    # compositional boundary correction at all.
+    if config.thermal_coupling && _field_present(fields, :composition)
+        apply_composition_topography_correction!(fields.composition, topography, config)
+    end
+
+    # Lazy cross-Gaunt insertions publish geometrically while the correction loops
+    # run. Publish the below-threshold tail once, at the full correction-pass batch
+    # boundary, so the next pass serves every accumulated hit without the write lock.
+    topography.gaunt_cache === nothing ||
+        flush_cross_gaunt_view!(topography.gaunt_cache)
+
     return nothing
 end
+
+"""
+    _field_present(fields, name::Symbol) -> Bool
+
+Whether `fields` actually CARRIES a field named `name`.
+
+`hasfield` answers a question about the TYPE, and `SolverFields` declares its optional
+slots as `magnetic::M where M <: Union{MagneticFieldsType,Nothing}` — so `hasfield` is
+true on a hydro-only run and the magnetic correction was invoked with `nothing` every
+single step, warning unthrottled from inside. Presence is a property of the value.
+"""
+_field_present(fields, name::Symbol) =
+    hasfield(typeof(fields), name) && getfield(fields, name) !== nothing
 
 """
     print_topography_summary(topography::TopographyData)

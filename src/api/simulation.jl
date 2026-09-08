@@ -32,9 +32,16 @@ mutable struct Simulation{M, C, O}
     _gpu_src::NTuple{2, Union{Vector{Float64}, Nothing}}
     # Host-side copies of the scalar boundary ENDPOINT values baked into `_gpu_state`
     # (temperature, composition), for the same reason as `_gpu_src`: the bundle copies
-    # them at pack time and is rebuilt only on a Δt change, so a programmatic BC write
+    # them at pack time and reuses them across steps, so a programmatic BC write
     # mid-run would otherwise keep being integrated against the old wall values.
     _gpu_bc::NTuple{2, Union{Matrix{Float64}, Nothing}}
+    # Whether `_run_callbacks!` must reduce the `running` flag across ranks each
+    # step. Decided ONCE, collectively, by `_freeze_callbacks!` at `run!` entry or the
+    # first `time_step!` — never from the rank's own callback registry, because gating
+    # a reduction on a rank-local predicate makes the rank holding the odd callback
+    # enter an `Allreduce` alone. It starts `true` so nothing can skip the reduction
+    # before that decision has been taken.
+    _stop_needs_reduce::Bool
 end
 
 _to_ordered(::Nothing, prefix::Symbol) = OrderedDict{Symbol, Any}()
@@ -96,7 +103,7 @@ function nan_checker(sim)
     # decision has to be reduced (as `check_simulation_state_for_nan` in
     # core/simulation_health.jl already does). Without it, only the ranks that own
     # the blown-up modes leave run! and the rest hang in the next collective.
-    if _any_rank_flag(r.has_issue)
+    if any_rank(r.has_issue)
         if r.has_issue
             @warn "NaN/Inf found in fields $(r.fields) at iteration $(sim.model.clock.iteration); stopping simulation."
         else
@@ -114,6 +121,48 @@ function _default_callbacks()
         :wall_time_limit_exceeded => Callback(wall_time_limit_exceeded, IterationInterval(1)),
         :nan_checker             => Callback(nan_checker,             IterationInterval(100)),
     )
+end
+
+"""
+    _commit_run_controls!(model, new_params, dt_f, old_timestep, finalize_tail)
+
+Install `new_params` on the model's solver state and run the remaining fallible
+setup, rolling the state back if any of it throws.
+
+`rebuild_solver_implicit_matrices!` deliberately reads the LIVE
+`state.parameters`, so the swap has to happen before the rebuild rather than
+after it. Everything the tail replaces is replaced wholesale (never mutated in
+place), so restoring the previous references restores the previous state exactly.
+
+This covers the run-control commit only. On the restart path the fields and the
+clock have already been overwritten before this is reached.
+"""
+function _commit_run_controls!(model, new_params, dt_f, old_timestep, finalize_tail)
+    state = model.state
+    previous_params = state.parameters
+    previous_matrices = state.implicit_matrices
+    previous_admittance = state.magnetic_ic_admittance
+    previous_caches = state.timestep_caches
+    previous_dt = state.runtime.timestep_state.dt
+    previous_bootstrap = state.runtime.timestep_state.needs_ab2_bootstrap
+
+    state.parameters = new_params
+    try
+        ensure_solver_operators!(state, dt_f)
+        if typeof(new_params.timestepper) !== typeof(previous_params.timestepper)
+            state.runtime.timestep_state.needs_ab2_bootstrap = true
+        end
+        finalize_tail()
+    catch
+        state.parameters = previous_params
+        state.implicit_matrices = previous_matrices
+        state.magnetic_ic_admittance = previous_admittance
+        state.timestep_caches = previous_caches
+        state.runtime.timestep_state.dt = previous_dt
+        state.runtime.timestep_state.needs_ab2_bootstrap = previous_bootstrap
+        rethrow()
+    end
+    return nothing
 end
 
 """
@@ -192,8 +241,52 @@ function Simulation(model::GeodynamoModel;
     dt_in > 0 ||
         throw(ArgumentError("Simulation: dt = $dt_in must be positive"))
     stop_time_f = Float64(stop_time)
-    restored_output_tracker = nothing
+    dt_f = Float64(dt_in)
+    wall_time_limit_f = Float64(wall_time_limit)
 
+    # Resolve and validate every fallible constructor option that can be checked
+    # without changing the model. In particular, late `gpu`/`gpu_sync` failures
+    # must not leave new parameters and rebuilt implicit matrices behind.
+    p = model.state.parameters
+    old_timestep = model.state.parameters.timestep
+    timestep_options = _resolve_timestepper(
+        timestepper,
+        timestep_scheme,
+        implicit_theta,
+        etd_krylov_dimension,
+        krylov_tolerance,
+        p
+    )
+    new_params = SolverParameters(;
+        (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
+        timestep = dt_f,
+        end_time = stop_time_f,
+        stop_iteration = stop_iteration,
+        timestepper = timestep_options.timestepper,
+        courant = Float64(something(courant, p.courant))
+    )
+    # Validate the run controls the caller just set (courant, stop_iteration,
+    # stop_time/end_time) instead of silently accepting invalid values that
+    # would only surface later. Use the non-printing checker so a normal
+    # construction does not spam validation warnings. The model's own params
+    # were already valid.
+    control_errors, _ = _parameter_errors_warnings(new_params)
+    isempty(control_errors) || throw(ArgumentError(
+        "Simulation: invalid run controls: " * join(control_errors, "; ")))
+
+    callback_items = CollectiveRegistry{:callback}(
+        merge(_default_callbacks(), _to_ordered(callbacks, :callback)))
+    output_writer_items = CollectiveRegistry{:writer}(_to_ordered(output_writers, :writer))
+    # Writers are fixed at construction; validate them collectively here, before
+    # `_restore_output_writer_trackers!` (collective) can run on an asymmetric set.
+    _freeze_output_writers!(output_writer_items)
+    gpu_sync in (:every, :output) || throw(ArgumentError(
+        "Simulation: gpu_sync must be :every or :output (got $gpu_sync)"))
+    gpu_resolved = _resolve_gpu_stepping(gpu, model, timestep_options.timestepper)
+
+    prepare_solver_host_update!(model.state)
+
+    restored_output_tracker = nothing
     if !isempty(restart_from)
         if MPI.Initialized()
             config = default_config()
@@ -223,56 +316,21 @@ function Simulation(model::GeodynamoModel;
         end
     end
 
-    dt_f = Float64(dt_in)
-
-    # Propagate dt, stop_time, and stop_iteration into the solver's SolverParameters so
-    # that solver_step! uses the timestep the caller requested.
-    p = model.state.parameters
-    old_timestep = model.state.parameters.timestep
-    timestep_options = _resolve_timestepper(
-        timestepper,
-        timestep_scheme,
-        implicit_theta,
-        etd_krylov_dimension,
-        krylov_tolerance,
-        p
-    )
-    new_params = SolverParameters(;
-        (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
-        timestep = dt_f,
-        end_time = stop_time_f,
-        stop_iteration = stop_iteration,
-        timestepper = timestep_options.timestepper,
-        courant = Float64(something(courant, p.courant))
-    )
-    # Validate the run controls the caller just set (courant, stop_iteration,
-    # stop_time/end_time) instead of silently accepting invalid values that
-    # would only surface later. Use the non-printing checker so a normal
-    # construction does not spam validation warnings. The model's own params
-    # were already valid.
-    control_errors, _ = _parameter_errors_warnings(new_params)
-    isempty(control_errors) || throw(ArgumentError(
-        "Simulation: invalid run controls: " * join(control_errors, "; ")))
-    model.state.parameters = new_params
-    if dt_f != old_timestep
-        rebuild_solver_implicit_matrices!(model.state, dt_f)
-        model.state.runtime.timestep_state.dt = dt_f
-    end
-
-    callback_items = merge(_default_callbacks(), _to_ordered(callbacks, :callback))
-    output_writer_items = _to_ordered(output_writers, :writer)
-    if restored_output_tracker !== nothing
-        _restore_output_writer_trackers!(
-            output_writer_items, restored_output_tracker, model.state.parameters.geometry)
-    end
-
-    gpu_resolved = _resolve_gpu_stepping(gpu, model, timestep_options.timestepper)
-    gpu_sync in (:every, :output) || throw(ArgumentError(
-        "Simulation: gpu_sync must be :every or :output (got $gpu_sync)"))
+    # Propagate dt, stop_time, and stop_iteration into SolverParameters only after
+    # all validations that can be performed up front have succeeded. The commit
+    # rolls itself back if the matrix rebuild or the tracker restore throws.
+    _commit_run_controls!(model, new_params, dt_f, old_timestep,
+        () -> begin
+            restored_output_tracker === nothing && return nothing
+            _restore_output_writer_trackers!(
+                output_writer_items, restored_output_tracker,
+                model.state.parameters.geometry)
+            return nothing
+        end)
 
     sync_clock!(model.clock, model.state)
     return Simulation{typeof(model), typeof(callback_items), typeof(output_writer_items)}(
-        model, dt_f, stop_time_f, stop_iteration, Float64(wall_time_limit),
+        model, dt_f, stop_time_f, stop_iteration, wall_time_limit_f,
         false,
         gpu_resolved,
         callback_items,
@@ -284,7 +342,8 @@ function Simulation(model::GeodynamoModel;
         gpu_sync,
         false,
         (nothing, nothing),
-        (nothing, nothing)
+        (nothing, nothing),
+        true
     )
 end
 
@@ -371,21 +430,20 @@ end
 Advance the model by one step with timestep `dt`, then sync the clock.
 """
 function time_step!(model::GeodynamoModel, dt::Real)
-    dt > 0 || throw(ArgumentError("time_step!: dt = $dt must be positive"))
     state = model.state
     dt_f = Float64(dt)
+    isfinite(dt_f) && dt_f > 0 ||
+        throw(ArgumentError("time_step!: dt = $dt must be finite and positive"))
+    prepare_solver_host_update!(state)
     if dt_f != state.parameters.timestep
         p = state.parameters
-        state.parameters = SolverParameters(;
+        new_params = SolverParameters(;
             (f => getfield(p, f) for f in fieldnames(SolverParameters))...,
             timestep = dt_f
         )
-        rebuild_solver_implicit_matrices!(state, dt_f)
-        state.runtime.timestep_state.dt = dt_f
+        _commit_run_controls!(model, new_params, dt_f, p.timestep, () -> nothing)
     end
     solver_step!(state)
-    sync_clock!(model.clock, state)
-    model.clock.last_dt = dt_f
     return model
 end
 
@@ -393,8 +451,18 @@ end
     time_step!(sim::Simulation)
 
 Advance the simulation by one step at `sim.dt`, firing callbacks and writers.
+In an MPI run every rank must call this together: the first call validates the
+callback registry collectively and freezes it (see `add_callback!`).
 """
 function time_step!(sim::Simulation)
+    _freeze_callbacks!(sim)
+    return _time_step!(sim)
+end
+
+# Unchecked step used by `run!` and by `time_step!` once the registry is frozen.
+# Public hand-stepping goes through `time_step!` above so a rank-local registry
+# mismatch is rejected before the numerical state advances.
+function _time_step!(sim::Simulation)
     if sim.gpu
         _gpu_time_step!(sim)
     else
@@ -415,6 +483,7 @@ end
 function _gpu_time_step!(sim::Simulation)
     model = sim.model
     state = model.state
+    ensure_solver_operators!(state)
     if sim._gpu_state === nothing || sim._gpu_dt != sim.dt
         # The bootstrap step below runs on the HOST state, so under
         # gpu_sync = :output the device must be mirrored back first — otherwise
@@ -434,20 +503,15 @@ function _gpu_time_step!(sim::Simulation)
         sim._gpu_dt = sim.dt
         sim._gpu_src = _gpu_source_snapshot(state)
         sim._gpu_bc = _gpu_bc_snapshot(state)
+        state.timestep_caches.gpu_owner = WeakRef(sim)
         return sim
     end
     # The bundle bakes boundary endpoint values and the internal-source profiles
-    # at BUILD time and is only rebuilt on a Δt change, so the scope limits have
+    # at BUILD time, so the scope limits have
     # to be re-checked here too — otherwise attaching time-dependent boundary data
     # (or calling set_internal_heating!) mid-run is silently ignored while the
     # builder docstring promises a loud rejection.
     _gpu_assert_bundle_current(sim)
-    # Match the CPU convention: solver_step! (solver/mainloop.jl) bumps
-    # timestep_state.step BEFORE the physics, so anything reading it during a step
-    # sees the step being computed. Nothing on the device path reads it today —
-    # this keeps a future CPU-side hook inside the device loop from inheriting an
-    # off-by-one. `reset_solver_clock!` below sets the authoritative pair.
-    state.runtime.timestep_state.step = state.step + 1
     # Three-way device-step dispatch; each gpu_*_solver_step! call is itself a
     # dispatch barrier over the ::Any bundle. The host re-sync is deferred to
     # the gpu_sync block below (PR #77 lazy mirror) — no unconditional sync here.
@@ -458,12 +522,7 @@ function _gpu_time_step!(sim::Simulation)
     else
         gpu_solver_step!(sim._gpu_state)
     end
-    # Advance BOTH clocks. `runtime.timestep_state` is what get_current_simulation_time
-    # (bcs/integration.jl) and the ERK2 diagnostics read; leaving it at the bootstrap
-    # value makes them see a frozen time for the whole device run.
-    reset_solver_clock!(state; time = state.time + sim.dt, step = state.step + 1)
-    sync_clock!(model.clock, state)        # counters are host-side — no device read
-    model.clock.last_dt = sim.dt
+    finalize_solver_step!(state, state.step + 1; dt=sim.dt)
     if sim._gpu_sync === :every || _gpu_host_read_pending(sim)
         sync_gpu_state_to_cpu!(state, sim._gpu_state)
         sim._gpu_dirty = false
@@ -535,7 +594,7 @@ _gpu_clock_only(::ClockOnlyCallback) = true
 # `clock.iteration` advance in lockstep, and `wall_time_limit_exceeded` reads
 # `_collective_wtime`, which broadcasts rank 0's elapsed time. `nan_checker`
 # scans only this rank's slab but already reduces the verdict with
-# `_any_rank_flag` before assigning.
+# `any_rank` before assigning.
 #
 # `ClockOnlyCallback` is deliberately NOT listed. Its contract (see its docstring) is
 # "reads only the clock, never the field data" — a GPU-sync property, not an MPI one, and
@@ -583,6 +642,16 @@ function _gpu_sync_host!(sim::Simulation)
         sim._gpu_dirty = false
     end
     return sim
+end
+
+# Called before a public host edit or a switch to CPU stepping. Synchronizing
+# first preserves every unedited field even with gpu_sync=:output; discarding the
+# pack afterwards makes the next GPU step bootstrap from the edited host state.
+function _release_solver_device_owner!(sim::Simulation)
+    _gpu_sync_host!(sim)
+    sim._gpu_state = nothing
+    sim._gpu_erk2 = nothing
+    return nothing
 end
 
 """
@@ -665,13 +734,13 @@ function _gpu_assert_bundle_current(sim::Simulation)
     _gpu_source_current(state.fields.temperature, baked_t) || error(
         "GPU solver path: the temperature internal-source profile changed after the " *
         "device bundle was built (e.g. set_internal_heating!). The bundle bakes the " *
-        "profile at pack time and is only rebuilt on a Δt change, so the device would " *
+        "profile at pack time and reuses it across steps, so the device would " *
         "keep integrating the old source. Rebuild the Simulation, or change the source " *
         "before the first step.")
     _gpu_source_current(state.fields.composition, baked_c) || error(
         "GPU solver path: the composition internal-source profile changed after the " *
-        "device bundle was built. The bundle bakes the profile at pack time and is only " *
-        "rebuilt on a Δt change, so the device would keep integrating the old source. " *
+        "device bundle was built. The bundle bakes the profile at pack time and " *
+        "reuses it across steps, so the device would keep integrating the old source. " *
         "Rebuild the Simulation, or change the source before the first step.")
     # `_gpu_assert_static_bcs` only rejects a time-dependent BoundaryConditionSet; a
     # direct write to `boundary_values` (the programmatic BC surface, or set_*_bcs!)
@@ -682,12 +751,12 @@ function _gpu_assert_bundle_current(sim::Simulation)
     _gpu_bc_current(state.fields.temperature, bc_t) || error(
         "GPU solver path: the temperature boundary endpoint values changed after the " *
         "device bundle was built. The bundle bakes `boundary_values` at pack time and is " *
-        "only rebuilt on a Δt change, so the device would keep applying the old wall " *
+        "reused across steps, so the device would keep applying the old wall " *
         "values. Rebuild the Simulation, or change the boundary values before the first step.")
     _gpu_bc_current(state.fields.composition, bc_c) || error(
         "GPU solver path: the composition boundary endpoint values changed after the " *
         "device bundle was built. The bundle bakes `boundary_values` at pack time and is " *
-        "only rebuilt on a Δt change, so the device would keep applying the old wall " *
+        "reused across steps, so the device would keep applying the old wall " *
         "values. Rebuild the Simulation, or change the boundary values before the first step.")
     return nothing
 end
@@ -708,6 +777,9 @@ after each step.
 function run!(sim::Simulation)
     sim._wall_start = time()
     sim.running = true
+    # Validate + freeze the callback registry and decide the stop reduction, once,
+    # where EVERY rank arrives. Writers were frozen by the constructor.
+    _freeze_callbacks!(sim)
     # A simulation already past its stop criteria must not take a step
     # (e.g. a second run! after completion). Check the stop conditions
     # directly rather than via _run_callbacks! so user callbacks do not
@@ -716,7 +788,7 @@ function run!(sim::Simulation)
     stop_iteration_exceeded(sim)
     wall_time_limit_exceeded(sim)
     while sim.running
-        time_step!(sim)
+        _time_step!(sim)
     end
     _gpu_sync_host!(sim)        # lazy gpu_sync = :output: final state to host
     return sim
@@ -724,14 +796,21 @@ end
 
 """
     add_callback!(sim, func; schedule, name=auto)
+    add_callback!(sim, cb::Callback; name=auto)
 
-Register `func(sim)` to fire on `schedule`. Returns `sim`.
+Register `func(sim)` (or a prebuilt `Callback`) to fire on `schedule`. Returns
+`sim`. Must be called on every rank, before `run!` or the first `time_step!`:
+the registry is validated collectively and frozen at that point, and a later
+registration throws.
 """
-function add_callback!(sim::Simulation, func; schedule,
+function add_callback!(sim::Simulation, cb::Callback;
         name::Symbol = Symbol(:callback, length(sim.callbacks) + 1))
-    sim.callbacks[name] = Callback(func; schedule = schedule)
+    register!(sim.callbacks, name, cb)
     return sim
 end
+add_callback!(sim::Simulation, func; schedule,
+        name::Symbol = Symbol(:callback, length(sim.callbacks) + 1)) =
+    add_callback!(sim, Callback(func; schedule = schedule); name = name)
 
 # ================================================================================
 # Oceananigans-canonical `Δt` property

@@ -103,6 +103,10 @@ mutable struct SHTnsCompositionField{
 
     # Boundary conditions
     boundary_values::Matrix{T}         # [2, nlm] for ICB and CMB
+    # Imaginary part of the per-mode boundary rows — see the same field on
+    # SHTnsTemperatureField. `get_bc_vectors` forwards it to the scalar solve, so
+    # without it the imaginary half of every m > 0 boundary correction was dropped.
+    boundary_values_imag::Matrix{T}    # [2, nlm] for ICB and CMB
     bc_type_inner::Vector{Int}         # BC type for each mode at inner
     bc_type_outer::Vector{Int}         # BC type for each mode at outer
 
@@ -203,6 +207,7 @@ function create_shtns_composition_field(::Type{T}, config::C,
 
     # Boundary conditions
     boundary_values = zeros(T, 2, config.nlm)
+    boundary_values_imag = zeros(T, 2, config.nlm)
 
     # Default BC types (DIRICHLET = fixed value, NEUMANN = fixed flux)
     # For composition: typically no-flux at both boundaries
@@ -226,7 +231,7 @@ function create_shtns_composition_field(::Type{T}, config::C,
     return SHTnsCompositionField(
         composition, gradient, spectral, nonlinear, prev_nonlinear,
         work_spectral, work_physical, advection_physical,
-        boundary_values, bc_type_inner, bc_type_outer,
+        boundary_values, boundary_values_imag, bc_type_inner, bc_type_outer,
         nothing, bcs.BoundaryInterpolationCache(T), Ref(1),  # boundary condition fields
         l_factors, internal_sources, config,
         ∂r, ∂²r,
@@ -403,9 +408,9 @@ function compute_composition_rms(𝔽::SHTnsCompositionField{T}, outer_core_doma
 
     # Global reduction
     comm = get_comm()
-    global_sum = MPI.Allreduce(local_sum, MPI.SUM, comm)
+    total = global_sum(local_sum, comm)
 
-    return sqrt(global_sum / (outer_core_domain.N * 𝔽.config.nlm))
+    return sqrt(total / (outer_core_domain.N * 𝔽.config.nlm))
 end
 
 """
@@ -436,7 +441,7 @@ function compute_composition_energy(𝔽::SHTnsCompositionField{T}, outer_core_d
 
     # Global reduction
     comm = get_comm()
-    global_energy = MPI.Allreduce(local_energy, MPI.SUM, comm)
+    global_energy = global_sum(local_energy, comm)
 
     return global_energy / (𝔽.config.nlat * 𝔽.config.nlon * outer_core_domain.N)
 end
@@ -461,23 +466,23 @@ function get_composition_statistics(𝔽::SHTnsCompositionField{T},
     local_min = minimum(comp_data)
     local_max = maximum(comp_data)
 
-    global_min = MPI.Allreduce(local_min, MPI.MIN, get_comm())
-    global_max = MPI.Allreduce(local_max, MPI.MAX, get_comm())
+    gmin = global_min(local_min)
+    gmax = global_max(local_max)
 
     # RMS composition
     local_sum = sum(abs2, comp_data)
     local_count = length(comp_data)
 
-    global_sum = MPI.Allreduce(local_sum, MPI.SUM, get_comm())
-    global_count = MPI.Allreduce(local_count, MPI.SUM, get_comm())
+    gsum = global_sum(local_sum)
+    gcount = global_sum(local_count)
 
-    rms_comp = sqrt(global_sum / global_count)
+    rms_comp = sqrt(gsum / gcount)
 
     # Total energy
     energy = compute_composition_energy(𝔽, domain)
 
-    return (min = global_min,
-        max = global_max,
+    return (min = gmin,
+        max = gmax,
         rms = rms_comp,
         energy = energy)
 end

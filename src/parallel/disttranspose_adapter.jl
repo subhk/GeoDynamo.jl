@@ -185,9 +185,8 @@ function to_spec_solve(cfg, Alm, plan)
     # is config-dependent. Hand it to a barrier so the NamedTuple field accesses
     # and the reorder loop specialize on the concrete runtime type instead of
     # boxing. (spec_storage_to_solve! uses the equivalent field-assert pattern.)
-    _to_spec_solve_impl!(scratch, Alm, cfg.lmax::Int,
+    return _to_spec_solve_impl!(scratch, Alm, cfg.lmax::Int,
         length(PencilArrays.range_local(cfg.pencils.r)[3]))
-    return scratch.solve
 end
 
 function _to_spec_solve_impl!(scratch, Alm, lmax::Int, nr_local::Int)
@@ -195,7 +194,9 @@ function _to_spec_solve_impl!(scratch, Alm, lmax::Int, nr_local::Int)
     # Reorder Alm parent (l, m_bin, r_local) → almr parent (l, r_local, m_bin)
     _reorder_alm_to_almr!(parent(scratch.almr), Ap, nr_local, size(Ap, 2), lmax)
     PencilArrays.transpose!(scratch.t_fwd)  # almr → solve (persistent plan, no alloc)
-    return nothing
+    # Return the dynamically typed field while `scratch` is behind this
+    # specialization barrier; accessing it in `to_spec_solve` boxes the result.
+    return scratch.solve
 end
 
 """
@@ -319,8 +320,8 @@ function _build_mbridge(cfg, plan)
 
     # Gather every θ_comm member's spec m-slot count and first slot, so we can place
     # each contributor's columns at the right global m offset in the full-m block.
-    counts  = MPI.Allgather(Int32(m_local_cnt), θ_comm)
-    firsts  = MPI.Allgather(Int32(first(spec_m_range)), θ_comm)  # 1-based first m-slot
+    counts  = allgather(Int32(m_local_cnt), θ_comm)
+    firsts  = allgather(Int32(first(spec_m_range)), θ_comm)  # 1-based first m-slot
     m_counts = Int.(counts)
 
     # Pre-allocated scratch reused across every bridge call (fixed sizes per config;
@@ -343,9 +344,9 @@ function _build_mbridge(cfg, plan)
     plan_valid_cols = Int[mi for (mi, m) in enumerate(mlocal) if 0 <= m <= mmax]
     plan_valid_m    = Int[mlocal[mi] for mi in plan_valid_cols]
     plan_send_cnt   = length(plan_valid_cols)
-    plan_counts     = Int.(MPI.Allgather(Int32(plan_send_cnt), θ_comm))
+    plan_counts     = Int.(allgather(Int32(plan_send_cnt), θ_comm))
     plan_m_recv     = Vector{Int32}(undef, sum(plan_counts))
-    MPI.Allgatherv!(Int32.(plan_valid_m), MPI.VBuffer(plan_m_recv, plan_counts), θ_comm)
+    allgatherv!(Int32.(plan_valid_m), MPI.VBuffer(plan_m_recv, plan_counts), θ_comm)
     plan_m_all      = Int.(plan_m_recv)
     plan_recvcounts = [c * l_local * nr for c in plan_counts]
     plan_send       = Vector{ComplexF64}(undef, l_local * plan_send_cnt * nr)
@@ -422,7 +423,7 @@ function _build_mbridge(cfg, plan)
     # branch. The volume gate already agrees on all ranks (its inputs come from
     # Allgather), but the ENV override does not — set inconsistently it would deadlock.
     # Broadcast the decision from the root so the communicator can never disagree.
-    use_a2a = MPI.bcast(use_a2a, θ_comm; root = 0)
+    use_a2a = root_value(() -> use_a2a, θ_comm, "m-bridge Alltoallv decision")
 
     return _MBridge(θ_comm, θ_size,
                     spec_m_range, nr, l_local, mmax,
@@ -468,7 +469,7 @@ function _fwd_a2a!(sp, mb::_MBridge, sr, si)
         c0 += n
     end
     # 2. Personalized exchange over θ_comm (cached VBuffers).
-    MPI.Alltoallv!(mb.f_sbuf, mb.f_rbuf, mb.θ_comm)
+    alltoallv!(mb.f_sbuf, mb.f_rbuf, mb.θ_comm)
     # 3. Scatter received columns straight into the plan-oriented solve.
     fill!(sp, zero(ComplexF64))
     base = 0; c0 = 0
@@ -505,7 +506,7 @@ function _bwd_a2a!(sr, si, mb::_MBridge, sp)
         c0 += n
     end
     # 2. Personalized exchange over θ_comm.
-    MPI.Alltoallv!(mb.b_sbuf, mb.b_rbuf, mb.θ_comm)
+    alltoallv!(mb.b_sbuf, mb.b_rbuf, mb.θ_comm)
     # 3. Write received columns into this rank's even-split spec storage.
     fill!(sr, zero(eltype(sr))); fill!(si, zero(eltype(si)))
     spec_m_first = Int(first(mb.spec_m_range))
@@ -574,7 +575,7 @@ function _spec_to_solve_kernel!(sp, send::Vector{ComplexF64}, recv::Vector{Compl
         send[idx] = complex(sr[il, jm, k], si[il, jm, k]); idx += 1
     end
     # 2. Allgatherv over θ_comm (cached vbuf) → every member gets all members' columns.
-    MPI.Allgatherv!(send, vbuf, θ_comm)
+    allgatherv!(send, vbuf, θ_comm)
     # 3. Reassemble into the cached full-m block full[(il, m+1, k)] for m = 0..mmax.
     fill!(full, zero(ComplexF64))
     base = 0
@@ -649,7 +650,7 @@ function _solve_to_spec_kernel!(sr, si, full::Array{ComplexF64, 3}, sp, θ_comm,
     end
     # 2. Allgatherv over θ_comm (cached vbuf): every member receives all members'
     #    owned plan m-columns — no zero-padded block, no redundant summation.
-    MPI.Allgatherv!(plan_send, plan_vbuf, θ_comm)
+    allgatherv!(plan_send, plan_vbuf, θ_comm)
     # 3. Reassemble recv into the full-m block full[(il, m+1, k)] using the
     #    per-source plan-m mapping (each m∈0..mmax produced by exactly one member).
     fill!(full, zero(ComplexF64))

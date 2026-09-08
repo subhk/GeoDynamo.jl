@@ -19,6 +19,15 @@ using Random
 # Topography Field Structure
 # ================================================================================
 
+"""
+Seed used by [`create_random_topography`](@ref) when the caller passes none.
+
+Fixed rather than absent so that every MPI rank synthesises the SAME boundary: an
+unseeded draw gave each rank its own topography and the ranks then solved against
+inconsistent geometry.
+"""
+const DEFAULT_RANDOM_TOPOGRAPHY_SEED = 20260818
+
 mutable struct TopographyField{T <: AbstractFloat}
     radius::T                          # Reference radius r_b
     lmax::Int                          # Maximum degree L
@@ -169,19 +178,28 @@ function lm_to_index(l::Int, m::Int, lmax::Int, mmax::Int = lmax)
 end
 
 """
-    index_to_lm(idx::Int, lmax::Int) -> (l, m)
+    index_to_lm(idx::Int, lmax::Int, mmax::Int = lmax) -> (l, m)
 
-Convert linear index back to (l, m).
+Convert linear index back to (l, m). The exact inverse of [`lm_to_index`](@ref).
+
+It must walk the SAME truncated triangle that `lm_to_index` walks — degree l'
+contributes `min(l',mmax)+1` slots. Inverting the classic full-triangle formula
+`l(l+1)/2 + m + 1` instead (which is what this did, with no `mmax` argument at all)
+disagrees with `lm_to_index` for every index past `l = mmax` whenever `mmax < lmax`,
+so a caller that labels entries with one function and re-reads them with the other
+silently attributes values to the wrong harmonics.
 """
-function index_to_lm(idx::Int, lmax::Int)
-    # Inverse of lm_to_index
-    # Find l such that l(l+1)/2 < idx <= (l+1)(l+2)/2
-    l = 0
-    while (l + 1) * (l + 2) ÷ 2 < idx
-        l += 1
+function index_to_lm(idx::Int, lmax::Int, mmax::Int = lmax)
+    mmax = min(mmax, lmax)
+    idx >= 1 || throw(ArgumentError("index_to_lm: idx = $idx must be >= 1"))
+    offset = 0
+    for l in 0:lmax
+        width = min(l, mmax) + 1
+        idx <= offset + width && return (l, idx - offset - 1)
+        offset += width
     end
-    m = idx - l * (l + 1) ÷ 2 - 1
-    return (l, m)
+    throw(ArgumentError(
+        "index_to_lm: idx = $idx exceeds the $offset modes of (lmax=$lmax, mmax=$mmax)"))
 end
 
 # ================================================================================
@@ -412,9 +430,11 @@ topo = create_random_topography(l -> 1.0/max(l,1)^2, 1.0, OUTER_BOUNDARY)
 function create_random_topography(spectrum::Function, radius::Float64,
         location::BoundaryLocation;
         lmax::Int = 32, seed::Int = 0)
-    if seed > 0
-        Random.seed!(seed)
-    end
+    # Draw from a LOCAL stream seeded deterministically. `seed = 0` used to mean "do
+    # not seed at all", which under MPI gave every rank its own global RNG state and
+    # therefore a DIFFERENT boundary on each rank, with nothing to flag it. A private
+    # RNG also keeps this from perturbing the global stream any caller is using.
+    rng = Random.MersenneTwister(seed > 0 ? seed : DEFAULT_RANDOM_TOPOGRAPHY_SEED)
 
     field = TopographyField(lmax, lmax, radius, location)
 
@@ -423,8 +443,12 @@ function create_random_topography(spectrum::Function, radius::Float64,
         for m in 0:l
             idx = lm_to_index(l, m, lmax)
             # Random amplitude with prescribed power
-            amp = sqrt(power / (2l + 1)) * randn()
-            phase = 2π * rand()
+            amp = sqrt(power / (2l + 1)) * randn(rng)
+            # h(θ,φ) is a REAL field, so its m = 0 coefficient must be real: the ±m
+            # conjugate pairing leaves h_{l,0} with no partner to cancel an imaginary
+            # part against. Giving m = 0 a random phase like every other mode made the
+            # synthesised topography complex.
+            phase = m == 0 ? 0.0 : 2π * rand(rng)
             field.coeffs_real[idx] = amp * cos(phase)
             field.coeffs_imag[idx] = amp * sin(phase)
         end
@@ -461,13 +485,18 @@ function load_topography_from_file(filename::String, location::BoundaryLocation;
         # Read lmax. NetCDF stores integer attributes as 32-bit, so this comes
         # back as Int32; TopographyField's ctor requires Int — convert explicitly.
         lmax = haskey(ds.attrib, "lmax") ? Int(ds.attrib["lmax"]) : 32
+        # `save_topography_to_file` writes `mmax` too. Rebuilding at (lmax, lmax)
+        # regardless gave a field with a LARGER nlm than the one that was saved, and
+        # the coefficient vector is stored POSITIONALLY, so every slot past l = mmax
+        # was reinterpreted against the untruncated layout — a silently wrong field.
+        mmax = haskey(ds.attrib, "mmax") ? Int(ds.attrib["mmax"]) : lmax
 
         # Read radius. Likewise coerce the (possibly Float32) attribute to Float64
         # to match the TopographyField constructor.
         r = radius !== nothing ? radius :
             (haskey(ds.attrib, "radius") ? Float64(ds.attrib["radius"]) : 1.0)
 
-        field = TopographyField(lmax, lmax, r, location)
+        field = TopographyField(lmax, mmax, r, location)
 
         # Read coefficients
         if haskey(ds, "h_real") && haskey(ds, "h_imag")
@@ -514,31 +543,39 @@ Load topography from a physical space array h(θ, φ) by transforming to spectra
 function load_topography_from_array(h_physical::Matrix{T}, radius::Float64,
         location::BoundaryLocation, config;
         lmax::Int = -1) where {T}
-    lmax_use = lmax > 0 ? lmax : config.lmax
+    # The analysis below cannot produce degrees above the transform's own
+    # truncation, so a larger request is clamped rather than honoured with zeros:
+    # the returned field must advertise the resolution it actually carries.
+    lmax_requested = lmax > 0 ? lmax : config.lmax
+    lmax_use = min(lmax_requested, config.lmax)
+    if lmax_requested > lmax_use
+        @warn "Requested topography lmax exceeds the transform truncation; clamping" requested=lmax_requested config_lmax=config.lmax
+    end
+    # The storage loop below only ever visits m <= config.mmax, so the field has to be
+    # built at that same truncation. Built at (lmax_use, lmax_use) instead, its layout
+    # reserved slots the loop never fills, and the running counter that did the filling
+    # drifted out of step with the layout from l = mmax+1 on.
+    mmax_use = min(lmax_use, config.mmax)
 
-    field = TopographyField{Float64}(lmax_use, lmax_use, radius, location)
+    field = TopographyField{Float64}(lmax_use, mmax_use, radius, location)
 
-    # Transform to spectral space using SHTnsKit
-    try
-        # Perform forward transform
-        coeffs = SHTnsKit.analysis(config, h_physical)
+    # `create_shtnskit_config` returns GeoDynamo's solver wrapper, while SHTnsKit's
+    # transform API accepts the underlying `SHTConfig`. Keep accepting a raw
+    # SHTnsKit configuration too, as documented by this loader's generic `config`
+    # argument.
+    sht_config = hasproperty(config, :sht_config) ? config.sht_config : config
+    coeffs = SHTnsKit.analysis(sht_config, h_physical)
 
-        # Store coefficients
-        idx = 0
-        for l in 0:min(lmax_use, config.lmax)
-            for m in 0:min(l, config.mmax)
-                idx += 1
-                if idx <= field.nlm && l < size(coeffs, 1) && m < size(coeffs, 2)
-                    field.coeffs_real[idx] = real(coeffs[l + 1, m + 1])
-                    field.coeffs_imag[idx] = imag(coeffs[l + 1, m + 1])
-                end
+    # Store coefficients. Index through `lm_to_index` rather than a running
+    # counter so the write position is derived from the field's own layout.
+    for l in 0:lmax_use
+        for m in 0:min(l, mmax_use)
+            idx = lm_to_index(l, m, field.lmax, field.mmax)
+            if idx <= field.nlm && l < size(coeffs, 1) && m < size(coeffs, 2)
+                field.coeffs_real[idx] = real(coeffs[l + 1, m + 1])
+                field.coeffs_imag[idx] = imag(coeffs[l + 1, m + 1])
             end
         end
-    catch e
-        @warn "SHTnsKit transform failed, using mean value only: $e"
-        # Fallback: just use mean (l=0 mode)
-        mean_val = sum(h_physical) / length(h_physical)
-        field.coeffs_real[1] = mean_val * sqrt(4π)
     end
 
     update_topography_statistics!(field)
@@ -699,9 +736,14 @@ function evaluate_topography_fallback(field::TopographyField{T}, config) where {
     theta = zeros(T, nlat)
     phi = zeros(T, nlon)
 
-    # Gauss-Legendre points for theta
+    # Gauss-Legendre points for theta. `gauss_legendre_nodes` returns μ ASCENDING
+    # (-0.96 … +0.96), so acos of it runs from ~π down to ~0 — i.e. row 1 at the
+    # SOUTH pole. Every other grid in the package (`_gauss_legendre_point` in
+    # gaunt_tensors.jl, and the transform grid it mirrors) has θ ascending from ~0,
+    # so taking the nodes in order left this fallback mirrored top-to-bottom against
+    # the field it was evaluated onto.
     nodes, _ = gauss_legendre_nodes(nlat)
-    theta .= acos.(nodes)
+    theta .= acos.(reverse(nodes))
 
     # Uniform grid for phi
     for j in 1:nlon

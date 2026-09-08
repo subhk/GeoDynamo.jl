@@ -283,6 +283,11 @@ Restart files include:
 - All field data (same as history files)
 - Tracker state (`last_output_time`, `output_count`, etc.)
 - `grid_file_written` flag for consistency
+- Nonlinear history, source profiles, `needs_ab2_bootstrap`, and `previous_dt`
+  when written from a solver state. `previous_dt` records the interval associated
+  with the stored nonlinear samples, so a restart can continue with a different
+  timestep. Older checkpoints without a complete history still load and rebuild
+  that history on the next step.
 
 ### Reading Restarts
 
@@ -461,13 +466,26 @@ NetCDF error `-114`. Linux and macOS builds normally have it.
 ### Verification
 
 ```julia
-# Verify the shared output file exists and has correct dimensions
-success, missing, info = verify_all_ranks_wrote(
-    "output", hist_number;
-    geometry="shell",
-    expected_dims=Dict("theta" => 64, "phi" => 128, "r" => 20)
-)
+# Verify the shared output file exists and has correct dimensions.
+# List only the dimensions the writer defines for your `output_space`:
+# `theta`/`phi` exist for MIXED_FIELDS and PHYSICAL_ONLY, `spectral_mode` for
+# MIXED_FIELDS and SPECTRAL_ONLY, and `r` whenever `nr > 0`. A dimension you
+# name but the file does not carry is reported as `Missing dimension: <name>`.
+expected = Dict("r" => 20)
+if config.output_space in (MIXED_FIELDS, PHYSICAL_ONLY)
+    expected["theta"] = 64
+    expected["phi"] = 128
+end
+if config.output_space in (MIXED_FIELDS, SPECTRAL_ONLY)
+    expected["spectral_mode"] = nlm
+end
+
+success, problems, info = verify_all_ranks_wrote(
+    "output", hist_number; geometry="shell", expected_dims=expected)
 ```
+
+On failure `problems` lists every offending dimension (not just the first), and
+`info["dimensions"]`/`info["variables"]` report what the file actually contains.
 
 ---
 
@@ -566,10 +584,11 @@ check_parallel_netcdf_support(MPI.COMM_WORLD)
 ### Output File Verification
 
 ```julia
-success, missing, info = verify_all_ranks_wrote("output", 1;
+# Name only dimensions your `output_space` actually writes (see "Verification").
+success, problems, info = verify_all_ranks_wrote("output", 1;
     expected_dims=Dict("theta" => nlat, "phi" => nlon, "r" => nr))
 if !success
-    @warn "Output verification failed: $missing"
+    @warn "Output verification failed: $problems" dimensions=get(info, "dimensions", nothing)
 end
 ```
 

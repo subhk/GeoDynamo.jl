@@ -71,7 +71,11 @@ end
         numerics,
         "function get_bc_vectors(field)"
     )
-    @test _sc_occ("view(field.boundary_values, 1, :)", get_bc_vectors)
+    # The live-array choice (field rows vs a loaded spectral BC cache) is delegated to
+    # `bcs.active_boundary_arrays`, the single place both this reader and the
+    # topography couplings' writer consult. See temperature_boundary_static_checks.jl.
+    @test _sc_occ("bcs.active_boundary_arrays(field)", get_bc_vectors)
+    @test _sc_occ("view(bc_real, 1, :)", get_bc_vectors)
     # Uniform, type-stable `_BCVectors` return shape (absent slots positional `nothing`).
     @test _sc_occ("_BCVectors(", get_bc_vectors)
 

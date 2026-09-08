@@ -19,11 +19,13 @@
 using Test
 using MPI
 using GeoDynamo
+using SHTnsKit
 
 # Function barriers so the figures reflect the callee's own heap traffic, not
 # call-site dispatch of the non-const test locals.
 _alloc_step(s)            = @allocated GeoDynamo.solver_step!(s)
 _alloc_vec_synth(t, p, v, d) = @allocated GeoDynamo.vector_spectral_to_physical!(t, p, v; domain = d)
+_alloc_to_spec(c, a, p) = @allocated GeoDynamo.to_spec_solve(c, a, p)
 
 @testset "SH transform path stays type-stable (no per-operand boxing)" begin
     if MPI.Finalized()
@@ -55,9 +57,21 @@ _alloc_vec_synth(t, p, v, d) = @allocated GeoDynamo.vector_spectral_to_physical!
     GeoDynamo.vector_spectral_to_physical!(vel.toroidal, vel.poloidal, vel.velocity; domain = domain)
     vec_synth = minimum(_alloc_vec_synth(vel.toroidal, vel.poloidal, vel.velocity, domain) for _ in 1:5)
 
+    # Returning the cached solve pencil outside the function barrier boxes the
+    # dynamically typed scratch field. Keep this adapter-level regression tight
+    # enough to detect that isolated 3 KB/call leak.
+    config = state.runtime.shtns_config
+    plan = GeoDynamo.get_disttranspose_plan(config)
+    Alm = SHTnsKit.allocate_spectral(plan)
+    for _ in 1:5
+        GeoDynamo.to_spec_solve(config, Alm, plan)
+    end
+    to_spec = minimum(_alloc_to_spec(config, Alm, plan) for _ in 1:10)
+
     # Boxing baseline was ~587 KB/step and ~75 KB/call; the type-stable path is
     # ~385 KB/step and ~36 KB/call. Thresholds sit between, so dropping the
     # barriers (regression) fails, while the current path passes with margin.
     @test per_step  < 480_000
     @test vec_synth <  50_000
+    @test to_spec   <   1_024
 end

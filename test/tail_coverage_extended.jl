@@ -489,9 +489,11 @@ const FINALIZE_MPI_TAIL_EXT = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") ==
         @test summ["boundary_spectral_coefficients"]["total_modes"] == cfg.nlm
 
         # ---- reset_boundary_conditions! clears everything ----
+        temp_field.boundary_values_imag .= 2.0
         bcs.reset_boundary_conditions!(temp_field, GeoDynamo.TEMPERATURE)
         @test temp_field.boundary_condition_set === nothing
         @test all(temp_field.boundary_values .== 0.0)
+        @test all(temp_field.boundary_values_imag .== 0.0)
         @test temp_field.boundary_time_index[] == 1
         # summary after reset reports no boundary conditions
         summ2 = bcs.get_boundary_condition_summary(temp_field, GeoDynamo.TEMPERATURE)
@@ -510,10 +512,12 @@ const FINALIZE_MPI_TAIL_EXT = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") ==
         # ---- initialize_boundary_conditions! resets scalar BC arrays to DIRICHLET ----
         comp_field2 = GeoDynamo.create_shtns_composition_field(Float64, cfg, shell)
         # composition defaults are NEUMANN; initialize must flip to DIRICHLET defaults
+        comp_field2.boundary_values_imag .= 3.0
         bcs.initialize_boundary_conditions!(comp_field2, GeoDynamo.COMPOSITION)
         @test all(comp_field2.bc_type_inner .== Int(bcs.DIRICHLET))
         @test all(comp_field2.bc_type_outer .== Int(bcs.DIRICHLET))
         @test all(comp_field2.boundary_values .== 0.0)
+        @test all(comp_field2.boundary_values_imag .== 0.0)
         @test comp_field2.boundary_time_index[] == 1
 
         # ---- validate_field_boundary_compatibility ----
@@ -537,10 +541,14 @@ const FINALIZE_MPI_TAIL_EXT = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") ==
         # ---- copy_boundary_conditions! duplicates BC state across fields ----
         src_field = GeoDynamo.create_shtns_composition_field(Float64, cfg, shell)
         bcs.apply_composition_boundaries!(src_field, cpbs)
+        src_field.boundary_values_imag .= reshape(
+            collect(1.0:length(src_field.boundary_values_imag)),
+            size(src_field.boundary_values_imag))
         dst_field = GeoDynamo.create_shtns_composition_field(Float64, cfg, shell)
         bcs.copy_boundary_conditions!(dst_field, src_field, GeoDynamo.COMPOSITION)
         @test dst_field.boundary_condition_set === src_field.boundary_condition_set
         @test dst_field.boundary_values ≈ src_field.boundary_values
+        @test dst_field.boundary_values_imag == src_field.boundary_values_imag
         @test dst_field.bc_type_inner == src_field.bc_type_inner
         @test dst_field.bc_type_outer == src_field.bc_type_outer
         # copying from a field with no BC set is a no-op returning dest

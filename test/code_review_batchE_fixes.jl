@@ -120,7 +120,7 @@ end
         defaults = GeoDynamo._default_callbacks()
 
         # the four built-ins: three clock-only stop conditions + nan_checker, which
-        # reduces internally via _any_rank_flag
+        # reduces internally via any_rank
         @test GeoDynamo._callbacks_may_stop_rank_locally(defaults) == false
 
         # built-in callback types never touch sim.running (HealthCheck throws instead)
@@ -156,6 +156,8 @@ end
     # ── E3 (behaviour): skipping the reduction must not skip the stop itself ──
     @testset "E3 a user callback can still stop the run" begin
         sim = _batchE_sim()
+        # `_BatchESim` is a duck-typed mock whose `callbacks` is a plain OrderedDict, so
+        # direct assignment is fine here; a real `Simulation` requires add_callback!.
         sim.callbacks[:stopper] = GeoDynamo.Callback(
             s -> (s.running = false), GeoDynamo.IterationInterval(1))
         @test GeoDynamo._callbacks_may_stop_rank_locally(sim.callbacks) == true

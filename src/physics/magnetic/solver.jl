@@ -297,6 +297,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{
             magnetic.prev_nl_toroidal,
             dt,
             matrices;
+            previous_dt = runtime.timestep_state.previous_dt,
             work = radial_work
         )
         solver_solve_magnetic_implicit_step!(
@@ -330,6 +331,7 @@ function apply_magnetic_toroidal_implicit_update!(state::SolverState{
             magnetic.prev_nl_toroidal,
             dt,
             matrices;
+            previous_dt = runtime.timestep_state.previous_dt,
             work = radial_work
         )
         solver_solve_magnetic_implicit_step!(
@@ -424,6 +426,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{
             magnetic.prev_nl_poloidal,
             dt,
             matrices;
+            previous_dt = runtime.timestep_state.previous_dt,
             work = radial_work
         )
         solver_solve_magnetic_implicit_step!(
@@ -454,6 +457,7 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{
             magnetic.prev_nl_poloidal,
             dt,
             matrices;
+            previous_dt = runtime.timestep_state.previous_dt,
             work = radial_work
         )
         solver_solve_magnetic_implicit_step!(
@@ -505,14 +509,4 @@ function apply_magnetic_poloidal_implicit_update!(state::SolverState{
     end
 
     return state
-end
-
-function queue_magnetic_implicit_updates!(
-        operations::Vector{Function},
-        state::SolverState{T, <:AbstractArchitecture}
-) where {T}
-    state.fields.magnetic === nothing && return operations
-    push!(operations, () -> apply_magnetic_toroidal_implicit_update!(state))
-    push!(operations, () -> apply_magnetic_poloidal_implicit_update!(state))
-    return operations
 end

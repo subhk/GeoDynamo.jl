@@ -256,10 +256,10 @@ const CRM_WRITERS_SRC = read(joinpath(CRM_ROOT, "src", "api", "output_writers.jl
     @testset "F8 nan_checker reduces its stop flag across ranks" begin
         # At one rank the reduction is the identity, so the helper's semantics are
         # tested directly and the call site is pinned in the source.
-        @test GeoDynamo._any_rank_flag(true) == true
-        @test GeoDynamo._any_rank_flag(false) == false
-        @test _crm_occ("_any_rank_flag(r.has_issue)", CRM_SIMULATION_SRC)
-        @test _crm_occ("_any_rank_flag", CRM_CALLBACKS_SRC)
+        @test GeoDynamo.any_rank(true) == true
+        @test GeoDynamo.any_rank(false) == false
+        @test _crm_occ("any_rank(r.has_issue)", CRM_SIMULATION_SRC)
+        @test _crm_occ("any_rank", CRM_CALLBACKS_SRC)
     end
 
     # ── F9/F10: wall-clock decisions must be rank-consistent ──────────────────

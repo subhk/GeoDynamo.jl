@@ -252,6 +252,38 @@ end
     @test maxdiv < 1e-8 * scale
 end
 
+@testset "verify_solenoidal rejects inconsistent radial content" begin
+    cfg, dom = _st_setup()
+    tor = _st_spec(cfg, dom)
+    pol = _st_spec(cfg, dom)
+    lm = findfirst(i -> cfg.l_values[i] == 2 && cfg.m_values[i] == 0, 1:cfg.nlm)
+    slot = GeoDynamo.local_spectral_storage_slot(cfg, lm)
+    if slot !== nothing
+        for r_idx in 1:dom.N
+            r = dom.r[r_idx, 4]
+            GeoDynamo.set_local_spectral_value!(
+                parent(pol.data_real), slot, r_idx, sinpi(r) * 1e-2)
+        end
+    end
+
+    vec = _st_vec(cfg, dom)
+    GeoDynamo.vector_spectral_to_physical!(tor, pol, vec; domain = dom)
+    tor_out = _st_spec(cfg, dom)
+    pol_out = _st_spec(cfg, dom)
+
+    # A field synthesized from (T,P) is accepted.
+    @test GeoDynamo.vector_physical_to_spectral!(
+        vec, tor_out, pol_out; domain = dom, verify_solenoidal = true) ==
+          (tor_out, pol_out)
+
+    # Change only u_r. Tangential S still describes the original P, so the
+    # three components can no longer be one solenoidal vector field.
+    radial = parent(vec.r_component.data)
+    radial .*= 1.25
+    @test_throws ArgumentError GeoDynamo.vector_physical_to_spectral!(
+        vec, tor_out, pol_out; domain = dom, verify_solenoidal = true)
+end
+
 @testset "manufactured single-mode synthesis (l=2, P=r³)" begin
     cfg, dom = _st_setup()
     pol = _st_spec(cfg, dom); tor = _st_spec(cfg, dom)

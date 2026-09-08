@@ -107,6 +107,59 @@ const FINALIZE_MPI_IO_SUB = get(ENV, "GEODYNAMO_TEST_MPI_FINALIZE", "true") == "
         false
     end
 
+    @testset "verify_all_ranks_wrote rejects a missing expected dimension" begin
+        mktempdir() do verify_dir
+            verify_file = joinpath(verify_dir, "shell_hist_1.nc")
+            NCDataset(verify_file, "c") do ds
+                defDim(ds, "theta", 8)
+            end
+
+            ok, messages, info = GeoDynamo.verify_all_ranks_wrote(
+                verify_dir, 1; geometry = "shell", expected_dims = Dict("r" => 4))
+
+            @test ok == false
+            @test "Missing dimension: r" in messages
+            @test get(info, "error", "") == "Dimension r is missing; expected size 4"
+        end
+    end
+
+    @testset "verify_all_ranks_wrote reports the file's actual dimensions on failure" begin
+        mktempdir() do verify_dir
+            verify_file = joinpath(verify_dir, "shell_hist_1.nc")
+            NCDataset(verify_file, "c") do ds
+                defDim(ds, "theta", 8)
+                defDim(ds, "r", 4)
+                defVar(ds, "time", Float64, ())
+            end
+
+            ok, _, info = GeoDynamo.verify_all_ranks_wrote(
+                verify_dir, 1; geometry = "shell",
+                expected_dims = Dict("spectral_mode" => 6))
+
+            @test ok == false
+            @test get(info, "dimensions", nothing) == Dict("theta" => 8, "r" => 4)
+            @test "time" in get(info, "variables", String[])
+        end
+    end
+
+    @testset "verify_all_ranks_wrote reports every failing dimension" begin
+        mktempdir() do verify_dir
+            verify_file = joinpath(verify_dir, "shell_hist_1.nc")
+            NCDataset(verify_file, "c") do ds
+                defDim(ds, "r", 4)
+            end
+
+            ok, messages, _ = GeoDynamo.verify_all_ranks_wrote(
+                verify_dir, 1; geometry = "shell",
+                expected_dims = Dict("theta" => 8, "phi" => 16, "r" => 99))
+
+            @test ok == false
+            @test "Missing dimension: theta" in messages
+            @test "Missing dimension: phi" in messages
+            @test "Dimension mismatch: r" in messages
+        end
+    end
+
     if parallel_ok
         tmpdir = mktempdir()
         base = GeoDynamo.default_config(Float64)

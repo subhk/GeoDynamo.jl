@@ -293,6 +293,11 @@ function gpu_erk2_solver_step!(state, erk)
     # --- entry nonlinear pass at u₀ (n₀ for every field) ---
     n0 = _gpu_erk2_nl_arrays(v.tor.spec_r, has_mag, has_comp, work, :e_n0)
     _gpu_erk2_nonlinear_pass!(state, n0)
+    # The toroidal momentum equation has Ek on its time derivative and
+    # diffusion term.  ERK2 packs the divided unit-diffusivity propagator, so
+    # normalize both nonlinear evaluations by Ek before staging/finalizing.
+    @. n0.vt_r = n0.vt_r / T(Ek)
+    @. n0.vt_i = n0.vt_i / T(Ek)
 
     # --- V₀ = Ek·D_pol·P₀ (the stage machinery advances V, not P) ---
     V_r = gpu_scratch!(work, :e_Vr, v.pol.spec_r)
@@ -343,6 +348,8 @@ function gpu_erk2_solver_step!(state, erk)
     # --- stage nonlinear pass at the provisional fields ---
     nstage = _gpu_erk2_nl_arrays(v.tor.spec_r, has_mag, has_comp, work, :e_ns)
     _gpu_erk2_nonlinear_pass!(state, nstage)
+    @. nstage.vt_r = nstage.vt_r / T(Ek)
+    @. nstage.vt_i = nstage.vt_i / T(Ek)
     nlpair0 = (nstage.t_r, nstage.t_i)
     stage_nls = typeof(nlpair0)[nlpair0, (nstage.vt_r, nstage.vt_i), (nstage.vp_r, nstage.vp_i)]
     has_mag && push!(stage_nls, (nstage.mt_r, nstage.mt_i), (nstage.mp_r, nstage.mp_i))

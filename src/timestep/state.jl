@@ -21,3 +21,11 @@ mutable struct TimestepState
     converged::Bool
     needs_ab2_bootstrap::Bool
 end
+
+"""AB2 extrapolation weights for a step following an interval `previous_dt`."""
+@inline function cnab2_weights(dt::Real, previous_dt::Real)
+    isfinite(previous_dt) && previous_dt > 0 ||
+        throw(ArgumentError("CNAB2 history timestep must be finite and positive"))
+    half_ratio = 0.5 * (dt / previous_dt)
+    return (1 + half_ratio, half_ratio)
+end

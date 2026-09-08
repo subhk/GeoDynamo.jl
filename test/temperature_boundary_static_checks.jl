@@ -27,6 +27,7 @@ end
     temperature_solver = _temperature_bc_static_source("src", "physics", "temperature", "solver.jl")
     backend = _temperature_bc_static_source("src", "solver", "backend.jl")
     numerics = _temperature_bc_static_source("src", "solver", "numerics.jl")
+    file_bc_loader = _temperature_bc_static_source("src", "bcs", "file_bc_loader.jl")
     imex = _temperature_bc_static_source("src", "timestep", "imex.jl")
     erk2 = join([_temperature_bc_static_source("src", "timestep", "erk2", f) for f in
                  ("common.jl", "boundary.jl", "cache.jl", "influence.jl", "integrate.jl")], "\n")
@@ -73,8 +74,21 @@ end
         numerics,
         "function get_bc_vectors(field)"
     )
-    @test _sc_occ("field.boundary_values", get_bc_vectors)
-    @test _sc_occ("view(field.boundary_values, 1, :)", get_bc_vectors)
+    # Which of the field's two boundary-value sets is live — its own rows, or a loaded
+    # spectral BC cache — is decided in ONE place, `bcs.active_boundary_arrays`, so
+    # that the topography couplings write to the same arrays this reader consumes.
+    # (They previously wrote to `boundary_values` unconditionally, which the cache
+    # branch here silently discarded.) Pin the delegation and the fallback itself.
+    @test _sc_occ("bcs.active_boundary_arrays(field)", get_bc_vectors)
+    @test _sc_occ("view(bc_real, 1, :)", get_bc_vectors)
+
+    active_arrays = _temperature_bc_static_function_body(
+        file_bc_loader,
+        "function active_boundary_arrays(field)"
+    )
+    @test _sc_occ("getfield(field, :boundary_values)", active_arrays)
+    @test _sc_occ("cache.bc_loaded && bc_real !== nothing && bc_imag !== nothing",
+        active_arrays)
     # get_bc_vectors returns the uniform, type-stable `_BCVectors` shape (absent
     # slots are positional `nothing`) rather than a 3-way union of NamedTuples.
     @test _sc_occ("_BCVectors(", get_bc_vectors)

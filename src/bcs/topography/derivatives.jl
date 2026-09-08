@@ -104,10 +104,8 @@ function compute_boundary_derivative_cache(field,
         gather_local_radial_profile!(view(all_real, :, lm_idx), view(all_imag, :, lm_idx),
             data_real, data_imag, slot, r_range)
     end
-    if MPI.Comm_size(comm) > 1
-        MPI.Allreduce!(all_real, MPI.SUM, comm)
-        MPI.Allreduce!(all_imag, MPI.SUM, comm)
-    end
+    global_sum!(all_real, comm)
+    global_sum!(all_imag, comm)
 
     gathered_real = zeros(T, nr)
     gathered_imag = zeros(T, nr)

@@ -116,6 +116,7 @@ function _apply_scalar_implicit_update!(
             𝔽.prev_nonlinear,
             dt,
             matrices;
+            previous_dt = runtime.timestep_state.previous_dt,
             work = radial_work,
         )
         solve_step!(

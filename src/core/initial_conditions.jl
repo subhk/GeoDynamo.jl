@@ -26,6 +26,9 @@ import ..get_mode_index
 import ..get_comm
 import ..rank_seed
 import ..size_global
+import ..run_on_root!
+import ..global_sum!
+import ..barrier
 
 const GEODYNAMO_PARENT = parentmodule(@__MODULE__)
 
@@ -228,10 +231,8 @@ function _gather_full_spectral(spec)
         end
     end
     comm = get_comm()
-    if MPI.Initialized() && MPI.Comm_size(comm) > 1
-        MPI.Allreduce!(full_real, +, comm)
-        MPI.Allreduce!(full_imag, +, comm)
-    end
+    global_sum!(full_real, comm)
+    global_sum!(full_imag, comm)
     return full_real, full_imag
 end
 
@@ -1005,6 +1006,28 @@ end
 # Saving Initial Conditions
 # ================================================================================
 
+function _save_initial_conditions_file_collectively!(
+        gathered, field_type::Symbol, file_path::String, nlm::Int, nr::Int, comm)
+    run_on_root!(comm, "Writing initial-condition file '$file_path'") do
+        dir = dirname(file_path)
+        isempty(dir) || isdir(dir) || mkpath(dir)
+        NCDataset(file_path, "c") do ds
+            defDim(ds, "spectral_mode", nlm)
+            defDim(ds, "r", nr)
+            ds.attrib["field_type"] = string(field_type)
+            ds.attrib["nlm"] = nlm
+            ds.attrib["nr"] = nr
+            for (name, full_real, full_imag) in gathered
+                rvar = defVar(ds, "$(name)_real", Float64, ("spectral_mode", "r"))
+                ivar = defVar(ds, "$(name)_imag", Float64, ("spectral_mode", "r"))
+                rvar[:, :] = full_real
+                ivar[:, :] = full_imag
+            end
+        end
+    end
+    return nothing
+end
+
 """
     save_initial_conditions(field, field_type::Symbol, file_path::String)
 
@@ -1027,27 +1050,9 @@ function save_initial_conditions(field, field_type::Symbol, file_path::String)
     gathered = [(name, _gather_full_spectral(spec)...) for (name, spec) in components]
 
     comm = get_comm()
-    rank = MPI.Initialized() ? MPI.Comm_rank(comm) : 0
-    if rank == 0
-        dir = dirname(file_path)
-        isempty(dir) || isdir(dir) || mkpath(dir)
-        NCDataset(file_path, "c") do ds
-            defDim(ds, "spectral_mode", nlm)
-            defDim(ds, "r", nr)
-            ds.attrib["field_type"] = string(field_type)
-            ds.attrib["nlm"] = nlm
-            ds.attrib["nr"] = nr
-            for (name, full_real, full_imag) in gathered
-                rvar = defVar(ds, "$(name)_real", Float64, ("spectral_mode", "r"))
-                ivar = defVar(ds, "$(name)_imag", Float64, ("spectral_mode", "r"))
-                rvar[:, :] = full_real
-                ivar[:, :] = full_imag
-            end
-        end
-    end
-    if MPI.Initialized() && MPI.Comm_size(comm) > 1
-        MPI.Barrier(comm)
-    end
+    _save_initial_conditions_file_collectively!(
+        gathered, field_type, file_path, nlm, nr, comm)
+    barrier(comm)
     return file_path
 end
 

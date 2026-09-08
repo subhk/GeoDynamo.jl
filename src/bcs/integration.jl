@@ -17,7 +17,7 @@ IMPORTANT: The field structure must already have the following fields defined:
 
 For scalar fields (TEMPERATURE, COMPOSITION):
 - bc_type_inner, bc_type_outer (Vector{Int})
-- boundary_values (Matrix)
+- boundary_values and boundary_values_imag (Matrix)
 
 For vector fields (VELOCITY, MAGNETIC):
 - toroidal and poloidal components, each with bc_type_inner, bc_type_outer, boundary_values
@@ -58,6 +58,9 @@ function initialize_boundary_conditions!(𝔽, field_type::FieldType)
         fill!(𝔽.bc_type_inner, Int(DIRICHLET))
         fill!(𝔽.bc_type_outer, Int(DIRICHLET))
         fill!(𝔽.boundary_values, zero(eltype(𝔽.boundary_values)))
+        if hasfield(typeof(𝔽), :boundary_values_imag)
+            fill!(𝔽.boundary_values_imag, zero(eltype(𝔽.boundary_values_imag)))
+        end
 
     elseif field_type == VELOCITY || field_type == MAGNETIC
         # Vector fields - validate toroidal and poloidal components
@@ -77,6 +80,10 @@ function initialize_boundary_conditions!(𝔽, field_type::FieldType)
         fill!(𝔽.toroidal.bc_type_inner, Int(DIRICHLET))
         fill!(𝔽.toroidal.bc_type_outer, Int(DIRICHLET))
         fill!(𝔽.toroidal.boundary_values, zero(eltype(𝔽.toroidal.boundary_values)))
+        if hasfield(typeof(𝔽.toroidal), :boundary_values_imag)
+            fill!(𝔽.toroidal.boundary_values_imag,
+                zero(eltype(𝔽.toroidal.boundary_values_imag)))
+        end
 
         # Validate and initialize poloidal component
         if !hasfield(typeof(𝔽.poloidal), :bc_type_inner)
@@ -86,6 +93,10 @@ function initialize_boundary_conditions!(𝔽, field_type::FieldType)
         fill!(𝔽.poloidal.bc_type_inner, Int(DIRICHLET))
         fill!(𝔽.poloidal.bc_type_outer, Int(DIRICHLET))
         fill!(𝔽.poloidal.boundary_values, zero(eltype(𝔽.poloidal.boundary_values)))
+        if hasfield(typeof(𝔽.poloidal), :boundary_values_imag)
+            fill!(𝔽.poloidal.boundary_values_imag,
+                zero(eltype(𝔽.poloidal.boundary_values_imag)))
+        end
     end
 
     return 𝔽
@@ -281,6 +292,10 @@ function copy_boundary_conditions!(dest_𝔽, src_𝔽, field_type::FieldType)
            hasfield(typeof(dest_𝔽), :boundary_values)
             dest_𝔽.boundary_values .= src_𝔽.boundary_values
         end
+        if hasfield(typeof(src_𝔽), :boundary_values_imag) &&
+           hasfield(typeof(dest_𝔽), :boundary_values_imag)
+            dest_𝔽.boundary_values_imag .= src_𝔽.boundary_values_imag
+        end
 
         if hasfield(typeof(src_𝔽), :bc_type_inner) &&
            hasfield(typeof(dest_𝔽), :bc_type_inner)
@@ -294,6 +309,11 @@ function copy_boundary_conditions!(dest_𝔽, src_𝔽, field_type::FieldType)
             if hasfield(typeof(src_𝔽.toroidal), :boundary_values) &&
                hasfield(typeof(dest_𝔽.toroidal), :boundary_values)
                 dest_𝔽.toroidal.boundary_values .= src_𝔽.toroidal.boundary_values
+                if hasfield(typeof(src_𝔽.toroidal), :boundary_values_imag) &&
+                   hasfield(typeof(dest_𝔽.toroidal), :boundary_values_imag)
+                    dest_𝔽.toroidal.boundary_values_imag .=
+                        src_𝔽.toroidal.boundary_values_imag
+                end
                 dest_𝔽.toroidal.bc_type_inner .= src_𝔽.toroidal.bc_type_inner
                 dest_𝔽.toroidal.bc_type_outer .= src_𝔽.toroidal.bc_type_outer
             end
@@ -304,6 +324,11 @@ function copy_boundary_conditions!(dest_𝔽, src_𝔽, field_type::FieldType)
             if hasfield(typeof(src_𝔽.poloidal), :boundary_values) &&
                hasfield(typeof(dest_𝔽.poloidal), :boundary_values)
                 dest_𝔽.poloidal.boundary_values .= src_𝔽.poloidal.boundary_values
+                if hasfield(typeof(src_𝔽.poloidal), :boundary_values_imag) &&
+                   hasfield(typeof(dest_𝔽.poloidal), :boundary_values_imag)
+                    dest_𝔽.poloidal.boundary_values_imag .=
+                        src_𝔽.poloidal.boundary_values_imag
+                end
                 dest_𝔽.poloidal.bc_type_inner .= src_𝔽.poloidal.bc_type_inner
                 dest_𝔽.poloidal.bc_type_outer .= src_𝔽.poloidal.bc_type_outer
             end
@@ -341,16 +366,27 @@ function reset_boundary_conditions!(𝔽, field_type::FieldType)
         if hasfield(typeof(𝔽), :boundary_values)
             fill!(𝔽.boundary_values, zero(eltype(𝔽.boundary_values)))
         end
+        if hasfield(typeof(𝔽), :boundary_values_imag)
+            fill!(𝔽.boundary_values_imag, zero(eltype(𝔽.boundary_values_imag)))
+        end
 
     elseif field_type == VELOCITY || field_type == MAGNETIC
         # Reset toroidal boundary conditions
         if hasfield(typeof(𝔽), :toroidal) && hasfield(typeof(𝔽.toroidal), :boundary_values)
             fill!(𝔽.toroidal.boundary_values, zero(eltype(𝔽.toroidal.boundary_values)))
+            if hasfield(typeof(𝔽.toroidal), :boundary_values_imag)
+                fill!(𝔽.toroidal.boundary_values_imag,
+                    zero(eltype(𝔽.toroidal.boundary_values_imag)))
+            end
         end
 
         # Reset poloidal boundary conditions
         if hasfield(typeof(𝔽), :poloidal) && hasfield(typeof(𝔽.poloidal), :boundary_values)
             fill!(𝔽.poloidal.boundary_values, zero(eltype(𝔽.poloidal.boundary_values)))
+            if hasfield(typeof(𝔽.poloidal), :boundary_values_imag)
+                fill!(𝔽.poloidal.boundary_values_imag,
+                    zero(eltype(𝔽.poloidal.boundary_values_imag)))
+            end
         end
     end
 

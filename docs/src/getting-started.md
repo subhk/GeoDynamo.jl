@@ -161,6 +161,11 @@ add_callback!(sim, sim -> @info("step", n=sim.model.clock.iteration);
 run!(sim)
 ```
 
+Register every callback on every rank *before* `run!` or the first `time_step!`:
+the registry is validated across ranks once and then frozen, and a later
+`add_callback!` throws. Put any rank-local test inside the callback body rather
+than registering the callback on some ranks only.
+
 ### Running with MPI
 
 ```

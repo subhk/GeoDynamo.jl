@@ -306,10 +306,7 @@ Compute L2 energy of a 3D scalar field.
 """
 function compute_field_energy(field_data::Array{T, 3}) where {T}
     local_energy = 0.5 * sum(abs2, field_data)
-    if MPI.Initialized()
-        return MPI.Allreduce(local_energy, +, get_comm())
-    end
-    return local_energy
+    return global_sum(local_energy)
 end
 
 """
@@ -323,10 +320,7 @@ function compute_vector_energy(
         v_phi::Array{T, 3}
 ) where {T}
     local_energy = 0.5 * (sum(abs2, v_r) + sum(abs2, v_theta) + sum(abs2, v_phi))
-    if MPI.Initialized()
-        return MPI.Allreduce(local_energy, +, get_comm())
-    end
-    return local_energy
+    return global_sum(local_energy)
 end
 
 """

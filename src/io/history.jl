@@ -2,6 +2,53 @@
 # Main Output Function
 # ================================================================================
 
+function _ensure_output_directory_collectively!(config::OutputConfig, comm)
+    context = "Preparing output directory '$(config.output_dir)'"
+    run_on_root!(comm, context) do
+        if !isdir(config.output_dir)
+            mkpath(config.output_dir)
+            println("Rank 0: Created output directory: $(config.output_dir)")
+        end
+        isdir(config.output_dir) ||
+            error("directory does not exist after mkpath()")
+    end
+    return nothing
+end
+
+function _write_grid_file_collectively!(config::OutputConfig, field_info::FieldInfo,
+        shtns_config::Union{SHTnsKitConfig, Nothing}, metadata::Dict{String, Any},
+        comm; geometry::Symbol = :shell)
+    grid_filename = joinpath(config.output_dir,
+        "$(config.filename_prefix)_$(geometry)_grid.nc")
+    run_on_root!(comm, "Writing grid file '$grid_filename'") do
+        write_grid_file!(config, field_info, shtns_config, metadata; geometry = geometry)
+    end
+    return nothing
+end
+
+function _report_parallel_write_complete!(filename::AbstractString,
+        write_duration::Real, comm, is_file = isfile, file_size = filesize)
+    MPI.Comm_rank(comm) == 0 || return nothing
+    try
+        if is_file(filename)
+            size_mb = file_size(filename) / (1024 * 1024)
+            println("Parallel write complete: $(basename(filename)) " *
+                    "($(round(size_mb, digits=2)) MB in " *
+                    "$(round(write_duration, digits=2))s)")
+        end
+    catch err
+        # Status reporting is informational. Never let a failed stat or output
+        # stream split rank 0 from peers that are about to enter another collective.
+        bt = catch_backtrace()
+        try
+            @warn "Could not report completed parallel write" filename exception = (err, bt)
+        catch
+            # A broken logger/output stream is likewise non-fatal here.
+        end
+    end
+    return nothing
+end
+
 """
     write_fields!(state, tracker, metadata, config, shtns_config, pencils)
     write_fields!(fields, tracker, metadata, config, shtns_config, pencils)
@@ -30,7 +77,7 @@ function write_fields!(state, tracker::TimeTracker,
         should_output_now(tracker, current_time, config) ? 1 : 0,
         should_restart_now(tracker, current_time, config) ? 1 : 0,
     ]
-    MPI.Bcast!(flags, 0, comm)
+    root_broadcast!(flags, comm)
     so = flags[1] != 0
     sr = flags[2] != 0
 
@@ -85,7 +132,7 @@ function write_fields!(fields::Dict{String, Any}, tracker::TimeTracker,
         should_output_now(tracker, current_time, config) ? 1 : 0,
         should_restart_now(tracker, current_time, config) ? 1 : 0,
     ]
-    MPI.Bcast!(flags, 0, comm)
+    root_broadcast!(flags, comm)
     should_output = flags[1] != 0
     should_restart = flags[2] != 0
 
@@ -93,19 +140,9 @@ function write_fields!(fields::Dict{String, Any}, tracker::TimeTracker,
         return false
     end
 
-    # Rank 0 ensures output directory exists
-    if rank == 0 && !isdir(config.output_dir)
-        try
-            mkpath(config.output_dir)
-            println("Rank 0: Created output directory: $(config.output_dir)")
-        catch e
-            error("Failed to create output directory '$(config.output_dir)': $e")
-        end
-        if !isdir(config.output_dir)
-            error("Output directory '$(config.output_dir)' does not exist after mkpath()")
-        end
-    end
-    MPI.Barrier(comm)
+    # A rank-0 filesystem failure must reach every peer before this barrier.
+    _ensure_output_directory_collectively!(config, comm)
+    barrier(comm)
 
     # Extract field information
     field_info = extract_field_info(fields, shtns_config, pencils;
@@ -113,9 +150,10 @@ function write_fields!(fields::Dict{String, Any}, tracker::TimeTracker,
 
     # Write grid file once (rank 0 only)
     if !tracker.grid_file_written && config.include_grid
-        write_grid_file!(config, field_info, shtns_config, metadata; geometry = geometry)
+        _write_grid_file_collectively!(
+            config, field_info, shtns_config, metadata, comm; geometry = geometry)
         tracker.grid_file_written = true
-        MPI.Barrier(comm)
+        barrier(comm)
     end
 
     # Regular output - all ranks write collectively to single file
@@ -146,6 +184,10 @@ function write_fields!(fields::Dict{String, Any}, tracker::TimeTracker,
             setup_variables!(ds, field_info, config, available_fields)
             setup_diagnostic_variables!(ds, diagnostics, config)
 
+            # Leaving define mode is collective for parallel NetCDF. Do it on
+            # every rank before any root-only payload write can fail.
+            NCDatasets.sync(ds)
+
             # Write data (each rank writes its portion)
             write_coordinate_data!(ds, field_info, config)
             write_field_data!(ds, fields, config, field_info)
@@ -159,11 +201,7 @@ function write_fields!(fields::Dict{String, Any}, tracker::TimeTracker,
         end
 
         write_duration = time() - write_start_time
-        if rank == 0 && isfile(filename)
-            file_size = filesize(filename) / (1024*1024)
-            println("Parallel write complete: $(basename(filename)) " *
-                    "($(round(file_size, digits=2)) MB in $(round(write_duration, digits=2))s)")
-        end
+        _report_parallel_write_complete!(filename, write_duration, comm)
     end
 
     # Restart file
